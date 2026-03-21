@@ -309,7 +309,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         body.frequency_penalty = 0.4; 
         body.presence_penalty = 0.4;  
 
-        const apiUrl = process.env.API_URL || 'https://openrouter.ai/api/v1/chat/completions';
+        const apiUrl = process.env.API_URL || 'https://www.msuicode.com/v1/chat/completions';
         
         console.log("🚀 拼装完毕！准备发给大模型，当前终极 Prompt 总字数：", finalSystemPrompt.length);
         
