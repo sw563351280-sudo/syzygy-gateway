@@ -11,7 +11,7 @@ app.use(express.json({ limit: '50mb' }));
 // 1. Zep 金库地址（换成你在 Zeabur 上部署的 Zep URL）
 const ZEP_URL = "https://syzygy-zep.zeabur.app";
 // 2. 专属记忆保险箱 ID（防爆警告：绝对不要用你们的真名！随便编一个英文字母+数字的暗号，必须和 Python 灌注脚本里的一模一样！）
-const SESSION_ID = "S01";
+const SESSION_ID = "syzygy_s01";
 
 
 // 🌟 核心引擎组件 1：赛博计数器
