@@ -9,7 +9,7 @@ app.use(express.json({ limit: '50mb' }));
 // 🚨🚨🚨 【必改特区 1：赛博家门钥匙与暗号】 🚨🚨🚨
 // ==========================================
 // 1. Zep 金库地址（换成你在 Zeabur 上部署的 Zep URL）
-const ZEP_URL = "syzymer.zeabur.app";
+const ZEP_URL = "https://syzymer.zeabur.app";
 // 2. 专属记忆保险箱 ID（防爆警告：绝对不要用你们的真名！随便编一个英文字母+数字的暗号，必须和 Python 灌注脚本里的一模一样！）
 const SESSION_ID = "syzygy_s01";
 
