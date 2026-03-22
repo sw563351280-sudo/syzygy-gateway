@@ -633,7 +633,19 @@ app.delete('/delete-memory/:uuid', async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
-
+// 🌟 模型列表接口（让 Kelivo 能拉到模型）
+app.get(['/v1/models', '/via/:platform/v1/models'], async (req, res) => {
+    const apiUrl = resolveApiUrl(req.path).replace('/chat/completions', '/models');
+    try {
+        const response = await fetch(apiUrl, {
+            headers: { 'Authorization': req.headers.authorization }
+        });
+        const data = await response.json();
+        res.status(response.status).json(data);
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 app.get('/', (req, res) => res.send("专属视神经网关正在完美运行中！"));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Gateway starts at port ${PORT}`));
