@@ -501,9 +501,11 @@ app.get('/memory-manager', async (req, res) => {
 // 🌟 删除记忆接口
 app.delete('/delete-memory/:uuid', async (req, res) => {
     try {
-        await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory/messages/${req.params.uuid}`, {
-            method: 'DELETE'
-        });
+const delRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory/messages/${req.params.uuid}`, {
+    method: 'DELETE'
+});
+const delText = await delRes.text();
+console.log("🗑️ 删除记忆响应：", delRes.status, delText);
         res.json({ success: true });
     } catch(e) {
         res.status(500).json({ error: e.message });
