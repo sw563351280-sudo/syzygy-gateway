@@ -277,7 +277,7 @@ app.post('/v1/chat/completions', async (req, res) => {
                     
                     // 🚨🚨🚨 【DIY 特区：大管家做梦频率】 🚨🚨🚨
                     // 15 代表聊 15 个回合总结一次。嫌太频繁可以改成 20 或 30；如果觉得记性差可以改成 10。
-                    if (count >= 15) {
+                    if (count >= 40) {
                         console.log("🔥 达到黄金阈值！踹醒后台管家去干活！");
                         sessionCounters.set(SESSION_ID, 0); 
                         backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30), req.headers.authorization);
