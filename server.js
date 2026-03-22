@@ -386,17 +386,32 @@ app.post('/add-memory', async (req, res) => {
 // 🌟 记忆管理网页界面
 app.get('/memory-manager', async (req, res) => {
     try {
-        const result = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`);
-        const data = await result.json();
-        const messages = data.messages || [];
+        const [memoryRes, sessionRes] = await Promise.all([
+            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`),
+            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`)
+        ]);
+        const memoryData = await memoryRes.json();
+        const sessionData = await sessionRes.json();
         
+        const messages = memoryData.messages || [];
+        const summary = memoryData.summary?.content || '';
+        const currentState = sessionData.metadata?.current_state || null;
+
         const messageList = messages.map(m => `
             <div style="background:${m.role === 'user' ? '#e3f2fd' : '#f3e5f5'};padding:10px;margin:5px 0;border-radius:8px;">
                 <small style="color:#888">${m.role} | ${new Date(m.created_at).toLocaleString()}</small>
-                <p style="margin:5px 0">${m.content}</p>
+                <p style="margin:5px 0;white-space:pre-wrap">${m.content}</p>
                 <button onclick="deleteMemory('${m.uuid}')" style="background:#ff5252;color:white;border:none;padding:3px 8px;border-radius:4px;cursor:pointer">删除</button>
             </div>
         `).join('');
+
+        const stateHtml = currentState ? `
+            <div style="background:#fff9c4;padding:12px;border-radius:8px;margin:5px 0">
+                <b>当前偏好：</b><p>${currentState.new_preferences || '无'}</p>
+                <b>近期情感：</b><p>${currentState.relationship_turning_points || '无'}</p>
+                <b>未完成约定：</b><p>${currentState.pending_promises || '无'}</p>
+            </div>
+        ` : '<p style="color:#888">还没有总结，聊满15轮后管家会自动生成～</p>';
 
         res.send(`
 <!DOCTYPE html>
@@ -405,27 +420,46 @@ app.get('/memory-manager', async (req, res) => {
     <meta charset="utf-8">
     <title>记忆管理</title>
     <style>
-        body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }
-        input, textarea { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+        body { font-family: sans-serif; max-width: 1000px; margin: 40px auto; padding: 20px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .card { background: #fafafa; border-radius: 12px; padding: 20px; border: 1px solid #eee; }
+        textarea { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
         button.add { background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; }
-        select { padding: 10px; border-radius: 8px; border: 1px solid #ddd; }
+        select { padding: 10px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 8px; }
+        h2 { margin-top: 0; }
+        @media(max-width:700px){ .grid { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
-    <h2>🧠 记忆管理</h2>
+    <h1>🧠 记忆管理</h1>
     
-    <h3>➕ 添加记忆</h3>
-    <select id="role">
-        <option value="user">user（你说的）</option>
-        <option value="assistant">assistant（他说的）</option>
-    </select>
-    <textarea id="content" rows="3" placeholder="输入要写入的记忆内容..."></textarea>
-    <button class="add" onclick="addMemory()">写入记忆</button>
-    <p id="status"></p>
+    <div class="grid">
+        <div class="card">
+            <h2>📌 总结记忆</h2>
+            <h3>🗂 管家便利贴</h3>
+            ${stateHtml}
+            <h3>📝 自动摘要</h3>
+            <div style="background:#f5f5f5;padding:12px;border-radius:8px;min-height:60px">
+                ${summary || '<p style="color:#888">还没有摘要～</p>'}
+            </div>
+            <h3>➕ 手动写入记忆</h3>
+            <select id="role">
+                <option value="user">user（你说的）</option>
+                <option value="assistant">assistant（他说的）</option>
+            </select>
+            <textarea id="content" rows="3" placeholder="输入要写入的记忆内容..."></textarea>
+            <button class="add" onclick="addMemory()">写入记忆</button>
+            <p id="status"></p>
+        </div>
 
-    <h3>📋 现有记忆（${messages.length} 条）</h3>
-    <button onclick="location.reload()" style="margin-bottom:10px;padding:5px 15px;border-radius:6px;cursor:pointer">🔄 刷新</button>
-    ${messageList || '<p style="color:#888">暂无记忆</p>'}
+        <div class="card">
+            <h2>💬 原始记录（${messages.length} 条）</h2>
+            <button onclick="location.reload()" style="margin-bottom:10px;padding:5px 15px;border-radius:6px;cursor:pointer">🔄 刷新</button>
+            <div style="max-height:600px;overflow-y:auto">
+                ${messageList || '<p style="color:#888">暂无记录</p>'}
+            </div>
+        </div>
+    </div>
 
     <script>
         async function addMemory() {
