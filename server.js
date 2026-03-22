@@ -362,8 +362,11 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         newMessages.unshift({ role: 'system', content: finalSystemPrompt });
         body.messages = newMessages;
 
-        body.frequency_penalty = 0.4;
-        body.presence_penalty = 0.4;
+const isGemini = (body.model || '').toLowerCase().includes('gemini');
+if (!isGemini) {
+    body.frequency_penalty = 0.4;
+    body.presence_penalty = 0.4;
+}
 
         // 🌟 根据请求路径选择目标 API
         const apiUrl = resolveApiUrl(req.path);
