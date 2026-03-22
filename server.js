@@ -366,6 +366,14 @@ const isGemini = (body.model || '').toLowerCase().includes('gemini');
 if (!isGemini) {
     body.frequency_penalty = 0.4;
     body.presence_penalty = 0.4;
+} else {
+    // Gemini 不支持这些参数，全部删掉
+    delete body.frequency_penalty;
+    delete body.presence_penalty;
+    delete body.logprobs;
+    delete body.top_logprobs;
+    delete body.n;
+    delete body.best_of;
 }
 
         // 🌟 根据请求路径选择目标 API
