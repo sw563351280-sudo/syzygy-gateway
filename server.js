@@ -82,7 +82,7 @@ async function saveToZep(userMsg, aiMsg) {
         await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages: [{ role: "user", content: userMsg }, { role: "ai", content: aiMsg }] })
+            body: JSON.stringify({ messages: [{ role: "user", content: userMsg }, { role: "assistant", content: aiMsg }] })
         });
         console.log("✅ 【时间线收束】选中记忆已永久刻入金库！");
     } catch(e) {
