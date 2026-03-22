@@ -276,7 +276,7 @@ app.post('/v1/chat/completions', async (req, res) => {
                     sessionCounters.set(SESSION_ID, count);
                     
                     // 🚨🚨🚨 【DIY 特区：大管家做梦频率】 🚨🚨🚨
-                    // 15 代表聊 15 个回合总结一次。嫌太频繁可以改成 20 或 30；如果觉得记性差可以改成 10。
+                    // 40 代表聊 40 个回合总结一次。嫌太频繁可以改成 20 或 30；如果觉得记性差可以改成 10。
                     if (count >= 40) {
                         console.log("🔥 达到黄金阈值！踹醒后台管家去干活！");
                         sessionCounters.set(SESSION_ID, 0); 
@@ -411,7 +411,7 @@ app.get('/memory-manager', async (req, res) => {
                 <b>近期情感：</b><p>${currentState.relationship_turning_points || '无'}</p>
                 <b>未完成约定：</b><p>${currentState.pending_promises || '无'}</p>
             </div>
-        ` : '<p style="color:#888">还没有总结，聊满15轮后管家会自动生成～</p>';
+        ` : '<p style="color:#888">还没有总结，聊满40轮后管家会自动生成～</p>';
 
         res.send(`
 <!DOCTYPE html>
