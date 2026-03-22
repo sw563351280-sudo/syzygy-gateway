@@ -472,6 +472,20 @@ app.post('/delete-selected', async (req, res) => {
 
 // 🌟 记忆管理网页界面
 app.get('/memory-manager', async (req, res) => {
+        // 🔐 密码验证
+    const pwd = req.query.pwd;
+    if (pwd !== process.env.MEMORY_PASSWORD) {
+        return res.status(401).send(`
+            <form style="margin:100px auto;max-width:300px;text-align:center">
+                <h2>🔒 请输入访问密码</h2>
+                <input type="password" id="p" style="padding:8px;width:100%;margin:10px 0;border-radius:6px;border:1px solid #ddd">
+                <button onclick="location.href='/memory-manager?pwd='+document.getElementById('p').value" 
+                    style="padding:8px 20px;background:#4CAF50;color:white;border:none;border-radius:6px;cursor:pointer">
+                    进入
+                </button>
+            </form>
+        `);
+    }
     try {
         const [memoryRes, sessionRes] = await Promise.all([
             fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`),
