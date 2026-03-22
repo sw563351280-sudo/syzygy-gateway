@@ -2,6 +2,18 @@ const express = require('express');
 const fs = require('fs');
 
 const app = express();
+
+// 🌟 解决 CORS 跨域问题
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
+
 // 🌟 扩容：为了防止你发高清大图，把赛博大门的胃口扩大到 50mb！
 app.use(express.json({ limit: '50mb' }));
 
