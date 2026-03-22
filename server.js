@@ -220,7 +220,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
         const [intentData, zepRes, sessionRes] = await Promise.all([
             analyzeIntent(currentUserMsgText, req.headers.authorization),
-            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`).catch(()=>null),
+            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`).catch(()=>null),
             fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(()=>null)
         ]);
 
@@ -422,7 +422,7 @@ app.post('/delete-selected', async (req, res) => {
 app.get('/memory-manager', async (req, res) => {
     try {
         const [memoryRes, sessionRes] = await Promise.all([
-            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`),
+            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`),
             fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`)
         ]);
         const memoryData = await memoryRes.json();
