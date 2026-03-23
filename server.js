@@ -261,6 +261,18 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
             body: JSON.stringify({ metadata: { current_state: summaryJson } })
         });
         console.log("✅ 潜意识便利贴已成功更新！");
+                // ✅ 记录总结时间戳，用于页面隐藏已总结的记录
+        const summaryMeta = {
+            current_state: summaryJson,
+            last_summarized_at: new Date().toISOString()
+        };
+        await fetch(`${ZEP_URL}/api/v1/sessions/${sessionId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ metadata: summaryMeta })
+        });
+        console.log("📌 已标记总结时间戳：", summaryMeta.last_summarized_at);
+
         // ✅ 总结完成后，清除已总结的原始记录
         try {
             await fetch(`${ZEP_URL}/api/v1/sessions/${sessionId}/memory`, { 
