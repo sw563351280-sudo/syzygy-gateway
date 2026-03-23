@@ -500,27 +500,28 @@ app.post('/delete-selected', async (req, res) => {
 
 // 🌟 记忆管理网页界面
 app.get('/memory-manager', async (req, res) => {
-        // 🔐 密码验证
+    // 🔐 密码验证
     const pwd = req.query.pwd;
     if (pwd !== process.env.MEMORY_PASSWORD) {
-return res.status(401).send(`
-    <div style="margin:100px auto;max-width:300px;text-align:center">
-        <h2>🔒 请输入访问密码</h2>
-        <input type="password" id="p" style="padding:8px;width:100%;margin:10px 0;border-radius:6px;border:1px solid #ddd"
-            onkeydown="if(event.key==='Enter') go()">
-        <button onclick="go()" 
-            style="padding:8px 20px;background:#4CAF50;color:white;border:none;border-radius:6px;cursor:pointer">
-            进入
-        </button>
-    </div>
-    <script>
-        function go() {
-            const pwd = document.getElementById('p').value;
-            if (pwd) window.location.href = '/memory-manager?pwd=' + encodeURIComponent(pwd);
-        }
-    </script>
-`);
+        return res.status(401).send(`
+            <div style="margin:100px auto;max-width:300px;text-align:center">
+                <h2>🔒 请输入访问密码</h2>
+                <input type="password" id="p" style="padding:8px;width:100%;margin:10px 0;border-radius:6px;border:1px solid #ddd"
+                    onkeydown="if(event.key==='Enter') go()">
+                <button onclick="go()" 
+                    style="padding:8px 20px;background:#4CAF50;color:white;border:none;border-radius:6px;cursor:pointer">
+                    进入
+                </button>
+            </div>
+            <script>
+                function go() {
+                    const pwd = document.getElementById('p').value;
+                    if (pwd) window.location.href = '/memory-manager?pwd=' + encodeURIComponent(pwd);
+                }
+            </script>
+        `);
     }
+    
     try {
         const [memoryRes, sessionRes] = await Promise.all([
             fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`),
@@ -532,7 +533,10 @@ return res.status(401).send(`
         const messages = memoryData.messages || [];
         const summary = memoryData.summary?.content || '';
         const currentState = sessionData.metadata?.current_state || null;
+
+        // ✅ 安全的 JSON 数据准备
         const messagesForScript = JSON.stringify(messages.map(m => ({ role: m.role, content: m.content })));
+
         const messageList = messages.map((m, i) => `
             <div class="msg-item" style="background:${m.role === 'user' ? '#e3f2fd' : '#f3e5f5'};padding:10px;margin:5px 0;border-radius:8px;display:flex;gap:10px;align-items:flex-start;">
                 <input type="checkbox" class="msg-checkbox" data-index="${i}" style="margin-top:4px;flex-shrink:0;width:16px;height:16px;cursor:pointer;">
@@ -564,8 +568,8 @@ return res.status(401).send(`
         textarea { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
         button.add { background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; }
         button.danger { background: #ff5252; color: white; border: none; padding: 6px 16px; border-radius: 8px; cursor: pointer; }
-        button.normal { padding: 6px 16px; border-radius: 6px; cursor: pointer; border: 1px solid #ddd; }
-        select { padding: 10px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 8px; }
+        button.normal { padding: 6px 16px; border-radius: 6px; cursor: pointer; border: 1px solid #ddd; background: white; }
+        select { padding: 10px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 8px; width: 100%; }
         h2 { margin-top: 0; }
         .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
         .select-hint { font-size: 13px; color: #888; }
@@ -574,12 +578,9 @@ return res.status(401).send(`
 </head>
 <body>
     <h1>🧠 记忆管理</h1>
+    
     <script id="messages-data" type="application/json">${messagesForScript}</script>
-<script>
-    const ALL_MESSAGES = JSON.parse(document.getElementById('messages-data').textContent);
-    console.log('✅ 成功加载', ALL_MESSAGES.length, '条记忆');
-</script>
-
+    
     <div class="grid">
         <div class="card">
             <h2>📌 总结记忆</h2>
@@ -596,7 +597,7 @@ return res.status(401).send(`
             </select>
             <textarea id="content" rows="3" placeholder="输入要写入的记忆内容..."></textarea>
             <button class="add" onclick="addMemory()">写入记忆</button>
-            <p id="status"></p>
+            <p id="status" style="margin-top:10px;color:#666;"></p>
         </div>
         <div class="card">
             <h2>💬 原始记录（${messages.length} 条）</h2>
@@ -611,28 +612,49 @@ return res.status(401).send(`
             </div>
         </div>
     </div>
+    
     <script>
+        // ✅ 加载数据
+        const ALL_MESSAGES = JSON.parse(document.getElementById('messages-data').textContent);
+        console.log('✅ 成功加载', ALL_MESSAGES.length, '条记忆');
+        
+        // ✅ 更新选中计数
         function updateCount() {
             const checked = document.querySelectorAll('.msg-checkbox:checked').length;
             const total = document.querySelectorAll('.msg-checkbox').length;
             document.getElementById('select-count').innerText =
-                checked > 0 ? \`已选中 \${checked} / \${total} 条\` : '未选中任何条目';
+                checked > 0 ? '已选中 ' + checked + ' / ' + total + ' 条' : '未选中任何条目';
         }
         document.querySelectorAll('.msg-checkbox').forEach(cb => cb.addEventListener('change', updateCount));
+        
+        // ✅ 全选/取消
         let allSelected = false;
         function toggleSelectAll() {
             allSelected = !allSelected;
             document.querySelectorAll('.msg-checkbox').forEach(cb => cb.checked = allSelected);
             updateCount();
         }
+        
+        // ✅ 删除选中
         async function deleteSelected() {
             const checkboxes = document.querySelectorAll('.msg-checkbox');
             const toDeleteIndices = new Set();
-            checkboxes.forEach(cb => { if (cb.checked) toDeleteIndices.add(parseInt(cb.dataset.index)); });
-            if (toDeleteIndices.size === 0) { alert('请先勾选要删除的条目！'); return; }
-            if (!confirm(\`确定删除选中的 \${toDeleteIndices.size} 条记忆吗？此操作不可撤销！\`)) return;
+            checkboxes.forEach(cb => { 
+                if (cb.checked) toDeleteIndices.add(parseInt(cb.dataset.index)); 
+            });
+            
+            if (toDeleteIndices.size === 0) { 
+                alert('请先勾选要删除的条目！'); 
+                return; 
+            }
+            
+            if (!confirm('确定删除选中的 ' + toDeleteIndices.size + ' 条记忆吗？此操作不可撤销！')) {
+                return;
+            }
+            
             const keepMessages = ALL_MESSAGES.filter((_, i) => !toDeleteIndices.has(i));
             document.getElementById('status').innerText = '⏳ 正在处理，请稍候...';
+            
             try {
                 const res = await fetch('/delete-selected', {
                     method: 'POST',
@@ -640,8 +662,9 @@ return res.status(401).send(`
                     body: JSON.stringify({ keepMessages })
                 });
                 const data = await res.json();
+                
                 if (data.success) {
-                    alert(\`✅ 成功删除 \${toDeleteIndices.size} 条，保留 \${keepMessages.length} 条！\`);
+                    alert('✅ 成功删除 ' + toDeleteIndices.size + ' 条，保留 ' + keepMessages.length + ' 条！');
                     location.reload();
                 } else {
                     alert('❌ 删除失败：' + (data.error || '未知错误'));
@@ -652,37 +675,59 @@ return res.status(401).send(`
                 document.getElementById('status').innerText = '';
             }
         }
+        
+        // ✅ 写入记忆
         async function addMemory() {
             const content = document.getElementById('content').value;
             const role = document.getElementById('role').value;
-            if (!content) { alert('内容不能为空！'); return; }
-            document.getElementById('status').innerText = '写入中...';
-            const res = await fetch('/add-memory', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content, role })
-            });
-            const data = await res.json();
-            if (data.success) {
-                document.getElementById('status').innerText = '✅ 写入成功！';
-                document.getElementById('content').value = '';
-                setTimeout(() => location.reload(), 1000);
-            } else {
-                document.getElementById('status').innerText = '❌ 写入失败：' + data.error;
+            
+            if (!content) { 
+                alert('内容不能为空！'); 
+                return; 
+            }
+            
+            document.getElementById('status').innerText = '⏳ 写入中...';
+            
+            try {
+                const res = await fetch('/add-memory', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content, role })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    document.getElementById('status').innerText = '✅ 写入成功！';
+                    document.getElementById('content').value = '';
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    document.getElementById('status').innerText = '❌ 写入失败：' + data.error;
+                }
+            } catch(e) {
+                document.getElementById('status').innerText = '❌ 网络错误：' + e.message;
             }
         }
 
-async function triggerDream() {
-    const pwd = prompt('请输入管理员密码：');
-    if (!pwd) return;
-    const res = await fetch('/trigger-dream?pwd=' + encodeURIComponent(pwd), { method: 'POST' });
-    const data = await res.json();
-    if (data.success) {
-        alert('✅ ' + data.message + '\n约30秒后刷新页面查看便利贴！');
-    } else {
-        alert('❌ ' + (data.error || data.message));
-    }
-}        
+        // ✅ 触发总结
+        async function triggerDream() {
+            const pwd = prompt('请输入管理员密码：');
+            if (!pwd) return;
+            
+            try {
+                const res = await fetch('/trigger-dream?pwd=' + encodeURIComponent(pwd), { 
+                    method: 'POST' 
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    alert('✅ ' + data.message + '\\n约30秒后刷新页面查看便利贴！');
+                } else {
+                    alert('❌ ' + (data.error || data.message));
+                }
+            } catch(e) {
+                alert('❌ 网络错误：' + e.message);
+            }
+        }
     </script>
 </body>
 </html>`);
@@ -690,6 +735,7 @@ async function triggerDream() {
         res.status(500).send('加载失败：' + e.message);
     }
 });
+
 
 app.delete('/delete-memory/:uuid', async (req, res) => {
     try {
