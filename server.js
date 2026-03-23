@@ -532,7 +532,12 @@ return res.status(401).send(`
         const messages = memoryData.messages || [];
         const summary = memoryData.summary?.content || '';
         const currentState = sessionData.metadata?.current_state || null;
-        const messagesJson = JSON.stringify(messages.map(m => ({ role: m.role, content: m.content }))).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
+        const messagesJson = JSON.stringify(messages.map(m => ({ role: m.role, content: m.content })))
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/`/g, '\\u0060')
+    .replace(/\$/g, '\\u0024');
         const messageList = messages.map((m, i) => `
             <div class="msg-item" style="background:${m.role === 'user' ? '#e3f2fd' : '#f3e5f5'};padding:10px;margin:5px 0;border-radius:8px;display:flex;gap:10px;align-items:flex-start;">
                 <input type="checkbox" class="msg-checkbox" data-index="${i}" style="margin-top:4px;flex-shrink:0;width:16px;height:16px;cursor:pointer;">
