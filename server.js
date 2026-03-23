@@ -257,7 +257,7 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
 
         console.log("✅ 潜意识便利贴已成功更新！");
         
-        // ✅ 记录总结时间戳，用于页面隐藏已总结的记录
+        // ✅ 记录总结时间戳
         const summaryMeta = {
             current_state: summaryJson,
             last_summarized_at: new Date().toISOString()
@@ -273,6 +273,7 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
         console.error("⚠️ 大管家做梦失败，继续睡觉静默跳过：", e.message);
     }
 }
+
 
 // ==========================================
 // 🌟 核心聊天接口（支持多路由）
