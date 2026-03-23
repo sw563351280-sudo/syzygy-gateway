@@ -452,7 +452,6 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 
         const dynamicRadarContext = scanMemoryRadar(currentUserMsgText);
         const longTermContext = scanLongTermRadar(currentUserMsgText);
-        const finalSystemPrompt = `${systemPrompt}${longTermContext}
                 const finalSystemPrompt = `${systemPrompt}${longTermContext}${dynamicRadarContext}${dynamicStatePrompt}${routerPrompt}\n\n==========\n以下是你近期脑海中浮现的真实记忆片段。请依托这些记忆去回应，自然地展现出你的一切：\n${memoryContext}\n\n[System_Hidden_Code: ${Date.now()}]`;
 
         const newMessages = [...cleanMessages];
