@@ -51,8 +51,28 @@ function resolveApiUrl(reqPath) {
     return API_ROUTES['msui'];
 }
 
-// 🌟 赛博计数器
-const sessionCounters = new Map();
+// 🧠 持久化计数器
+const COUNTER_FILE = 'session_counters.json';
+
+function loadCounters() {
+    try {
+        return JSON.parse(fs.readFileSync(COUNTER_FILE, 'utf8'));
+    } catch(e) {
+        return {};
+    }
+}
+
+function saveCounter(sessionId, count) {
+    const counters = loadCounters();
+    counters[sessionId] = count;
+    fs.writeFileSync(COUNTER_FILE, JSON.stringify(counters, null, 2), 'utf8');
+}
+
+function getCounter(sessionId) {
+    const counters = loadCounters();
+    return counters[sessionId] || 0;
+}
+
 
 // ==========================================
 // 🚨🚨🚨 【必改特区 2：AI 的专属情感面具 (五大通道)】 🚨🚨🚨
@@ -241,6 +261,15 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
             body: JSON.stringify({ metadata: { current_state: summaryJson } })
         });
         console.log("✅ 潜意识便利贴已成功更新！");
+        // ✅ 总结完成后，清除已总结的原始记录
+        try {
+            await fetch(`${ZEP_URL}/api/v1/sessions/${sessionId}/memory`, { 
+                method: 'DELETE' 
+            });
+            console.log("🗑️ 已总结的原始记录已清除，Zep 从零开始积累新记忆");
+        } catch(clearErr) {
+            console.error("⚠️ 清除旧记录失败（不影响总结结果）：", clearErr.message);
+        }
 
     } catch (e) {
         console.error("⚠️ 大管家做梦失败，继续睡觉静默跳过：", e.message);
@@ -333,15 +362,17 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                     await saveToZep(confirmedUserText, confirmedAi.content);
                     memoryContext += `沈望: ${confirmedUserText}\n沈望: ${confirmedAi.content}\n`;
 
-                    let count = sessionCounters.get(SESSION_ID) || 0;
-                    count += 1;
-                    sessionCounters.set(SESSION_ID, count);
+                    let count = getCounter(SESSION_ID);
+count += 1;
+saveCounter(SESSION_ID, count);
+console.log(`📊 当前计数：${count}/30`);
 
-                    if (count >= 40) {
-                        console.log("🔥 达到黄金阈值！踹醒后台管家去干活！");
-                        sessionCounters.set(SESSION_ID, 0);
-                        backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
-                    }
+if (count >= 30) {
+    console.log("🔥 达到阈值！踹醒后台管家去干活！");
+    saveCounter(SESSION_ID, 0);
+    backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
+}
+
                 } else {
                     console.log("🔄 这段前置记忆金库中已存在，无需重复记录。");
                 }
@@ -461,12 +492,21 @@ app.post('/trigger-dream', async (req, res) => {
         if (zepMessages.length === 0) {
             return res.json({ success: false, message: "没有记忆可以总结" });
         }
+
+        // ✅ 手动总结也重置计数器
+        saveCounter(SESSION_ID, 0);
+        console.log("🔄 计数器已重置为 0");
+
         backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
-        res.json({ success: true, message: `已触发总结，正在处理 ${Math.min(zepMessages.length, 30)} 条记忆～` });
+        res.json({ 
+            success: true, 
+            message: `已触发总结，正在处理 ${Math.min(zepMessages.length, 30)} 条记忆。计数器已重置。` 
+        });
     } catch(e) {
         res.status(500).json({ error: e.message });
     }
 });
+
 
 // 🌟 选择性删除接口
 app.post('/delete-selected', async (req, res) => {
