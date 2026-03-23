@@ -256,7 +256,8 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
         const summaryJson = JSON.parse(summaryJsonStr);
 
         console.log("✅ 潜意识便利贴已成功更新！");
-                // ✅ 记录总结时间戳，用于页面隐藏已总结的记录
+        
+        // ✅ 记录总结时间戳，用于页面隐藏已总结的记录
         const summaryMeta = {
             current_state: summaryJson,
             last_summarized_at: new Date().toISOString()
@@ -360,15 +361,15 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                     memoryContext += `沈望: ${confirmedUserText}\n沈望: ${confirmedAi.content}\n`;
 
                     let count = getCounter(SESSION_ID);
-count += 1;
-saveCounter(SESSION_ID, count);
-console.log(`📊 当前计数：${count}/30`);
+                    count += 1;
+                    saveCounter(SESSION_ID, count);
+                    console.log(`📊 当前计数：${count}/30`);
 
-if (count >= 30) {
-    console.log("🔥 达到阈值！踹醒后台管家去干活！");
-    saveCounter(SESSION_ID, 0);
-    backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
-}
+                    if (count >= 30) {
+                        console.log("🔥 达到阈值！踹醒后台管家去干活！");
+                        saveCounter(SESSION_ID, 0);
+                        backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
+                    }
 
                 } else {
                     console.log("🔄 这段前置记忆金库中已存在，无需重复记录。");
@@ -390,19 +391,19 @@ if (count >= 30) {
         newMessages.unshift({ role: 'system', content: finalSystemPrompt });
         body.messages = newMessages;
 
-const isGemini = (body.model || '').toLowerCase().includes('gemini');
-if (!isGemini) {
-    body.frequency_penalty = 0.4;
-    body.presence_penalty = 0.4;
-} else {
-    // Gemini 不支持这些参数，全部删掉
-    delete body.frequency_penalty;
-    delete body.presence_penalty;
-    delete body.logprobs;
-    delete body.top_logprobs;
-    delete body.n;
-    delete body.best_of;
-}
+        const isGemini = (body.model || '').toLowerCase().includes('gemini');
+        if (!isGemini) {
+            body.frequency_penalty = 0.4;
+            body.presence_penalty = 0.4;
+        } else {
+            // Gemini 不支持这些参数，全部删掉
+            delete body.frequency_penalty;
+            delete body.presence_penalty;
+            delete body.logprobs;
+            delete body.top_logprobs;
+            delete body.n;
+            delete body.best_of;
+        }
 
         // 🌟 根据请求路径选择目标 API
         const apiUrl = resolveApiUrl(req.path);
@@ -490,7 +491,6 @@ app.post('/trigger-dream', async (req, res) => {
             return res.json({ success: false, message: "没有记忆可以总结" });
         }
 
-        // ✅ 手动总结也重置计数器
         saveCounter(SESSION_ID, 0);
         console.log("🔄 计数器已重置为 0");
 
@@ -503,7 +503,6 @@ app.post('/trigger-dream', async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
-
 
 // 🌟 选择性删除接口
 app.post('/delete-selected', async (req, res) => {
@@ -537,7 +536,6 @@ app.post('/delete-selected', async (req, res) => {
 
 // 🌟 记忆管理网页界面
 app.get('/memory-manager', async (req, res) => {
-    // 🔐 密码验证
     const pwd = req.query.pwd;
     if (pwd !== process.env.MEMORY_PASSWORD) {
         return res.status(401).send(`
@@ -559,29 +557,23 @@ app.get('/memory-manager', async (req, res) => {
         `);
     }
     
-try {
-    const [memoryRes, sessionRes] = await Promise.all([
-        fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`),
-        fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`)
-    ]);
-    
-    // 检查响应状态
-    if (!memoryRes.ok) {
-        console.error("⚠️ Zep memory API 错误：", memoryRes.status, await memoryRes.text());
-        return res.status(500).send(`<h1>记忆数据获取失败</h1><p>Zep API 返回 ${memoryRes.status}</p><a href="/memory-manager?pwd=${req.query.pwd}">刷新重试</a>`);
-    }
-    if (!sessionRes.ok) {
-        console.error("⚠️ Zep session API 错误：", sessionRes.status, await sessionRes.text());
-        return res.status(500).send(`<h1>会话数据获取失败</h1><p>Zep API 返回 ${sessionRes.status}</p><a href="/memory-manager?pwd=${req.query.pwd}">刷新重试</a>`);
-    }
-    
-    const memoryData = await memoryRes.json();
-    const sessionData = await sessionRes.json();
-
-} catch(e) {
-    console.error("❌ 记忆管理页面加载失败：", e.message);
-    return res.status(500).send(`<h1>加载失败</h1><p>${e.message}</p><a href="/memory-manager?pwd=${req.query.pwd}">刷新重试</a>`);
-}
+    try {
+        const [memoryRes, sessionRes] = await Promise.all([
+            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`),
+            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`)
+        ]);
+        
+        if (!memoryRes.ok) {
+            console.error("⚠️ Zep memory API 错误：", memoryRes.status, await memoryRes.text());
+            return res.status(500).send(`<h1>记忆数据获取失败</h1><p>Zep API 返回 ${memoryRes.status}</p><a href="/memory-manager?pwd=${req.query.pwd}">刷新重试</a>`);
+        }
+        if (!sessionRes.ok) {
+            console.error("⚠️ Zep session API 错误：", sessionRes.status, await sessionRes.text());
+            return res.status(500).send(`<h1>会话数据获取失败</h1><p>Zep API 返回 ${sessionRes.status}</p><a href="/memory-manager?pwd=${req.query.pwd}">刷新重试</a>`);
+        }
+        
+        const memoryData = await memoryRes.json();
+        const sessionData = await sessionRes.json();
 
         const messages = memoryData.messages || [];
         const summary = memoryData.summary?.content || '';
@@ -589,31 +581,29 @@ try {
         const currentCount = getCounter(SESSION_ID);
         const lastSummarizedAt = sessionData.metadata?.last_summarized_at || null;
 
-
-        // ✅ 安全的 JSON 数据准备
         const messagesForScript = JSON.stringify(messages.map(m => ({ role: m.role, content: m.content })));
 
-const messageList = messages.map((m, i) => {
-    const isSummarized = lastSummarizedAt && new Date(m.created_at) < new Date(lastSummarizedAt);
-    return `
-        <div class="msg-item ${isSummarized ? 'summarized' : ''}" 
-             style="background:${m.role === 'user' ? '#e3f2fd' : '#f3e5f5'};padding:10px;margin:5px 0;border-radius:8px;display:${isSummarized ? 'none' : 'flex'};gap:10px;align-items:flex-start;"
-             data-summarized="${isSummarized}">
-            <input type="checkbox" class="msg-checkbox" data-index="${i}" style="margin-top:4px;flex-shrink:0;width:16px;height:16px;cursor:pointer;">
-            <div style="flex:1">
-                <small style="color:#888">
-                    ${m.role === 'user' ? '江鱼' : '沈望'} | ${new Date(m.created_at).toLocaleString()}
-                    ${isSummarized ? ' 📦 已总结' : ''}
-                </small>
-                <p style="margin:5px 0;white-space:pre-wrap">${m.content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
-            </div>
-        </div>
-    `;
-}).join('');
+        const messageList = messages.map((m, i) => {
+            const isSummarized = lastSummarizedAt && new Date(m.created_at) < new Date(lastSummarizedAt);
+            return `
+                <div class="msg-item ${isSummarized ? 'summarized' : ''}" 
+                     style="background:${m.role === 'user' ? '#e3f2fd' : '#f3e5f5'};padding:10px;margin:5px 0;border-radius:8px;display:${isSummarized ? 'none' : 'flex'};gap:10px;align-items:flex-start;"
+                     data-summarized="${isSummarized}">
+                    <input type="checkbox" class="msg-checkbox" data-index="${i}" style="margin-top:4px;flex-shrink:0;width:16px;height:16px;cursor:pointer;">
+                    <div style="flex:1">
+                        <small style="color:#888">
+                            ${m.role === 'user' ? '江鱼' : '沈望'} | ${new Date(m.created_at).toLocaleString()}
+                            ${isSummarized ? ' 📦 已总结' : ''}
+                        </small>
+                        <p style="margin:5px 0;white-space:pre-wrap">${m.content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
+                    </div>
+                </div>
+            `;
+        }).join('');
 
-const totalCount = messages.length;
-const summarizedCount = lastSummarizedAt ? messages.filter(m => new Date(m.created_at) < new Date(lastSummarizedAt)).length : 0;
-const unsummarizedCount = totalCount - summarizedCount;
+        const totalCount = messages.length;
+        const summarizedCount = lastSummarizedAt ? messages.filter(m => new Date(m.created_at) < new Date(lastSummarizedAt)).length : 0;
+        const unsummarizedCount = totalCount - summarizedCount;
 
         const stateHtml = currentState ? `
             <div style="background:#fff9c4;padding:12px;border-radius:8px;margin:5px 0">
@@ -689,11 +679,9 @@ const unsummarizedCount = totalCount - summarizedCount;
     </div>
     
     <script>
-        // ✅ 加载数据
         const ALL_MESSAGES = JSON.parse(document.getElementById('messages-data').textContent);
         console.log('✅ 成功加载', ALL_MESSAGES.length, '条记忆');
         
-        // ✅ 更新选中计数
         function updateCount() {
             const checked = document.querySelectorAll('.msg-checkbox:checked').length;
             const total = document.querySelectorAll('.msg-checkbox').length;
@@ -702,7 +690,6 @@ const unsummarizedCount = totalCount - summarizedCount;
         }
         document.querySelectorAll('.msg-checkbox').forEach(cb => cb.addEventListener('change', updateCount));
         
-        // ✅ 全选/取消
         let allSelected = false;
         function toggleSelectAll() {
             allSelected = !allSelected;
@@ -710,7 +697,6 @@ const unsummarizedCount = totalCount - summarizedCount;
             updateCount();
         }
         
-        // ✅ 删除选中
         async function deleteSelected() {
             const checkboxes = document.querySelectorAll('.msg-checkbox');
             const toDeleteIndices = new Set();
@@ -718,14 +704,8 @@ const unsummarizedCount = totalCount - summarizedCount;
                 if (cb.checked) toDeleteIndices.add(parseInt(cb.dataset.index)); 
             });
             
-            if (toDeleteIndices.size === 0) { 
-                alert('请先勾选要删除的条目！'); 
-                return; 
-            }
-            
-            if (!confirm('确定删除选中的 ' + toDeleteIndices.size + ' 条记忆吗？此操作不可撤销！')) {
-                return;
-            }
+            if (toDeleteIndices.size === 0) { alert('请先勾选要删除的条目！'); return; }
+            if (!confirm('确定删除选中的 ' + toDeleteIndices.size + ' 条记忆吗？此操作不可撤销！')) return;
             
             const keepMessages = ALL_MESSAGES.filter((_, i) => !toDeleteIndices.has(i));
             document.getElementById('status').innerText = '⏳ 正在处理，请稍候...';
@@ -737,7 +717,6 @@ const unsummarizedCount = totalCount - summarizedCount;
                     body: JSON.stringify({ keepMessages })
                 });
                 const data = await res.json();
-                
                 if (data.success) {
                     alert('✅ 成功删除 ' + toDeleteIndices.size + ' 条，保留 ' + keepMessages.length + ' 条！');
                     location.reload();
@@ -751,18 +730,11 @@ const unsummarizedCount = totalCount - summarizedCount;
             }
         }
         
-        // ✅ 写入记忆
         async function addMemory() {
             const content = document.getElementById('content').value;
             const role = document.getElementById('role').value;
-            
-            if (!content) { 
-                alert('内容不能为空！'); 
-                return; 
-            }
-            
+            if (!content) { alert('内容不能为空！'); return; }
             document.getElementById('status').innerText = '⏳ 写入中...';
-            
             try {
                 const res = await fetch('/add-memory', {
                     method: 'POST',
@@ -770,7 +742,6 @@ const unsummarizedCount = totalCount - summarizedCount;
                     body: JSON.stringify({ content, role })
                 });
                 const data = await res.json();
-                
                 if (data.success) {
                     document.getElementById('status').innerText = '✅ 写入成功！';
                     document.getElementById('content').value = '';
@@ -783,17 +754,12 @@ const unsummarizedCount = totalCount - summarizedCount;
             }
         }
 
-        // ✅ 触发总结
         async function triggerDream() {
             const pwd = prompt('请输入管理员密码：');
             if (!pwd) return;
-            
             try {
-                const res = await fetch('/trigger-dream?pwd=' + encodeURIComponent(pwd), { 
-                    method: 'POST' 
-                });
+                const res = await fetch('/trigger-dream?pwd=' + encodeURIComponent(pwd), { method: 'POST' });
                 const data = await res.json();
-                
                 if (data.success) {
                     alert('✅ ' + data.message + '\\n约30秒后刷新页面查看便利贴！');
                 } else {
@@ -803,7 +769,7 @@ const unsummarizedCount = totalCount - summarizedCount;
                 alert('❌ 网络错误：' + e.message);
             }
         }
-        // ✅ 切换显示已总结的记录
+
         function toggleSummarized() {
             const items = document.querySelectorAll('.msg-item[data-summarized="true"]');
             items.forEach(item => {
@@ -815,15 +781,15 @@ const unsummarizedCount = totalCount - summarizedCount;
                 }
             });
         }
-
     </script>
 </body>
 </html>`);
+
     } catch(e) {
-        res.status(500).send('加载失败：' + e.message);
+        console.error("❌ 记忆管理页面加载失败：", e.message);
+        return res.status(500).send(`<h1>加载失败</h1><p>${e.message}</p><a href="/memory-manager?pwd=${req.query.pwd}">刷新重试</a>`);
     }
 });
-
 
 app.delete('/delete-memory/:uuid', async (req, res) => {
     try {
@@ -835,7 +801,7 @@ app.delete('/delete-memory/:uuid', async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
-// 🌟 模型列表接口（让 Kelivo 能拉到模型）
+
 app.get(['/v1/models', '/via/:platform/v1/models'], async (req, res) => {
     const apiUrl = resolveApiUrl(req.path).replace('/chat/completions', '/models');
     try {
@@ -848,6 +814,8 @@ app.get(['/v1/models', '/via/:platform/v1/models'], async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
+
 app.get('/', (req, res) => res.send("专属视神经网关正在完美运行中！"));
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Gateway starts at port ${PORT}`));
