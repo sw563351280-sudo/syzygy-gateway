@@ -586,8 +586,28 @@ app.get('/memory-manager', async (req, res) => {
         // ✅ 安全的 JSON 数据准备
         const messagesForScript = JSON.stringify(messages.map(m => ({ role: m.role, content: m.content })));
 
-        const messageList = messages.map((m, i) => `
-            <div class="msg-item" style="background:${m.role === 'user' ? '#e3f2fd' : '#f3e5f5'};padding:10px;margin:5px 0;border-radius:8px;display:flex;gap:10px;align-items:flex-start;">
+const messageList = messages.map((m, i) => {
+    const isSummarized = lastSummarizedAt && new Date(m.created_at) < new Date(lastSummarizedAt);
+    return `
+        <div class="msg-item ${isSummarized ? 'summarized' : ''}" 
+             style="background:${m.role === 'user' ? '#e3f2fd' : '#f3e5f5'};padding:10px;margin:5px 0;border-radius:8px;display:${isSummarized ? 'none' : 'flex'};gap:10px;align-items:flex-start;"
+             data-summarized="${isSummarized}">
+            <input type="checkbox" class="msg-checkbox" data-index="${i}" style="margin-top:4px;flex-shrink:0;width:16px;height:16px;cursor:pointer;">
+            <div style="flex:1">
+                <small style="color:#888">
+                    ${m.role === 'user' ? '江鱼' : '沈望'} | ${new Date(m.created_at).toLocaleString()}
+                    ${isSummarized ? ' 📦 已总结' : ''}
+                </small>
+                <p style="margin:5px 0;white-space:pre-wrap">${m.content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
+            </div>
+        </div>
+    `;
+}).join('');
+
+const totalCount = messages.length;
+const summarizedCount = lastSummarizedAt ? messages.filter(m => new Date(m.created_at) < new Date(lastSummarizedAt)).length : 0;
+const unsummarizedCount = totalCount - summarizedCount;
+;padding:10px;margin:5px 0;border-radius:8px;display:flex;gap:10px;align-items:flex-start;">
                 <input type="checkbox" class="msg-checkbox" data-index="${i}" style="margin-top:4px;flex-shrink:0;width:16px;height:16px;cursor:pointer;">
                 <div style="flex:1">
                     <small style="color:#888">${m.role === 'user' ? '江鱼' : '沈望'} | ${new Date(m.created_at).toLocaleString()}</small>
