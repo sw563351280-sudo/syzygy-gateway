@@ -573,6 +573,8 @@ app.get('/memory-manager', async (req, res) => {
         const messages = memoryData.messages || [];
         const summary = memoryData.summary?.content || '';
         const currentState = sessionData.metadata?.current_state || null;
+        const currentCount = getCounter(SESSION_ID);
+
 
         // ✅ 安全的 JSON 数据准备
         const messagesForScript = JSON.stringify(messages.map(m => ({ role: m.role, content: m.content })));
