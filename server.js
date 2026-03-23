@@ -268,14 +268,6 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
         });
         console.log("📌 已标记总结时间戳：", summaryMeta.last_summarized_at);
 
-        // ✅ 总结完成后，清除已总结的原始记录
-        try {
-            await fetch(`${ZEP_URL}/api/v1/sessions/${sessionId}/memory`, { 
-                method: 'DELETE' 
-            });
-            console.log("🗑️ 已总结的原始记录已清除，Zep 从零开始积累新记忆");
-        } catch(clearErr) {
-            console.error("⚠️ 清除旧记录失败（不影响总结结果）：", clearErr.message);
         }
 
     } catch (e) {
