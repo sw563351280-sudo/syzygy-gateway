@@ -667,6 +667,18 @@ return res.status(401).send(`
                 document.getElementById('status').innerText = '❌ 写入失败：' + data.error;
             }
         }
+
+async function triggerDream() {
+    const pwd = prompt('请输入管理员密码：');
+    if (!pwd) return;
+    const res = await fetch('/trigger-dream?pwd=' + encodeURIComponent(pwd), { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+        alert('✅ ' + data.message + '\n约30秒后刷新页面查看便利贴！');
+    } else {
+        alert('❌ ' + (data.error || data.message));
+    }
+}        
     </script>
 </body>
 </html>`);
