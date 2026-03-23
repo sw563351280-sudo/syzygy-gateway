@@ -581,6 +581,7 @@ app.get('/memory-manager', async (req, res) => {
         const summary = memoryData.summary?.content || '';
         const currentState = sessionData.metadata?.current_state || null;
         const currentCount = getCounter(SESSION_ID);
+        const lastSummarizedAt = sessionData.metadata?.last_summarized_at || null;
 
 
         // ✅ 安全的 JSON 数据准备
