@@ -607,14 +607,6 @@ const messageList = messages.map((m, i) => {
 const totalCount = messages.length;
 const summarizedCount = lastSummarizedAt ? messages.filter(m => new Date(m.created_at) < new Date(lastSummarizedAt)).length : 0;
 const unsummarizedCount = totalCount - summarizedCount;
-;padding:10px;margin:5px 0;border-radius:8px;display:flex;gap:10px;align-items:flex-start;">
-                <input type="checkbox" class="msg-checkbox" data-index="${i}" style="margin-top:4px;flex-shrink:0;width:16px;height:16px;cursor:pointer;">
-                <div style="flex:1">
-                    <small style="color:#888">${m.role === 'user' ? '江鱼' : '沈望'} | ${new Date(m.created_at).toLocaleString()}</small>
-                    <p style="margin:5px 0;white-space:pre-wrap">${m.content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
-                </div>
-            </div>
-        `).join('');
 
         const stateHtml = currentState ? `
             <div style="background:#fff9c4;padding:12px;border-radius:8px;margin:5px 0">
@@ -804,6 +796,19 @@ const unsummarizedCount = totalCount - summarizedCount;
                 alert('❌ 网络错误：' + e.message);
             }
         }
+        // ✅ 切换显示已总结的记录
+        function toggleSummarized() {
+            const items = document.querySelectorAll('.msg-item[data-summarized="true"]');
+            items.forEach(item => {
+                if (item.style.display === 'none') {
+                    item.style.display = 'flex';
+                    item.style.opacity = '0.5';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        }
+
     </script>
 </body>
 </html>`);
