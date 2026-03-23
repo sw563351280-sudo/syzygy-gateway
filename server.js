@@ -532,12 +532,7 @@ return res.status(401).send(`
         const messages = memoryData.messages || [];
         const summary = memoryData.summary?.content || '';
         const currentState = sessionData.metadata?.current_state || null;
-        const messagesJson = JSON.stringify(messages.map(m => ({ role: m.role, content: m.content })))
-    .replace(/</g, '\\u003c')
-    .replace(/>/g, '\\u003e')
-    .replace(/&/g, '\\u0026')
-    .replace(/`/g, '\\u0060')
-    .replace(/\$/g, '\\u0024');
+        const messagesForScript = JSON.stringify(messages.map(m => ({ role: m.role, content: m.content })));
         const messageList = messages.map((m, i) => `
             <div class="msg-item" style="background:${m.role === 'user' ? '#e3f2fd' : '#f3e5f5'};padding:10px;margin:5px 0;border-radius:8px;display:flex;gap:10px;align-items:flex-start;">
                 <input type="checkbox" class="msg-checkbox" data-index="${i}" style="margin-top:4px;flex-shrink:0;width:16px;height:16px;cursor:pointer;">
@@ -579,7 +574,12 @@ return res.status(401).send(`
 </head>
 <body>
     <h1>🧠 记忆管理</h1>
-    <script>const ALL_MESSAGES = ${messagesJson};</script>
+    <script id="messages-data" type="application/json">${messagesForScript}</script>
+<script>
+    const ALL_MESSAGES = JSON.parse(document.getElementById('messages-data').textContent);
+    console.log('✅ 成功加载', ALL_MESSAGES.length, '条记忆');
+</script>
+
     <div class="grid">
         <div class="card">
             <h2>📌 总结记忆</h2>
