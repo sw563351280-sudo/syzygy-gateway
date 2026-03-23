@@ -268,8 +268,6 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
         });
         console.log("📌 已标记总结时间戳：", summaryMeta.last_summarized_at);
 
-        }
-
     } catch (e) {
         console.error("⚠️ 大管家做梦失败，继续睡觉静默跳过：", e.message);
     }
