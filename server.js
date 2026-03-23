@@ -669,7 +669,14 @@ const unsummarizedCount = totalCount - summarizedCount;
             <p id="status" style="margin-top:10px;color:#666;"></p>
         </div>
         <div class="card">
-            <h2>💬 原始记录（${messages.length} 条）</h2>
+        <h2>💬 原始记录</h2>
+<div style="background:#e8f5e9;padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:13px;">
+    📊 自动总结进度：<b>${currentCount} / 30 轮</b>
+    ${currentCount >= 25 ? ' ⚡ 即将触发！' : ''}
+    | 📬 未总结：<b>${unsummarizedCount}</b> 条
+    ${summarizedCount > 0 ? ` | 📦 已总结：<b>${summarizedCount}</b> 条 <button class="normal" onclick="toggleSummarized()" style="font-size:11px;padding:2px 8px;margin-left:4px;">显示/隐藏</button>` : ''}
+</div>
+
             <div class="toolbar">
                 <button class="normal" onclick="location.reload()">🔄 刷新</button>
                 <button class="normal" onclick="toggleSelectAll()">☑️ 全选/取消</button>
