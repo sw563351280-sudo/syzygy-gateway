@@ -561,13 +561,29 @@ app.get('/memory-manager', async (req, res) => {
         `);
     }
     
-    try {
-        const [memoryRes, sessionRes] = await Promise.all([
-            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`),
-            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`)
-        ]);
-        const memoryData = await memoryRes.json();
-        const sessionData = await sessionRes.json();
+try {
+    const [memoryRes, sessionRes] = await Promise.all([
+        fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`),
+        fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`)
+    ]);
+    
+    // 检查响应状态
+    if (!memoryRes.ok) {
+        console.error("⚠️ Zep memory API 错误：", memoryRes.status, await memoryRes.text());
+        return res.status(500).send(`<h1>记忆数据获取失败</h1><p>Zep API 返回 ${memoryRes.status}</p><a href="/memory-manager?pwd=${req.query.pwd}">刷新重试</a>`);
+    }
+    if (!sessionRes.ok) {
+        console.error("⚠️ Zep session API 错误：", sessionRes.status, await sessionRes.text());
+        return res.status(500).send(`<h1>会话数据获取失败</h1><p>Zep API 返回 ${sessionRes.status}</p><a href="/memory-manager?pwd=${req.query.pwd}">刷新重试</a>`);
+    }
+    
+    const memoryData = await memoryRes.json();
+    const sessionData = await sessionRes.json();
+
+} catch(e) {
+    console.error("❌ 记忆管理页面加载失败：", e.message);
+    return res.status(500).send(`<h1>加载失败</h1><p>${e.message}</p><a href="/memory-manager?pwd=${req.query.pwd}">刷新重试</a>`);
+}
 
         const messages = memoryData.messages || [];
         const summary = memoryData.summary?.content || '';
