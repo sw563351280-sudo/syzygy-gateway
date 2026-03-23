@@ -448,6 +448,26 @@ app.post('/add-memory', async (req, res) => {
     }
 });
 
+// 🌟 手动触发管家总结
+app.post('/trigger-dream', async (req, res) => {
+    const pwd = req.query.pwd;
+    if (pwd !== process.env.MEMORY_PASSWORD) {
+        return res.status(401).json({ error: "密码错误" });
+    }
+    try {
+        const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`);
+        const zepData = await zepRes.json();
+        const zepMessages = zepData.messages || [];
+        if (zepMessages.length === 0) {
+            return res.json({ success: false, message: "没有记忆可以总结" });
+        }
+        backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
+        res.json({ success: true, message: `已触发总结，正在处理 ${Math.min(zepMessages.length, 30)} 条记忆～` });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // 🌟 选择性删除接口
 app.post('/delete-selected', async (req, res) => {
     try {
@@ -559,7 +579,7 @@ return res.status(401).send(`
     <div class="grid">
         <div class="card">
             <h2>📌 总结记忆</h2>
-            <h3>🗂 管家便利贴</h3>
+            <h3>🗂 管家便利贴 <button onclick="triggerDream()" style="font-size:12px;padding:3px 10px;border-radius:6px;cursor:pointer;border:1px solid #ddd;background:#fff;margin-left:8px;">🌙 立即总结</button></h3>
             ${stateHtml}
             <h3>📝 自动摘要</h3>
             <div style="background:#f5f5f5;padding:12px;border-radius:8px;min-height:60px">
