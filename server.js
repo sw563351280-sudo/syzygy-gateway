@@ -613,8 +613,9 @@ app.get('/memory-manager', async (req, res) => {
                 <b>未完成约定：</b><p>${currentState.pending_promises || '无'}</p>
             </div>
         ` : '<p style="color:#888">还没有总结，聊满40轮后管家会自动生成～</p>';
-
         res.send(`
+});
+
 <!DOCTYPE html>
 <html>
 <head>
@@ -785,8 +786,8 @@ app.get('/memory-manager', async (req, res) => {
     </script>
 </body>
 </html>`);
-
-    } catch(e) {
+        
+                    } catch(e) {
         console.error("❌ 记忆管理页面加载失败：", e.message);
         return res.status(500).send(`<h1>加载失败</h1><p>${e.message}</p><a href="/memory-manager?pwd=${req.query.pwd}">刷新重试</a>`);
     }
