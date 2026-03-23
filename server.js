@@ -255,11 +255,6 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
         let summaryJsonStr = data.choices[0].message.content.replace(/```json|```/g, '').trim();
         const summaryJson = JSON.parse(summaryJsonStr);
 
-        await fetch(`${ZEP_URL}/api/v1/sessions/${sessionId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ metadata: { current_state: summaryJson } })
-        });
         console.log("✅ 潜意识便利贴已成功更新！");
                 // ✅ 记录总结时间戳，用于页面隐藏已总结的记录
         const summaryMeta = {
