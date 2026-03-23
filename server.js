@@ -613,8 +613,8 @@ app.get('/memory-manager', async (req, res) => {
                 <b>未完成约定：</b><p>${currentState.pending_promises || '无'}</p>
             </div>
         ` : '<p style="color:#888">还没有总结，聊满40轮后管家会自动生成～</p>';
+        
         res.send(`
-});
 
 <!DOCTYPE html>
 <html>
