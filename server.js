@@ -17,7 +17,7 @@ app.use(express.json({ limit: '50mb' }));
 // 🚨🚨🚨 【必改特区 1：赛博家门钥匙与暗号】 🚨🚨🚨
 // ==========================================
 const ZEP_URL = "https://syzymer.zeabur.app";
-const SESSION_ID = "syzygy_s01";
+const SESSION_ID = "syzygy_01";
 
 // ==========================================
 // 🌟 多家 API 路由表
