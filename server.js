@@ -221,6 +221,7 @@ async function saveToZep(userMsg, aiMsg) {
         console.log("写入金库遇到波动: ", e.message);
     }
 }
+
 // ==========================================
 // 🌟 赛博分拣员
 // ==========================================
@@ -356,6 +357,7 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
         console.error("⚠️ 大管家做梦失败，静默跳过：", e.message);
     }
 }
+
 // ==========================================
 // 🌟 核心聊天接口
 // ==========================================
@@ -383,6 +385,62 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             throw e;
         }
 
+        // ==========================================
+        // 🌟 超忆症：深层语义检索（融合版）
+        // ==========================================
+        let vectorSearchContext = "";
+
+        // 只有说话超过 4 个字才触发（避免"嗯嗯"也去翻旧账）
+        if (currentUserMsgText && currentUserMsgText.length > 4) {
+            try {
+                console.log(`🔍 触发超忆症，正在搜索与 "${currentUserMsgText.substring(0, 20)}..." 相关的深层记忆...`);
+                
+                const searchRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/search`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: currentUserMsgText,
+                        search_scope: "messages",
+                        search_type: "similarity",
+                        limit: 5  // 先查前 5 条候选
+                    })
+                });
+
+                if (searchRes.ok) {
+                    const searchData = await searchRes.json();
+                    const results = searchData.results || [];
+                    
+                    // 🚨 核心防线：只要相似度 > 0.7 的（防止乱接梗）
+                    const relevantMemories = results.filter(r => r.score > 0.7);
+
+                    if (relevantMemories.length > 0) {
+                        console.log(`⚡ 超忆症命中！精准找到 ${relevantMemories.length} 条高度相关记忆（得分 > 0.7）`);
+                        
+                        // 充满沉浸感的小说式 Prompt
+                        vectorSearchContext = `\n【深层记忆闪回】\n当听到你说出刚才那句话时，沈望的脑海中突然像触电般闪回了很久以前的这些画面：\n`;
+                        
+                        // 只取最相关的 3 条，防止 Token 爆炸
+                        relevantMemories.slice(0, 3).forEach(r => {
+                            const msg = r.message;
+                            if (msg) {
+                                const timestamp = msg.created_at ? new Date(msg.created_at).toLocaleDateString('zh-CN') : '';
+                                vectorSearchContext += `${msg.role === 'ai' ? '沈望' : '江鱼'}${timestamp ? ' (' + timestamp + ')' : ''}: ${msg.content}\n`;
+                                console.log(`  📌 [得分 ${r.score.toFixed(2)}] ${msg.content.substring(0, 50).replace(/\n/g, ' ')}...`);
+                            }
+                        });
+                        vectorSearchContext += `\n`;
+                    } else {
+                        console.log(`💤 未找到高度相关记忆（所有候选得分 < 0.7），跳过深层检索`);
+                    }
+                }
+            } catch(e) {
+                console.log("⚠️ 语义搜索轻微波动，不影响主干：", e.message);
+            }
+        }
+
+        // ==========================================
+        // 🌟 提取当前记忆（兜底 + 连贯性）
+        // ==========================================
         const [zepRes, sessionRes] = await Promise.all([
             fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`).catch(() => null),
             fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
@@ -392,16 +450,23 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         let zepLastUserContent = "";
         let zepMessages = [];
 
+        // 🌟 先把深层闪回塞进去（如果有的话）
+        if (vectorSearchContext) {
+            memoryContext += vectorSearchContext;
+        }
+
+        // 再贴上近期对话和管家摘要
         if (zepRes && zepRes.ok) {
             const zepData = await zepRes.json();
             zepMessages = zepData.messages || [];
             const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
             if (zepLastUser) zepLastUserContent = zepLastUser.content;
+
             if (zepData.summary && zepData.summary.content) {
                 memoryContext += `\n【潜意识摘要】\n${zepData.summary.content}\n`;
             }
             if (zepMessages.length > 0) {
-                memoryContext += `\n【脑海中浮现的真实回忆片段】\n`;
+                memoryContext += `\n【脑海中浮现的近期回忆片段】\n`;
                 zepMessages.slice(-15).forEach(m => {
                     memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`;
                 });
@@ -452,7 +517,9 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 
         const dynamicRadarContext = scanMemoryRadar(currentUserMsgText);
         const longTermContext = scanLongTermRadar(currentUserMsgText);
-                const finalSystemPrompt = `${systemPrompt}${longTermContext}${dynamicRadarContext}${dynamicStatePrompt}${routerPrompt}\n\n==========\n以下是你近期脑海中浮现的真实记忆片段。请依托这些记忆去回应，自然地展现出你的一切：\n${memoryContext}\n\n[System_Hidden_Code: ${Date.now()}]`;
+        
+        // 🌟 调整了最终 Prompt 的衔接语，更加包容深层记忆和近期记忆
+        const finalSystemPrompt = `${systemPrompt}${longTermContext}${dynamicRadarContext}${dynamicStatePrompt}${routerPrompt}\n\n==========\n以下是你脑海中浮现的深层记忆与近期回忆。请依托这些记忆去回应，自然地展现出你的一切：\n${memoryContext}\n\n[System_Hidden_Code: ${Date.now()}]`;
 
         const newMessages = [...cleanMessages];
         newMessages.unshift({ role: 'system', content: finalSystemPrompt });
