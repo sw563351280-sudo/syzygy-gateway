@@ -358,11 +358,6 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
     }
 }
 
-} catch (e) {
-        console.error("⚠️ 大管家做梦失败，静默跳过：", e.message);
-    }
-}
-
 // ==========================================
 // 🌟 赛博海关：拦截并清理违禁参数
 // ==========================================
