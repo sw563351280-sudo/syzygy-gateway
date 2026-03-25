@@ -386,6 +386,29 @@ app.post('/proxy/v1/embeddings', async (req, res) => {
 });
 
 // ==========================================
+// 🌟 赛博海关 2 号：专门转发 Zep 的摘要/意图等 LLM 聊天请求
+// ==========================================
+app.post('/proxy/v1/chat/completions', async (req, res) => {
+    try {
+        const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': req.headers.authorization,
+                'Content-Type': 'application/json'
+            },
+            // 这里不需要删 dimensions，因为聊天接口本来就没有这个参数，直接整包转发
+            body: JSON.stringify(req.body) 
+        });
+        
+        const data = await response.json();
+        res.status(response.status).json(data);
+    } catch (error) {
+        console.error("❌ 聊天请求海关转发失败:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ==========================================
 // 🌟 核心聊天接口
 // ==========================================
 app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (req, res) => {
