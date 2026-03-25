@@ -358,6 +358,38 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
     }
 }
 
+} catch (e) {
+        console.error("⚠️ 大管家做梦失败，静默跳过：", e.message);
+    }
+}
+
+// ==========================================
+// 🌟 赛博海关：拦截并清理违禁参数
+// ==========================================
+app.post('/proxy/v1/embeddings', async (req, res) => {
+    try {
+        const body = { ...req.body };
+        // 🔪 删掉硅基流动不支持的 dimensions 参数
+        if (body.dimensions) {
+            delete body.dimensions;
+        }
+
+        const response = await fetch('https://api.siliconflow.cn/v1/embeddings', {
+            method: 'POST',
+            headers: {
+                'Authorization': req.headers.authorization,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body)
+        });
+
+        const data = await response.json();
+        res.status(response.status).json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // ==========================================
 // 🌟 核心聊天接口
 // ==========================================
