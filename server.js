@@ -568,16 +568,17 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         const dynamicRadarContext = scanMemoryRadar(currentUserMsgText);
         const longTermContext = scanLongTermRadar(currentUserMsgText);
         
-        // 1. 系统提示词里去掉长记忆，保持纯净，防止被中转站拦截
+        // 1. 系统提示词里【去掉 longTermContext】，让系统消息瘦身，绝对不会被拦截
 const finalSystemPrompt = `${systemPrompt}${dynamicRadarContext}${dynamicStatePrompt}${routerPrompt}`;
 
 const newMessages = [...cleanMessages];
 newMessages.unshift({ role: 'system', content: finalSystemPrompt });
 
-// 2. 把深层记忆强行塞进你刚刚发的那句话前面，怼到大模型脸上！
-if (typeof longTermContext !== 'undefined' && longTermContext.length > 10) {
+// 2. 强行把记忆绑在你最后发的那句话前面！(大模型看最新消息时，绝对无法无视它)
+if (typeof longTermContext !== 'undefined' && longTermContext.trim().length > 0) {
     const lastMsgIndex = newMessages.length - 1;
-    newMessages[lastMsgIndex].content = `【系统检索到的深层历史记忆，请务必参考以下内容回复】：\n${longTermContext}\n\n【我现在的最新消息】：\n${newMessages[lastMsgIndex].content}`;
+    const originalContent = newMessages[lastMsgIndex].content;
+    newMessages[lastMsgIndex].content = `【系统强制提取的深层记忆，请务必参考】：\n${longTermContext}\n\n【我现在的最新消息】：\n${originalContent}`;
 }
 
 body.messages = newMessages;
