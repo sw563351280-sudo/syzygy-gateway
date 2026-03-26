@@ -568,12 +568,19 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         const dynamicRadarContext = scanMemoryRadar(currentUserMsgText);
         const longTermContext = scanLongTermRadar(currentUserMsgText);
         
-        // 🌟 调整了最终 Prompt 的衔接语，更加包容深层记忆和近期记忆
-        const finalSystemPrompt = `${systemPrompt}${longTermContext}${dynamicRadarContext}${dynamicStatePrompt}${routerPrompt}\n\n==========\n以下是你脑海中浮现的深层记忆与近期回忆。请依托这些记忆去回应，自然地展现出你的一切：\n${memoryContext}\n\n[System_Hidden_Code: ${Date.now()}]`;
+        // 1. 系统提示词里去掉长记忆，保持纯净，防止被中转站拦截
+const finalSystemPrompt = `${systemPrompt}${dynamicRadarContext}${dynamicStatePrompt}${routerPrompt}`;
 
-        const newMessages = [...cleanMessages];
-        newMessages.unshift({ role: 'system', content: finalSystemPrompt });
-        body.messages = newMessages;
+const newMessages = [...cleanMessages];
+newMessages.unshift({ role: 'system', content: finalSystemPrompt });
+
+// 2. 把深层记忆强行塞进你刚刚发的那句话前面，怼到大模型脸上！
+if (typeof longTermContext !== 'undefined' && longTermContext.length > 10) {
+    const lastMsgIndex = newMessages.length - 1;
+    newMessages[lastMsgIndex].content = `【系统检索到的深层历史记忆，请务必参考以下内容回复】：\n${longTermContext}\n\n【我现在的最新消息】：\n${newMessages[lastMsgIndex].content}`;
+}
+
+body.messages = newMessages;
 
         const isGemini = (body.model || '').toLowerCase().includes('gemini');
         if (!isGemini) {
@@ -591,7 +598,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         const apiUrl = resolveApiUrl(req.path);
         console.log("🚀 拼装完毕！目标API：", apiUrl, "｜Prompt总字数：", finalSystemPrompt.length);
         console.log("======== 深度排查：发送的记忆前 2000 字 ========");
-console.log(finalSystemPrompt.substring(0, 2000));
+console.log(finalSystemPrompt.substring(0, 8000));
 console.log("================================================");
 
         const apiHeaders = {
