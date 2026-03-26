@@ -460,11 +460,11 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                     const searchData = await searchRes.json();
                     const results = searchData.results || [];
                     
-                    // 🚨 核心防线：只要相似度 > 0.7 的（防止乱接梗）
-                    const relevantMemories = results.filter(r => r.score > 0.7);
+                    // 🚨 核心防线：只要相似度 > 0.5 的（防止乱接梗）
+                    const relevantMemories = results.filter(r => r.score > 0.5);
 
                     if (relevantMemories.length > 0) {
-                        console.log(`⚡ 超忆症命中！精准找到 ${relevantMemories.length} 条高度相关记忆（得分 > 0.7）`);
+                        console.log(`⚡ 超忆症命中！精准找到 ${relevantMemories.length} 条高度相关记忆（得分 > 0.5）`);
                         
                         // 充满沉浸感的小说式 Prompt
                         vectorSearchContext = `\n【深层记忆闪回】\n当听到你说出刚才那句话时，沈望的脑海中突然像触电般闪回了很久以前的这些画面：\n`;
@@ -480,7 +480,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                         });
                         vectorSearchContext += `\n`;
                     } else {
-                        console.log(`💤 未找到高度相关记忆（所有候选得分 < 0.7），跳过深层检索`);
+                        console.log(`💤 未找到高度相关记忆（所有候选得分 < 0.5），跳过深层检索`);
                     }
                 }
             } catch(e) {
