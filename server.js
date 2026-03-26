@@ -590,6 +590,9 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 
         const apiUrl = resolveApiUrl(req.path);
         console.log("🚀 拼装完毕！目标API：", apiUrl, "｜Prompt总字数：", finalSystemPrompt.length);
+        console.log("======== 深度排查：发送的记忆前 2000 字 ========");
+console.log(finalSystemPrompt.substring(0, 2000));
+console.log("================================================");
 
         const apiHeaders = {
             'Content-Type': 'application/json',
