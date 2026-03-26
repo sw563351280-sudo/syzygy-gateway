@@ -567,6 +567,16 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 
         const dynamicRadarContext = scanMemoryRadar(currentUserMsgText);
         const longTermContext = scanLongTermRadar(currentUserMsgText);
+        // ====== 新增的记忆安检门 ======
+console.log("🔍 【记忆雷达安检】：正在检查 Zep 返回的数据...");
+if (!longTermContext || longTermContext.trim().length === 0) {
+    console.log("❌ 结论：Zep 数据库返回了空数据！根本没捞到相关记忆！");
+} else {
+    console.log("✅ 结论：成功捞到记忆！字数：", longTermContext.length);
+    console.log("记忆内容前 300 字预览：\n", longTermContext.substring(0, 300));
+}
+console.log("================================");
+// ==============================
         
         // 1. 系统提示词里【去掉 longTermContext】，让系统消息瘦身，绝对不会被拦截
 const finalSystemPrompt = `${systemPrompt}${dynamicRadarContext}${dynamicStatePrompt}${routerPrompt}`;
