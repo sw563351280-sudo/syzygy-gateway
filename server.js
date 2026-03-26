@@ -584,11 +584,11 @@ const finalSystemPrompt = `${systemPrompt}${dynamicRadarContext}${dynamicStatePr
 const newMessages = [...cleanMessages];
 newMessages.unshift({ role: 'system', content: finalSystemPrompt });
 
-// 2. 强行把记忆绑在你最后发的那句话前面！(大模型看最新消息时，绝对无法无视它)
-if (typeof longTermContext !== 'undefined' && longTermContext.trim().length > 0) {
+// 2. 强行把【真·Zep向量记忆】绑在你最后发的那句话前面！
+if (typeof vectorSearchContext !== 'undefined' && vectorSearchContext.trim().length > 0) {
     const lastMsgIndex = newMessages.length - 1;
     const originalContent = newMessages[lastMsgIndex].content;
-    newMessages[lastMsgIndex].content = `【系统强制提取的深层记忆，请务必参考】：\n${longTermContext}\n\n【我现在的最新消息】：\n${originalContent}`;
+    newMessages[lastMsgIndex].content = `${vectorSearchContext}\n\n【我现在的最新消息】：\n${originalContent}`;
 }
 
 body.messages = newMessages;
