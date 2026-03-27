@@ -63,7 +63,7 @@ function getCounter(sessionId) {
 // ==========================================
 // 🧠 长期记忆库（雷达触发式 + 伪标签静默写入）
 // ==========================================
-const LONG_TERM_FILE = 'long_term_memories.json';
+const LONG_TERM_FILE = './data/long_term_memories.json';
 
 function loadLongTermMemories() {
     try { return JSON.parse(fs.readFileSync(LONG_TERM_FILE, 'utf8')); }
