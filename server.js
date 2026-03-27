@@ -175,10 +175,10 @@ let memoryBlocks = [];
 try {
     console.log("🛠️ 正在读取 OS 核心与记忆图鉴...");
     systemPrompt = fs.readFileSync('system_prompt.txt', 'utf8');
-    memoryBlocks = JSON.parse(fs.readFileSync('memory_blocks.json', 'utf8'));
+    memoryBlocks = JSON.parse(fs.readFileSync('./data/memory_blocks.json', 'utf8'));
     console.log(`✅ 成功加载 OS 核心，并挂载了 ${memoryBlocks.length} 个记忆模块！`);
 } catch (e) {
-    console.log("⚠️ 未找到 system_prompt.txt 或 memory_blocks.json，将使用备用降级模式。错误：", e.message);
+    console.log("⚠️ 未找到 system_prompt.txt 或 './data/memory_blocks.json'，将使用备用降级模式。错误：", e.message);
 }
 
 function scanMemoryRadar(userText) {
