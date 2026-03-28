@@ -1162,7 +1162,7 @@ wss.on('connection', (ws) => {
                         headers: { 'Content-Type': 'application/json', 'Authorization': aiKey },
                         signal: controller.signal, // 挂上闹钟
                         body: JSON.stringify({
-                            model: "deepseek-r1", // 👈 这里是你刚才截图选的模型名字
+                            model: "[按量]gemini-3.1-pro-preview", // 👈 这里是你刚才截图选的模型名字
                             messages: [
                                 { role: "system", content: finalSystemPrompt },
                                 { role: "user", content: `${memoryContext}\n\n江鱼说：${userText}` }
