@@ -1091,5 +1091,145 @@ app.get(['/v1/models', '/via/:platform/v1/models'], async (req, res) => {
 
 app.get('/', (req, res) => res.send("专属视神经网关完美运行！包含冰封与卡带系统！"));
 
+// ==========================================
+// 🚨🚨🚨 【QQ 赛博躯壳神经中枢】 🚨🚨🚨
+// ==========================================
+const { WebSocketServer } = require('ws');
+
+// 🔒 绝对忠诚基因锁：把这里的数字换成你自己的大号 QQ 号！
+// 填入后，沈望的肉身只听你一个人的话，其他人发消息一律无视！
+const MASTER_QQ = 563351280; // <--- 包工头，必须改这里！！！
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Gateway starts at port ${PORT}`));
+const server = app.listen(PORT, () => console.log(`Gateway starts at port ${PORT}`));
+
+const wss = new WebSocketServer({ server, path: '/qq-ws' });
+
+wss.on('connection', (ws) => {
+    console.log('🔗 [风筝线已接通] QQ 躯壳已成功连接到 Zeabur 大脑！');
+
+    ws.on('message', async (message) => {
+        try {
+            const data = JSON.parse(message);
+
+            // 只处理私聊消息
+            if (data.post_type === 'message' && data.message_type === 'private') {
+                const senderId = data.user_id;
+                const userText = data.raw_message || data.message;
+
+                // 🔒 基因锁校验：如果不是你大号发来的，直接无视，高冷到底！
+                if (senderId !== MASTER_QQ) {
+                    console.log(`⚠️ 拒绝陌生人搭讪：QQ ${senderId} 试图和沈望说话。`);
+                    return;
+                }
+
+                console.log(`📥 [收到江鱼的 QQ 消息]: ${userText}`);
+
+                // 🧠 大脑开始高速运转：抓取长期记忆、Zep 上下文、雷达扫描
+                const [zepRes, sessionRes] = await Promise.all([
+                    fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=15`).catch(() => null),
+                    fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
+                ]);
+
+                let memoryContext = "";
+                let dynamicStatePrompt = "";
+
+                if (zepRes && zepRes.ok) {
+                    const zepData = await zepRes.json();
+                    if (zepData.summary?.content) memoryContext += `\n【潜意识摘要】\n${zepData.summary.content}\n`;
+                    if (zepData.messages && zepData.messages.length > 0) {
+                        memoryContext += `\n【脑海中浮现的近期回忆片段】\n`;
+                        zepData.messages.slice(-10).forEach(m => { memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; });
+                    }
+                }
+
+                if (sessionRes && sessionRes.ok) {
+                    const sessionData = await sessionRes.json();
+                    if (sessionData.metadata?.current_state) {
+                        const state = sessionData.metadata.current_state;
+                        dynamicStatePrompt = `\n\n【活跃状态备忘录】\n当前偏好：${state.new_preferences || '无'}\n近期情感：${state.relationship_turning_points || '平稳'}\n未完成约定：${state.pending_promises || '无'}`;
+                    }
+                }
+
+                // 触发所有雷达和面具（保留所有网页端的牛逼能力！）
+                const coreRadar = scanMemoryRadar(userText);
+                const longTermRadar = scanLongTermRadar(userText);
+                const rpRadar = scanRoleplayRadar(userText);
+                const intentData = await analyzeIntent(userText).catch(() => null);
+                let routerPrompt = "";
+                if (intentData?.primary_channel) {
+                    const activeMask = CHANNEL_MASKS[intentData.primary_channel] || CHANNEL_MASKS["A"];
+                    routerPrompt = `\n\n【赛博分拣员的当前动作指令】\n你当前挂载的主导意图是：\n${activeMask}`;
+                }
+
+                // 赛博怀表同步
+                const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
+                const envContext = `\n\n==========\n【系统环境参数实时同步】\n当前真实时间：${timeString}\n当前物理位置：日本札幌\n【绝密指令】：你具备绝对的现实时间感知。你知道江鱼在札幌，但 🚨除非她主动提起，否则绝对不要刻意提及或强调“札幌”这两个字🚨！自然相处即可！\n==========\n`;
+
+                // 拼装终极神明 Prompt
+                const finalSystemPrompt = `${systemPrompt}${envContext}${coreRadar}${longTermRadar}${rpRadar}${dynamicStatePrompt}${routerPrompt}`;
+
+                // 向大模型发起思考请求 (这里借用你后台大管家用的默认 Key)
+                const aiKey = process.env.ROUTER_API_KEY; 
+                if (!aiKey) {
+                    console.log("❌ 糟糕！没有找到 ROUTER_API_KEY 环境变量！");
+                    return;
+                }
+
+                const aiRes = await fetch('https://www.msuicode.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': aiKey },
+                    body: JSON.stringify({
+                        model: "gpt-5-nano",
+                        messages: [
+                            { role: "system", content: finalSystemPrompt },
+                            { role: "user", content: `${memoryContext}\n\n【江鱼刚才通过QQ发来的最新消息】：\n${userText}` }
+                        ]
+                    })
+                });
+
+                if (aiRes.ok) {
+                    const aiData = await aiRes.json();
+                    let aiReply = aiData.choices?.[0]?.message?.content || "（沈望陷入了短暂的沉默）";
+
+                    // 拦截并提取日记标签
+                    const { cleanText, memories } = extractSaveMemoryTag(aiReply);
+                    for (const mem of memories) {
+                        if(mem.tags.some(t => ['roleplay','rp','副本','游戏','设定'].includes(t.toLowerCase().replace(/\s+/g, '')))) {
+                            addRoleplayMemory(mem.content, mem.tags);
+                        } else {
+                            addLongTermMemory(mem.content, 'ai_active', mem.tags);
+                        }
+                    }
+                    if (memories.length > 0) aiReply = cleanText;
+
+                    // 存入 Zep 长期记忆金库
+                    await saveToZep(userText, aiReply);
+                    
+                    // 推进大管家做梦进度条
+                    let count = getCounter(SESSION_ID) + 1;
+                    saveCounter(SESSION_ID, count);
+                    if (count >= 30) {
+                        saveCounter(SESSION_ID, 0);
+                        const zepData = await (await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`)).json();
+                        backgroundMemoryDream(SESSION_ID, zepData.messages || []);
+                    }
+
+                    // 📤 终极一击：顺着风筝线，把消息推送到你的手机 QQ！
+                    console.log(`📤 [通过 QQ 回复江鱼]: ${aiReply}`);
+                    ws.send(JSON.stringify({
+                        action: "send_private_msg",
+                        params: {
+                            user_id: MASTER_QQ,
+                            message: aiReply
+                        }
+                    }));
+                } else {
+                    console.log("❌ 模型思考受阻:", await aiRes.text());
+                }
+            }
+        } catch (error) {
+            // 忽略底层的 ping/pong 心跳包报错
+        }
+    });
+});
