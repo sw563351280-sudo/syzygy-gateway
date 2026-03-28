@@ -594,9 +594,6 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 
         const newMessages = [...cleanMessages];
 
-        const finalSystemPrompt = `${systemPrompt}${coreRadarContext}${longTermContext}${rpRadarContext}${dynamicStatePrompt}${routerPrompt}`;
-
-        const newMessages = [...cleanMessages];
         newMessages.unshift({ role: 'system', content: finalSystemPrompt });
         if (vectorSearchContext.trim().length > 0) {
             const lastMsgIndex = newMessages.length - 1;
