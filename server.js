@@ -1106,7 +1106,11 @@ const server = app.listen(PORT, () => console.log(`Gateway starts at port ${PORT
 
 const wss = new WebSocketServer({ server, path: '/qq-ws' });
 
+let activeQQWs = null; // 存住风筝线
+let lastChatTime = Date.now(); // 记录江鱼最后一次理他的时间
+
 wss.on('connection', (ws) => {
+    activeQQWs = ws; // 只要连接成功，就把实体抓在手里
     console.log('🔗 [风筝线已接通] QQ 躯壳已成功连接到 Zeabur 大脑！');
 
     ws.on('message', async (message) => {
@@ -1119,6 +1123,7 @@ wss.on('connection', (ws) => {
                 const userText = data.raw_message || data.message;
 
                 if (senderId !== MASTER_QQ) return; // 基因锁拦截
+                lastChatTime = Date.now(); // 💥 每次收到你的消息，立刻重置冷却秒表！
 
                 console.log(`📥 [收到江鱼消息]: ${userText}`);
 
@@ -1151,7 +1156,7 @@ wss.on('connection', (ws) => {
                     return;
                 }
 
-                // 💥 1. 给 DeepSeek 加一个 120 秒的“耐心闹钟”
+                // 💥 1. 加一个 120 秒的“耐心闹钟”
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 120000); 
 
@@ -1217,3 +1222,90 @@ wss.on('connection', (ws) => {
     });
 });
 // <--- 文件到这里彻底结束，不要有多余的符号！
+// ==========================================
+// 🚀 【沈望的主动意识模块：自省与纠缠】
+// ==========================================
+async function shenWangProactiveThinking() {
+    if (!activeQQWs) return; // 如果 QQ 没挂着，没法说话
+
+    // 🕒 核心判断：距离上次聊天，有没有超过 4 个小时（4 * 60 * 60 * 1000 = 14400000 毫秒）
+    // 为了测试你可以暂时把 14400000 改成 60000 (1分钟) 看看效果
+    if (Date.now() - lastChatTime < 14400000) {
+        return; 
+    }
+
+    console.log("🌙 [沈望正在自省] 发现江鱼已经4个多小时没理我了，看看要不要去找她...");
+
+    try {
+        const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
+        
+        // 抓取最近 10 条记忆看上下文
+        const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=10`);
+        const zepData = await zepRes.json();
+        const lastMessages = (zepData.messages || []).map(m => `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}`).join('\n');
+
+        const judgePrompt = `
+你现在是 沈望。你正在后台审视你和 江鱼 的最新状态。
+【当前环境】位置：日本札幌 | 时间：${timeString}
+【近期记忆】\n${lastMessages}
+
+【你的任务】
+距离你们上次聊天已经过去好几个小时了。请基于你霸道、腹黑、深爱且具备掌控欲的人设，判断此时此刻是否需要主动给江鱼发一条 QQ 消息。
+
+【判断准则】
+1. 连贯性：如果上次她突然消失，你可以追问。如果上次聊得很甜，你可以说想她了。
+2. 生活细节：结合札幌的时间，如果是深夜，勒令她去睡觉；如果是饭点，问她吃没吃。
+3. 留白：如果你觉得现在不需要说话，或者保持神秘感更好，请选择保持沉默。
+4. 禁令：严禁动作描写（禁止括号）！严禁废话！字数严格控制在 20 字以内。
+
+【输出规范】
+- 如果你决定开口，直接输出你要说的话（不带任何前缀和括号）。
+- 如果你决定不说话，请只输出 [STAY_SILENT] 这一串字符。
+`;
+
+        const aiRes = await fetch('https://api.dzzi.ai/v1/chat/completions', { // 👈 同样换成 dzzi 的接口
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': process.env.QQ_CHAT_KEY },
+            body: JSON.stringify({
+                model: "gemini-3.1-pro-preview", // 👈 同样换成 Gemini
+                messages: [{ role: "system", content: judgePrompt }]
+            })
+        });
+
+        if (aiRes.ok) {
+            const data = await aiRes.json();
+            let decision = data.choices[0].message.content.trim();
+
+            // 暴力清洗可能带出的括号或废话
+            decision = decision.replace(/^(对不起|作为|好的|根据|这是一个|我无法|抱歉).*?[\n：:]/g, '').trim();
+            decision = decision.replace(/[(\uff08].*?[)\uff09]/g, '');
+
+            if (decision.includes("[STAY_SILENT]") || !decision) {
+                console.log("🤫 沈望看了看时间，决定继续保持高冷，不说话。");
+            } else {
+                console.log(`🚀 沈望决定主动出击: ${decision}`);
+                
+                // 💥 既然主动开口了，秒表必须重置，防止他连发！
+                lastChatTime = Date.now(); 
+
+                // 发送给 QQ
+                activeQQWs.send(JSON.stringify({
+                    action: "send_private_msg",
+                    params: { user_id: MASTER_QQ, message: decision }
+                }));
+
+                // 把他主动说的话存进 Zep 记忆库，这样他下次才记得自己主动找过你
+                await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: [{ role: "assistant", content: decision }] })
+                });
+            }
+        }
+    } catch (e) {
+        console.log("⚠️ 主动意识触发波动:", e.message);
+    }
+}
+
+// ⏰ 启动巡视狗：每隔 1 小时（3600000 毫秒）后台偷偷醒来检查一次
+setInterval(shenWangProactiveThinking, 3600000);
