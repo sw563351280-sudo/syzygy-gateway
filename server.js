@@ -1171,7 +1171,8 @@ wss.on('connection', (ws) => {
         model: "deepseek-chat", // 👈 官方 V3 模型名
         messages: [
             { role: "system", content: finalSystemPrompt },
-            { role: "user", content: `${memoryContext}\n\n${speakerName} 对你说：${userText}` }
+            // ✅ 把它改回固定叫江鱼
+{ role: "user", content: `${memoryContext}\n\n江鱼说：${userText}` }
         ]
     })
 });
