@@ -637,7 +637,8 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                             const ltIdx = contentBuffer.lastIndexOf('<');
                             if (ltIdx !== -1 && contentBuffer.substring(ltIdx).length < '<SAVE_MEMORY'.length) {
                                 const safe = contentBuffer.substring(0, ltIdx);
-                                if (safe) res.write(buildSSEChunk(safe, lastChunkTemplate));
+                                const safeChunk = buildSSEChunk(safe, lastChunkTemplate);
+if (safeChunk) res.write(safeChunk);
                                 contentBuffer = contentBuffer.substring(ltIdx);
                             } else {
                                 res.write(buildSSEChunk(contentBuffer, lastChunkTemplate));
