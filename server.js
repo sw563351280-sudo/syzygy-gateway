@@ -668,7 +668,7 @@ if (safeChunk) res.write(safeChunk);
                             }
                             contentBuffer = contentBuffer.substring(closeIdx + '</SAVE_MEMORY>'.length);
                             isBuffering = false;
-                            if (contentBuffer) { res.write(buildSSEChunk(contentBuffer, lastChunkTemplate)); contentBuffer = ''; }
+                            if (contentBuffer) { const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate); if (chunk) res.write(chunk); contentBuffer = ''; }
                         }
                     }
                 }
