@@ -1181,7 +1181,7 @@ const qqChatPatch = `
                 // 向大模型发起思考请求 (这里借用你后台大管家用的默认 Key)
                 const aiKey = process.env.QQ_CHAT_KEY; 
                 if (!aiKey) {
-                    console.log("❌ 糟糕！没有找到 ROUTER_API_KEY 环境变量！");
+                    console.log("❌ 糟糕！没有找到 QQ_CHAT_KEY 环境变量！");
                     return;
                 }
 
