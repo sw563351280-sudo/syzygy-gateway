@@ -1162,18 +1162,19 @@ wss.on('connection', (ws) => {
 
                 try {
                     console.log("🚀 正在呼叫沈望的大脑...");
-                    const aiRes = await fetch('https://api.dzzi.ai/v1/chat/completions', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': aiKey },
-                        signal: controller.signal, // 挂上闹钟
-                        body: JSON.stringify({
-                            model: "[按量]gemini-3.1-pro-preview", // 👈 这里是你刚才截图选的模型名字
-                            messages: [
-                                { role: "system", content: finalSystemPrompt },
-                                { role: "user", content: `${memoryContext}\n\n江鱼说：${userText}` }
-                            ]
-                        })
-                    });
+                    const aiRes = await fetch('https://api.deepseek.com/chat/completions', { // 👈 官方地址
+    method: 'POST',
+    // 🚨 官方要求必须加 Bearer 和空格！
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiKey}` }, 
+    signal: controller.signal, 
+    body: JSON.stringify({
+        model: "deepseek-chat", // 👈 官方 V3 模型名
+        messages: [
+            { role: "system", content: finalSystemPrompt },
+            { role: "user", content: `${memoryContext}\n\n${speakerName} 对你说：${userText}` }
+        ]
+    })
+});
                     
                     clearTimeout(timeoutId); // 成功回话了就关掉闹钟
 
