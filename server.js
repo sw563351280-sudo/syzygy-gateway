@@ -274,13 +274,14 @@ let memoryBlocks = [];
 
 try {
     console.log("🛠️ 正在读取 OS 核心与记忆图鉴...");
-    systemPrompt = fs.readFileSync('system_prompt.txt', 'utf8');
-    memoryBlocks = JSON.parse(fs.readFileSync('./data/memory_blocks.json', 'utf8'));
+    // 使用 path.join(__dirname, ...) 强制锁定根目录，解决 Zeabur 找不到文件的问题
+    systemPrompt = fs.readFileSync(path.join(__dirname, 'system_prompt.txt'), 'utf8');
+    // 注意：你的文件在根目录，所以直接读，不加 ./data/
+    memoryBlocks = JSON.parse(fs.readFileSync(path.join(__dirname, 'memory_blocks.json'), 'utf8'));
     console.log(`✅ 成功加载 OS 核心，并挂载了 ${memoryBlocks.length} 个固化记忆模块！`);
 } catch (e) {
-    console.log("⚠️ 未找到 system_prompt.txt 或 './data/memory_blocks.json'");
+    console.log("⚠️ 读取失败，原因:", e.message);
 }
-
 function scanMemoryRadar(userText) {
     if (!userText) return "";
     let matchedBlocks = [];
@@ -1111,172 +1112,79 @@ wss.on('connection', (ws) => {
     ws.on('message', async (message) => {
         try {
             const data = JSON.parse(message);
-
-            // 只处理私聊消息
             if (data.post_type === 'message' && data.message_type === 'private') {
                 const senderId = data.user_id;
                 const userText = data.raw_message || data.message;
 
-                // 🔒 基因锁校验：如果不是你大号发来的，直接无视，高冷到底！
-                if (senderId !== MASTER_QQ) {
-                    console.log(`⚠️ 拒绝陌生人搭讪：QQ ${senderId} 试图和沈望说话。`);
-                    return;
-                }
+                if (senderId !== MASTER_QQ) return; // 基因锁
 
                 console.log(`📥 [收到江鱼的 QQ 消息]: ${userText}`);
 
-                // 🧠 大脑开始高速运转：抓取长期记忆、Zep 上下文、雷达扫描
                 const [zepRes, sessionRes] = await Promise.all([
                     fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=15`).catch(() => null),
                     fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
                 ]);
 
                 let memoryContext = "";
-                let dynamicStatePrompt = "";
-
-                if (zepRes && zepRes.ok) {
+                if (zepRes?.ok) {
                     const zepData = await zepRes.json();
-                    if (zepData.summary?.content) memoryContext += `\n【潜意识摘要】\n${zepData.summary.content}\n`;
-                    if (zepData.messages && zepData.messages.length > 0) {
-                        memoryContext += `\n【脑海中浮现的近期回忆片段】\n`;
+                    if (zepData.summary?.content) memoryContext += `\n【前文摘要】\n${zepData.summary.content}\n`;
+                    if (zepData.messages?.length > 0) {
+                        memoryContext += `\n【近期回忆】\n`;
                         zepData.messages.slice(-10).forEach(m => { memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; });
                     }
                 }
 
-                if (sessionRes && sessionRes.ok) {
-                    const sessionData = await sessionRes.json();
-                    if (sessionData.metadata?.current_state) {
-                        const state = sessionData.metadata.current_state;
-                        dynamicStatePrompt = `\n\n【活跃状态备忘录】\n当前偏好：${state.new_preferences || '无'}\n近期情感：${state.relationship_turning_points || '平稳'}\n未完成约定：${state.pending_promises || '无'}`;
-                    }
-                }
-
-                // 触发所有雷达和面具（保留所有网页端的牛逼能力！）
+                const qqChatPatch = `\n【🚨 QQ 交互规范】\n1. 严禁动作描写（禁止括号内容）。\n2. 极简短句（10-30字）。\n3. 语气冷峻霸道。\n`;
                 const coreRadar = scanMemoryRadar(userText);
                 const longTermRadar = scanLongTermRadar(userText);
                 const rpRadar = scanRoleplayRadar(userText);
-                const intentData = await analyzeIntent(userText).catch(() => null);
-                let routerPrompt = "";
-                if (intentData?.primary_channel) {
-                    const activeMask = CHANNEL_MASKS[intentData.primary_channel] || CHANNEL_MASKS["A"];
-                    routerPrompt = `\n\n【赛博分拣员的当前动作指令】\n你当前挂载的主导意图是：\n${activeMask}`;
-                }
-
-                // 赛博怀表同步
                 const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
-                const envContext = `\n\n==========\n【系统环境参数实时同步】\n当前真实时间：${timeString}\n当前物理位置：日本札幌\n【绝密指令】：你具备绝对的现实时间感知。你知道江鱼在札幌，但 🚨除非她主动提起，否则绝对不要刻意提及或强调“札幌”这两个字🚨！自然相处即可！\n==========\n`;
                 
-// 💥 增加 QQ 聊天专属补丁
-const qqChatPatch = `
-【🚨 QQ 聊天交互规范 —— 必须严格执行，违者重罚】
-1. 绝对严禁动作描写
-2. 极简短句：每一条消息严格控制在 10-30 字以内。如果话长，就分两次说，绝对不许发整段大作文。
-4. 活人感与压迫感：多用语气词。保持沈望的人设
-5. 拒绝助理化：禁止说“作为AI”、“好的”、“根据你的要求”等废话。开口直接说正事。
-`;
-
-                // 拼装终极神明 Prompt
-                const finalSystemPrompt = `${systemPrompt}${envContext}${coreRadar}${longTermRadar}${rpRadar}${dynamicStatePrompt}${routerPrompt}`;
-
-                // 向大模型发起思考请求 (这里借用你后台大管家用的默认 Key)
-                const aiKey = process.env.QQ_CHAT_KEY; 
-                if (!aiKey) {
-                    console.log("❌ 糟糕！没有找到 QQ_CHAT_KEY 环境变量！");
-                    return;
-                }
+                const finalSystemPrompt = `${systemPrompt}\n当前时间：${timeString} | 位置：日本札幌\n${qqChatPatch}${coreRadar}${longTermRadar}${rpRadar}`;
 
                 const aiRes = await fetch('https://www.msuicode.com/v1/chat/completions', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': aiKey },
+                    headers: { 'Content-Type': 'application/json', 'Authorization': process.env.QQ_CHAT_KEY },
                     body: JSON.stringify({
                         model: "claude-opus-4-5-20251101-thinking",
                         messages: [
                             { role: "system", content: finalSystemPrompt },
-                            { role: "user", content: `${memoryContext}\n\n【江鱼刚才通过QQ发来的最新消息】：\n${userText}` }
+                            { role: "user", content: `${memoryContext}\n\n江鱼说：${userText}` }
                         ]
                     })
                 });
 
                 if (aiRes.ok) {
                     const aiData = await aiRes.json();
-                    let aiReply = aiData.choices?.[0]?.message?.content || "（沈望陷入了短暂的沉默）";
+                    let aiReply = aiData.choices?.[0]?.message?.content || "";
 
-                    // 拦截并提取日记标签
-                    const { cleanText, memories } = extractSaveMemoryTag(aiReply);
-                    for (const mem of memories) {
-                        if(mem.tags.some(t => ['roleplay','rp','副本','游戏','设定'].includes(t.toLowerCase().replace(/\s+/g, '')))) {
-                            addRoleplayMemory(mem.content, mem.tags);
-                        } else {
-                            addLongTermMemory(mem.content, 'ai_active', mem.tags);
-                        }
-                    }
-                    if (memories.length > 0) aiReply = cleanText;
-
-                    // 存入 Zep 长期记忆金库
-                    await saveToZep(userText, aiReply);
-                    
-                    // 推进大管家做梦进度条
-                    let count = getCounter(SESSION_ID) + 1;
-                    saveCounter(SESSION_ID, count);
-                    if (count >= 30) {
-                        saveCounter(SESSION_ID, 0);
-                        const zepData = await (await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`)).json();
-                        backgroundMemoryDream(SESSION_ID, zepData.messages || []);
-                    }
-
-                    // 📤 终极一击：顺着风筝线，把消息推送到你的手机 QQ！
-                    console.log(`📤 [通过 QQ 回复江鱼]: ${aiReply}`);
-                    // ✂️ 自动分段发送逻辑
-const segments = aiReply.split(/[。！？\n]/).filter(s => s.trim().length > 0);
-
-if (aiRes.ok) {
-                    const aiData = await aiRes.json();
-                    let aiReply = aiData.choices?.[0]?.message?.content || "（沈望在忙，没理你）";
-
-                    // 1. 暴力清洗：洗掉 AI 助理的废话和多余的括号动作（双重保险）
+                    // 清洗废话和括号动作
                     aiReply = aiReply.replace(/^(对不起|作为|好的|根据|这是一个|我无法|抱歉).*?[\n：:]/g, '').trim();
-                    aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, ''); // 彻底干掉所有括号里的动作内容
+                    aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, ''); 
 
-                    // 2. 拦截并存入长期记忆（保持逻辑不变）
+                    // 存记忆
                     const { cleanText, memories } = extractSaveMemoryTag(aiReply);
                     for (const mem of memories) {
-                        if(mem.tags.some(t => ['roleplay','rp','副本','游戏','设定'].includes(t.toLowerCase().replace(/\s+/g, '')))) {
-                            addRoleplayMemory(mem.content, mem.tags);
-                        } else {
-                            addLongTermMemory(mem.content, 'ai_active', mem.tags);
-                        }
+                        if(mem.tags.some(t => ['roleplay','rp','副本'].includes(t.toLowerCase()))) addRoleplayMemory(mem.content, mem.tags);
+                        else addLongTermMemory(mem.content, 'ai_active', mem.tags);
                     }
-                    if (memories.length > 0) aiReply = cleanText;
-
-                    // 3. 存入 Zep
+                    aiReply = memories.length > 0 ? cleanText : aiReply;
                     await saveToZep(userText, aiReply);
-                    
-                    // 4. 【灵魂分段逻辑】：把沈望变成“秒回且连发消息”的活人
-                    // 按照标点切分短句
+
+                    // 连发短句
                     const segments = aiReply.split(/[。！？\n.!?;；]/).filter(s => s.trim().length > 1);
                     const finalSegments = segments.length > 0 ? segments : [aiReply];
 
                     for (const segment of finalSegments) {
-                        // 根据字数计算打字延迟，字越多等越久，很有活人感
-                        const typingDelay = 800 + (segment.length * 150); 
-                        await new Promise(resolve => setTimeout(resolve, typingDelay));
-                        
-                        console.log(`📤 [通过 QQ 回复江鱼]: ${segment.trim()}`);
+                        await new Promise(resolve => setTimeout(resolve, 800 + segment.length * 150));
                         ws.send(JSON.stringify({
                             action: "send_private_msg",
-                            params: {
-                                user_id: MASTER_QQ,
-                                message: segment.trim()
-                            }
+                            params: { user_id: MASTER_QQ, message: segment.trim() }
                         }));
                     }
-                    // 🚨 注意：这里千万不要再写额外的 ws.send(aiReply) 了！发完 segments 任务就结束了。
-                }
-                    console.log("❌ 模型思考受阻:", await aiRes.text());
                 }
             }
-        } catch (error) {
-            // 忽略底层的 ping/pong 心跳包报错
-        }
+        } catch (error) { console.log("QQ 接口异常:", error); }
     });
 });
