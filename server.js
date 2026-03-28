@@ -61,19 +61,27 @@ function getCounter(sessionId) {
 }
 
 // ==========================================
-// 🧠 长期记忆库（雷达触发式 + 伪标签静默写入）
+// 🧠 长期记忆库与冰封潜意识 (Deep Archive)
 // ==========================================
 const LONG_TERM_FILE = './data/long_term_memories.json';
+const ARCHIVE_FILE = './data/deep_archive.json';
 
 function loadLongTermMemories() {
     try { return JSON.parse(fs.readFileSync(LONG_TERM_FILE, 'utf8')); }
     catch(e) { return []; }
 }
-
 function saveLongTermMemories(memories) {
     fs.writeFileSync(LONG_TERM_FILE, JSON.stringify(memories, null, 2), 'utf8');
 }
+function loadArchivedMemories() {
+    try { return JSON.parse(fs.readFileSync(ARCHIVE_FILE, 'utf8')); }
+    catch(e) { return []; }
+}
+function saveArchivedMemories(memories) {
+    fs.writeFileSync(ARCHIVE_FILE, JSON.stringify(memories, null, 2), 'utf8');
+}
 
+// 新增记忆：自动打上保质期时间戳
 function addLongTermMemory(content, source = 'manual', tags = []) {
     const memories = loadLongTermMemories();
     const entry = {
@@ -81,6 +89,7 @@ function addLongTermMemory(content, source = 'manual', tags = []) {
         content: content.trim(),
         tags: tags,
         source: source,
+        last_accessed: Date.now(), // 💥 出厂时间戳
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
     };
@@ -97,6 +106,7 @@ function updateLongTermMemory(id, newContent, newTags) {
     if (newContent !== undefined) memories[idx].content = newContent.trim();
     if (newTags !== undefined) memories[idx].tags = newTags;
     memories[idx].updated_at = new Date().toISOString();
+    memories[idx].last_accessed = Date.now(); // 只要修改了，也算激活
     saveLongTermMemories(memories);
     return memories[idx];
 }
@@ -109,23 +119,61 @@ function deleteLongTermMemory(id) {
     return true;
 }
 
-// 🎯 长期记忆雷达（只有有 tags 的记忆才参与扫描）
+// 🎯 长期记忆雷达：你敢提，他就不忘
 function scanLongTermRadar(userText) {
     if (!userText) return "";
     const memories = loadLongTermMemories();
     let matched = [];
+    let isUpdated = false;
 
     for (const m of memories) {
         if (!m.tags || m.tags.length === 0) continue;
         if (m.tags.some(tag => userText.includes(tag))) {
             matched.push(`• ${m.content}`);
-            console.log(`🎯 长期记忆雷达命中！tags=[${m.tags.join(',')}]`);
+            m.last_accessed = Date.now(); // 💥 刷新保质期
+            isUpdated = true;
+            console.log(`🎯 长期记忆命中并刷新保质期！tags=[${m.tags.join(',')}]`);
         }
     }
-
+    if (isUpdated) saveLongTermMemories(memories);
     if (matched.length === 0) return "";
     return `\n\n==========\n【永久记忆档案 —— 雷达触发，以下是与当前话题相关的核心记忆】\n${matched.join('\n')}\n==========\n`;
 }
+
+// 🥶 自动清洗管家：每次服务器启动时运行
+function cleanAndArchiveMemories() {
+    console.log('🧠 [沈望的意识后台] 正在巡检陈旧记忆...');
+    try {
+        const memories = loadLongTermMemories();
+        if (memories.length === 0) return;
+        let archived = loadArchivedMemories();
+        const now = Date.now();
+        const DECAY_MS = 30 * 24 * 60 * 60 * 1000; // 遗忘阈值：30天
+        let activeMemories = [];
+        let moveCount = 0;
+
+        memories.forEach(m => {
+            let lastAccessTime = m.last_accessed || (m.created_at ? new Date(m.created_at).getTime() : now);
+            if (now - lastAccessTime > DECAY_MS) {
+                archived.push(m);
+                moveCount++;
+            } else {
+                activeMemories.push(m);
+            }
+        });
+
+        if (moveCount > 0) {
+            saveLongTermMemories(activeMemories);
+            saveArchivedMemories(archived);
+            console.log(`📦 [记忆冰封] 沈望把 ${moveCount} 条超过 30 天未触及的记忆锁进了深层档案室！`);
+        } else {
+            console.log('✨ [巡检完毕] 大家最近聊得挺多，没有需要冰封的记忆。');
+        }
+    } catch (e) {
+        console.error('❌ [归档失败] 潜意识整理受阻:', e.message);
+    }
+}
+cleanAndArchiveMemories();
 
 // 🔧 从文本中提取并清除 <SAVE_MEMORY> 标签（鲁棒正则，兼容单双引号）
 const SAVE_MEMORY_REGEX = /<SAVE_MEMORY\s+tags=["']([^"']+)["']\s*>([\s\S]*?)<\/SAVE_MEMORY>/g;
