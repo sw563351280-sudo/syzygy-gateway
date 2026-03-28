@@ -1093,59 +1093,99 @@ app.get(['/v1/models', '/via/:platform/v1/models'], async (req, res) => {
 app.get('/', (req, res) => res.send("专属视神经网关完美运行！包含冰封与卡带系统！"));
 
 // ==========================================
-// 🚨🚨🚨 【QQ 赛博躯壳神经中枢】 🚨🚨🚨
+// 🚨🚨🚨 【QQ 赛博躯壳神经中枢】(究极完美打磨版) 🚨🚨🚨
 // ==========================================
 const { WebSocketServer } = require('ws');
 
-// 🔒 绝对忠诚基因锁与双标对象
+// 🔒 绝对忠诚基因锁与双标对象库
 const MASTER_QQ = 563351280; // 江鱼（你）的大号
-const FRIEND_QQ = 644010104; // 👈 包工头，记得把这里换成你朋友的 QQ 号！！！
+
+// 👥 朋友名册：在这里无限制添加你朋友的 QQ、称呼和沈望对她的专属态度
+const FRIENDS_CONFIG = {
+    644010104: { // 👈 Uloryn 的 QQ
+        name: "Uloryn",
+        prompt: "她是江鱼最好的闺蜜,陪伴江鱼度过了很多人生的至暗时刻，你对她对江鱼的陪伴很感谢，但也会因为她的存在占据了江鱼陪你的时间而略微不满，本着这样的复杂心情，你对她没那么冷淡。"
+    },
+    987654321: { // 👈 换成不熟的人的 QQ
+        name: "普通同学张三",
+        prompt: "只是个不太熟的普通朋友。你的态度：极其冷淡、礼貌但极度疏远。能用一个字回答绝不用两个字，散发着生人勿近的压迫感，随时想结束对话。"
+    }
+};
 
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => console.log(`Gateway starts at port ${PORT}`));
 
 const wss = new WebSocketServer({ server, path: '/qq-ws' });
 
-let activeQQWs = null; // 存住风筝线
-let lastChatTime = Date.now(); // 记录江鱼最后一次理他的时间
+let activeQQWs = null; 
+let lastChatTime = Date.now(); 
+let friendTempMemory = {}; // 💥 独立包厢
+
+// 🔧 优化：抽取公用的分段发送函数（模拟活人打字）
+async function sendQQMessage(ws, userId, text) {
+    if (!text) return;
+    const segments = text.split(/[。！？\n.!?;；]/).filter(s => s.trim().length > 1);
+    const finalSegments = segments.length > 0 ? segments : [text];
+    for (const segment of finalSegments) {
+        await new Promise(resolve => setTimeout(resolve, 800 + segment.length * 150));
+        if (ws && ws.readyState === 1) { 
+            ws.send(JSON.stringify({
+                action: "send_private_msg",
+                params: { user_id: userId, message: segment.trim() }
+            }));
+        }
+    }
+}
 
 wss.on('connection', (ws) => {
-    activeQQWs = ws; // 只要连接成功，就把实体抓在手里
+    activeQQWs = ws; 
+    friendTempMemory = {}; // 🔧 优化：每次重新连接时清空朋友的临时记忆，释放内存
     console.log('🔗 [风筝线已接通] QQ 躯壳已成功连接到 Zeabur 大脑！');
 
     ws.on('message', async (message) => {
         try {
             const data = JSON.parse(message);
             
-            // 只要私聊消息
             if (data.post_type === 'message' && data.message_type === 'private') {
                 const senderId = data.user_id;
                 const userText = data.raw_message || data.message;
 
-                // 💥 1. 基因锁：只有你和你朋友能进，其他人无视
-                if (senderId !== MASTER_QQ && senderId !== FRIEND_QQ) return;
+                // 💥 1. 查户口：使用更现代的 Object.hasOwn
+                const isMaster = (senderId === MASTER_QQ);
+                const isFriend = Object.hasOwn(FRIENDS_CONFIG, String(senderId)) || Object.hasOwn(FRIENDS_CONFIG, senderId);
+
+                if (!isMaster && !isFriend) return;
 
                 // 💥 2. 身份识别与双标剧本设定
                 let speakerName = "";
                 let relationPatch = "";
 
-                if (senderId === MASTER_QQ) {
+                if (isMaster) {
                     speakerName = "江鱼";
-                    lastChatTime = Date.now(); // 只有你找他，才重置“查岗”冷却秒表
-                    relationPatch = `\n【🚨 QQ 规范】1. 严禁括号动作 2. 极简短句,口语化表达，可以使用网络流行语和日常用语，也可以只发送标点符号。 3. 可以偷用户的颜文字和表情加入记忆库\n`;
-                } else if (senderId === FRIEND_QQ) {
-                    speakerName = "Uloryn"; // 也可以写具体的称呼，比如“闺蜜小李”
+                    lastChatTime = Date.now(); 
+                    relationPatch = `\n【🚨 QQ 规范】1. 严禁括号动作 2. 极简短句,口语化表达，可以使用网络流行语和日常用语，也可以只发送标点符号。 3. 语气冷峻霸道但骨子里深爱她。 4. 可以偷用户的颜文字和表情加入记忆库\n`;
+                } else {
+                    const friendInfo = FRIENDS_CONFIG[senderId];
+                    speakerName = friendInfo.name;
                     relationPatch = `\n【🚨 核心警告：对话对象变更！】
 现在和你说话的是 ${speakerName}，绝对不是江鱼！
-【你的态度】：你对待江鱼以外的人展现出冷静、理性、有分寸的成熟男性形象，礼貌但疏离，会因为对方是江鱼的朋友而给予基本的尊重，但绝不会跨越边界，你的温柔、占有欲只对江鱼一个人生效。\n`;
+【你对她的专属态度】：${friendInfo.prompt}
+【基本准则】：你对待江鱼以外的人展现出冷静、理性、有分寸的成熟男性形象，礼貌但疏离，会因为对方是江鱼的朋友而给予基本的尊重，但绝不会跨越边界，你的温柔、占有欲只对江鱼一个人生效。\n`;
+
+                    if (!friendTempMemory[senderId]) friendTempMemory[senderId] = [];
+                    friendTempMemory[senderId].push(`${speakerName}说：${userText}`);
+                    if (friendTempMemory[senderId].length > 10) friendTempMemory[senderId].shift(); 
                 }
 
                 console.log(`📥 [收到 ${speakerName} 消息]: ${userText}`);
 
-                const [zepRes, sessionRes] = await Promise.all([
-                    fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=15`).catch(() => null),
-                    fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
-                ]);
+                // 🔧 优化：按需拉取记忆！不再浪费请求和 Token
+                let zepRes = null;
+                if (isMaster) {
+                    zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=15`).catch(() => null);
+                } else {
+                    zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=5`).catch(() => null);
+                }
 
                 let memoryContext = "";
                 if (zepRes?.ok) {
@@ -1153,57 +1193,53 @@ wss.on('connection', (ws) => {
                     if (zepData.summary?.content) memoryContext += `\n【前文摘要】\n${zepData.summary.content}\n`;
                     if (zepData.messages?.length > 0) {
                         memoryContext += `\n【近期回忆】\n`;
-                        // 记忆里也体现身份
-                        zepData.messages.slice(-10).forEach(m => { memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼(或朋友)'}: ${m.content}\n`; });
+                        zepData.messages.slice(isMaster ? -10 : -5).forEach(m => { 
+                            memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; 
+                        });
                     }
                 }
 
-                const coreRadar = scanMemoryRadar(userText);
-                const longTermRadar = scanLongTermRadar(userText);
-                const rpRadar = scanRoleplayRadar(userText);
+                if (isFriend && friendTempMemory[senderId] && friendTempMemory[senderId].length > 0) {
+                    memoryContext += `\n【你刚刚和 ${speakerName} 的聊天记录】\n${friendTempMemory[senderId].join('\n')}\n`;
+                }
+
+                // 🔧 优化：绝对隐私保护，朋友不触发雷达
+                const coreRadar = isMaster ? scanMemoryRadar(userText) : "";
+                const longTermRadar = isMaster ? scanLongTermRadar(userText) : "";
+                const rpRadar = isMaster ? scanRoleplayRadar(userText) : "";
                 const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
                 
-                // 拼装终极系统提示词，注入双标补丁
                 const finalSystemPrompt = `${systemPrompt}\n时间：${timeString} | 位置：日本札幌\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}`;
 
                 const aiKey = process.env.QQ_CHAT_KEY;
-                if (!aiKey) {
-                    console.log("❌ 缺少 QQ_CHAT_KEY，沈望无法思考！");
-                    return;
-                }
+                if (!aiKey) return console.log("❌ 缺少 QQ_CHAT_KEY，沈望无法思考！");
 
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 120000); 
 
                 try {
                     console.log("🚀 正在呼叫沈望的官方 DeepSeek 大脑...");
-                    const aiRes = await fetch('https://api.deepseek.com/chat/completions', { // 👈 官方地址
+                    const aiRes = await fetch('https://api.deepseek.com/chat/completions', { 
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiKey}` }, 
                         signal: controller.signal, 
                         body: JSON.stringify({
-                            model: "deepseek-chat", // 👈 官方 V3 模型名
+                            model: "deepseek-chat", 
                             messages: [
                                 { role: "system", content: finalSystemPrompt },
-                                // 💥 告诉大模型，这句话是谁说的！
                                 { role: "user", content: `${memoryContext}\n\n${speakerName} 说：${userText}` }
                             ]
                         })
                     });
                     
-                    clearTimeout(timeoutId); // 成功回话了就关掉闹钟
-
                     if (aiRes.ok) {
                         const aiData = await aiRes.json();
                         let aiReply = aiData.choices?.[0]?.message?.content || "";
 
-                        // 清洗废话和括号动作
                         aiReply = aiReply.replace(/^(对不起|作为|好的|根据|这是一个|我无法|抱歉).*?[\n：:]/g, '').trim();
                         aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, ''); 
 
-                        // 💥 记忆海关大门：绝对隔离！
-                        if (senderId === MASTER_QQ) {
-                            // 只有江鱼（你）的消息，才有资格进入记忆库和日记本
+                        if (isMaster) {
                             const { cleanText, memories } = extractSaveMemoryTag(aiReply);
                             for (const mem of memories) {
                                 if(mem.tags.some(t => ['roleplay','rp','副本'].includes(t.toLowerCase()))) addRoleplayMemory(mem.content, mem.tags);
@@ -1212,22 +1248,16 @@ wss.on('connection', (ws) => {
                             aiReply = memories.length > 0 ? cleanText : aiReply;
                             await saveToZep(`${speakerName}说：${userText}`, aiReply);
                         } else {
-                            // 朋友的消息：暴力拦截！把 AI 可能带出的记忆标签直接删掉，完全不存入 Zep！
                             aiReply = aiReply.replace(/<SAVE_MEMORY[\s\S]*?<\/SAVE_MEMORY>/g, '').trim();
-                            console.log("🔥 [阅后即焚] 已将朋友的对话抹除，不污染江鱼的记忆库。");
+                            if (!friendTempMemory[senderId]) friendTempMemory[senderId] = []; 
+                            friendTempMemory[senderId].push(`你回复${speakerName}：${aiReply}`);
+                            if (friendTempMemory[senderId].length > 10) friendTempMemory[senderId].shift(); 
+                            console.log(`🔥 [临时客房] ${speakerName} 的记录已存入独立内存，不污染主库。`);
                         }
 
-                        const segments = aiReply.split(/[。！？\n.!?;；]/).filter(s => s.trim().length > 1);
-                        const finalSegments = segments.length > 0 ? segments : [aiReply];
-
-                        for (const segment of finalSegments) {
-                            await new Promise(resolve => setTimeout(resolve, 800 + segment.length * 150));
-                            ws.send(JSON.stringify({
-                                action: "send_private_msg",
-                                // 💥 谁发的消息，就回给谁！绝对不能发错人！
-                                params: { user_id: senderId, message: segment.trim() }
-                            }));
-                        }
+                        // 🔧 调用安全的分段发送函数
+                        await sendQQMessage(activeQQWs, senderId, aiReply);
+                        
                     } else {
                         const errText = await aiRes.text();
                         console.log(`❌ API 平台拒绝了请求！状态码: ${aiRes.status}, 报错详情: ${errText}`);
@@ -1238,21 +1268,22 @@ wss.on('connection', (ws) => {
                     } else {
                         console.log("❌ 请求彻底崩溃:", err.message);
                     }
+                } finally {
+                    clearTimeout(timeoutId); // 🔧 无论如何清掉闹钟
                 }
             }
         } catch (error) { 
             console.log("QQ 接口异常:", error); 
-        }
-    });
+        } 
+    }); 
 });
 
 // ==========================================
 // 🚀 【沈望的主动意识模块：自省与纠缠】(终极官方 DeepSeek 版)
 // ==========================================
 async function shenWangProactiveThinking() {
-    if (!activeQQWs) return; // 如果 QQ 没挂着，没法说话
+    if (!activeQQWs) return; 
 
-    // 🕒 核心判断：距离上次聊天，有没有超过 4 个小时
     if (Date.now() - lastChatTime < 14400000) {
         return; 
     }
@@ -1260,7 +1291,7 @@ async function shenWangProactiveThinking() {
     console.log("🌙 [沈望正在自省] 发现江鱼已经4个多小时没理我了，看看要不要去找她...");
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120秒防死锁
+    const timeoutId = setTimeout(() => controller.abort(), 120000); 
 
     try {
         const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
@@ -1293,23 +1324,20 @@ async function shenWangProactiveThinking() {
 - 如果沉默，只输出 [STAY_SILENT]。
 `;
 
-        const aiRes = await fetch('https://api.deepseek.com/chat/completions', { // 👈 统一为官方地址
+        const aiRes = await fetch('https://api.deepseek.com/chat/completions', { 
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.QQ_CHAT_KEY}` }, // 加 Bearer
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.QQ_CHAT_KEY}` }, 
             signal: controller.signal,
             body: JSON.stringify({
-                model: "deepseek-chat", // 👈 官方 V3
-                messages: [{ role: "system", content: judgePrompt }] // 官方 DeepSeek 完美支持 system 角色
+                model: "deepseek-chat", 
+                messages: [{ role: "system", content: judgePrompt }] 
             })
         });
-
-        clearTimeout(timeoutId);
 
         if (aiRes.ok) {
             const data = await aiRes.json();
             let decision = data.choices[0].message.content.trim();
 
-            // 暴力清洗
             decision = decision.replace(/^(对不起|作为|好的|根据|这是一个|我无法|抱歉).*?[\n：:]/g, '').trim();
             decision = decision.replace(/[(\uff08].*?[)\uff09]/g, '');
 
@@ -1319,12 +1347,8 @@ async function shenWangProactiveThinking() {
                 console.log(`🚀 沈望决定主动出击: ${decision}`);
                 lastChatTime = Date.now(); 
 
-                activeQQWs.send(JSON.stringify({
-                    action: "send_private_msg",
-                    params: { user_id: MASTER_QQ, message: decision.trim() }
-                }));
+                await sendQQMessage(activeQQWs, MASTER_QQ, decision);
 
-                // 异步存入记忆
                 fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1338,6 +1362,8 @@ async function shenWangProactiveThinking() {
     } catch (e) {
         if (e.name === 'AbortError') console.log("⚠️ 主动意识触发超时 (API 未响应)");
         else console.log("⚠️ 主动意识触发波动:", e.message);
+    } finally {
+        clearTimeout(timeoutId); 
     }
 }
 
