@@ -756,13 +756,137 @@ app.delete('/api/archive-memories/:id', (req, res) => {
 });
 
 // ==========================================
-// 🌟 Zep 操作接口 (省略不变代码)
+// 🌟 Zep 记忆相关接口 (功能神经已完全接通)
 // ==========================================
-app.post('/add-memory', async (req, res) => { /* 你的代码 */ res.json({success:true}); });
-app.post('/trigger-dream', async (req, res) => { /* 你的代码 */ res.json({success:true}); });
-app.post('/delete-selected', async (req, res) => { /* 你的代码 */ res.json({success:true}); });
-app.delete('/delete-memory/:uuid', async (req, res) => { /* 你的代码 */ res.json({success:true}); });
-app.get('/memory-manager', async (req, res) => { /* 你的代码 */ res.send("Memory Manager"); }); // 为了代码精简，假设你的原文对话管理页没变
+app.post('/add-memory', async (req, res) => {
+    try {
+        const { content, role } = req.body;
+        if (!content) return res.status(400).json({ error: "content 不能为空" });
+        const result = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: [{ role: role || "user", content }] })
+        });
+        const text = await result.text();
+        console.log("📝 手动记忆写入：", content);
+        res.json({ success: true, response: text });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/trigger-dream', async (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
+    try {
+        const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`);
+        const zepData = await zepRes.json();
+        const zepMessages = zepData.messages || [];
+        if (zepMessages.length === 0) return res.json({ success: false, message: "没有记忆可以总结" });
+        saveCounter(SESSION_ID, 0);
+        backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
+        res.json({ success: true, message: `已触发总结，正在处理 ${Math.min(zepMessages.length, 30)} 条记忆。计数器已重置。` });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/delete-selected', async (req, res) => {
+    try {
+        const { keepMessages } = req.body;
+        console.log(`🗑️ 选择性删除，保留 ${keepMessages ? keepMessages.length : 0} 条`);
+        await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`, { method: 'DELETE' });
+        if (keepMessages && keepMessages.length > 0) {
+            const batchSize = 20;
+            for (let i = 0; i < keepMessages.length; i += batchSize) {
+                await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: keepMessages.slice(i, i + batchSize) })
+                });
+            }
+        }
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/delete-memory/:uuid', async (req, res) => {
+    try {
+        await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory/messages/${req.params.uuid}`, { method: 'DELETE' });
+        res.json({ success: true });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+// ==========================================
+// 🌟 对话记忆管理网页 (已抢救修复)
+// ==========================================
+app.get('/memory-manager', async (req, res) => {
+    const pwd = req.query.pwd;
+    if (pwd !== process.env.MEMORY_PASSWORD) {
+        return res.status(401).send(`<div style="margin:100px auto;max-width:300px;text-align:center"><h2>🔒 请输入访问密码</h2><input type="password" id="p" style="padding:8px;width:100%;margin:10px 0;border-radius:6px;border:1px solid #ddd" onkeydown="if(event.key==='Enter')go()"><button onclick="go()" style="padding:8px 20px;background:#4CAF50;color:white;border:none;border-radius:6px;cursor:pointer">进入</button></div><script>function go(){const p=document.getElementById('p').value;if(p)window.location.href='/memory-manager?pwd='+encodeURIComponent(p);}</script>`);
+    }
+    try {
+        const [memoryRes, sessionRes] = await Promise.all([
+            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`),
+            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`)
+        ]);
+        if (!memoryRes.ok) return res.status(500).send(`<h1>记忆获取失败</h1><a href="/memory-manager?pwd=${pwd}">重试</a>`);
+        if (!sessionRes.ok) return res.status(500).send(`<h1>会话获取失败</h1><a href="/memory-manager?pwd=${pwd}">重试</a>`);
+
+        const memoryData = await memoryRes.json();
+        const sessionData = await sessionRes.json();
+        const messages = memoryData.messages || [];
+        const summary = memoryData.summary?.content || '';
+        const currentState = sessionData.metadata?.current_state || null;
+        const currentCount = getCounter(SESSION_ID);
+        const lastSummarizedAt = sessionData.metadata?.last_summarized_at || null;
+        const messagesForScript = JSON.stringify(messages.map(m => ({ role: m.role, content: m.content })));
+        
+        // 修复：导航栏统计总数包含现实、冰封和RP游戏卡带
+        const ltMemCount = loadLongTermMemories().length + loadArchivedMemories().length + loadRoleplayMemories().length;
+
+        const messageList = messages.map((m, i) => {
+            const isSummarized = lastSummarizedAt && new Date(m.created_at) < new Date(lastSummarizedAt);
+            return `<div class="msg-item" style="background:${m.role==='user'?'#e3f2fd':'#f3e5f5'};padding:10px;margin:5px 0;border-radius:8px;display:${isSummarized?'none':'flex'};gap:10px;align-items:flex-start;" data-summarized="${isSummarized}"><input type="checkbox" class="msg-checkbox" data-index="${i}" style="margin-top:4px;flex-shrink:0;width:16px;height:16px;cursor:pointer;"><div style="flex:1"><small style="color:#888">${m.role==='user'?'江鱼':'沈望'} | ${new Date(m.created_at).toLocaleString()}${isSummarized?' 📦 已总结':''}</small><p style="margin:5px 0;white-space:pre-wrap">${m.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p></div></div>`;
+        }).join('');
+
+        const totalCount = messages.length;
+        const summarizedCount = lastSummarizedAt ? messages.filter(m => new Date(m.created_at) < new Date(lastSummarizedAt)).length : 0;
+        const unsummarizedCount = totalCount - summarizedCount;
+
+        const stateHtml = currentState ? `<div style="background:#fff9c4;padding:12px;border-radius:8px;margin:5px 0"><b>当前偏好：</b><p>${currentState.new_preferences||'无'}</p><b>近期情感：</b><p>${currentState.relationship_turning_points||'无'}</p><b>未完成约定：</b><p>${currentState.pending_promises||'无'}</p></div>` : '<p style="color:#888">还没有总结～</p>';
+
+        res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>记忆管理</title>
+<style>body{font-family:sans-serif;max-width:1000px;margin:40px auto;padding:20px}.nav-bar{margin-bottom:20px;display:flex;gap:12px}.nav-bar a,.nav-bar span{padding:6px 16px;border-radius:8px;text-decoration:none;font-size:14px}.nav-active{background:#1a73e8;color:white}.nav-link{background:white;border:1px solid #ddd;color:#333}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.card{background:#fafafa;border-radius:12px;padding:20px;border:1px solid #eee}textarea{width:100%;padding:10px;margin:5px 0;border:1px solid #ddd;border-radius:8px;box-sizing:border-box}button.add{background:#4CAF50;color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer}button.danger{background:#ff5252;color:white;border:none;padding:6px 16px;border-radius:8px;cursor:pointer}button.normal{padding:6px 16px;border-radius:6px;cursor:pointer;border:1px solid #ddd;background:white}select{padding:10px;border-radius:8px;border:1px solid #ddd;margin-bottom:8px;width:100%}h2{margin-top:0}.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.select-hint{font-size:13px;color:#888}@media(max-width:700px){.grid{grid-template-columns:1fr}}</style>
+</head><body>
+<div class="nav-bar"><span class="nav-active">📋 对话记忆</span><a href="/long-term?pwd=${pwd}" class="nav-link">💎 长期记忆 (${ltMemCount})</a></div>
+<h1>🧠 记忆管理</h1>
+<script id="messages-data" type="application/json">${messagesForScript}</script>
+<div class="grid"><div class="card">
+<h2>📌 总结记忆</h2>
+<h3>🗂 管家便利贴 <button onclick="triggerDream()" style="font-size:12px;padding:3px 10px;border-radius:6px;cursor:pointer;border:1px solid #ddd;background:#fff;margin-left:8px;">🌙 立即总结</button></h3>
+${stateHtml}
+<h3>📝 自动摘要</h3><div style="background:#f5f5f5;padding:12px;border-radius:8px;min-height:60px">${summary||'<p style="color:#888">还没有摘要～</p>'}</div>
+<h3>➕ 手动写入记忆</h3>
+<select id="role"><option value="user">user（你说的）</option><option value="assistant">assistant（他说的）</option></select>
+<textarea id="content" rows="3" placeholder="输入要写入的记忆内容..."></textarea>
+<button class="add" onclick="addMemory()">写入记忆</button>
+<p id="status" style="margin-top:10px;color:#666;"></p>
+</div><div class="card">
+<h2>💬 原始记录</h2>
+<div style="background:#e8f5e9;padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:13px;">📊 自动总结进度：<b>${currentCount}/30轮</b>${currentCount>=25?' ⚡即将触发！':''} | 📬未总结：<b>${unsummarizedCount}</b>条${summarizedCount>0?` | 📦已总结：<b>${summarizedCount}</b>条 <button class="normal" onclick="toggleSummarized()" style="font-size:11px;padding:2px 8px;margin-left:4px;">显示/隐藏</button>`:''}</div>
+<div class="toolbar"><button class="normal" onclick="location.reload()">🔄 刷新</button><button class="normal" onclick="toggleSelectAll()">☑️ 全选/取消</button><button class="danger" onclick="deleteSelected()">🗑️ 删除选中</button><span class="select-hint" id="select-count">未选中</span></div>
+<div style="max-height:600px;overflow-y:auto" id="msg-list">${messageList||'<p style="color:#888">暂无记录</p>'}</div>
+</div></div>
+<script>
+const ALL_MESSAGES=JSON.parse(document.getElementById('messages-data').textContent);
+function updateCount(){const c=document.querySelectorAll('.msg-checkbox:checked').length;const t=document.querySelectorAll('.msg-checkbox').length;document.getElementById('select-count').innerText=c>0?'已选'+c+'/'+t+'条':'未选中';}
+document.querySelectorAll('.msg-checkbox').forEach(cb=>cb.addEventListener('change',updateCount));
+let allSelected=false;
+function toggleSelectAll(){allSelected=!allSelected;document.querySelectorAll('.msg-checkbox').forEach(cb=>cb.checked=allSelected);updateCount();}
+async function deleteSelected(){const s=new Set();document.querySelectorAll('.msg-checkbox').forEach(cb=>{if(cb.checked)s.add(parseInt(cb.dataset.index));});if(s.size===0){alert('请先勾选！');return;}if(!confirm('确定删除'+s.size+'条？'))return;const keep=ALL_MESSAGES.filter((_,i)=>!s.has(i));document.getElementById('status').innerText='⏳处理中...';try{const r=await fetch('/delete-selected',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keepMessages:keep})});const d=await r.json();if(d.success){alert('✅删除成功！');location.reload();}else{alert('❌'+d.error);}}catch(e){alert('❌'+e.message);}document.getElementById('status').innerText='';}
+async function addMemory(){const c=document.getElementById('content').value;const r=document.getElementById('role').value;if(!c){alert('不能为空！');return;}document.getElementById('status').innerText='⏳写入中...';try{const res=await fetch('/add-memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:c,role:r})});const d=await res.json();if(d.success){document.getElementById('status').innerText='✅成功！';document.getElementById('content').value='';setTimeout(()=>location.reload(),1000);}else{document.getElementById('status').innerText='❌'+d.error;}}catch(e){document.getElementById('status').innerText='❌'+e.message;}}
+async function triggerDream(){const p=prompt('请输入管理员密码：');if(!p)return;try{const r=await fetch('/trigger-dream?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅'+d.message:'❌'+(d.error||d.message));}catch(e){alert('❌'+e.message);}}
+function toggleSummarized(){document.querySelectorAll('.msg-item[data-summarized="true"]').forEach(item=>{item.style.display=item.style.display==='none'?'flex':'none';if(item.style.display==='flex')item.style.opacity='0.5';});}
+</script></body></html>`);
+    } catch(e) {
+        res.status(500).send(`<h1>加载失败</h1><p>${e.message}</p><a href="/memory-manager?pwd=${pwd}">重试</a>`);
+    }
+});
 
 // ==========================================
 // 🌟 长期记忆管理网页 (含深层档案室 + RP游戏卡带展厅)
