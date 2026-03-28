@@ -1275,7 +1275,7 @@ async function shenWangProactiveThinking() {
             headers: { 'Content-Type': 'application/json', 'Authorization': process.env.QQ_CHAT_KEY },
             signal: controller.signal,
             body: JSON.stringify({
-                model: "gemini-3.1-pro-preview", 
+                model: "[按量]gemini-3.1-pro-preview", 
                 messages: [{ role: "user", content: judgePrompt }] // 💥 Gemini 专用 user 包装
             })
         });
