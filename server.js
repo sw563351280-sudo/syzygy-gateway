@@ -694,7 +694,7 @@ app.post('/api/long-term-memories', (req, res) => {
     const parsedTags = Array.isArray(tags) ? tags : (tags ? tags.split(/[,，]/).map(t => t.trim()).filter(Boolean) : []);
     
     // 如果你在前端手动输入了 rp 标签，智能分流到游戏库
-    if(parsedTags.some(t => ['roleplay','rp','副本','游戏','设定'].includes(t.toLowerCase()))) {
+    if(parsedTags.some(t => ['roleplay','rp','副本','游戏','设定'].includes(t.toLowerCase().replace(/\s+/g, '')))) {
         const entry = addRoleplayMemory(content, parsedTags);
         return res.json({ success: true, memory: entry });
     }
