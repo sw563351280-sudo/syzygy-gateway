@@ -1147,7 +1147,7 @@ wss.on('connection', (ws) => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': process.env.QQ_CHAT_KEY },
                     body: JSON.stringify({
-                        model: "deepseek-v3.2-thinking",
+                        model: "deepseek-v3.2",
                         messages: [
                             { role: "system", content: finalSystemPrompt },
                             { role: "user", content: `${memoryContext}\n\n江鱼说：${userText}` }
