@@ -1230,7 +1230,7 @@ async function shenWangProactiveThinking() {
 
     // 🕒 核心判断：距离上次聊天，有没有超过 4 个小时
     // 测试时可以把 14400000 改成 60000 (1分钟)
-    if (Date.now() - lastChatTime < 60000) {
+    if (Date.now() - lastChatTime < 14400000) {
         return; 
     }
 
@@ -1319,4 +1319,4 @@ async function shenWangProactiveThinking() {
 }
 
 // ⏰ 启动巡视：每小时检查一次
-setInterval(shenWangProactiveThinking, 60000);
+setInterval(shenWangProactiveThinking, 3600000);
