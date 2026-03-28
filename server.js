@@ -1319,4 +1319,4 @@ async function shenWangProactiveThinking() {
 }
 
 // ⏰ 启动巡视：每小时检查一次
-setInterval(shenWangProactiveThinking, 3600000);
+setInterval(shenWangProactiveThinking, 60000);
