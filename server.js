@@ -394,19 +394,6 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
 4. permanent_memories: 对象数组 [{"content": "现实记忆", "tags": ["词1"]}]. 值得永久铭记的【现实】事件。
 5. roleplay_memories: 对象数组 [{"content": "RP剧本设定与进度", "tags": ["副本名", "角色"]}]. 专门提取你们玩的Roleplay设定和进度！`;
 
-【🚨 核心警告：现实与 Roleplay (RP/语C/平行世界) 隔离法则】
-江鱼非常喜欢玩各种 Roleplay（如吸血鬼、末日、古代设定等）。如果你发现聊天中出现了非现实设定的剧本：
-1. 绝对不能把 RP 里的剧情（如受伤、死亡、结婚）写进现实的 relationship_turning_points！现实状态必须保持稳定。
-2. 所有 RP 相关的精彩设定、剧情进展、契约，必须全部归入 roleplay_memories 数组里！绝对不能和现实混淆！
-
-请输出纯 JSON 格式：
-{"new_preferences": "...", "relationship_turning_points": "...", "pending_promises": "...", "permanent_memories": [], "roleplay_memories": []}
-1. new_preferences: 现实偏好与习惯。
-2. relationship_turning_points: 现实关系进展（严禁混入RP剧情）。
-3. pending_promises: 现实约定。
-4. permanent_memories: 对象数组 [{"content": "现实记忆", "tags": ["词1"]}]. 值得永久铭记的【现实】事件。
-5. roleplay_memories: 对象数组 [{"content": "RP剧本设定与进度", "tags": ["副本名", "角色"]}]. 专门提取你们玩的Roleplay设定和进度！`;
-
     try {
         const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
             method: 'POST',
