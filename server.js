@@ -641,7 +641,6 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 if (safeChunk) res.write(safeChunk);
                                 contentBuffer = contentBuffer.substring(ltIdx);
                             } else {
-                                } else {
     res.write(buildSSEChunk(contentBuffer, lastChunkTemplate));
     contentBuffer = '';
 }
