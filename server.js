@@ -889,7 +889,7 @@ function toggleSummarized(){document.querySelectorAll('.msg-item[data-summarized
 });
 
 // ==========================================
-// 🌟 长期记忆管理网页 (含深层档案室 + RP游戏卡带展厅)
+// 🌟 长期记忆管理网页 (含深层档案室 + RP游戏卡带展厅 + 监控分类)
 // ==========================================
 app.get('/long-term', (req, res) => {
     const pwd = req.query.pwd;
@@ -897,7 +897,7 @@ app.get('/long-term', (req, res) => {
 
     const activeMemories = loadLongTermMemories();
     const archivedMemories = loadArchivedMemories();
-    const rpMemories = loadRoleplayMemories(); // 🎮 调取游戏存档
+    const rpMemories = loadRoleplayMemories();
     const pwd_param = encodeURIComponent(pwd);
 
     const allMemsForFrontend = [
@@ -933,6 +933,9 @@ app.get('/long-term', (req, res) => {
 
     const counts = {
         all: activeMemories.length,
+        manual: activeMemories.filter(m=>m.source==='manual').length,
+        ai_active: activeMemories.filter(m=>m.source==='ai_active').length,
+        butler_summary: activeMemories.filter(m=>m.source==='butler_summary').length,
         archived: archivedMemories.length,
         roleplay: rpMemories.length
     };
@@ -946,7 +949,7 @@ app.get('/long-term', (req, res) => {
 .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
 .search-row{display:flex;gap:10px;margin-bottom:12px} .search-row input{flex:1;padding:10px;border-radius:8px;border:1px solid #ddd;}
 .btn-add{padding:10px 18px;background:#1a73e8;color:white;border:none;border-radius:8px;cursor:pointer;}
-.pills{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.pills{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
 .pill{padding:5px 14px;border-radius:20px;border:1px solid #ddd;background:white;cursor:pointer;font-size:13px}
 .pill.active{background:#1a73e8;color:white;border-color:#1a73e8}
 .pill.archive-pill{background:#f8fbff;color:#0288d1;border-color:#81d4fa} .pill.archive-pill.active{background:#0288d1;color:white;}
@@ -972,9 +975,13 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
     <div class="header"><h1>💎 永久记忆档案</h1></div>
     <div class="search-row"><input type="text" id="searchInput" placeholder="搜索记忆内容..." oninput="filterAll()"><button class="btn-add" onclick="openModal()">＋ 新增</button></div>
     <div class="pills">
-        <span class="pill active" onclick="setFilter(this,'active')">现实脑区 (${counts.all})</span>
-        <span class="pill rp-pill" onclick="setFilter(this,'roleplay')">🎮 游戏卡带 (${counts.roleplay})</span>
-        <span class="pill archive-pill" onclick="setFilter(this,'archived')">🥶 冰封档案 (${counts.archived})</span>
+        <span class="pill active" onclick="setFilter(this,'active','all')">现实脑区 (${counts.all})</span>
+        <span class="pill" onclick="setFilter(this,'active','manual')">✍️ 手动 (${counts.manual})</span>
+        <span class="pill" onclick="setFilter(this,'active','ai_active')">🤖 AI主动 (${counts.ai_active})</span>
+        <span class="pill" onclick="setFilter(this,'active','butler_summary')">🌙 管家 (${counts.butler_summary})</span>
+        <span style="border-left: 2px solid #ddd; height: 20px; margin: 0 4px;"></span>
+        <span class="pill rp-pill" onclick="setFilter(this,'roleplay','all')">🎮 游戏卡带 (${counts.roleplay})</span>
+        <span class="pill archive-pill" onclick="setFilter(this,'archived','all')">🥶 冰封档案 (${counts.archived})</span>
     </div>
     <div id="memoryList">${memoryCards}</div>
 </div>
@@ -988,6 +995,7 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
 
 <script>
 let currentCat='active';
+let currentSource='all';
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2000);}
 function openModal(){document.getElementById('addModal').classList.add('show');}
 function closeModal(){document.getElementById('addModal').classList.remove('show');}
@@ -1010,15 +1018,20 @@ async function deleteMemory(id){
 async function restoreMemory(id){ await fetch('/api/archive-memories/'+id+'/restore',{method:'POST'}); location.reload(); }
 async function deleteArchivedMemory(id){ if(confirm('彻底销毁冰封?')) { await fetch('/api/archive-memories/'+id,{method:'DELETE'}); location.reload(); } }
 
-function setFilter(pill,cat){
-    document.querySelectorAll('.pill').forEach(p=>p.classList.remove('active')); pill.classList.add('active'); currentCat=cat; filterAll();
+function setFilter(pill,cat,source){
+    document.querySelectorAll('.pill').forEach(p=>p.classList.remove('active')); 
+    pill.classList.add('active'); 
+    currentCat=cat; 
+    currentSource=source;
+    filterAll();
 }
 function filterAll(){
     const kw=document.getElementById('searchInput').value.toLowerCase();
     document.querySelectorAll('.memory-card').forEach(c=>{
         const matchK = c.textContent.toLowerCase().includes(kw);
         const matchC = c.dataset.category === currentCat;
-        c.style.display = (matchK && matchC) ? 'block' : 'none';
+        const matchS = currentSource === 'all' || c.dataset.source === currentSource;
+        c.style.display = (matchK && matchC && matchS) ? 'block' : 'none';
     });
 }
 filterAll();
