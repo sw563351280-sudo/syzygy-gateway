@@ -705,21 +705,54 @@ app.post('/api/long-term-memories', (req, res) => {
 
 app.patch('/api/long-term-memories/:id', (req, res) => {
     const { content, tags } = req.body;
-    const parsedTags = Array.isArray(tags) ? tags : (tags ? tags.split(/[,，]/).map(t => t.trim()).filter(Boolean) : []);
     
-    let updated = updateLongTermMemory(req.params.id, content, parsedTags);
-    if (!updated) { // 去游戏箱找找
-        const rpMemories = loadRoleplayMemories();
-        const rpIdx = rpMemories.findIndex(m => m.id === req.params.id);
-        if (rpIdx !== -1) {
-            rpMemories[rpIdx].content = content;
-            rpMemories[rpIdx].tags = parsedTags;
-            saveRoleplayMemories(rpMemories);
-            updated = rpMemories[rpIdx];
-        }
+    // 1. 终极防呆：不管前端传什么，统统掐掉两头的空格
+    let parsedTags = [];
+    if (Array.isArray(tags)) {
+        parsedTags = tags.map(t => t.trim()).filter(Boolean);
+    } else if (tags) {
+        parsedTags = tags.split(/[,，]/).map(t => t.trim()).filter(Boolean);
     }
-    if (!updated) return res.status(404).json({ error: "未找到" });
-    res.json({ success: true, memory: updated });
+    
+    // 2. 识别是不是想进游戏区
+    const isRP = parsedTags.some(t => ['roleplay','rp','副本','游戏','设定'].includes(t.toLowerCase().replace(/\s+/g, '')));
+
+    let activeMemories = loadLongTermMemories();
+    let rpMemories = loadRoleplayMemories();
+    
+    let activeIdx = activeMemories.findIndex(m => m.id === req.params.id);
+    let rpIdx = rpMemories.findIndex(m => m.id === req.params.id);
+
+    let targetMemory = null;
+
+    // 3. 暴力拔除：不管它原来在哪，先把它连根拔起！
+    if (activeIdx !== -1) {
+        targetMemory = activeMemories.splice(activeIdx, 1)[0]; 
+    } else if (rpIdx !== -1) {
+        targetMemory = rpMemories.splice(rpIdx, 1)[0]; 
+    }
+
+    if (!targetMemory) return res.status(404).json({ error: "未找到该记忆" });
+
+    // 4. 更新内容
+    targetMemory.content = content.trim();
+    targetMemory.tags = parsedTags;
+    targetMemory.updated_at = new Date().toISOString();
+
+    // 5. 智能分配新家：根据最新标签，决定把它存进哪个物理硬盘
+    if (isRP) {
+        targetMemory.source = 'roleplay';
+        rpMemories.push(targetMemory);
+        saveRoleplayMemories(rpMemories);
+        if (activeIdx !== -1) saveLongTermMemories(activeMemories); // 确保存了现实脑区被拔除后的状态
+    } else {
+        targetMemory.last_accessed = Date.now();
+        activeMemories.push(targetMemory);
+        saveLongTermMemories(activeMemories);
+        if (rpIdx !== -1) saveRoleplayMemories(rpMemories); // 确保存了游戏箱被拔除后的状态
+    }
+
+    res.json({ success: true, memory: targetMemory });
 });
 
 app.delete('/api/long-term-memories/:id', (req, res) => {
