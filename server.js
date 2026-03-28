@@ -1157,7 +1157,7 @@ wss.on('connection', (ws) => {
 
                 try {
                     console.log("🚀 正在呼叫沈望的大脑...");
-                    const aiRes = await fetch('https://www.msuicode.com/v1/chat/completions', {
+                    const aiRes = await fetch('https://api.dzzi.ai/v1/chat/completions', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': aiKey },
                         signal: controller.signal, // 挂上闹钟
