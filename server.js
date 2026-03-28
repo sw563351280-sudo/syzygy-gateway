@@ -632,26 +632,26 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                     const piece = delta.content; contentBuffer += piece;
 
                     if (!isBuffering) {
-                        const saveIdx = contentBuffer.indexOf('<SAVE_MEMORY');
-                        if (saveIdx === -1) {
-                            const ltIdx = contentBuffer.lastIndexOf('<');
-                            if (ltIdx !== -1 && contentBuffer.substring(ltIdx).length < '<SAVE_MEMORY'.length) {
-                                const safe = contentBuffer.substring(0, ltIdx);
-                                const safeChunk = buildSSEChunk(safe, lastChunkTemplate);
-if (safeChunk) res.write(safeChunk);
-                                contentBuffer = contentBuffer.substring(ltIdx);
-                            } else {
-    res.write(buildSSEChunk(contentBuffer, lastChunkTemplate));
-    contentBuffer = '';
+    const saveIdx = contentBuffer.indexOf('<SAVE_MEMORY');
+    if (saveIdx === -1) {
+        const ltIdx = contentBuffer.lastIndexOf('<');
+        if (ltIdx !== -1 && contentBuffer.substring(ltIdx).length < '<SAVE_MEMORY'.length) {
+            const safe = contentBuffer.substring(0, ltIdx);
+            const safeChunk = buildSSEChunk(safe, lastChunkTemplate);
+            if (safeChunk) res.write(safeChunk);
+            contentBuffer = contentBuffer.substring(ltIdx);
+        } else {
+            const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate);
+            if (chunk) res.write(chunk);
+            contentBuffer = '';
+        }
+    } else {
+        const safe = contentBuffer.substring(0, saveIdx);
+        if (safe) res.write(buildSSEChunk(safe, lastChunkTemplate));
+        contentBuffer = contentBuffer.substring(saveIdx);
+        isBuffering = true;
+    }
 }
-                            }
-                        } else {
-                            const safe = contentBuffer.substring(0, saveIdx);
-                            if (safe) res.write(buildSSEChunk(safe, lastChunkTemplate));
-                            contentBuffer = contentBuffer.substring(saveIdx);
-                            isBuffering = true;
-                        }
-                    }
 
                     if (isBuffering) {
                         const closeIdx = contentBuffer.indexOf('</SAVE_MEMORY>');
