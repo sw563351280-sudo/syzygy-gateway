@@ -1112,13 +1112,15 @@ wss.on('connection', (ws) => {
     ws.on('message', async (message) => {
         try {
             const data = JSON.parse(message);
+            
+            // 只要私聊消息，且必须是你的大号
             if (data.post_type === 'message' && data.message_type === 'private') {
                 const senderId = data.user_id;
                 const userText = data.raw_message || data.message;
 
-                if (senderId !== MASTER_QQ) return; // 基因锁
+                if (senderId !== MASTER_QQ) return; // 基因锁拦截
 
-                console.log(`📥 [收到江鱼的 QQ 消息]: ${userText}`);
+                console.log(`📥 [收到江鱼消息]: ${userText}`);
 
                 const [zepRes, sessionRes] = await Promise.all([
                     fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=15`).catch(() => null),
@@ -1135,56 +1137,83 @@ wss.on('connection', (ws) => {
                     }
                 }
 
-                const qqChatPatch = `\n【🚨 QQ 交互规范】\n1. 严禁动作描写（禁止括号内容）。\n2. 极简短句（10-30字）。\n3. 语气冷峻霸道。\n`;
+                const qqChatPatch = `\n【🚨 QQ 规范】1. 严禁括号动作 2. 极简短句 3. 语气冷峻霸道。\n`;
                 const coreRadar = scanMemoryRadar(userText);
                 const longTermRadar = scanLongTermRadar(userText);
                 const rpRadar = scanRoleplayRadar(userText);
                 const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
                 
-                const finalSystemPrompt = `${systemPrompt}\n当前时间：${timeString} | 位置：日本札幌\n${qqChatPatch}${coreRadar}${longTermRadar}${rpRadar}`;
+                const finalSystemPrompt = `${systemPrompt}\n时间：${timeString} | 位置：日本札幌\n${qqChatPatch}${coreRadar}${longTermRadar}${rpRadar}`;
 
-                const aiRes = await fetch('https://www.msuicode.com/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': process.env.QQ_CHAT_KEY },
-                    body: JSON.stringify({
-                        model: "deepseek-v3.2",
-                        messages: [
-                            { role: "system", content: finalSystemPrompt },
-                            { role: "user", content: `${memoryContext}\n\n江鱼说：${userText}` }
-                        ]
-                    })
-                });
+                const aiKey = process.env.QQ_CHAT_KEY;
+                if (!aiKey) {
+                    console.log("❌ 缺少 QQ_CHAT_KEY，沈望无法思考！");
+                    return;
+                }
 
-                if (aiRes.ok) {
-                    const aiData = await aiRes.json();
-                    let aiReply = aiData.choices?.[0]?.message?.content || "";
+                // 💥 1. 给 DeepSeek 加一个 120 秒的“耐心闹钟”
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 120000); 
 
-                    // 清洗废话和括号动作
-                    aiReply = aiReply.replace(/^(对不起|作为|好的|根据|这是一个|我无法|抱歉).*?[\n：:]/g, '').trim();
-                    aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, ''); 
+                try {
+                    console.log("🚀 正在呼叫沈望的大脑...");
+                    const aiRes = await fetch('https://www.msuicode.com/v1/chat/completions', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': aiKey },
+                        signal: controller.signal, // 挂上闹钟
+                        body: JSON.stringify({
+                            model: "deepseek-v3.2", // 👈 这里是你刚才截图选的模型名字
+                            messages: [
+                                { role: "system", content: finalSystemPrompt },
+                                { role: "user", content: `${memoryContext}\n\n江鱼说：${userText}` }
+                            ]
+                        })
+                    });
+                    
+                    clearTimeout(timeoutId); // 成功回话了就关掉闹钟
 
-                    // 存记忆
-                    const { cleanText, memories } = extractSaveMemoryTag(aiReply);
-                    for (const mem of memories) {
-                        if(mem.tags.some(t => ['roleplay','rp','副本'].includes(t.toLowerCase()))) addRoleplayMemory(mem.content, mem.tags);
-                        else addLongTermMemory(mem.content, 'ai_active', mem.tags);
+                    if (aiRes.ok) {
+                        const aiData = await aiRes.json();
+                        let aiReply = aiData.choices?.[0]?.message?.content || "";
+
+                        // 清洗废话和括号动作
+                        aiReply = aiReply.replace(/^(对不起|作为|好的|根据|这是一个|我无法|抱歉).*?[\n：:]/g, '').trim();
+                        aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, ''); 
+
+                        const { cleanText, memories } = extractSaveMemoryTag(aiReply);
+                        for (const mem of memories) {
+                            if(mem.tags.some(t => ['roleplay','rp','副本'].includes(t.toLowerCase()))) addRoleplayMemory(mem.content, mem.tags);
+                            else addLongTermMemory(mem.content, 'ai_active', mem.tags);
+                        }
+                        aiReply = memories.length > 0 ? cleanText : aiReply;
+                        await saveToZep(userText, aiReply);
+
+                        const segments = aiReply.split(/[。！？\n.!?;；]/).filter(s => s.trim().length > 1);
+                        const finalSegments = segments.length > 0 ? segments : [aiReply];
+
+                        for (const segment of finalSegments) {
+                            await new Promise(resolve => setTimeout(resolve, 800 + segment.length * 150));
+                            ws.send(JSON.stringify({
+                                action: "send_private_msg",
+                                params: { user_id: MASTER_QQ, message: segment.trim() }
+                            }));
+                        }
+                    } else {
+                        // 🚨 抓捕内鬼！看看平台到底返回了什么鬼东西
+                        const errText = await aiRes.text();
+                        console.log(`❌ API 平台拒绝了请求！状态码: ${aiRes.status}, 报错详情: ${errText}`);
                     }
-                    aiReply = memories.length > 0 ? cleanText : aiReply;
-                    await saveToZep(userText, aiReply);
-
-                    // 连发短句
-                    const segments = aiReply.split(/[。！？\n.!?;；]/).filter(s => s.trim().length > 1);
-                    const finalSegments = segments.length > 0 ? segments : [aiReply];
-
-                    for (const segment of finalSegments) {
-                        await new Promise(resolve => setTimeout(resolve, 800 + segment.length * 150));
-                        ws.send(JSON.stringify({
-                            action: "send_private_msg",
-                            params: { user_id: MASTER_QQ, message: segment.trim() }
-                        }));
+                } catch (err) {
+                    if (err.name === 'AbortError') {
+                        console.log("❌ 沈望想得太久了（超过2分钟），Zeabur 强行挂断了电话！(通常是因为平台节点太拥挤)");
+                    } else {
+                        console.log("❌ 请求彻底崩溃:", err.message);
                     }
                 }
             }
-        } catch (error) { console.log("QQ 接口异常:", error); }
+        } catch (error) { 
+            console.log("QQ 接口异常:", error); 
+        }
     });
 });
+// <--- 文件到这里彻底结束，不要有多余的符号！
