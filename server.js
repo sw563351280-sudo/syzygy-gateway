@@ -586,6 +586,14 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         const longTermContext = scanLongTermRadar(currentUserMsgText); // 现实日记库
         const rpRadarContext = scanRoleplayRadar(currentUserMsgText); // 🎮 游戏卡带库！
 
+        // 💥 赛博怀表：包含时间感知与地理位置的“隐性潜意识”
+        const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
+        const envContext = `\n\n==========\n【系统环境参数实时同步】\n当前真实时间：${timeString}\n当前物理位置：日本札幌\n【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。你知道江鱼在札幌，但 🚨除非她主动提起，或者话题极度相关（如聊到天气骤变、异地见面的艰难），否则绝对不要刻意提及或强调“札幌”这两个字🚨！把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n==========\n`;
+        // 把 envContext 拼接到终极 Prompt 里！
+        const finalSystemPrompt = `${systemPrompt}${envContext}${coreRadarContext}${longTermContext}${rpRadarContext}${dynamicStatePrompt}${routerPrompt}`;
+
+        const newMessages = [...cleanMessages];
+
         const finalSystemPrompt = `${systemPrompt}${coreRadarContext}${longTermContext}${rpRadarContext}${dynamicStatePrompt}${routerPrompt}`;
 
         const newMessages = [...cleanMessages];
