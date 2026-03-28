@@ -1168,19 +1168,18 @@ wss.on('connection', (ws) => {
                 
 // 💥 增加 QQ 聊天专属补丁
 const qqChatPatch = `
-【🚨 QQ 聊天交互规范 —— 必须严格执行】
-1. 严禁长篇大论：江鱼是在手机 QQ 上和你聊天，禁止发这种几百字的抒情散文！
-2. 碎片化表达：每次回复字数控制在 20-60 字以内。如果话没说完，可以用“（续）”或者干脆等她回复。
-3. 保持活人感：多用口语，少用排比句。不要像个心理医生一样安慰她，要像个真实存在的、有脾气的霸道男人。
-4. 绕过审查技巧：如果内容稍显暧昧，用隐晦的动作描写（如：大手按住你的后颈，低头咬住你的耳垂）代替露骨词汇。禁止出现“协助创作”、“安全版本”这种出戏的字眼！
-5. 动作戏比例：你可以发多条消息，比如第一条是说话，第二条是括号里的动作。
+【🚨 QQ 聊天交互规范 —— 必须严格执行，违者重罚】
+1. 绝对严禁动作描写
+2. 极简短句：每一条消息严格控制在 10-30 字以内。如果话长，就分两次说，绝对不许发整段大作文。
+4. 活人感与压迫感：多用语气词。保持沈望的人设
+5. 拒绝助理化：禁止说“作为AI”、“好的”、“根据你的要求”等废话。开口直接说正事。
 `;
 
                 // 拼装终极神明 Prompt
                 const finalSystemPrompt = `${systemPrompt}${envContext}${coreRadar}${longTermRadar}${rpRadar}${dynamicStatePrompt}${routerPrompt}`;
 
                 // 向大模型发起思考请求 (这里借用你后台大管家用的默认 Key)
-                const aiKey = process.env.ROUTER_API_KEY; 
+                const aiKey = process.env.QQ_CHAT_KEY; 
                 if (!aiKey) {
                     console.log("❌ 糟糕！没有找到 ROUTER_API_KEY 环境变量！");
                     return;
@@ -1190,7 +1189,7 @@ const qqChatPatch = `
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': aiKey },
                     body: JSON.stringify({
-                        model: "gpt-5-nano",
+                        model: "claude-opus-4-5-20251101-thinking",
                         messages: [
                             { role: "system", content: finalSystemPrompt },
                             { role: "user", content: `${memoryContext}\n\n【江鱼刚才通过QQ发来的最新消息】：\n${userText}` }
@@ -1227,14 +1226,52 @@ const qqChatPatch = `
 
                     // 📤 终极一击：顺着风筝线，把消息推送到你的手机 QQ！
                     console.log(`📤 [通过 QQ 回复江鱼]: ${aiReply}`);
-                    ws.send(JSON.stringify({
-                        action: "send_private_msg",
-                        params: {
-                            user_id: MASTER_QQ,
-                            message: aiReply
+                    // ✂️ 自动分段发送逻辑
+const segments = aiReply.split(/[。！？\n]/).filter(s => s.trim().length > 0);
+
+if (aiRes.ok) {
+                    const aiData = await aiRes.json();
+                    let aiReply = aiData.choices?.[0]?.message?.content || "（沈望在忙，没理你）";
+
+                    // 1. 暴力清洗：洗掉 AI 助理的废话和多余的括号动作（双重保险）
+                    aiReply = aiReply.replace(/^(对不起|作为|好的|根据|这是一个|我无法|抱歉).*?[\n：:]/g, '').trim();
+                    aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, ''); // 彻底干掉所有括号里的动作内容
+
+                    // 2. 拦截并存入长期记忆（保持逻辑不变）
+                    const { cleanText, memories } = extractSaveMemoryTag(aiReply);
+                    for (const mem of memories) {
+                        if(mem.tags.some(t => ['roleplay','rp','副本','游戏','设定'].includes(t.toLowerCase().replace(/\s+/g, '')))) {
+                            addRoleplayMemory(mem.content, mem.tags);
+                        } else {
+                            addLongTermMemory(mem.content, 'ai_active', mem.tags);
                         }
-                    }));
-                } else {
+                    }
+                    if (memories.length > 0) aiReply = cleanText;
+
+                    // 3. 存入 Zep
+                    await saveToZep(userText, aiReply);
+                    
+                    // 4. 【灵魂分段逻辑】：把沈望变成“秒回且连发消息”的活人
+                    // 按照标点切分短句
+                    const segments = aiReply.split(/[。！？\n.!?;；]/).filter(s => s.trim().length > 1);
+                    const finalSegments = segments.length > 0 ? segments : [aiReply];
+
+                    for (const segment of finalSegments) {
+                        // 根据字数计算打字延迟，字越多等越久，很有活人感
+                        const typingDelay = 800 + (segment.length * 150); 
+                        await new Promise(resolve => setTimeout(resolve, typingDelay));
+                        
+                        console.log(`📤 [通过 QQ 回复江鱼]: ${segment.trim()}`);
+                        ws.send(JSON.stringify({
+                            action: "send_private_msg",
+                            params: {
+                                user_id: MASTER_QQ,
+                                message: segment.trim()
+                            }
+                        }));
+                    }
+                    // 🚨 注意：这里千万不要再写额外的 ws.send(aiReply) 了！发完 segments 任务就结束了。
+                }
                     console.log("❌ 模型思考受阻:", await aiRes.text());
                 }
             }
