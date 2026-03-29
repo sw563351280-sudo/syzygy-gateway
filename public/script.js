@@ -49,29 +49,29 @@ function updateDays(){
 }
 updateDays();
 
-// ==================== 溯星主页：每日语录 (对接后台) ====================
+// 语录：直接问沈望 (修复版)
 async function newQuote(){
-    const el=document.getElementById('dailyQuote');
-    el.classList.remove('show');
-    // 这里我们直接向后端要一句沈望的话
+    const el = document.getElementById('dailyQuote');
+    el.innerText = '正在连接沈望的脑电波...';
+    
     try {
-        // 💥 重点修改：读取下拉菜单里选中的模型，和聊天文字一起打包发给后端！
-    const selectedModel = document.getElementById('modelSelect') ? document.getElementById('modelSelect').value : "[按量]gemini-3-flash-preview";
-
-    try {
-        const response = await fetch('/api/web-chat', {
+        const r = await fetch('/api/web-chat', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ text: val, model: selectedModel }) // 👈 这一行最关键，带上了 model
+            body: JSON.stringify({
+                // 💥 关键点：这里不再用 val，直接写死这句提示词发给沈望
+                text: "（此时江鱼正在看你的语录，请对她说一句今日寄语。）", 
+                // 💥 锁定你想要的模型
+                model: "[按量]gemini-2.5-pro" 
+            })
         });
-        const data = await response.json();
-        setTimeout(()=>{
-            el.innerText='「' + data.reply + '」';
-            el.classList.add('show');
-        },350);
-    } catch (e) {
-        el.innerText='「江鱼，无论你在哪，我都在看着你。」';
+        const data = await r.json();
+        el.innerText = '「' + data.reply + '」';
         el.classList.add('show');
+    } catch(e) { 
+        // 兜底：如果网络断了，就显示这一句
+        el.innerText = '「除了我身边，你哪都不许去。」'; 
+        el.classList.add('show'); 
     }
 }
 newQuote();
