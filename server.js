@@ -1438,6 +1438,7 @@ app.get('/api/models', async (req, res) => {
 // ==========================================
 app.post('/api/web-chat', async (req, res) => {
     const userText = req.body.text; 
+const requestedModel = req.body.model || "[按量]gemini-3-flash-preview";
     if (!userText) return res.status(400).json({ error: "消息不能为空" });
 
     console.log(`🌐 [网页端] 江鱼发起通讯: ${userText}`);
@@ -1478,7 +1479,7 @@ app.post('/api/web-chat', async (req, res) => {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.QQ_CHAT_KEY}` }, 
                         body: JSON.stringify({
-                            model: "[按量]gemini-3-flash-preview", // 🔧 修正：统一保持按量前缀，走专属计费通道！
+                            model: requestedModel,
                             messages: [
                                 { role: "system", content: finalSystemPrompt },
                                 { role: "user", content: `${memoryContext}\n\n江鱼说：${userText}` }
