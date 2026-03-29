@@ -540,10 +540,13 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             const sessionData = await sessionRes.json();
             if (sessionData.metadata?.current_state) {
                 const state = sessionData.metadata.current_state;
+                // 💥 万能拆包器：如果是对象或数组，就用 JSON.stringify 强行转成文字
+                const safeStr = (val) => typeof val === 'object' ? JSON.stringify(val) : (val || '无');
+                
                 dynamicStatePrompt = `\n\n【活跃状态备忘录 (绝不包含RP内容)】
-当前习惯与偏好：${state.new_preferences || '无'}
-近期情感与状态：${state.relationship_turning_points || '平稳'}
-未完成的待办约定：${state.pending_promises || '无'}`;
+当前习惯与偏好：${safeStr(state.new_preferences)}
+近期情感与状态：${safeStr(state.relationship_turning_points)}
+未完成的待办约定：${safeStr(state.pending_promises)}`;
             }
         }
 
@@ -899,7 +902,9 @@ app.get('/memory-manager', async (req, res) => {
         const summarizedCount = lastSummarizedAt ? messages.filter(m => new Date(m.created_at) < new Date(lastSummarizedAt)).length : 0;
         const unsummarizedCount = totalCount - summarizedCount;
 
-        const stateHtml = currentState ? `<div style="background:#fff9c4;padding:12px;border-radius:8px;margin:5px 0"><b>当前偏好：</b><p>${currentState.new_preferences||'无'}</p><b>近期情感：</b><p>${currentState.relationship_turning_points||'无'}</p><b>未完成约定：</b><p>${currentState.pending_promises||'无'}</p></div>` : '<p style="color:#888">还没有总结～</p>';
+       // 💥 给网页也加一个拆包器
+        const safeStrHtml = (val) => typeof val === 'object' ? JSON.stringify(val) : (val || '无');
+        const stateHtml = currentState ? `<div style="background:#fff9c4;padding:12px;border-radius:8px;margin:5px 0"><b>当前偏好：</b><p>${safeStrHtml(currentState.new_preferences)}</p><b>近期情感：</b><p>${safeStrHtml(currentState.relationship_turning_points)}</p><b>未完成约定：</b><p>${safeStrHtml(currentState.pending_promises)}</p></div>` : '<p style="color:#888">还没有总结～</p>';
 
         res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>记忆管理</title>
 <style>body{font-family:sans-serif;max-width:1000px;margin:40px auto;padding:20px}.nav-bar{margin-bottom:20px;display:flex;gap:12px}.nav-bar a,.nav-bar span{padding:6px 16px;border-radius:8px;text-decoration:none;font-size:14px}.nav-active{background:#1a73e8;color:white}.nav-link{background:white;border:1px solid #ddd;color:#333}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.card{background:#fafafa;border-radius:12px;padding:20px;border:1px solid #eee}textarea{width:100%;padding:10px;margin:5px 0;border:1px solid #ddd;border-radius:8px;box-sizing:border-box}button.add{background:#4CAF50;color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer}button.danger{background:#ff5252;color:white;border:none;padding:6px 16px;border-radius:8px;cursor:pointer}button.normal{padding:6px 16px;border-radius:6px;cursor:pointer;border:1px solid #ddd;background:white}select{padding:10px;border-radius:8px;border:1px solid #ddd;margin-bottom:8px;width:100%}h2{margin-top:0}.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.select-hint{font-size:13px;color:#888}@media(max-width:700px){.grid{grid-template-columns:1fr}}</style>
