@@ -1242,7 +1242,8 @@ wss.on('connection', (ws) => {
                     const finalSystemPrompt = `${systemPrompt}\n时间：${timeString} | 位置：日本札幌\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}`;
 
                     const aiKey = process.env.QQ_CHAT_KEY;
-                    if (!aiKey) return console.log("❌ 缺少 QQ_CHAT_KEY，沈望无法思考！");
+console.log("🔑 实际读到的 QQ_CHAT_KEY:", aiKey); // 加这行
+if (!aiKey) return console.log("❌ 缺少 QQ_CHAT_KEY，沈望无法思考！");
 
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 120000); 
