@@ -55,10 +55,14 @@ async function newQuote(){
     el.classList.remove('show');
     // 这里我们直接向后端要一句沈望的话
     try {
+        // 💥 重点修改：读取下拉菜单里选中的模型，和聊天文字一起打包发给后端！
+    const selectedModel = document.getElementById('modelSelect') ? document.getElementById('modelSelect').value : "[按量]gemini-3-flash-preview";
+
+    try {
         const response = await fetch('/api/web-chat', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: "沈望，对我说一句你现在最想对我说的话。" })
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ text: val, model: selectedModel }) // 👈 这一行最关键，带上了 model
         });
         const data = await response.json();
         setTimeout(()=>{
