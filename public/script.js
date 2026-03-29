@@ -294,5 +294,25 @@ async function fetchModels() {
     }
 }
 
+// 更新中枢的统计数据
+async function updateCounts() {
+    try {
+        const diaryRes = await fetch('/diary-logs');
+        const diaries = await diaryRes.json();
+        if(document.getElementById('diaryCount')) document.getElementById('diaryCount').innerText = diaries.length;
+
+        const capsuleRes = await fetch('/capsule-logs');
+        const capsules = await capsuleRes.json();
+        if(document.getElementById('capsuleCount')) document.getElementById('capsuleCount').innerText = capsules.length;
+        
+        // 语录数可以根据你本地或后端的逻辑来填
+        if(document.getElementById('memCount')) document.getElementById('memCount').innerText = "∞"; 
+    } catch(e) {}
+}
+
+// 每次进入中枢页时自动刷新一下
+// 在你的 go(id, btn) 函数里加上这一句：
+// if(id === 'data') updateCounts();
+
 // 网页一打开，立刻执行拉取！
 fetchModels();
