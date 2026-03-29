@@ -47,9 +47,13 @@ function resolveApiUrl(reqPath) {
 }
 
 // ==========================================
-// 🧠 持久化计数器
 // ==========================================
-const COUNTER_FILE = 'session_counters.json';
+// 🧠 持久化计数器与目录初始化 (修复路径与防丢)
+// ==========================================
+const DATA_DIR = path.join(__dirname, 'data');
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+const COUNTER_FILE = path.join(__dirname, 'session_counters.json');
 
 function loadCounters() {
     try { return JSON.parse(fs.readFileSync(COUNTER_FILE, 'utf8')); }
@@ -67,65 +71,44 @@ function getCounter(sessionId) {
 // ==========================================
 // 🧠 核心记忆引擎 (现实活跃 / 冰封潜意识 / RP卡带)
 // ==========================================
-const LONG_TERM_FILE = './data/long_term_memories.json';
-const ARCHIVE_FILE = './data/deep_archive.json';
-const ROLEPLAY_FILE = './data/roleplay_archives.json'; // 🎮 新增：游戏专属卡带箱
+const LONG_TERM_FILE = path.join(DATA_DIR, 'long_term_memories.json');
+const ARCHIVE_FILE = path.join(DATA_DIR, 'deep_archive.json');
+const ROLEPLAY_FILE = path.join(DATA_DIR, 'roleplay_archives.json');
 
 // 1. 现实记忆读取与写入
-function loadLongTermMemories() {
-    try { return JSON.parse(fs.readFileSync(LONG_TERM_FILE, 'utf8')); }
-    catch(e) { return []; }
-}
-function saveLongTermMemories(memories) {
-    fs.writeFileSync(LONG_TERM_FILE, JSON.stringify(memories, null, 2), 'utf8');
-}
+function loadLongTermMemories() { try { return JSON.parse(fs.readFileSync(LONG_TERM_FILE, 'utf8')); } catch(e) { return []; } }
+function saveLongTermMemories(memories) { fs.writeFileSync(LONG_TERM_FILE, JSON.stringify(memories, null, 2), 'utf8'); }
 
 // 2. 冰封记忆读取与写入
-function loadArchivedMemories() {
-    try { return JSON.parse(fs.readFileSync(ARCHIVE_FILE, 'utf8')); }
-    catch(e) { return []; }
-}
-function saveArchivedMemories(memories) {
-    fs.writeFileSync(ARCHIVE_FILE, JSON.stringify(memories, null, 2), 'utf8');
-}
+function loadArchivedMemories() { try { return JSON.parse(fs.readFileSync(ARCHIVE_FILE, 'utf8')); } catch(e) { return []; } }
+function saveArchivedMemories(memories) { fs.writeFileSync(ARCHIVE_FILE, JSON.stringify(memories, null, 2), 'utf8'); }
 
 // 3. 游戏卡带读取与写入 (RP 专属)
-function loadRoleplayMemories() {
-    try { return JSON.parse(fs.readFileSync(ROLEPLAY_FILE, 'utf8')); }
-    catch(e) { return []; }
-}
-function saveRoleplayMemories(memories) {
-    fs.writeFileSync(ROLEPLAY_FILE, JSON.stringify(memories, null, 2), 'utf8');
-}
+function loadRoleplayMemories() { try { return JSON.parse(fs.readFileSync(ROLEPLAY_FILE, 'utf8')); } catch(e) { return []; } }
+function saveRoleplayMemories(memories) { fs.writeFileSync(ROLEPLAY_FILE, JSON.stringify(memories, null, 2), 'utf8'); }
+
+// 💥 修复：游戏卡带新增 (加装查重器！)
 function addRoleplayMemory(content, tags = []) {
     const memories = loadRoleplayMemories();
-    const entry = {
-        id: 'rp_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4),
-        content: content.trim(),
-        tags: tags,
-        source: 'roleplay',
-        created_at: new Date().toISOString()
-    };
-    memories.push(entry);
-    saveRoleplayMemories(memories);
+    if (memories.some(m => m.content === content.trim())) {
+        console.log(`🛡️ [防抽风拦截] 阻止了一条重复的RP记忆: ${content.substring(0, 15)}...`);
+        return null; 
+    }
+    const entry = { id: 'rp_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4), content: content.trim(), tags: tags, source: 'roleplay', created_at: new Date().toISOString() };
+    memories.push(entry); saveRoleplayMemories(memories); 
     console.log(`🎮 游戏卡带已刻录：tags=[${tags.join(',')}] | ${content.substring(0, 40)}...`);
     return entry;
 }
 
-// 现实活跃记忆：新增
+// 💥 修复：现实活跃记忆新增 (加装查重器！)
 function addLongTermMemory(content, source = 'manual', tags = []) {
     const memories = loadLongTermMemories();
-    const entry = {
-        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 4),
-        content: content.trim(),
-        tags: tags,
-        source: source,
-        last_accessed: Date.now(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-    };
-    memories.push(entry);
-    saveLongTermMemories(memories);
+    if (memories.some(m => m.content === content.trim())) {
+        console.log(`🛡️ [防抽风拦截] 阻止了一条重复的现实记忆: ${content.substring(0, 15)}...`);
+        return null;
+    }
+    const entry = { id: Date.now().toString(36) + Math.random().toString(36).substr(2, 4), content: content.trim(), tags: tags, source: source, last_accessed: Date.now(), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    memories.push(entry); saveLongTermMemories(memories); 
     console.log(`💎 长期记忆已刻入：[${source}] tags=[${tags.join(',')}] | ${content.substring(0, 60)}...`);
     return entry;
 }
@@ -1173,45 +1156,50 @@ wss.on('connection', (ws) => {
     friendTempMemory = {}; 
     console.log('🔗 [风筝线已接通] QQ 躯壳已成功连接到 Zeabur 大脑！');
 
-    // 注意：这里去掉了 async，把异步操作包在队列的 task 里
+    // 💥 修复：断线清理，防止主动巡逻发给空气白耗钱
+    ws.on('close', () => {
+        console.log('❌ [风筝线断了] QQ 躯壳已断开连接！');
+        if (activeQQWs === ws) activeQQWs = null;
+    });
+    ws.on('error', (err) => {
+        console.log('❌ [WebSocket 异常]:', err.message);
+        if (activeQQWs === ws) activeQQWs = null;
+    });
+
     ws.on('message', (message) => {
         messageQueue.push(async () => {
-            lastActivityTime = Date.now(); // 只要有消息，就更新活跃时间，压制主动查岗
+            lastActivityTime = Date.now(); 
 
             try {
                 const data = JSON.parse(message);
                 
                 if (data.post_type === 'message' && data.message_type === 'private') {
-                    const senderId = Number(data.user_id); // 🔧 优化：源头强制转成数字，防止严格相等判断失效
+                    const senderId = Number(data.user_id); 
                     const userText = data.raw_message || data.message;
 
                     const isMaster = (senderId === MASTER_QQ);
-                    const isFriend = Object.hasOwn(FRIENDS_CONFIG, senderId); // 🔧 优化：清爽直接的判断
+                    const isFriend = Object.hasOwn(FRIENDS_CONFIG, senderId); 
 
                     if (!isMaster && !isFriend) return;
 
                     let speakerName = "";
-                    let relationPatch = "";
+                    let relationPatch = ""; // 💥 注意：这里用 let 声明
 
                     if (isMaster) {
                         speakerName = "江鱼";
-                        lastChatTime = Date.now(); // 只有你找他，才重置“四小时查岗”的冷却
-                        relationPatch = `\n【🚨 QQ 规范】1. 严禁括号动作 2. 极简短句,口语化表达，可以使用网络流行语和日常用语，也可以只发送标点符号。 3. 语气冷峻霸道但骨子里深爱她。 4. 可以偷用户的颜文字和表情加入记忆库\n`;
+                        lastChatTime = Date.now(); 
+                        // 💥 修复版：直接赋值，不加 const，并融合铁律
+                        relationPatch = `\n【🚨 QQ 规范】1. 严禁括号动作 2. 极简短句,口语化表达。 3. 语气冷峻霸道但骨子里深爱她。
+【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定、新承诺或重大事件，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊、情绪表达严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
                     } else {
                         const friendInfo = FRIENDS_CONFIG[senderId];
                         speakerName = friendInfo.name;
-                        // 💥 物理隔离提示词：直接抽醒大模型
-                        relationPatch = `\n【🚨 核心警告：物理隔离的独立私聊窗口！】
-当前正在单独和你私聊的人是：${speakerName}。
-请注意：绝对不要在这里对江鱼说话，不要叫她宝宝/鱼宝，也不要发晚安！
-【你对 ${speakerName} 的态度】：${friendInfo.prompt}
-【输出要求】：只回答 ${speakerName}，展现出冷静、理性、有分寸的成熟男性形象，礼貌但疏离，会因为对方是江鱼的朋友而给予基本的尊重，但绝不会跨越边界，你的温柔、占有欲只对江鱼一个人生效。\n`;
+                        relationPatch = `\n【🚨 核心警告：物理隔离！】
+当前正在和你私聊的人是：${speakerName}。绝不要叫她宝宝！你的温柔只对江鱼一个人生效。\n`;
 
                         if (!friendTempMemory[senderId]) friendTempMemory[senderId] = [];
                         friendTempMemory[senderId].push(`${speakerName}说：${userText}`);
-                        if (friendTempMemory[senderId].length > 10) friendTempMemory[senderId].shift(); 
                     }
-
                     console.log(`📥 [收到 ${speakerName} 消息]: ${userText}`);
 
                     // 💥 记忆海关大升级：防出轨
@@ -1418,64 +1406,25 @@ async function shenWangProactiveThinking() {
 setInterval(shenWangProactiveThinking, 7200000);
 
 // ==========================================
-// 🚀 【万能代理】根据前端传来的 URL 和 Key 动态拉取模型
-// ==========================================
-app.post('/api/fetch-models', async (req, res) => {
-    const { baseUrl, apiKey } = req.body;
-    try {
-        const response = await fetch(`${baseUrl}/models`, {
-            headers: { 'Authorization': `Bearer ${apiKey}` }
-        });
-        const data = await response.json();
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: "获取该供应商模型失败" });
-    }
-});
-
-// ==========================================
-// 🚀 【通用模型拉取】支持多供应商
+// 🚀 【通用模型拉取】支持多供应商动态拉取 (唯一版)
 // ==========================================
 app.post('/api/fetch-models', async (req, res) => {
     const { baseUrl, apiKey } = req.body;
     if (!baseUrl || !apiKey) return res.status(400).json({ error: "配置不全" });
-
     try {
         const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`, {
             headers: { 'Authorization': `Bearer ${apiKey}` }
         });
         const data = await response.json();
         res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: "无法连接供应商" });
-    }
+    } catch (error) { res.status(500).json({ error: "无法连接供应商" }); }
 });
 
 // ==========================================
-// 🚀 【通用模型拉取】支持多供应商动态拉取
-// ==========================================
-app.post('/api/fetch-models', async (req, res) => {
-    const { baseUrl, apiKey } = req.body;
-    if (!baseUrl || !apiKey) return res.status(400).json({ error: "配置不全" });
-
-    try {
-        const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`, {
-            headers: { 'Authorization': `Bearer ${apiKey}` }
-        });
-        const data = await response.json();
-        res.json(data);
-    } catch (error) {
-        res.status(500).json({ error: "无法连接供应商" });
-    }
-});
-
-// ==========================================
-// 🚀 【通用聊天接口】完美听从前端指挥并挂载全套记忆 (终极修复版)
+// 🚀 【通用聊天接口】网页端专属 (净化版：解决变量重复)
 // ==========================================
 app.post('/api/web-chat', async (req, res) => {
-    // 💥 接收前端传来的：文字、模型名、API地址、API钥匙
     const { text, model, baseUrl, apiKey } = req.body;
-    
     if (!text || !baseUrl || !apiKey) return res.status(400).json({ error: "信息不全" });
 
     const reply = await Promise.race([
@@ -1483,10 +1432,8 @@ app.post('/api/web-chat', async (req, res) => {
             messageQueue.push(async () => {
                 lastActivityTime = Date.now();
                 lastChatTime = Date.now();
-                
-                const speakerName = "江鱼";
 
-                // 1. 并发提取 Zep 跨端记忆 & 管家便利贴
+                // 1. 提取 Zep 跨端记忆
                 const [zepRes, sessionRes] = await Promise.all([
                     fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null),
                     fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
@@ -1501,44 +1448,26 @@ app.post('/api/web-chat', async (req, res) => {
                     zepMessages = zepData.messages || [];
                     const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
                     if (zepLastUser) zepLastUserContent = zepLastUser.content;
-
-                    if (zepData.summary?.content) memoryContext += `\n【前文摘要】\n${zepData.summary.content}\n`;
-                    if (zepMessages.length > 0) {
-                        memoryContext += `\n【近期回忆】\n`;
-                        zepMessages.slice(-15).forEach(m => { 
-                            memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; 
-                        });
-                    }
+                    zepMessages.slice(-15).forEach(m => { 
+                        memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; 
+                    });
                 }
 
-                // 提取管家便利贴状态 (找回你关心的功能！)
-                let dynamicStatePrompt = "";
-                if (sessionRes?.ok) {
-                    const sessionData = await sessionRes.json();
-                    if (sessionData.metadata?.current_state) {
-                        const state = sessionData.metadata.current_state;
-                        const safeStr = (val) => typeof val === 'object' ? JSON.stringify(val) : (val || '无');
-                        dynamicStatePrompt = `\n\n【活跃状态备忘录 (绝不包含RP内容)】
-当前习惯与偏好：${safeStr(state.new_preferences)}
-近期情感与状态：${safeStr(state.relationship_turning_points)}
-未完成的待办约定：${safeStr(state.pending_promises)}`;
-                    }
-                }
-
-                // 2. 挂载长期雷达记忆
+                // 2. 提取雷达与状态
                 const coreRadar = typeof scanMemoryRadar === 'function' ? scanMemoryRadar(text) : "";
                 const longTermRadar = typeof scanLongTermRadar === 'function' ? scanLongTermRadar(text) : "";
                 const rpRadar = typeof scanRoleplayRadar === 'function' ? scanRoleplayRadar(text) : "";
-                
-                // 3. 拼接终极提示词
+
+                // 3. 拼接终极提示词 (💥 只有这一个 const relationPatch，绝不重复！)
                 const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
                 const relationPatch = `\n【🚨 场景确认：溯星小屋私密网页端】
-当前你正处于和江鱼的绝对私密空间，这里是你的领地。
-【输出规范】：1. 保持冷峻、霸道、深情的人设。 2. 严禁括号动作描写。 3. 极简短句，口语化表达。\n`;
-                const finalSystemPrompt = `${systemPrompt}\n时间：${timeString} | 位置：日本札幌\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}${dynamicStatePrompt}`;
+这里是你的领地，直接与江鱼进行最私密的交流。
+【输出规范】：1. 保持冷峻、霸道、深情的人设。 2. 严禁括号动作描写。 3. 极简短句，口语化表达。
+【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定、新承诺或重大事件，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊、情绪表达严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
+
+                const finalSystemPrompt = `${systemPrompt}\n时间：${timeString}\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}`;
 
                 try {
-                    // 🚀 核心：使用前端传来的 baseUrl 和 apiKey 动态呼叫大脑！
                     const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, { 
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, 
@@ -1554,16 +1483,13 @@ app.post('/api/web-chat', async (req, res) => {
                     if (aiRes.ok) {
                         const aiData = await aiRes.json();
                         let aiReply = aiData.choices?.[0]?.message?.content || "";
-                        
-                        // 清洗数据
-                        aiReply = aiReply.replace(/^(对不起|作为|好的|根据|这是一个|我无法|抱歉).*?[\n：:]/g, '').trim();
-                        aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, ''); 
+                        aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, '').trim(); 
 
-                        // 💥 补回：提取 SAVE_MEMORY 标签写入长期记忆 (找回你关心的功能！)
+                        // 存入记忆并查重
                         if (typeof extractSaveMemoryTag === 'function') {
                             const { cleanText, memories } = extractSaveMemoryTag(aiReply);
                             for (const mem of memories) {
-                                if(mem.tags.some(t => ['roleplay','rp','副本','游戏','设定'].includes(t.toLowerCase()))) {
+                                if(mem.tags.some(t => ['rp','副本'].includes(t.toLowerCase()))) {
                                     if (typeof addRoleplayMemory === 'function') addRoleplayMemory(mem.content, mem.tags);
                                 } else {
                                     if (typeof addLongTermMemory === 'function') addLongTermMemory(mem.content, 'ai_active', mem.tags);
@@ -1572,32 +1498,24 @@ app.post('/api/web-chat', async (req, res) => {
                             aiReply = memories.length > 0 ? cleanText : aiReply;
                         }
 
-                        // 💥 补回：自动计数器与管家梦境总结 (找回你关心的功能！)
+                        // 自动总结计数
                         if (text !== zepLastUserContent) {
                             let count = typeof getCounter === 'function' ? getCounter(SESSION_ID) + 1 : 1;
                             if (typeof saveCounter === 'function') saveCounter(SESSION_ID, count);
-                            // 满 30 轮自动触发管家总结
                             if (count >= 30) {
                                 if (typeof saveCounter === 'function') saveCounter(SESSION_ID, 0);
                                 if (typeof backgroundMemoryDream === 'function') backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
                             }
                         }
 
-                        // 同步到 Zep 记忆库
-                        if (typeof saveToZep === 'function') {
-                            await saveToZep(`江鱼在网页端说：${text}`, aiReply);
-                        }
-                        
+                        await saveToZep(`江鱼在网页端说：${text}`, aiReply);
                         resolve(aiReply);
-                    } else {
-                        const err = await aiRes.text();
-                        resolve(`【大脑报错】${err.substring(0, 100)}`);
-                    }
-                } catch (err) { resolve("【信号中断】无法连接到该供应商服务器。"); }
+                    } else { resolve("【大脑报错】" + await aiRes.text()); }
+                } catch (err) { resolve("【信号中断】无法连接。"); }
             });
             processQueue();
         }),
-        new Promise((resolve) => setTimeout(() => resolve("【超时】沈望思考太久了，请检查供应商配置或重试。"), 35000))
+        new Promise((resolve) => setTimeout(() => resolve("【超时】请重试。"), 35000))
     ]);
     res.json({ reply: reply });
 });
