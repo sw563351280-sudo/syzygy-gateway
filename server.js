@@ -1098,8 +1098,6 @@ app.get(['/v1/models', '/via/:platform/v1/models'], async (req, res) => {
     try { res.status(200).json(await (await fetch(resolveApiUrl(req.path).replace('/chat/completions', '/models'), { headers: { 'Authorization': req.headers.authorization } })).json()); } catch(e) {}
 });
 
-app.get('/', (req, res) => res.send("专属视神经网关完美运行！包含冰封与卡带系统！"));
-
 // ==========================================
 // 🚨🚨🚨 【QQ 赛博躯壳神经中枢】(究极架构排队版) 🚨🚨🚨
 // ==========================================
