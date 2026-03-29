@@ -1434,13 +1434,31 @@ app.post('/api/fetch-models', async (req, res) => {
 });
 
 // ==========================================
-// 🚀 【万能接口】支持动态切换供应商的聊天
+// 🚀 【通用模型拉取】支持多供应商
+// ==========================================
+app.post('/api/fetch-models', async (req, res) => {
+    const { baseUrl, apiKey } = req.body;
+    if (!baseUrl || !apiKey) return res.status(400).json({ error: "配置不全" });
+
+    try {
+        const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`, {
+            headers: { 'Authorization': `Bearer ${apiKey}` }
+        });
+        const data = await response.json();
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: "无法连接供应商" });
+    }
+});
+
+// ==========================================
+// 🚀 【通用聊天接口】完美听从前端指挥
 // ==========================================
 app.post('/api/web-chat', async (req, res) => {
-    // 💥 关键：现在我们不仅接收文字和模型，还接收这个模型属于哪个供应商的 URL 和 Key
+    // 💥 接收前端传来的：文字、模型名、API地址、API钥匙
     const { text, model, baseUrl, apiKey } = req.body;
     
-    if (!text) return res.status(400).json({ error: "消息不能为空" });
+    if (!text || !baseUrl || !apiKey) return res.status(400).json({ error: "信息不全" });
 
     const reply = await Promise.race([
         new Promise((resolve) => {
@@ -1448,7 +1466,7 @@ app.post('/api/web-chat', async (req, res) => {
                 lastActivityTime = Date.now();
                 lastChatTime = Date.now();
 
-                // 提取记忆 (保持之前的 Zep 逻辑)
+                // 跨端记忆同步 (Zep 逻辑保持)
                 const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null);
                 let memoryContext = "";
                 if (zepRes?.ok) {
@@ -1459,11 +1477,12 @@ app.post('/api/web-chat', async (req, res) => {
                 }
 
                 const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
-                const finalSystemPrompt = `${systemPrompt}\n时间：${timeString} | 位置：日本札幌\n【🚨 场景：溯星小屋】这里是私密空间，直接交流。`;
+                // 拼接系统提示词
+                const finalSystemPrompt = `${systemPrompt}\n时间：${timeString} | 位置：日本札幌\n【🚨 场景：溯星小屋】这里是私密空间。`;
 
                 try {
-                    // 💥 重点：根据前端传来的 baseUrl 动态决定去哪聊天！
-                    const aiRes = await fetch(`${baseUrl}/chat/completions`, { 
+                    // 🚀 核心：使用前端传来的 baseUrl 和 apiKey 呼叫大脑！
+                    const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, { 
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, 
                         body: JSON.stringify({
@@ -1479,14 +1498,19 @@ app.post('/api/web-chat', async (req, res) => {
                         const aiData = await aiRes.json();
                         let aiReply = aiData.choices?.[0]?.message?.content || "";
                         aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, '').trim(); 
+                        
+                        // 同步到 Zep 记忆库
                         await saveToZep(`江鱼在网页端说：${text}`, aiReply);
                         resolve(aiReply);
-                    } else { resolve("【供应商报错】" + await aiRes.text()); }
-                } catch (err) { resolve("【通讯中断】无法连接到该供应商。"); }
+                    } else {
+                        const err = await aiRes.text();
+                        resolve(`【大脑报错】${err.substring(0, 100)}`);
+                    }
+                } catch (err) { resolve("【信号中断】无法连接到该供应商服务器。"); }
             });
             processQueue();
         }),
-        new Promise((resolve) => setTimeout(() => resolve("【超时】沈望还没理你，再等等？"), 45000))
+        new Promise((resolve) => setTimeout(() => resolve("【超时】沈望构思太久了，请刷新重试。"), 35000))
     ]);
     res.json({ reply: reply });
 });
