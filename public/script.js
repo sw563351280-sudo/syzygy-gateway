@@ -22,9 +22,10 @@
 const START_DATE = '2025-04-20'; // 你们的纪念日
 let allDiaryEntries = [];
 
-// 🔧 供应商管理 (Kelivo 模式 - 存在浏览器本地缓存中)
+// 🔧 供应商管理 (安全版 - 不再硬编码 Key)
 let suppliers = JSON.parse(localStorage.getItem('sw_suppliers')) || [
-    { name: "默认 dzzi", url: "https://api.dzzi.ai/v1", key: "sk-5xrITGXSvC00zOTsDWvDhKBzbFYxR9WImpBDDXsRZ2GkvaqH" } 
+    // 这里把 Key 留空，通过网页端的 [⚙中枢] 界面手动添加
+    { name: "默认 dzzi", url: "https://api.dzzi.ai/v1", key: "" } 
 ];
 let activeSupIndex = 0; // 当前选中的供应商索引
 
