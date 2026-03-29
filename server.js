@@ -1199,6 +1199,7 @@ wss.on('connection', (ws) => {
 
                         if (!friendTempMemory[senderId]) friendTempMemory[senderId] = [];
                         friendTempMemory[senderId].push(`${speakerName}说：${userText}`);
+if (friendTempMemory[senderId].length > 10) friendTempMemory[senderId].shift();
                     }
                     console.log(`📥 [收到 ${speakerName} 消息]: ${userText}`);
 
@@ -1236,7 +1237,6 @@ wss.on('connection', (ws) => {
                     const finalSystemPrompt = `${systemPrompt}\n时间：${timeString} | 位置：日本札幌\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}`;
 
                     const aiKey = process.env.QQ_CHAT_KEY;
-console.log("🔑 实际读到的 QQ_CHAT_KEY:", aiKey); // 加这行
 if (!aiKey) return console.log("❌ 缺少 QQ_CHAT_KEY，沈望无法思考！");
 
                     const controller = new AbortController();
