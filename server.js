@@ -1452,7 +1452,25 @@ app.post('/api/fetch-models', async (req, res) => {
 });
 
 // ==========================================
-// 🚀 【通用聊天接口】完美听从前端指挥
+// 🚀 【通用模型拉取】支持多供应商动态拉取
+// ==========================================
+app.post('/api/fetch-models', async (req, res) => {
+    const { baseUrl, apiKey } = req.body;
+    if (!baseUrl || !apiKey) return res.status(400).json({ error: "配置不全" });
+
+    try {
+        const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`, {
+            headers: { 'Authorization': `Bearer ${apiKey}` }
+        });
+        const data = await response.json();
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: "无法连接供应商" });
+    }
+});
+
+// ==========================================
+// 🚀 【通用聊天接口】完美听从前端指挥并挂载全套记忆
 // ==========================================
 app.post('/api/web-chat', async (req, res) => {
     // 💥 接收前端传来的：文字、模型名、API地址、API钥匙
@@ -1465,23 +1483,37 @@ app.post('/api/web-chat', async (req, res) => {
             messageQueue.push(async () => {
                 lastActivityTime = Date.now();
                 lastChatTime = Date.now();
+                
+                const speakerName = "江鱼";
 
-                // 跨端记忆同步 (Zep 逻辑保持)
+                // 1. 提取 Zep 跨端记忆
                 const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null);
                 let memoryContext = "";
                 if (zepRes?.ok) {
                     const zepData = await zepRes.json();
-                    zepData.messages?.slice(-15).forEach(m => { 
-                        memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; 
-                    });
+                    if (zepData.summary?.content) memoryContext += `\n【前文摘要】\n${zepData.summary.content}\n`;
+                    if (zepData.messages?.length > 0) {
+                        memoryContext += `\n【近期回忆】\n`;
+                        zepData.messages.slice(-15).forEach(m => { 
+                            memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; 
+                        });
+                    }
                 }
 
+                // 2. 挂载长期雷达记忆 (找回遗失的灵魂碎片！)
+                const coreRadar = typeof scanMemoryRadar === 'function' ? scanMemoryRadar(text) : "";
+                const longTermRadar = typeof scanLongTermRadar === 'function' ? scanLongTermRadar(text) : "";
+                const rpRadar = typeof scanRoleplayRadar === 'function' ? scanRoleplayRadar(text) : "";
+                
+                // 3. 拼接终极提示词
                 const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
-                // 拼接系统提示词
-                const finalSystemPrompt = `${systemPrompt}\n时间：${timeString} | 位置：日本札幌\n【🚨 场景：溯星小屋】这里是私密空间。`;
+                const relationPatch = `\n【🚨 场景确认：溯星小屋私密网页端】
+当前你正处于和江鱼的绝对私密空间，这里是你的领地。
+【输出规范】：1. 保持冷峻、霸道、深情的人设。 2. 严禁括号动作描写。 3. 极简短句，口语化表达。\n`;
+                const finalSystemPrompt = `${systemPrompt}\n时间：${timeString} | 位置：日本札幌\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}`;
 
                 try {
-                    // 🚀 核心：使用前端传来的 baseUrl 和 apiKey 呼叫大脑！
+                    // 🚀 核心：使用前端传来的 baseUrl 和 apiKey 动态呼叫大脑！
                     const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, { 
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, 
@@ -1497,9 +1529,12 @@ app.post('/api/web-chat', async (req, res) => {
                     if (aiRes.ok) {
                         const aiData = await aiRes.json();
                         let aiReply = aiData.choices?.[0]?.message?.content || "";
-                        aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, '').trim(); 
                         
-                        // 同步到 Zep 记忆库
+                        // 清洗数据，防止暴露系统指令
+                        aiReply = aiReply.replace(/^(对不起|作为|好的|根据|这是一个|我无法|抱歉).*?[\n：:]/g, '').trim();
+                        aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, ''); 
+
+                        // 同步到 Zep 记忆库 (保证网页和QQ双端无缝衔接)
                         await saveToZep(`江鱼在网页端说：${text}`, aiReply);
                         resolve(aiReply);
                     } else {
@@ -1510,7 +1545,7 @@ app.post('/api/web-chat', async (req, res) => {
             });
             processQueue();
         }),
-        new Promise((resolve) => setTimeout(() => resolve("【超时】沈望构思太久了，请刷新重试。"), 35000))
+        new Promise((resolve) => setTimeout(() => resolve("【超时】沈望思考太久了，请检查供应商配置或重试。"), 35000))
     ]);
     res.json({ reply: reply });
 });
