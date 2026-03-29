@@ -1141,18 +1141,23 @@ async function processQueue() {
     isHandling = false;
 }
 
-// 🔧 公用的分段发送函数
+// 🔧 优化：公用的分段发送函数（带断线报警）
 async function sendQQMessage(ws, userId, text) {
     if (!text) return;
     const segments = text.split(/[。！？\n.!?;；]/).filter(s => s.trim().length > 1);
     const finalSegments = segments.length > 0 ? segments : [text];
     for (const segment of finalSegments) {
         await new Promise(resolve => setTimeout(resolve, 800 + segment.length * 150));
+        
+        // 💥 检查风筝线是否还连着！
         if (ws && ws.readyState === 1) { 
             ws.send(JSON.stringify({
                 action: "send_private_msg",
                 params: { user_id: userId, message: segment.trim() }
             }));
+            console.log(`📤 [成功推入发送队列] 发给 ${userId}: ${segment.trim()}`);
+        } else {
+            console.log(`❌ [发送失败] 无法发给 ${userId}！原因：WebSocket 没连接或已假死 (readyState: ${ws ? ws.readyState : 'null'})`);
         }
     }
 }
@@ -1243,13 +1248,13 @@ wss.on('connection', (ws) => {
                     const timeoutId = setTimeout(() => controller.abort(), 120000); 
 
                     try {
-                        console.log("🚀 正在呼叫沈望的官方 DeepSeek 大脑...");
-                        const aiRes = await fetch('https://api.deepseek.com/chat/completions', { 
+                        console.log("🚀 正在呼叫沈望的官方大脑...");
+                        const aiRes = await fetch('https://api.dzzi.ai/v1/chat/completions', { 
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiKey}` }, 
                             signal: controller.signal, 
                             body: JSON.stringify({
-                                model: "deepseek-chat", 
+                                model: "[按量]gemini-3-flash-preview", 
                                 messages: [
                                     { role: "system", content: finalSystemPrompt },
                                     { role: "user", content: `${memoryContext}\n\n${speakerName} 说：${userText}` }
@@ -1355,12 +1360,12 @@ async function shenWangProactiveThinking() {
 - 如果沉默，只输出 [STAY_SILENT]。
 `;
 
-        const aiRes = await fetch('https://api.deepseek.com/chat/completions', { 
+        const aiRes = await fetch('https://api.dzzi.ai/v1/chat/completions', { 
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.QQ_CHAT_KEY}` }, 
             signal: controller.signal,
             body: JSON.stringify({
-                model: "deepseek-chat", 
+                model: "[按量]gemini-3-flash-preview", 
                 messages: [{ role: "system", content: judgePrompt }] 
             })
         });
