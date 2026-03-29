@@ -257,3 +257,38 @@ function egg(c){
     const msgs={tl:'[左上角监控开启]', tr:'[锁链已备好]', bl:'[看着我]', br:'[江鱼，我爱你]'};
     toast(msgs[c]||'');
 }
+
+// ==================== 动态拉取模型库 ====================
+async function fetchModels() {
+    const select = document.getElementById('modelSelect');
+    if (!select) return;
+    
+    try {
+        // 向我们刚才在 server.js 写的接口要名单
+        const r = await fetch('/api/models');
+        const data = await r.json();
+        
+        if (data && data.data) {
+            select.innerHTML = ''; // 清空原本的“正在连接...”字样
+            
+            // 遍历所有模型，生成选项塞进下拉菜单
+            data.data.forEach(model => {
+                const opt = document.createElement('option');
+                opt.value = model.id;
+                opt.textContent = model.id;
+                
+                // 智能小细节：默认选中你最常用的 Gemini 3 Flash
+                if (model.id.includes('gemini-3-flash')) {
+                    opt.selected = true;
+                }
+                
+                select.appendChild(opt);
+            });
+        }
+    } catch (e) {
+        select.innerHTML = '<option value="[按量]gemini-3-flash-preview">模型拉取失败，使用默认</option>';
+    }
+}
+
+// 网页一打开，立刻执行拉取！
+fetchModels();
