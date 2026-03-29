@@ -1418,6 +1418,22 @@ async function shenWangProactiveThinking() {
 setInterval(shenWangProactiveThinking, 7200000);
 
 // ==========================================
+// 🚀 【获取模型列表】让网页动态拉取 dzzi 支持的所有模型
+// ==========================================
+app.get('/api/models', async (req, res) => {
+    try {
+        const response = await fetch('https://api.dzzi.ai/v1/models', {
+            // 拿着你的专属钥匙去请求
+            headers: { 'Authorization': `Bearer ${process.env.QQ_CHAT_KEY}` } 
+        });
+        const data = await response.json();
+        res.json(data); // 把获取到的包含几百个模型的华丽名单，原封不动发给网页
+    } catch (error) {
+        res.status(500).json({ error: "获取模型列表失败" });
+    }
+});
+
+// ==========================================
 // 🚀 【网页端专属接口】溯星禁区 Web 桥接 (带并发超时保护)
 // ==========================================
 app.post('/api/web-chat', async (req, res) => {
