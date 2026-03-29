@@ -137,17 +137,42 @@
         </div>
     </div>
 
-    <div class="section" id="sec-data">
-        <div class="totem"><h1>[ 记忆中枢 ]</h1><div class="sub">灵魂提取与移植</div></div>
-        <div class="glass">
-            <div class="data-row">
-                <button onclick="exportData()">📤 提取灵魂(导出数据)</button>
+<div class="section" id="sec-data">
+    <div class="totem">
+        <h1>[ 溯星中枢 ]</h1>
+        <div class="sub">供应商调控 ✖ 数据维护 ✖ 灵魂移植</div>
+    </div>
+    
+    <div class="glass">
+        <p style="color:var(--blue); font-size:0.9em; margin-bottom:15px; border-left:3px solid var(--blue); padding-left:10px;">🌐 供应商配置 (模型来源)</p>
+        <div class="input-row" style="flex-direction:column; gap:10px;">
+            <input type="text" id="supName" placeholder="名称 (如: 我的 dzzi)">
+            <input type="text" id="supUrl" placeholder="API Base URL (如: https://api.dzzi.ai/v1)">
+            <input type="password" id="supKey" placeholder="API Key">
+            <button onclick="addSupplier()" style="width:100%; padding:14px;">确认添加</button>
+        </div>
+        <div id="supplierList" style="margin-top:20px; display:flex; flex-direction:column; gap:12px;">
             </div>
-            <div class="data-row">
-                <button onclick="if(confirm('确定要重置本地缓存吗？云端记忆不受影响。'))resetAll()">⚠ 重置本地缓存</button>
-            </div>
+    </div>
+
+    <div class="glass">
+        <p style="color:var(--red); font-size:0.9em; margin-bottom:15px; border-left:3px solid var(--red); padding-left:10px;">💾 灵魂存储与记忆维护</p>
+        <div class="data-row">
+            <button onclick="exportData()" style="flex:1">📤 提取灵魂 (导出数据)</button>
+        </div>
+        <div class="data-row" style="margin-top:10px;">
+            <button onclick="if(confirm('确定要重置本地缓存吗？这不会影响云端记忆。'))resetAll()" style="flex:1; border-color:var(--red); color:var(--red);">⚠ 重置本地缓存</button>
         </div>
     </div>
+
+    <div class="glass" style="text-align:center; padding:15px;">
+        <div style="color:var(--dim); font-size:0.85em;">
+            <span id="memCount">0</span> 条语录 · 
+            <span id="capsuleCount">0</span> 颗胶囊 · 
+            <span id="diaryCount">0</span> 篇日记
+        </div>
+    </div>
+</div>
 
     <script src="script.js"></script>
 </body>
