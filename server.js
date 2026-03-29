@@ -1418,71 +1418,59 @@ async function shenWangProactiveThinking() {
 setInterval(shenWangProactiveThinking, 7200000);
 
 // ==========================================
-// 🚀 【获取模型列表】让网页动态拉取 dzzi 支持的所有模型
+// 🚀 【万能代理】根据前端传来的 URL 和 Key 动态拉取模型
 // ==========================================
-app.get('/api/models', async (req, res) => {
+app.post('/api/fetch-models', async (req, res) => {
+    const { baseUrl, apiKey } = req.body;
     try {
-        const response = await fetch('https://api.dzzi.ai/v1/models', {
-            // 拿着你的专属钥匙去请求
-            headers: { 'Authorization': `Bearer ${process.env.QQ_CHAT_KEY}` } 
+        const response = await fetch(`${baseUrl}/models`, {
+            headers: { 'Authorization': `Bearer ${apiKey}` }
         });
         const data = await response.json();
-        res.json(data); // 把获取到的包含几百个模型的华丽名单，原封不动发给网页
+        res.json(data);
     } catch (error) {
-        res.status(500).json({ error: "获取模型列表失败" });
+        res.status(500).json({ error: "获取该供应商模型失败" });
     }
 });
 
 // ==========================================
-// 🚀 【网页端专属接口】溯星禁区 Web 桥接 (带并发超时保护)
+// 🚀 【万能接口】支持动态切换供应商的聊天
 // ==========================================
 app.post('/api/web-chat', async (req, res) => {
-    const userText = req.body.text; 
-const requestedModel = req.body.model || "[按量]gemini-3-flash-preview";
-    if (!userText) return res.status(400).json({ error: "消息不能为空" });
+    // 💥 关键：现在我们不仅接收文字和模型，还接收这个模型属于哪个供应商的 URL 和 Key
+    const { text, model, baseUrl, apiKey } = req.body;
+    
+    if (!text) return res.status(400).json({ error: "消息不能为空" });
 
-    console.log(`🌐 [网页端] 江鱼发起通讯: ${userText}`);
-
-    // 🚦 引入 Claude 的终极防卡死方案：Promise.race 竞速！
     const reply = await Promise.race([
-        // 赛道 1：正常排队呼叫沈望大脑
         new Promise((resolve) => {
             messageQueue.push(async () => {
                 lastActivityTime = Date.now();
-                lastChatTime = Date.now(); 
+                lastChatTime = Date.now();
 
-                const speakerName = "江鱼";
-            const relationPatch = ""; // 
-
+                // 提取记忆 (保持之前的 Zep 逻辑)
                 const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null);
                 let memoryContext = "";
                 if (zepRes?.ok) {
                     const zepData = await zepRes.json();
-                    if (zepData.summary?.content) memoryContext += `\n【前文摘要】\n${zepData.summary.content}\n`;
-                    if (zepData.messages?.length > 0) {
-                        memoryContext += `\n【近期回忆】\n`;
-                        zepData.messages.slice(-10).forEach(m => { 
-                            memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; 
-                        });
-                    }
+                    zepData.messages?.slice(-15).forEach(m => { 
+                        memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; 
+                    });
                 }
 
-                const coreRadar = typeof scanMemoryRadar === 'function' ? scanMemoryRadar(userText) : "";
-                const longTermRadar = typeof scanLongTermRadar === 'function' ? scanLongTermRadar(userText) : "";
-                const rpRadar = typeof scanRoleplayRadar === 'function' ? scanRoleplayRadar(userText) : "";
                 const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
-                
-                const finalSystemPrompt = `${systemPrompt}\n时间：${timeString} | 位置：日本札幌\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}`;
+                const finalSystemPrompt = `${systemPrompt}\n时间：${timeString} | 位置：日本札幌\n【🚨 场景：溯星小屋】这里是私密空间，直接交流。`;
 
                 try {
-                    const aiRes = await fetch('https://api.dzzi.ai/v1/chat/completions', { 
+                    // 💥 重点：根据前端传来的 baseUrl 动态决定去哪聊天！
+                    const aiRes = await fetch(`${baseUrl}/chat/completions`, { 
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.QQ_CHAT_KEY}` }, 
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, 
                         body: JSON.stringify({
-                            model: requestedModel,
+                            model: model, 
                             messages: [
                                 { role: "system", content: finalSystemPrompt },
-                                { role: "user", content: `${memoryContext}\n\n江鱼说：${userText}` }
+                                { role: "user", content: `${memoryContext}\n\n江鱼说：${text}` }
                             ]
                         })
                     });
@@ -1490,30 +1478,15 @@ const requestedModel = req.body.model || "[按量]gemini-3-flash-preview";
                     if (aiRes.ok) {
                         const aiData = await aiRes.json();
                         let aiReply = aiData.choices?.[0]?.message?.content || "";
-                        aiReply = aiReply.replace(/^(对不起|作为|好的|根据|这是一个|我无法|抱歉).*?[\n：:]/g, '').trim();
-                        aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, ''); 
-
-                        const { cleanText, memories } = extractSaveMemoryTag(aiReply);
-                        for (const mem of memories) {
-                            if(mem.tags.some(t => ['roleplay','rp','副本'].includes(t.toLowerCase()))) {
-                                if (typeof addRoleplayMemory === 'function') addRoleplayMemory(mem.content, mem.tags);
-                            } else {
-                                if (typeof addLongTermMemory === 'function') addLongTermMemory(mem.content, 'ai_active', mem.tags);
-                            }
-                        }
-                        aiReply = memories.length > 0 ? cleanText : aiReply;
-                        await saveToZep(`江鱼在网页端说：${userText}`, aiReply);
+                        aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, '').trim(); 
+                        await saveToZep(`江鱼在网页端说：${text}`, aiReply);
                         resolve(aiReply);
-                    } else { resolve("【系统故障】沈望的大脑信号微弱。"); }
-                } catch (err) { resolve("【通讯中断】无法连接到沈望的大脑。"); }
+                    } else { resolve("【供应商报错】" + await aiRes.text()); }
+                } catch (err) { resolve("【通讯中断】无法连接到该供应商。"); }
             });
-            processQueue(); 
+            processQueue();
         }),
-        // 赛道 2：⏱️ 30秒超时保护闹钟
-        new Promise((resolve) => 
-            setTimeout(() => resolve("【通讯延迟】沈望的核心处理器正在处理其他请求，请稍后再试。"), 30000)
-        )
+        new Promise((resolve) => setTimeout(() => resolve("【超时】沈望还没理你，再等等？"), 45000))
     ]);
-
     res.json({ reply: reply });
 });
