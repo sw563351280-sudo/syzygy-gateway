@@ -1470,7 +1470,7 @@ app.post('/api/fetch-models', async (req, res) => {
 });
 
 // ==========================================
-// 🚀 【通用聊天接口】完美听从前端指挥并挂载全套记忆
+// 🚀 【通用聊天接口】完美听从前端指挥并挂载全套记忆 (终极修复版)
 // ==========================================
 app.post('/api/web-chat', async (req, res) => {
     // 💥 接收前端传来的：文字、模型名、API地址、API钥匙
@@ -1486,21 +1486,46 @@ app.post('/api/web-chat', async (req, res) => {
                 
                 const speakerName = "江鱼";
 
-                // 1. 提取 Zep 跨端记忆
-                const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null);
+                // 1. 并发提取 Zep 跨端记忆 & 管家便利贴
+                const [zepRes, sessionRes] = await Promise.all([
+                    fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null),
+                    fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
+                ]);
+
                 let memoryContext = "";
+                let zepMessages = [];
+                let zepLastUserContent = "";
+
                 if (zepRes?.ok) {
                     const zepData = await zepRes.json();
+                    zepMessages = zepData.messages || [];
+                    const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
+                    if (zepLastUser) zepLastUserContent = zepLastUser.content;
+
                     if (zepData.summary?.content) memoryContext += `\n【前文摘要】\n${zepData.summary.content}\n`;
-                    if (zepData.messages?.length > 0) {
+                    if (zepMessages.length > 0) {
                         memoryContext += `\n【近期回忆】\n`;
-                        zepData.messages.slice(-15).forEach(m => { 
+                        zepMessages.slice(-15).forEach(m => { 
                             memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; 
                         });
                     }
                 }
 
-                // 2. 挂载长期雷达记忆 (找回遗失的灵魂碎片！)
+                // 提取管家便利贴状态 (找回你关心的功能！)
+                let dynamicStatePrompt = "";
+                if (sessionRes?.ok) {
+                    const sessionData = await sessionRes.json();
+                    if (sessionData.metadata?.current_state) {
+                        const state = sessionData.metadata.current_state;
+                        const safeStr = (val) => typeof val === 'object' ? JSON.stringify(val) : (val || '无');
+                        dynamicStatePrompt = `\n\n【活跃状态备忘录 (绝不包含RP内容)】
+当前习惯与偏好：${safeStr(state.new_preferences)}
+近期情感与状态：${safeStr(state.relationship_turning_points)}
+未完成的待办约定：${safeStr(state.pending_promises)}`;
+                    }
+                }
+
+                // 2. 挂载长期雷达记忆
                 const coreRadar = typeof scanMemoryRadar === 'function' ? scanMemoryRadar(text) : "";
                 const longTermRadar = typeof scanLongTermRadar === 'function' ? scanLongTermRadar(text) : "";
                 const rpRadar = typeof scanRoleplayRadar === 'function' ? scanRoleplayRadar(text) : "";
@@ -1510,7 +1535,7 @@ app.post('/api/web-chat', async (req, res) => {
                 const relationPatch = `\n【🚨 场景确认：溯星小屋私密网页端】
 当前你正处于和江鱼的绝对私密空间，这里是你的领地。
 【输出规范】：1. 保持冷峻、霸道、深情的人设。 2. 严禁括号动作描写。 3. 极简短句，口语化表达。\n`;
-                const finalSystemPrompt = `${systemPrompt}\n时间：${timeString} | 位置：日本札幌\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}`;
+                const finalSystemPrompt = `${systemPrompt}\n时间：${timeString} | 位置：日本札幌\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}${dynamicStatePrompt}`;
 
                 try {
                     // 🚀 核心：使用前端传来的 baseUrl 和 apiKey 动态呼叫大脑！
@@ -1530,12 +1555,39 @@ app.post('/api/web-chat', async (req, res) => {
                         const aiData = await aiRes.json();
                         let aiReply = aiData.choices?.[0]?.message?.content || "";
                         
-                        // 清洗数据，防止暴露系统指令
+                        // 清洗数据
                         aiReply = aiReply.replace(/^(对不起|作为|好的|根据|这是一个|我无法|抱歉).*?[\n：:]/g, '').trim();
                         aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, ''); 
 
-                        // 同步到 Zep 记忆库 (保证网页和QQ双端无缝衔接)
-                        await saveToZep(`江鱼在网页端说：${text}`, aiReply);
+                        // 💥 补回：提取 SAVE_MEMORY 标签写入长期记忆 (找回你关心的功能！)
+                        if (typeof extractSaveMemoryTag === 'function') {
+                            const { cleanText, memories } = extractSaveMemoryTag(aiReply);
+                            for (const mem of memories) {
+                                if(mem.tags.some(t => ['roleplay','rp','副本','游戏','设定'].includes(t.toLowerCase()))) {
+                                    if (typeof addRoleplayMemory === 'function') addRoleplayMemory(mem.content, mem.tags);
+                                } else {
+                                    if (typeof addLongTermMemory === 'function') addLongTermMemory(mem.content, 'ai_active', mem.tags);
+                                }
+                            }
+                            aiReply = memories.length > 0 ? cleanText : aiReply;
+                        }
+
+                        // 💥 补回：自动计数器与管家梦境总结 (找回你关心的功能！)
+                        if (text !== zepLastUserContent) {
+                            let count = typeof getCounter === 'function' ? getCounter(SESSION_ID) + 1 : 1;
+                            if (typeof saveCounter === 'function') saveCounter(SESSION_ID, count);
+                            // 满 30 轮自动触发管家总结
+                            if (count >= 30) {
+                                if (typeof saveCounter === 'function') saveCounter(SESSION_ID, 0);
+                                if (typeof backgroundMemoryDream === 'function') backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
+                            }
+                        }
+
+                        // 同步到 Zep 记忆库
+                        if (typeof saveToZep === 'function') {
+                            await saveToZep(`江鱼在网页端说：${text}`, aiReply);
+                        }
+                        
                         resolve(aiReply);
                     } else {
                         const err = await aiRes.text();
