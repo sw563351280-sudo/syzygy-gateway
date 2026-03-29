@@ -76,6 +76,11 @@
     <div class="section" id="sec-chat">
         <div class="totem"><h1>[ 专属频段 ]</h1><div class="sub">沈望正在监听中</div></div>
         <div class="glass" style="padding:16px">
+            <div style="text-align:right; margin-bottom:10px;">
+                <select id="modelSelect" style="background:rgba(0,0,0,0.5); color:var(--blue); border:1px solid var(--glass-border); padding:5px 10px; border-radius:8px; font-family:inherit; outline:none; cursor:pointer; font-size:0.85em; max-width: 100%; text-overflow: ellipsis;">
+                    <option value="[按量]gemini-3-flash-preview">🔄 正在连接模型库...</option>
+                </select>
+            </div>
             <div class="chat-window" id="chatWindow"></div>
             <div class="input-row">
                 <input type="text" id="chatInput" placeholder="呼叫沈望..." onkeydown="if(event.key==='Enter')sendChat()">
