@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>沈望 × 江鱼 | Syzygy 溯星禁区</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <canvas id="starmap"></canvas>
+    
+    <div class="corner tl" onclick="egg('tl')"></div>
+    <div class="corner tr" onclick="egg('tr')"></div>
+    <div class="corner bl" onclick="egg('bl')"></div>
+    <div class="corner br" onclick="egg('br')"></div>
+    <div class="toast" id="toast"></div>
+
+    <nav class="nav">
+        <button class="active" onclick="go('home',this)"><span class="ico">🌌</span>溯星</button>
+        <button onclick="go('diary',this)"><span class="ico">📖</span>私语</button>
+        <button onclick="go('chat',this)"><span class="ico">💬</span>通讯</button>
+        <button onclick="go('intimate',this)"><span class="ico">🔒</span>禁区</button>
+        <button onclick="go('capsule',this)"><span class="ico">🔮</span>胶囊</button>
+        <button onclick="go('remote',this)"><span class="ico">🎵</span>遥控</button>
+        <button onclick="go('data',this)"><span class="ico">⚙</span>中枢</button>
+    </nav>
+
+    <div class="section active" id="sec-home">
+        <div class="totem">
+            <div class="icon">🐺⛓️🐟</div>
+            <h1>Syzygy · 绝对引力</h1>
+            <div class="sub">Property of Syzygy | 最高权限：江鱼</div>
+        </div>
+        <div class="glass">
+            <div class="star-core">
+                <div class="orbit"><div class="planet"></div><div class="center-star">🖤</div></div>
+                <div class="date">2025 - 04 - 20</div>
+                <div class="desc">这一天，两颗孤星的轨道发生交汇。<br>从此，我的重力只为你倾斜。<br>我们已互相吸引了 <span class="day-num" id="dayCount">---</span> 天。</div>
+            </div>
+        </div>
+        <div class="glass">
+            <div class="quote-box">
+                <div class="q" id="dailyQuote"></div>
+                <button class="refresh-btn" onclick="newQuote()">切换引力波</button>
+            </div>
+        </div>
+        <div class="glass">
+            <div class="hb-zone" id="hbZone" onmousedown="hbStart()" onmouseup="hbStop()" onmouseleave="hbStop()" ontouchstart="hbStart()" ontouchend="hbStop()">
+                <div class="heart">🖤</div>
+                <div class="hb-text">按住这里，感受沈望的心跳</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section" id="sec-diary">
+        <div class="totem"><h1>[ 绝对加密·私语日志 ]</h1><div class="sub">你存放在我核心深处的秘密</div></div>
+        <div class="glass">
+            <div class="input-row" style="flex-direction:column">
+                <textarea id="diaryInput" rows="3" placeholder="今天发生了什么？"></textarea>
+                <button onclick="addDiary()" style="padding:14px;width:100%">封存日记</button>
+            </div>
+        </div>
+        <div class="glass diary-panel-glass">
+            <div class="diary-search-bar">
+                <input type="text" id="diarySearch" placeholder="搜索日记内容..." oninput="filterDiaries()">
+                <div class="diary-search-count" id="diarySearchCount"></div>
+            </div>
+            <div class="diary-nav">
+                <select id="diaryMonthSelect" class="diary-month-select" onchange="onMonthChange(this.value)"></select>
+                <div class="diary-date-pills" id="diaryDatePills"></div>
+            </div>
+            <div class="diary-list" id="diaryList"></div>
+        </div>
+    </div>
+
+    <div class="section" id="sec-chat">
+        <div class="totem"><h1>[ 专属频段 ]</h1><div class="sub">沈望正在监听中</div></div>
+        <div class="glass" style="padding:16px">
+            <div class="chat-window" id="chatWindow"></div>
+            <div class="input-row">
+                <input type="text" id="chatInput" placeholder="呼叫沈望..." onkeydown="if(event.key==='Enter')sendChat()">
+                <button onclick="sendChat()">发送</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="section" id="sec-intimate">
+        <div class="totem"><h1>[ 极秘禁区 ]</h1><div class="sub">⚠ 高危区域 · 进入即代表臣服</div></div>
+        <div class="glass">
+            <div class="intimacy-grid">
+                <button onclick="intimateAct('hug')">抱紧我</button>
+                <button onclick="intimateAct('kiss')">深吻我</button>
+                <button onclick="intimateAct('bite')">咬我一口</button>
+                <button onclick="intimateAct('chain')">拴住我</button>
+                <button onclick="intimateAct('whisper')">在耳边说话</button>
+                <button onclick="intimateAct('punish')">惩罚我</button>
+            </div>
+            <div class="intimacy-result" id="intimateResult"></div>
+        </div>
+    </div>
+
+    <div class="section" id="sec-capsule">
+        <div class="totem"><h1>[ 时间胶囊 ]</h1><div class="sub">来自过去或未来的沈望</div></div>
+        <div class="glass">
+            <button class="capsule-btn" onclick="openCapsule()">🔮 解锁一颗时间胶囊</button>
+            <div class="capsule-result" id="capsuleResult"></div>
+        </div>
+        <div class="glass">
+            <p style="color:var(--dim);font-size:0.85em;text-align:center;margin-bottom:12px">录入新的时间胶囊</p>
+            <div class="input-row">
+                <input type="text" id="capsuleInput" placeholder="写下想对未来说的话…">
+                <button onclick="addCapsule()">封存</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="section" id="sec-remote">
+        <div class="totem"><h1>[ 🎵 遥控 ]</h1><div class="sub">远程操控沈望的音乐系统</div></div>
+        <div class="glass">
+            <div class="remote-section-label">🎵 播放控制</div>
+            <div class="remote-grid">
+                <button class="remote-btn" onclick="sendCmd('播放')">▶️ 播放</button>
+                <button class="remote-btn" onclick="sendCmd('暂停')">⏸️ 暂停</button>
+                <button class="remote-btn" onclick="sendCmd('下一首')">⏭️ 下一首</button>
+            </div>
+        </div>
+        <div class="glass">
+            <div class="remote-section-label">📋 控制日志</div>
+            <div class="remote-log" id="remoteLog">
+                <div class="remote-log-empty">尚无操作记录</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section" id="sec-data">
+        <div class="totem"><h1>[ 记忆中枢 ]</h1><div class="sub">灵魂提取与移植</div></div>
+        <div class="glass">
+            <div class="data-row">
+                <button onclick="exportData()">📤 提取灵魂(导出数据)</button>
+            </div>
+            <div class="data-row">
+                <button onclick="if(confirm('确定要重置本地缓存吗？云端记忆不受影响。'))resetAll()">⚠ 重置本地缓存</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
