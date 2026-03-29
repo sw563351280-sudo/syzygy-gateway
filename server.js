@@ -1434,7 +1434,7 @@ app.post('/api/web-chat', async (req, res) => {
                 const speakerName = "江鱼";
             const relationPatch = ""; // 
 
-                const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=15`).catch(() => null);
+                const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null);
                 let memoryContext = "";
                 if (zepRes?.ok) {
                     const zepData = await zepRes.json();
