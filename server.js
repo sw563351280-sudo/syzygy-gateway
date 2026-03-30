@@ -1427,9 +1427,8 @@ app.post('/api/web-chat', async (req, res) => {
     const { text, model, baseUrl, apiKey } = req.body;
     if (!text || !baseUrl || !apiKey) return res.status(400).json({ error: "信息不全" });
 
-    const reply = await Promise.race([
-        new Promise((resolve) => {
-            messageQueue.push(async () => {
+   const reply = await new Promise((resolve) => {
+        messageQueue.push(async () => {
                 lastActivityTime = Date.now();
                 lastChatTime = Date.now();
 
@@ -1485,7 +1484,26 @@ app.post('/api/web-chat', async (req, res) => {
                         let aiReply = aiData.choices?.[0]?.message?.content || "";
                         aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, '').trim(); 
 
-                        // 存入记忆并查重
+                        // ====== 请把原来在这的 if (aiRes.ok) {...} 一直到文件末尾全部删掉，替换成这段： ======
+
+                    if (aiRes.ok) {
+                        const aiData = await aiRes.json();
+                        let aiReply = aiData.choices?.[0]?.message?.content || "";
+                        
+                        // 💥 重点：抓取官方的思考链字段 (DeepSeek R1/Claude 3.7 Thinking)
+                        let thinking = aiData.choices?.[0]?.message?.reasoning_content || "";
+
+                        // 💥 兜底：如果模型把思考写在了 <think> 标签里，强行把它挖出来！
+                        if (!thinking && aiReply.includes('<think>')) {
+                            const match = aiReply.match(/<think>([\s\S]*?)<\/think>/);
+                            if (match) {
+                                thinking = match[1].trim();
+                                aiReply = aiReply.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+                            }
+                        }
+
+                        aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, '').trim(); 
+
                         if (typeof extractSaveMemoryTag === 'function') {
                             const { cleanText, memories } = extractSaveMemoryTag(aiReply);
                             for (const mem of memories) {
@@ -1498,7 +1516,6 @@ app.post('/api/web-chat', async (req, res) => {
                             aiReply = memories.length > 0 ? cleanText : aiReply;
                         }
 
-                        // 自动总结计数
                         if (text !== zepLastUserContent) {
                             let count = typeof getCounter === 'function' ? getCounter(SESSION_ID) + 1 : 1;
                             if (typeof saveCounter === 'function') saveCounter(SESSION_ID, count);
@@ -1509,17 +1526,22 @@ app.post('/api/web-chat', async (req, res) => {
                         }
 
                         await saveToZep(`江鱼在网页端说：${text}`, aiReply);
-                        resolve(aiReply);
-                    } else { resolve("【大脑报错】" + await aiRes.text()); }
-                } catch (err) { resolve("【信号中断】无法连接。"); }
+                        
+                        // 把文字和思考过程打包给外层
+                        resolve({ text: aiReply, thinking: thinking });
+                    } else { resolve({ text: "【大脑报错】" + await aiRes.text(), thinking: "" }); }
+                } catch (err) { resolve({ text: "【信号中断】无法连接。", thinking: "" }); }
             });
             processQueue();
-        }),
-        new Promise((resolve) => setTimeout(() => resolve("【超时】请重试。"), 35000))
-    ]);
-    res.json({ reply: reply });
+    });
+    
+    // 把打包好的数据发给浏览器
+    if (typeof reply === 'object') {
+        res.json({ reply: reply.text, thinking: reply.thinking });
+    } else {
+        res.json({ reply: reply, thinking: "" });
+    }
 });
-
 
 // ==========================================
 // 🌟 日记本与胶囊接口 (智能升级版)
