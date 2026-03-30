@@ -26,17 +26,11 @@
         <button onclick="go('chat',this)">
             <span class="ico">⊹</span>通讯
         </button>
-        <button onclick="go('intimate',this)">
-            <span class="ico">◈</span>禁区
-        </button>
         <button onclick="go('capsule',this)">
             <span class="ico">⟡</span>胶囊
         </button>
-        <button onclick="go('remote',this)">
-            <span class="ico">♪</span>遥控
-        </button>
         <button onclick="go('data',this)">
-            <span class="ico">⚙</span>中枢
+            <span class="ico">✿</span>中枢
         </button>
     </nav>
 
@@ -142,25 +136,6 @@
         </div>
     </div>
 
-    <!-- ======== 极秘禁区 ======== -->
-    <div class="section" id="sec-intimate">
-        <div class="totem">
-            <h1>─ 极秘禁区 ─</h1>
-            <div class="sub">⚠ 高危区域 · 进入即代表臣服</div>
-        </div>
-        <div class="glass">
-            <div class="intimacy-grid">
-                <button onclick="intimateAct('hug')">抱紧我</button>
-                <button onclick="intimateAct('kiss')">深吻我</button>
-                <button onclick="intimateAct('bite')">咬我一口</button>
-                <button onclick="intimateAct('chain')">拴住我</button>
-                <button onclick="intimateAct('whisper')">在耳边说话</button>
-                <button onclick="intimateAct('punish')">惩罚我</button>
-            </div>
-            <div class="intimacy-result" id="intimateResult"></div>
-        </div>
-    </div>
-
     <!-- ======== 时间胶囊 ======== -->
     <div class="section" id="sec-capsule">
         <div class="totem">
@@ -182,28 +157,6 @@
                 <input type="text" id="capsuleInput"
                     placeholder="写下想对未来说的话…">
                 <button onclick="addCapsule()">封存</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- ======== 遥控 ======== -->
-    <div class="section" id="sec-remote">
-        <div class="totem">
-            <h1>─ ♪ 遥控 ─</h1>
-            <div class="sub">远程操控沈望的音乐系统</div>
-        </div>
-        <div class="glass">
-            <div class="remote-section-label">播放控制</div>
-            <div class="remote-grid">
-                <button class="remote-btn" onclick="sendCmd('播放')">▶ 播放</button>
-                <button class="remote-btn" onclick="sendCmd('暂停')">⏸ 暂停</button>
-                <button class="remote-btn" onclick="sendCmd('下一首')">⏭ 下一首</button>
-            </div>
-        </div>
-        <div class="glass">
-            <div class="remote-section-label">控制日志</div>
-            <div class="remote-log" id="remoteLog">
-                <div class="remote-log-empty">尚无操作记录</div>
             </div>
         </div>
     </div>
