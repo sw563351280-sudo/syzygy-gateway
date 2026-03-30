@@ -212,19 +212,6 @@ async function sendChat(){
     },30);
 }
 
-// ==================== 禁区 ====================
-async function intimateAct(type){
-    const actions={
-        hug:'（抱紧我）',kiss:'（深吻你）',bite:'（咬我一口）',
-        chain:'（用锁链拴住你）',whisper:'（在耳边呢喃）',punish:'（惩罚你）'
-    };
-    const el=document.getElementById('intimateResult');
-    el.innerText='沈望正在执行指令...';
-    const reply=await askShenWang(`江鱼对你触发了禁区互动：${actions[type]}`);
-    el.innerText=reply;
-    if(navigator.vibrate)navigator.vibrate(200);
-}
-
 // ==================== 供应商管理 ====================
 function renderSuppliers(){
     const list=document.getElementById('supplierList');
@@ -442,20 +429,6 @@ async function updateCounts(){
         if(document.getElementById('memCount'))
             document.getElementById('memCount').innerText='∞';
     }catch(e){}
-}
-
-// ==================== 遥控 ====================
-async function sendCmd(cmd){
-    const log=document.getElementById('remoteLog');
-    const time=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
-    const item=document.createElement('div');
-    item.className='remote-log-item';
-    item.innerText=`[${time}] 指令已发送：${cmd}`;
-    const empty=log.querySelector('.remote-log-empty');
-    if(empty)empty.remove();
-    log.appendChild(item);
-    log.scrollTop=log.scrollHeight;
-    toast(`指令「${cmd}」已发送`);
 }
 
 async function exportData(){
