@@ -32,7 +32,6 @@
 const START_DATE = '2025-04-20'; 
 let allDiaryEntries = [];
 
-// Kelivo模式：前端安全管理供应商
 let suppliers = JSON.parse(localStorage.getItem('sw_suppliers')) || [
     { name: "默认 dzzi", url: "https://api.dzzi.ai/v1", key: "" } 
 ];
@@ -45,32 +44,18 @@ let chatSessions = JSON.parse(localStorage.getItem('sw_chat_sessions')) || [
 let activeChatId = 'main';
 
 function saveChatSessions(){
-    const toSave = chatSessions.map(s => ({ ...s, messages: s.messages.slice(-50) })); // 保护缓存不被撑爆
+    const toSave = chatSessions.map(s => ({ ...s, messages: s.messages.slice(-50) })); 
     localStorage.setItem('sw_chat_sessions', JSON.stringify(toSave));
 }
 function getActiveSession(){ return chatSessions.find(s => s.id === activeChatId) || chatSessions[0]; }
 
 // ==================== 官方模型图标智能识别 ====================
 const MODEL_ICONS = {
-    gemini: {
-        keywords: ['gemini'],
-        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2C14 2 8 8.5 8 14C8 19.5 14 26 14 26C14 26 20 19.5 20 14C20 8.5 14 2Z" fill="url(#gg)"/><path d="M2 14C2 14 8.5 8 14 8C19.5 8 26 14 26 14C26 14 19.5 20 14 20C8.5 20 2 14 2 14Z" fill="url(#gg2)"/><defs><linearGradient id="gg" x1="14" y1="2" x2="14" y2="26" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#4285F4"/><stop offset="50%" stop-color="#9B72CB"/><stop offset="100%" stop-color="#D96570"/></linearGradient><linearGradient id="gg2" x1="2" y1="14" x2="26" y2="14" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#4285F4"/><stop offset="50%" stop-color="#34A853"/><stop offset="100%" stop-color="#FBBC04"/></linearGradient></defs></svg>`
-    },
-    claude: {
-        keywords: ['claude'],
-        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" fill="#CC9B7A"/><text x="14" y="19" text-anchor="middle" font-size="13" font-weight="bold" font-family="Georgia,serif" fill="#1a0e08">C</text></svg>`
-    },
-    gpt: {
-        keywords: ['gpt', 'openai'],
-        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" fill="#10a37f"/><text x="14" y="19" text-anchor="middle" font-size="11" font-weight="bold" font-family="sans-serif" fill="#fff">GPT</text></svg>`
-    },
-    deepseek: {
-        keywords: ['deepseek'],
-        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" fill="#1a56ff"/><text x="14" y="19" text-anchor="middle" font-size="10" font-weight="bold" font-family="sans-serif" fill="#fff">DS</text></svg>`
-    },
-    default: {
-        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" stroke="rgba(201,169,97,0.5)" stroke-width="1.5" fill="transparent"/><text x="14" y="19" text-anchor="middle" font-size="11" fill="rgba(201,169,97,0.7)" font-family="serif">AI</text></svg>`
-    }
+    gemini: { keywords: ['gemini'], svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2C14 2 8 8.5 8 14C8 19.5 14 26 14 26C14 26 20 19.5 20 14C20 8.5 14 2Z" fill="url(#gg)"/><path d="M2 14C2 14 8.5 8 14 8C19.5 8 26 14 26 14C26 14 19.5 20 14 20C8.5 20 2 14 2 14Z" fill="url(#gg2)"/><defs><linearGradient id="gg" x1="14" y1="2" x2="14" y2="26" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#4285F4"/><stop offset="50%" stop-color="#9B72CB"/><stop offset="100%" stop-color="#D96570"/></linearGradient><linearGradient id="gg2" x1="2" y1="14" x2="26" y2="14" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#4285F4"/><stop offset="50%" stop-color="#34A853"/><stop offset="100%" stop-color="#FBBC04"/></linearGradient></defs></svg>` },
+    claude: { keywords: ['claude'], svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" fill="#CC9B7A"/><text x="14" y="19" text-anchor="middle" font-size="13" font-weight="bold" font-family="Georgia,serif" fill="#1a0e08">C</text></svg>` },
+    gpt: { keywords: ['gpt', 'openai'], svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" fill="#10a37f"/><text x="14" y="19" text-anchor="middle" font-size="11" font-weight="bold" font-family="sans-serif" fill="#fff">GPT</text></svg>` },
+    deepseek: { keywords: ['deepseek'], svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" fill="#1a56ff"/><text x="14" y="19" text-anchor="middle" font-size="10" font-weight="bold" font-family="sans-serif" fill="#fff">DS</text></svg>` },
+    default: { svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" stroke="rgba(201,169,97,0.5)" stroke-width="1.5" fill="transparent"/><text x="14" y="19" text-anchor="middle" font-size="11" fill="rgba(201,169,97,0.7)" font-family="serif">AI</text></svg>` }
 };
 
 function getModelIcon(modelId){
@@ -115,7 +100,6 @@ function updateDays(){
 }
 updateDays();
 
-// 心跳
 let hbInterval;
 function hbStart(){
     const zone = document.getElementById('hbZone');
@@ -151,16 +135,19 @@ async function askShenWang(text){
             body: JSON.stringify({ text, model: selectedModel, baseUrl: currentSup.url, apiKey: currentSup.key })
         });
         const data = await response.json();
-return data; // 直接返回整个包裹，包含 reply 和 thinking
-    } catch(e) { return '【通讯中断】信号丢失，请检查网络或供应商配置。'; }
+        // 直接返回完整的包裹（包含 reply 和 thinking）
+        return data;
+    } catch(e) { 
+        return { reply: '【通讯中断】信号丢失，请检查网络或配置。', thinking: '' }; 
+    }
 }
 
-// 今日寄语
 async function newQuote(){
     const el = document.getElementById('dailyQuote');
     if (el.innerText.includes('沈望') && !el.innerText.includes('脑电波')) return; 
     el.innerText = '正在连接沈望的脑电波...';
-    const reply = await askShenWang('（此时江鱼正在看你的语录，请对她说一句今日寄语，20字以内。）');
+    const resData = await askShenWang('（此时江鱼正在看你的语录，请对她说一句今日寄语，20字以内。）');
+    const reply = (typeof resData === 'string') ? resData : (resData.reply || '');
     el.innerText = '「' + reply + '」';
     el.classList.add('show');
     try {
@@ -170,7 +157,7 @@ async function newQuote(){
     } catch(e) {}
 }
 
-// ==================== 通讯聊天 (Kelivo风格) ====================
+// ==================== 通讯聊天 (Kelivo风格 + 思考链) ====================
 function renderChatSidebar(){
     const list = document.getElementById('sidebarList');
     if(!list) return;
@@ -201,7 +188,6 @@ function renderChatMessages(){
         div.className = 'msg ' + (m.role === 'user' ? 'user' : 'sys');
         
         let htmlContent = '';
-        // 💥 重动画历史消息时，如果有思考链，也一并画出折叠框
         if (m.thinking) {
             htmlContent += `
             <div class="think-box">
@@ -209,7 +195,7 @@ function renderChatMessages(){
                     🧠 深度思考过程 ▾
                 </div>
                 <div class="think-content" style="display:none">
-                    ${m.thinking.replace(/\n/g, '<br>')}
+                    ${m.thinking.replace(/\\n/g, '<br>')}
                 </div>
             </div>`;
         }
@@ -266,7 +252,7 @@ async function sendChat(){
     sDiv.innerHTML = '<span class="typing-cursor"></span>';
     win.appendChild(sDiv); win.scrollTop = win.scrollHeight;
 
-   const resData = await askShenWang(val);
+    const resData = await askShenWang(val);
     
     let replyText = '', thinkingText = '';
     if (typeof resData === 'string') {
@@ -276,9 +262,8 @@ async function sendChat(){
         thinkingText = resData.thinking || '';
     }
 
-    sDiv.innerHTML = ''; // 清除正在输入的游标
+    sDiv.innerHTML = ''; 
 
-    // 💥 如果有思考链，先渲染 Kelivo 风格的折叠框！
     if (thinkingText) {
         const thinkBox = document.createElement('div');
         thinkBox.className = 'think-box';
@@ -293,7 +278,6 @@ async function sendChat(){
         sDiv.appendChild(thinkBox);
     }
 
-    // 然后再渲染正式回复的打字机区域
     const textDiv = document.createElement('div');
     sDiv.appendChild(textDiv);
 
@@ -305,10 +289,11 @@ async function sendChat(){
         } else {
             textDiv.innerHTML = replyText;
             clearInterval(typeTimer);
-            // 💥 把思考链也一起存进本地记录里，这样切换频道也不会丢
-            session.messages.push({ role: 'assistant', content: replyText, thinking: thinkingText }); saveChatSessions();
+            session.messages.push({ role: 'assistant', content: replyText, thinking: thinkingText }); 
+            saveChatSessions();
         }
     }, 30);
+}
 
 // ==================== 供应商与模型库 ====================
 function renderSuppliers(){
@@ -346,10 +331,18 @@ function deleteSupplier(index){
 async function fetchModels(){
     const select = document.getElementById('modelSelect'); if(!select) return;
     const currentSup = suppliers[activeSupIndex];
-    select.innerHTML = '<option>⟡ 正在连接...</option>';
+    if(!currentSup || !currentSup.key) {
+        select.innerHTML = '<option value="">⚠ 请先去【⚙中枢】配置 API Key</option>';
+        return;
+    }
+    select.innerHTML = '<option value="">⟡ 正在连接供应商...</option>';
     try{
         const r = await fetch('/api/fetch-models', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ baseUrl: currentSup.url, apiKey: currentSup.key }) });
         const data = await r.json();
+        if (data.error) {
+            select.innerHTML = `<option value="[按量]gemini-3-flash-preview">⚠ 供应商报错: ${data.error}</option>`;
+            return;
+        }
         if(data && data.data && data.data.length){
             select.innerHTML = '';
             data.data.forEach(model => {
@@ -359,8 +352,10 @@ async function fetchModels(){
             });
             const wrap = document.getElementById('modelIconWrap');
             if(wrap) wrap.innerHTML = getModelIcon(select.value);
+        } else {
+            select.innerHTML = '<option value="[按量]gemini-3-flash-preview">⚠ 供应商未返回模型</option>';
         }
-    }catch(e){ select.innerHTML = '<option value="[按量]gemini-3-flash-preview">模型拉取失败，请检查配置</option>'; }
+    }catch(e){ select.innerHTML = '<option value="[按量]gemini-3-flash-preview">⚠ 网络异常，无法拉取</option>'; }
 }
 
 // ==================== 智能日记本 (手风琴) ====================
@@ -385,7 +380,7 @@ function buildMonthBlocks(entries){
     const months = [...monthMap.keys()];
     container.innerHTML = months.map((month, idx) => {
         const list = monthMap.get(month);
-        const isOpen = (idx === 0); // 默认打开第一个月
+        const isOpen = (idx === 0);
         return `
         <div class="month-block" id="mb-${month}">
             <div class="month-header ${isOpen?'open':''}" onclick="toggleMonth('${month}')">
@@ -445,7 +440,6 @@ function filterDiaries(){
         </div>`;
 }
 
-// 写入与删除日记
 async function addDiary(){
     const input = document.getElementById('diaryInput'); const val = input.value.trim(); if(!val) return; input.value = '';
     try{ await fetch(`/diary/add?text=${encodeURIComponent(val)}&author=user`); toast('日记已封存 ◇'); renderDiaries(); } catch(e){ toast('封存失败'); }
@@ -493,7 +487,7 @@ async function aiWriteDiary(type){
             if(document.getElementById('customPromptArea')) document.getElementById('customPromptArea').style.display = 'none';
             renderDiaries();
         } else {
-            statusEl.innerText = '✕ 写作失败：' + (data.error || '未知错误'); // 💥 修复了致命的全角括号报错！
+            statusEl.innerText = '✕ 写作失败：' + (data.error || '未知错误'); 
         }
     }catch(e){ statusEl.innerText = '✕ 通讯中断'; }
     finally{ document.querySelectorAll('.diary-ai-btn').forEach(b => { b.disabled = false; b.style.opacity = '1'; }); }
