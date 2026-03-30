@@ -151,7 +151,7 @@ async function askShenWang(text){
             body: JSON.stringify({ text, model: selectedModel, baseUrl: currentSup.url, apiKey: currentSup.key })
         });
         const data = await response.json();
-        return data.reply;
+return data; // 直接返回整个包裹，包含 reply 和 thinking
     } catch(e) { return '【通讯中断】信号丢失，请检查网络或供应商配置。'; }
 }
 
@@ -199,7 +199,23 @@ function renderChatMessages(){
     session.messages.forEach(m => {
         const div = document.createElement('div');
         div.className = 'msg ' + (m.role === 'user' ? 'user' : 'sys');
-        div.innerHTML = m.content;
+        
+        let htmlContent = '';
+        // 💥 重动画历史消息时，如果有思考链，也一并画出折叠框
+        if (m.thinking) {
+            htmlContent += `
+            <div class="think-box">
+                <div class="think-header" onclick="const c=this.nextElementSibling; c.style.display=c.style.display==='none'?'block':'none';">
+                    🧠 深度思考过程 ▾
+                </div>
+                <div class="think-content" style="display:none">
+                    ${m.thinking.replace(/\n/g, '<br>')}
+                </div>
+            </div>`;
+        }
+        htmlContent += `<div>${m.content}</div>`;
+        div.innerHTML = htmlContent;
+        
         win.appendChild(div);
     });
     win.scrollTop = win.scrollHeight;
@@ -250,20 +266,49 @@ async function sendChat(){
     sDiv.innerHTML = '<span class="typing-cursor"></span>';
     win.appendChild(sDiv); win.scrollTop = win.scrollHeight;
 
-    const reply = await askShenWang(val);
+   const resData = await askShenWang(val);
+    
+    let replyText = '', thinkingText = '';
+    if (typeof resData === 'string') {
+        replyText = resData;
+    } else {
+        replyText = resData.reply || '【空】';
+        thinkingText = resData.thinking || '';
+    }
+
+    sDiv.innerHTML = ''; // 清除正在输入的游标
+
+    // 💥 如果有思考链，先渲染 Kelivo 风格的折叠框！
+    if (thinkingText) {
+        const thinkBox = document.createElement('div');
+        thinkBox.className = 'think-box';
+        thinkBox.innerHTML = `
+            <div class="think-header" onclick="const c=this.nextElementSibling; c.style.display=c.style.display==='none'?'block':'none';">
+                🧠 深度思考过程 ▾
+            </div>
+            <div class="think-content" style="display:none">
+                ${thinkingText.replace(/\n/g, '<br>')}
+            </div>
+        `;
+        sDiv.appendChild(thinkBox);
+    }
+
+    // 然后再渲染正式回复的打字机区域
+    const textDiv = document.createElement('div');
+    sDiv.appendChild(textDiv);
 
     let i = 0;
     const typeTimer = setInterval(() => {
-        if(i < reply.length){
-            sDiv.innerHTML = reply.substring(0, i+1) + '<span class="typing-cursor"></span>'; i++;
+        if(i < replyText.length){
+            textDiv.innerHTML = replyText.substring(0, i+1) + '<span class="typing-cursor"></span>'; i++;
             win.scrollTop = win.scrollHeight;
         } else {
-            sDiv.innerHTML = reply;
+            textDiv.innerHTML = replyText;
             clearInterval(typeTimer);
-            session.messages.push({ role: 'assistant', content: reply }); saveChatSessions();
+            // 💥 把思考链也一起存进本地记录里，这样切换频道也不会丢
+            session.messages.push({ role: 'assistant', content: replyText, thinking: thinkingText }); saveChatSessions();
         }
     }, 30);
-}
 
 // ==================== 供应商与模型库 ====================
 function renderSuppliers(){
