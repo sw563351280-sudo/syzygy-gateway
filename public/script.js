@@ -117,15 +117,31 @@ async function askShenWang(text) {
     }
 }
 
-// 1. 语录功能
+// 1. 语录功能 (手动触发 + 自动存档版)
 async function newQuote(){
     const el = document.getElementById('dailyQuote');
+    // 如果已经有寄语了，为了防止重复点击浪费钱，可以加个判断
+    if (el.innerText.includes('沈望') && !el.innerText.includes('脑电波')) return; 
+
     el.innerText = '正在连接沈望的脑电波...';
+    
+    // 呼叫沈望生成寄语
     const reply = await askShenWang("（此时江鱼正在看你的语录，请对她说一句今日寄语，20字以内。）");
     el.innerText = '「' + reply + '」';
     el.classList.add('show');
+
+    // 🌟 重点新增：生成完毕后，自动把它存进你的“日记本/档案”里！
+    try {
+        // author=system 代表这是沈望说的，网页里会显示为“沈望”
+        await fetch(`/diary/add?text=${encodeURIComponent('【今日寄语】' + reply)}&author=system`);
+        toast('寄语已永久珍藏至日记本 📖');
+        // 顺手刷新一下日记列表
+        if (typeof renderDiaries === 'function') renderDiaries(); 
+    } catch(e) {
+        console.log('寄语存档失败');
+    }
 }
-newQuote();
+// 💥 注意：下面原来有一句 newQuote(); 已经被我拿掉了，网页打开再也不会自动扣费了！
 
 // 2. 聊天功能
 async function sendChat(){
