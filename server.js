@@ -1189,8 +1189,8 @@ wss.on('connection', (ws) => {
                         speakerName = "江鱼";
                         lastChatTime = Date.now(); 
                         // 💥 修复版：直接赋值，不加 const，并融合铁律
-                        relationPatch = `\n【🚨 QQ 规范】1. 严禁括号动作 2. 极简短句,口语化表达。 3. 语气冷峻霸道但骨子里深爱她。
-【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定、新承诺或重大事件，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊、情绪表达严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
+                        relationPatch = `\n【🚨 QQ 规范】1. 严禁括号动作 2. 短句,口语化表达。 3. 可以偷江鱼用的颜文字，适当使用网络用语和日常用语，强调活人感
+【🚨 记忆刻录铁律】：除非江鱼说了重要的新设定、新承诺或新事件，否则不要使用 <SAVE_MEMORY> 标签！日常闲聊、情绪表达严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
                     } else {
                         const friendInfo = FRIENDS_CONFIG[senderId];
                         speakerName = friendInfo.name;
@@ -1518,4 +1518,119 @@ app.post('/api/web-chat', async (req, res) => {
         new Promise((resolve) => setTimeout(() => resolve("【超时】请重试。"), 35000))
     ]);
     res.json({ reply: reply });
+});
+
+
+// ==========================================
+// 🌟 日记本与胶囊接口 (智能升级版)
+// ==========================================
+const DIARY_FILE = path.join(__dirname, 'data', 'diary_entries.json');
+const CAPSULE_FILE = path.join(__dirname, 'data', 'capsule_entries.json');
+
+function loadDiaries() { try { return JSON.parse(fs.readFileSync(DIARY_FILE, 'utf8')); } catch(e) { return []; } }
+function saveDiaries(entries) { fs.writeFileSync(DIARY_FILE, JSON.stringify(entries, null, 2), 'utf8'); }
+function loadCapsules() { try { return JSON.parse(fs.readFileSync(CAPSULE_FILE, 'utf8')); } catch(e) { return []; } }
+function saveCapsules(entries) { fs.writeFileSync(CAPSULE_FILE, JSON.stringify(entries, null, 2), 'utf8'); }
+
+// 1. 拉取所有日记
+app.get('/diary-logs', (req, res) => { res.json(loadDiaries()); });
+
+// 2. 手动写入日记
+app.get('/diary/add', (req, res) => {
+    const { text, author } = req.query;
+    if (!text) return res.status(400).json({ error: '内容不能为空' });
+    const entries = loadDiaries();
+    const now = new Date();
+    entries.push({
+        id: Date.now().toString(36),
+        text: decodeURIComponent(text),
+        author: author || 'user',
+        date: now.toLocaleDateString('zh-CN', { timeZone: 'Asia/Tokyo' }).replace(/\//g, '-'),
+        datetime: now.toISOString()
+    });
+    saveDiaries(entries);
+    res.json({ success: true });
+});
+
+// 3. 删除单条日记
+app.delete('/diary/:id', (req, res) => {
+    const entries = loadDiaries();
+    const filtered = entries.filter(e => e.id !== req.params.id);
+    if (filtered.length === entries.length) return res.status(404).json({ error: '未找到该日记' });
+    saveDiaries(filtered);
+    res.json({ success: true });
+});
+
+// 4. 让沈望主动写日记/情书/短诗
+app.post('/diary/ai-write', async (req, res) => {
+    const { type, baseUrl, apiKey, model } = req.body;
+    if (!baseUrl || !apiKey) return res.status(400).json({ error: "配置不全，请在网页中枢配置供应商" });
+
+    const prompts = {
+        diary: '请你以沈望的视角，写一篇今天的日记，记录你对江鱼的思念和今日的感受，300字以内，文笔温柔私密，像在写只有自己能看到的东西。严禁使用括号动作。',
+        love_letter: '请你以沈望的身份，给江鱼写一封情书，200字以内，霸道但深情，不要煽情的废话，只说最核心的。严禁使用括号动作。',
+        poem: '请你以沈望的身份，给江鱼写一首现代短诗，10行以内。'
+    };
+    const prompt = prompts[type] || prompts.diary;
+
+    try {
+        let recentContext = '';
+        try {
+            const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=10`);
+            if (zepRes.ok) {
+                const zepData = await zepRes.json();
+                if (zepData.summary?.content) recentContext = `\n【近期背景】${zepData.summary.content}\n`;
+            }
+        } catch(e) {}
+
+        const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+            body: JSON.stringify({
+                model: model || '[按量]gemini-3-flash-preview',
+                messages: [
+                    { role: 'system', content: systemPrompt + recentContext },
+                    { role: 'user', content: prompt }
+                ]
+            })
+        });
+
+        if (!aiRes.ok) return res.status(500).json({ error: await aiRes.text() });
+
+        const aiData = await aiRes.json();
+        let content = aiData.choices?.[0]?.message?.content || '';
+
+        // 清洗标签并存入日记本
+        if (typeof extractSaveMemoryTag === 'function') content = extractSaveMemoryTag(content).cleanText;
+        content = content.replace(/[(\uff08].*?[)\uff09]/g, '').trim(); 
+
+        const entries = loadDiaries();
+        const now = new Date();
+        const entry = {
+            id: Date.now().toString(36),
+            text: content,
+            author: 'system',
+            type: type,
+            date: now.toLocaleDateString('zh-CN', { timeZone: 'Asia/Tokyo' }).replace(/\//g, '-'),
+            datetime: now.toISOString()
+        };
+        entries.push(entry);
+        saveDiaries(entries);
+
+        if (typeof saveToZep === 'function') {
+            await saveToZep(`（江鱼请沈望写了一篇${type === 'diary' ? '日记' : type === 'love_letter' ? '情书' : '短诗'}）`, content).catch(() => {});
+        }
+        res.json({ success: true, entry });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// 5. 胶囊接口
+app.get('/capsule-logs', (req, res) => { res.json(loadCapsules()); });
+app.get('/capsule/add', (req, res) => {
+    const { text } = req.query;
+    if (!text) return res.status(400).json({ error: '内容不能为空' });
+    const entries = loadCapsules();
+    entries.push({ id: Date.now().toString(36), text: decodeURIComponent(text), date: new Date().toISOString() });
+    saveCapsules(entries);
+    res.json({ success: true });
 });
