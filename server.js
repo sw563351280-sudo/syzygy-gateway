@@ -1652,3 +1652,26 @@ app.get('/capsule/add', (req, res) => {
     saveCapsules(entries);
     res.json({ success: true });
 });
+
+// ==================== 云端同步：保存配置与聊天 ====================
+const CONFIG_FILE = path.join(DATA_DIR, 'web_config.json');
+
+app.get('/api/sync-config', (req, res) => {
+    if (fs.existsSync(CONFIG_FILE)) {
+        res.json(JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')));
+    } else {
+        res.json({ suppliers: [], chatSessions: [] });
+    }
+});
+
+app.post('/api/sync-config', (req, res) => {
+    const { suppliers, chatSessions, activeSupIndex, activeChatId } = req.body;
+    const data = {
+        suppliers: suppliers || [],
+        chatSessions: chatSessions || [],
+        activeSupIndex: activeSupIndex || 0,
+        activeChatId: activeChatId || 'main'
+    };
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2));
+    res.json({ success: true });
+});
