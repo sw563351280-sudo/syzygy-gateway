@@ -1317,3 +1317,37 @@ canvas#starmap{
         height:45vh;
     }
 }
+
+/* ============ 深度思考链折叠框 (Kelivo 风格) ============ */
+.think-box {
+    margin-bottom: 10px;
+    font-size: 0.85em;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 8px;
+    border: 1px dashed rgba(201, 169, 97, 0.3);
+    overflow: hidden;
+}
+
+.think-header {
+    padding: 8px 12px;
+    color: var(--dim);
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    transition: 0.2s;
+}
+
+.think-header:hover {
+    color: var(--gold);
+    background: rgba(201, 169, 97, 0.08);
+}
+
+.think-content {
+    padding: 10px 12px;
+    border-top: 1px solid rgba(201, 169, 97, 0.1);
+    color: #888;
+    font-style: italic;
+    line-height: 1.6;
+    background: rgba(0, 0, 0, 0.15);
+}
