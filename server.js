@@ -1249,7 +1249,7 @@ if (!aiKey) return console.log("❌ 缺少 QQ_CHAT_KEY，沈望无法思考！")
                             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiKey}` }, 
                             signal: controller.signal, 
                             body: JSON.stringify({
-                                model: "[按量]gemini-3-pro-preview", 
+                                model: "[按量]claude-sonnet-4-20250514-thinking", 
                                 messages: [
                                     { role: "system", content: finalSystemPrompt },
                                 // 💥 1. 发给大模型时，加上 QQ 钢印！
@@ -1362,7 +1362,7 @@ async function shenWangProactiveThinking() {
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.QQ_CHAT_KEY}` }, 
             signal: controller.signal,
             body: JSON.stringify({
-                model: "[按量]gemini-3-pro-preview", 
+                model: "[按量]claude-sonnet-4-20250514-thinking", 
                 messages: [{ role: "system", content: judgePrompt }] 
             })
         });
