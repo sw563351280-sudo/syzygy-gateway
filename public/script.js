@@ -458,9 +458,42 @@ async function sendCmd(cmd){
     toast(`指令「${cmd}」已发送`);
 }
 
-// ==================== 数据操作 ====================
-function exportData(){toast('云端记忆已由大脑托管，无需本地提取。');}
-function resetAll(){localStorage.clear();location.reload();}
+async function exportData(){
+    try {
+        // 并发拉取所有数据
+        const [diaries, capsules] = await Promise.all([
+            fetch('/diary-logs').then(r=>r.json()),
+            fetch('/capsule-logs').then(r=>r.json())
+        ]);
+
+        const exportObj = {
+            exported_at: new Date().toISOString(),
+            diary_count: diaries.length,
+            capsule_count: capsules.length,
+            diaries: diaries,
+            capsules: capsules,
+            local_suppliers: suppliers.map(s=>({
+                name: s.name,
+                url: s.url
+                // key 故意不导出，安全
+            }))
+        };
+
+        // 下载 JSON
+        const blob = new Blob(
+            [JSON.stringify(exportObj, null, 2)],
+            { type: 'application/json' }
+        );
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `syzygy_backup_${new Date().toLocaleDateString('zh-CN').replace(/\//g,'-')}.json`;
+        a.click();
+        toast('灵魂提取完毕，已下载到本地 ✦');
+    } catch(e) {
+        toast('提取失败，请检查连接');
+    }
+}
+
 
 // ==================== 初始化 ====================
 renderSuppliers();
