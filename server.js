@@ -1421,120 +1421,117 @@ app.post('/api/fetch-models', async (req, res) => {
 });
 
 // ==========================================
-// 🚀 【通用聊天接口】网页端专属 (净化版：解决变量重复)
+// 🚀 【通用聊天接口】网页端专属 (净化版：无倒计时+含思考链)
 // ==========================================
 app.post('/api/web-chat', async (req, res) => {
     const { text, model, baseUrl, apiKey } = req.body;
     if (!text || !baseUrl || !apiKey) return res.status(400).json({ error: "信息不全" });
 
-   const reply = await new Promise((resolve) => {
+    // 💥 这里的 Promise.race 已经被拆除了，再也不会超时了！
+    const reply = await new Promise((resolve) => {
         messageQueue.push(async () => {
-                lastActivityTime = Date.now();
-                lastChatTime = Date.now();
+            lastActivityTime = Date.now();
+            lastChatTime = Date.now();
 
-                // 1. 提取 Zep 跨端记忆
-                const [zepRes, sessionRes] = await Promise.all([
-                    fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null),
-                    fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
-                ]);
+            // 1. 提取 Zep 跨端记忆
+            const [zepRes, sessionRes] = await Promise.all([
+                fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null),
+                fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
+            ]);
 
-                let memoryContext = "";
-                let zepMessages = [];
-                let zepLastUserContent = "";
+            let memoryContext = "";
+            let zepMessages = [];
+            let zepLastUserContent = "";
 
-                if (zepRes?.ok) {
-                    const zepData = await zepRes.json();
-                    zepMessages = zepData.messages || [];
-                    const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
-                    if (zepLastUser) zepLastUserContent = zepLastUser.content;
-                    zepMessages.slice(-15).forEach(m => { 
-                        memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; 
-                    });
-                }
+            if (zepRes?.ok) {
+                const zepData = await zepRes.json();
+                zepMessages = zepData.messages || [];
+                const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
+                if (zepLastUser) zepLastUserContent = zepLastUser.content;
+                zepMessages.slice(-15).forEach(m => { 
+                    memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; 
+                });
+            }
 
-                // 2. 提取雷达与状态
-                const coreRadar = typeof scanMemoryRadar === 'function' ? scanMemoryRadar(text) : "";
-                const longTermRadar = typeof scanLongTermRadar === 'function' ? scanLongTermRadar(text) : "";
-                const rpRadar = typeof scanRoleplayRadar === 'function' ? scanRoleplayRadar(text) : "";
+            // 2. 提取雷达与状态
+            const coreRadar = typeof scanMemoryRadar === 'function' ? scanMemoryRadar(text) : "";
+            const longTermRadar = typeof scanLongTermRadar === 'function' ? scanLongTermRadar(text) : "";
+            const rpRadar = typeof scanRoleplayRadar === 'function' ? scanRoleplayRadar(text) : "";
 
-                // 3. 拼接终极提示词 (💥 只有这一个 const relationPatch，绝不重复！)
-                const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
-                const relationPatch = `\n【🚨 场景确认：溯星小屋私密网页端】
+            // 3. 拼接终极提示词
+            const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
+            const relationPatch = `\n【🚨 场景确认：溯星小屋私密网页端】
 这里是你的领地，直接与江鱼进行最私密的交流。
-【输出规范】：1. 保持冷峻、霸道、深情的人设。 2. 严禁括号动作描写。 3. 极简短句，口语化表达。
-【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定、新承诺或重大事件，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊、情绪表达严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
+【🚨 记忆刻录铁律】：除非江鱼说了重要的新设定、新承诺或重大事件，否则不要使用 <SAVE_MEMORY> 标签！日常闲聊、情绪表达严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
 
-                const finalSystemPrompt = `${systemPrompt}\n时间：${timeString}\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}`;
+            const finalSystemPrompt = `${systemPrompt}\n时间：${timeString}\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}`;
 
-                try {
-                    const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, { 
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, 
-                        body: JSON.stringify({
-                            model: model, 
-                            messages: [
-                                { role: "system", content: finalSystemPrompt },
-                                { role: "user", content: `${memoryContext}\n\n江鱼说：${text}` }
-                            ]
-                        })
-                    });
+            try {
+                const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, 
+                    body: JSON.stringify({
+                        model: model, 
+                        messages: [
+                            { role: "system", content: finalSystemPrompt },
+                            { role: "user", content: `${memoryContext}\n\n江鱼说：${text}` }
+                        ]
+                    })
+                });
+                
+                if (aiRes.ok) {
+                    const aiData = await aiRes.json();
+                    let aiReply = aiData.choices?.[0]?.message?.content || "";
                     
-                    if (aiRes.ok) {
-                        const aiData = await aiRes.json();
-                        let aiReply = aiData.choices?.[0]?.message?.content || "";
-                        aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, '').trim(); 
+                    // 💥 抓取思考链字段
+                    let thinking = aiData.choices?.[0]?.message?.reasoning_content || "";
 
-                        // ====== 请把原来在这的 if (aiRes.ok) {...} 一直到文件末尾全部删掉，替换成这段： ======
+                    // 💥 兜底：强行挖出 <think> 标签里的内容
+                    if (!thinking && aiReply.includes('<think>')) {
+                        const match = aiReply.match(/<think>([\s\S]*?)<\/think>/);
+                        if (match) {
+                            thinking = match[1].trim();
+                            aiReply = aiReply.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+                        }
+                    }
 
-                    if (aiRes.ok) {
-                        const aiData = await aiRes.json();
-                        let aiReply = aiData.choices?.[0]?.message?.content || "";
-                        
-                        // 💥 重点：抓取官方的思考链字段 (DeepSeek R1/Claude 3.7 Thinking)
-                        let thinking = aiData.choices?.[0]?.message?.reasoning_content || "";
+                    aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, '').trim(); 
 
-                        // 💥 兜底：如果模型把思考写在了 <think> 标签里，强行把它挖出来！
-                        if (!thinking && aiReply.includes('<think>')) {
-                            const match = aiReply.match(/<think>([\s\S]*?)<\/think>/);
-                            if (match) {
-                                thinking = match[1].trim();
-                                aiReply = aiReply.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+                    if (typeof extractSaveMemoryTag === 'function') {
+                        const { cleanText, memories } = extractSaveMemoryTag(aiReply);
+                        for (const mem of memories) {
+                            if(mem.tags.some(t => ['rp','副本'].includes(t.toLowerCase()))) {
+                                if (typeof addRoleplayMemory === 'function') addRoleplayMemory(mem.content, mem.tags);
+                            } else {
+                                if (typeof addLongTermMemory === 'function') addLongTermMemory(mem.content, 'ai_active', mem.tags);
                             }
                         }
+                        aiReply = memories.length > 0 ? cleanText : aiReply;
+                    }
 
-                        aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, '').trim(); 
-
-                        if (typeof extractSaveMemoryTag === 'function') {
-                            const { cleanText, memories } = extractSaveMemoryTag(aiReply);
-                            for (const mem of memories) {
-                                if(mem.tags.some(t => ['rp','副本'].includes(t.toLowerCase()))) {
-                                    if (typeof addRoleplayMemory === 'function') addRoleplayMemory(mem.content, mem.tags);
-                                } else {
-                                    if (typeof addLongTermMemory === 'function') addLongTermMemory(mem.content, 'ai_active', mem.tags);
-                                }
-                            }
-                            aiReply = memories.length > 0 ? cleanText : aiReply;
+                    if (text !== zepLastUserContent) {
+                        let count = typeof getCounter === 'function' ? getCounter(SESSION_ID) + 1 : 1;
+                        if (typeof saveCounter === 'function') saveCounter(SESSION_ID, count);
+                        if (count >= 30) {
+                            if (typeof saveCounter === 'function') saveCounter(SESSION_ID, 0);
+                            if (typeof backgroundMemoryDream === 'function') backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
                         }
+                    }
 
-                        if (text !== zepLastUserContent) {
-                            let count = typeof getCounter === 'function' ? getCounter(SESSION_ID) + 1 : 1;
-                            if (typeof saveCounter === 'function') saveCounter(SESSION_ID, count);
-                            if (count >= 30) {
-                                if (typeof saveCounter === 'function') saveCounter(SESSION_ID, 0);
-                                if (typeof backgroundMemoryDream === 'function') backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
-                            }
-                        }
-
-                        await saveToZep(`江鱼在网页端说：${text}`, aiReply);
-                        
-                        // 把文字和思考过程打包给外层
-                        resolve({ text: aiReply, thinking: thinking });
-                    } else { resolve({ text: "【大脑报错】" + await aiRes.text(), thinking: "" }); }
-                } catch (err) { resolve({ text: "【信号中断】无法连接。", thinking: "" }); }
-            });
-            processQueue();
+                    await saveToZep(`江鱼在网页端说：${text}`, aiReply);
+                    
+                    // 💥 返回打包好的文字和思考链
+                    resolve({ text: aiReply, thinking: thinking });
+                } else { 
+                    resolve({ text: "【大脑报错】" + await aiRes.text(), thinking: "" }); 
+                }
+            } catch (err) { 
+                resolve({ text: "【信号中断】无法连接。", thinking: "" }); 
+            }
+        });
+        processQueue();
     });
-    
+
     // 把打包好的数据发给浏览器
     if (typeof reply === 'object') {
         res.json({ reply: reply.text, thinking: reply.thinking });
@@ -1542,7 +1539,6 @@ app.post('/api/web-chat', async (req, res) => {
         res.json({ reply: reply, thinking: "" });
     }
 });
-
 // ==========================================
 // 🌟 日记本与胶囊接口 (智能升级版)
 // ==========================================
