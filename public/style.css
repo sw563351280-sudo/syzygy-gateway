@@ -1318,29 +1318,34 @@ canvas#starmap{
     }
 }
 
-/* ============ 深度思考链折叠框 (Kelivo 风格) ============ */
+/* 2. 深度思考框（强效瘦身版） */
 .think-box {
-    margin-bottom: 10px;
-    font-size: 0.85em;
-    background: rgba(0, 0, 0, 0.25);
-    border-radius: 8px;
-    border: 1px dashed rgba(201, 169, 97, 0.3);
-    overflow: hidden;
+    border: 1px solid rgba(201, 169, 97, 0.3) !important;
+    border-radius: 8px !important;
+    margin-bottom: 12px !important;
+    margin-top: 8px !important;
+    background: rgba(0, 0, 0, 0.4) !important;
+    overflow: hidden !important;
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.5) !important;
+    
+    /* 💥 瘦身核心：干掉所有继承的多余撑幅 */
+    padding: 0 !important; 
+    height: auto !important;
+    display: flex !important;
+    flex-direction: column !important;
 }
 
+/* 思考链的表头 (带微光效果) */
 .think-header {
-    padding: 8px 12px;
-    color: var(--dim);
+    padding: 8px 12px !important;
+    font-size: 0.85em !important;
+    color: rgba(201, 169, 97, 0.9) !important;
     cursor: pointer;
     user-select: none;
-    display: flex;
-    align-items: center;
-    transition: 0.2s;
-}
-
-.think-header:hover {
-    color: var(--gold);
-    background: rgba(201, 169, 97, 0.08);
+    background: linear-gradient(90deg, rgba(201, 169, 97, 0.1) 0%, transparent 100%) !important;
+    display: flex !important;
+    align-items: center !important;
+    margin: 0 !important; /* 确保表头周围没有多余空隙 */
 }
 
 .think-content {
