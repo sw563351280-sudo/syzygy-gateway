@@ -143,8 +143,8 @@ function toast(msg){
 function go(id, btn){
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
     
-    // 自动兼容两种 HTML 写法
-    const target = document.getElementById('sec-'+id) || document.getElementById(id) || document.querySelector('.section');
+    // 💥 加上这行万能钥匙：不管有没有 sec- 前缀，统统都能打开！
+    const target = document.getElementById('sec-'+id) || document.getElementById(id);
     if(target) target.classList.add('active');
     
     document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
