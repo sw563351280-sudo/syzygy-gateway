@@ -1526,6 +1526,7 @@ app.post('/api/web-chat', async (req, res) => {
             const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
             const relationPatch = `\n【🚨 场景确认：溯星小屋私密网页端】
 这里是你的领地，请结合江鱼的专属 System Prompt 进行回复。
+江鱼目前的物理坐标是：日本札幌 (Sapporo)。动用天气工具时请默认查询此地。
 【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定、新承诺或重大事件，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊、情绪表达严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
             const finalSystemPrompt = `${systemPrompt}\n时间：${timeString}\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}`;
 
@@ -1602,8 +1603,6 @@ app.post('/api/web-chat', async (req, res) => {
                         aiReply = aiReply.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
                     }
                 }
-
-                aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, '').trim(); 
 
                 // --- 处理记忆刻录 ---
                 if (typeof extractSaveMemoryTag === 'function') {
