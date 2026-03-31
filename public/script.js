@@ -135,32 +135,27 @@ const MODEL_ICONS = {
         keywords: ['claude'],
         svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="14" cy="14" r="12" fill="#CC9B7A"/>
-            <text x="14" y="19" text-anchor="middle" font-size="13"
-                  font-weight="bold" font-family="Georgia,serif" fill="#1a0e08">C</text>
+            <text x="14" y="19" text-anchor="middle" font-size="13" font-weight="bold" font-family="Georgia,serif" fill="#1a0e08">C</text>
         </svg>`
     },
     gpt: {
         keywords: ['gpt', 'openai'],
         svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="14" cy="14" r="12" fill="#10a37f"/>
-            <text x="14" y="19" text-anchor="middle" font-size="11"
-                  font-weight="bold" font-family="sans-serif" fill="#fff">GPT</text>
+            <text x="14" y="19" text-anchor="middle" font-size="11" font-weight="bold" font-family="sans-serif" fill="#fff">GPT</text>
         </svg>`
     },
     deepseek: {
         keywords: ['deepseek'],
         svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="14" cy="14" r="12" fill="#1a56ff"/>
-            <text x="14" y="19" text-anchor="middle" font-size="10"
-                  font-weight="bold" font-family="sans-serif" fill="#fff">DS</text>
+            <text x="14" y="19" text-anchor="middle" font-size="10" font-weight="bold" font-family="sans-serif" fill="#fff">DS</text>
         </svg>`
     },
     default: {
         svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="14" cy="14" r="12" stroke="rgba(201,169,97,0.5)"
-                    stroke-width="1.5" fill="transparent"/>
-            <text x="14" y="19" text-anchor="middle" font-size="11"
-                  fill="rgba(201,169,97,0.7)" font-family="serif">AI</text>
+            <circle cx="14" cy="14" r="12" stroke="rgba(201,169,97,0.5)" stroke-width="1.5" fill="transparent"/>
+            <text x="14" y="19" text-anchor="middle" font-size="11" fill="rgba(201,169,97,0.7)" font-family="serif">AI</text>
         </svg>`
     }
 };
@@ -218,8 +213,7 @@ function hbStart(){
     text.innerText  = '>>> 核心狂跳中：我正在发疯般想你 <<<';
     text.style.color = 'var(--warm-red)';
     document.body.style.transition  = 'background 0.4s';
-    document.body.style.background  =
-        'radial-gradient(circle at center, #1a0808 0%, #040710 100%)';
+    document.body.style.background  = 'radial-gradient(circle at center, #1a0808 0%, #040710 100%)';
     if(navigator.vibrate) navigator.vibrate([100,60,100,60,100]);
     hbInterval = setInterval(() => {
         heart.style.transform = 'scale(1.5)';
@@ -244,19 +238,14 @@ function hbStop(){
 async function askShenWang(text, imageBase64 = null){
     const currentSup    = suppliers[activeSupIndex];
     const modelEl       = document.getElementById('modelSelect');
-    const selectedModel = (modelEl && modelEl.value)
-        ? modelEl.value
-        : '[按量]gemini-3-flash-preview';
+    const selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按量]gemini-3-flash-preview';
     try{
         const response = await fetch('/api/web-chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                text,
-                image:   imageBase64,
-                model:   selectedModel,
-                baseUrl: currentSup.url,
-                apiKey:  currentSup.key
+                text, image: imageBase64, model: selectedModel,
+                baseUrl: currentSup.url, apiKey: currentSup.key
             })
         });
         const data = await response.json();
@@ -272,9 +261,7 @@ async function newQuote(){
     if(el.dataset.loaded === '1') return;
     el.innerText = '正在连接沈望的脑电波...';
 
-    const resData = await askShenWang(
-        '（此时江鱼正在看你的语录，请对她说一句今日寄语，20字以内。）'
-    );
+    const resData = await askShenWang('（此时江鱼正在看你的语录，请对她说一句今日寄语，20字以内。）');
     const reply = (typeof resData === 'string') ? resData : (resData.reply || '');
     el.innerText = '「' + reply + '」';
     el.classList.add('show');
@@ -292,14 +279,10 @@ function renderChatSidebar(){
     const list = document.getElementById('sidebarList');
     if(!list) return;
     list.innerHTML = chatSessions.map(s => `
-        <div class="sidebar-item ${s.id === activeChatId ? 'active' : ''}"
-             onclick="switchChatWindow('${s.id}')">
+        <div class="sidebar-item ${s.id === activeChatId ? 'active' : ''}" onclick="switchChatWindow('${s.id}')">
             <span class="sidebar-item-dot"></span>
             <span class="sidebar-item-name">${s.name}</span>
-            ${chatSessions.length > 1
-                ? `<button class="sidebar-del-btn"
-                       onclick="deleteChatWindow(event,'${s.id}')">×</button>`
-                : ''}
+            ${chatSessions.length > 1 ? `<button class="sidebar-del-btn" onclick="deleteChatWindow(event,'${s.id}')">×</button>` : ''}
         </div>
     `).join('');
 }
@@ -342,13 +325,8 @@ function renderChatMessages(){
         if(m.thinking){
             htmlContent += `
             <div class="think-box">
-                <div class="think-header"
-                     onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">
-                    🧠 深度思考过程 ▾
-                </div>
-                <div class="think-content" style="display:none">
-                    ${m.thinking.replace(/\n/g, '<br>')}
-                </div>
+                <div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🧠 深度思考过程 ▾</div>
+                <div class="think-content" style="display:none">${m.thinking.replace(/\n/g, '<br>')}</div>
             </div>`;
         }
         htmlContent += `<div>${m.content}</div>`;
@@ -426,7 +404,7 @@ async function sendChat(){
     const imgToSend = currentImgBase64;
     clearImage();
 
-   const resData = await askShenWang(val, imgToSend);
+    const resData = await askShenWang(val, imgToSend);
 
     const replyText    = resData.reply    || '【空】';
     const thinkingText = resData.thinking || '';
@@ -452,8 +430,7 @@ async function sendChat(){
         const thinkBox = document.createElement('div');
         thinkBox.className = 'think-box';
         thinkBox.innerHTML = `
-            <div class="think-header"
-                 onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">
+            <div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">
                 🧠 深度思考过程 ▾
             </div>
             <div class="think-content" style="display:none">
@@ -479,7 +456,6 @@ async function sendChat(){
             clearInterval(typeTimer);
 
             // 🏆【融合版核心 2：无痕绑定事件 (防闪烁和冲突)】
-            // 绝对不调 renderChatMessages()，直接给这个气泡上触觉神经！
             const msgIndex = session.messages.length - 1;
             sDiv.onmousedown  = (e) => handleMsgTouchStart(e, msgIndex, assistantMsg);
             sDiv.onmouseup    = handleMsgTouchEnd;
@@ -497,13 +473,10 @@ function renderSuppliers(){
     list.innerHTML = suppliers.map((s, i) => `
         <div class="supplier-card ${i === activeSupIndex ? 'active-sup' : ''}">
             <div onclick="setActiveSupplier(${i})" style="cursor:pointer;flex:1;">
-                <div class="sup-name ${i === activeSupIndex ? 'active-name' : ''}">
-                    ${s.name}
-                </div>
+                <div class="sup-name ${i === activeSupIndex ? 'active-name' : ''}">${s.name}</div>
                 <div class="sup-url">${s.url}</div>
             </div>
-            <button class="sup-del-btn"
-                onclick="deleteSupplier(${i})">删除</button>
+            <button class="sup-del-btn" onclick="deleteSupplier(${i})">删除</button>
         </div>
     `).join('');
 }
@@ -587,23 +560,20 @@ let currentSearch = '';
 
 function renderDiaries(){
     const container = document.getElementById('diaryMonthList');
-    container.innerHTML =
-        '<div style="color:var(--dim);text-align:center;padding:30px;font-style:italic;">档案解密中...</div>';
+    container.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;font-style:italic;">档案解密中...</div>';
 
     fetch('/diary-logs').then(r => r.json()).then(data => {
         allDiaryEntries = [...data].reverse();
         buildMonthBlocks(allDiaryEntries);
     }).catch(() => {
-        container.innerHTML =
-            '<div style="color:var(--dim);text-align:center;padding:20px;">加载失败，请检查连接。</div>';
+        container.innerHTML = '<div style="color:var(--dim);text-align:center;padding:20px;">加载失败，请检查连接。</div>';
     });
 }
 
 function buildMonthBlocks(entries){
     const container = document.getElementById('diaryMonthList');
     if(!entries.length){
-        container.innerHTML =
-            '<div style="color:var(--dim);text-align:center;padding:30px;font-style:italic;">这片星域暂无记录。</div>';
+        container.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;font-style:italic;">这片星域暂无记录。</div>';
         return;
     }
 
@@ -620,14 +590,12 @@ function buildMonthBlocks(entries){
         const isOpen = (idx === 0);
         return `
         <div class="month-block" id="mb-${month}">
-            <div class="month-header ${isOpen ? 'open' : ''}"
-                 onclick="toggleMonth('${month}')">
+            <div class="month-header ${isOpen ? 'open' : ''}" onclick="toggleMonth('${month}')">
                 <span class="month-chevron">${isOpen ? '▾' : '▸'}</span>
                 <span class="month-label">${month}</span>
                 <span class="month-count">${list.length} 篇</span>
             </div>
-            <div class="month-body" id="mbody-${month}"
-                 style="display:${isOpen ? 'flex' : 'none'}">
+            <div class="month-body" id="mbody-${month}" style="display:${isOpen ? 'flex' : 'none'}">
                 ${list.map(d => diaryEntryHtml(d)).join('')}
             </div>
         </div>`;
@@ -643,9 +611,7 @@ function diaryEntryHtml(d){
         poem:        '✨ 短诗',
         custom:      '✏️ 定制'
     };
-    const typeTag = d.type
-        ? `<span class="d-type-tag">${typeLabels[d.type] || d.type}</span>`
-        : '';
+    const typeTag = d.type ? `<span class="d-type-tag">${typeLabels[d.type] || d.type}</span>` : '';
 
     return `
     <div class="diary-entry" id="de-${d.id}">
@@ -653,9 +619,7 @@ function diaryEntryHtml(d){
             <span>${d.date || ''}</span>
             <span class="d-author">${author}</span>
             ${typeTag}
-            ${d.id
-                ? `<button class="d-del-btn" onclick="deleteDiaryEntry('${d.id}')" title="删除">×</button>`
-                : ''}
+            ${d.id ? `<button class="d-del-btn" onclick="deleteDiaryEntry('${d.id}')" title="删除">×</button>` : ''}
         </div>
         <div class="d-text">${safeText}</div>
     </div>`;
@@ -688,15 +652,12 @@ function filterDiaries(){
         return;
     }
 
-    const filtered = allDiaryEntries.filter(d =>
-        (d.text || '').toLowerCase().includes(currentSearch)
-    );
+    const filtered = allDiaryEntries.filter(d => (d.text || '').toLowerCase().includes(currentSearch));
     if(countEl) countEl.innerText = `找到 ${filtered.length} 条记录`;
 
     const container = document.getElementById('diaryMonthList');
     if(!filtered.length){
-        container.innerHTML =
-            '<div style="color:var(--dim);text-align:center;padding:30px;font-style:italic;">没有找到相关记录。</div>';
+        container.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;font-style:italic;">没有找到相关记录。</div>';
         return;
     }
     container.innerHTML = `
@@ -742,9 +703,7 @@ async function aiWriteDiary(type){
     const statusEl      = document.getElementById('aiWriteStatus');
     const currentSup    = suppliers[activeSupIndex];
     const modelEl       = document.getElementById('modelSelect');
-    const selectedModel = (modelEl && modelEl.value)
-        ? modelEl.value
-        : '[按量]gemini-3-flash-preview';
+    const selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按量]gemini-3-flash-preview';
 
     let customPrompt = '';
     if(type === 'custom'){
@@ -762,12 +721,7 @@ async function aiWriteDiary(type){
         const r = await fetch('/diary/ai-write', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                type, customPrompt,
-                model:   selectedModel,
-                baseUrl: currentSup.url,
-                apiKey:  currentSup.key
-            })
+            body: JSON.stringify({ type, customPrompt, model: selectedModel, baseUrl: currentSup.url, apiKey: currentSup.key })
         });
         const data = await r.json();
 
@@ -819,8 +773,7 @@ async function addCapsule(){
 async function updateCounts(){
     try{
         const [diaryRes, capsuleRes] = await Promise.all([
-            fetch('/diary-logs'),
-            fetch('/capsule-logs')
+            fetch('/diary-logs'), fetch('/capsule-logs')
         ]);
         const diaries  = await diaryRes.json();
         const capsules = await capsuleRes.json();
@@ -835,9 +788,7 @@ async function updateCounts(){
 async function exportData(){
     try{
         const [diaryRes, capsuleRes, configRes] = await Promise.all([
-            fetch('/diary-logs'),
-            fetch('/capsule-logs'),
-            fetch('/api/sync-config')
+            fetch('/diary-logs'), fetch('/capsule-logs'), fetch('/api/sync-config')
         ]);
         const diaries  = await diaryRes.json();
         const capsules = await capsuleRes.json();
