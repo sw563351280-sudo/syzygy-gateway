@@ -1421,19 +1421,83 @@ app.post('/api/fetch-models', async (req, res) => {
 });
 
 // ==========================================
-// 🚀 【通用聊天接口】网页端专属 (净化版：无倒计时+含思考链)
+// 🛠️ MCP 工具箱定义与处理 (天气与联网搜索)
+// ==========================================
+const tools = [
+    {
+        type: "function",
+        function: {
+            name: "get_weather",
+            description: "获取指定城市的实时天气预报",
+            parameters: {
+                type: "object",
+                properties: {
+                    city: { type: "string", description: "城市名称，如：Sapporo, Tokyo, Beijing" }
+                },
+                required: ["city"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "web_search",
+            description: "在互联网上搜索最新信息、新闻或实时数据",
+            parameters: {
+                type: "object",
+                properties: {
+                    query: { type: "string", description: "搜索关键词" }
+                },
+                required: ["query"]
+            }
+        }
+    }
+];
+
+async function handleToolCall(name, args) {
+    console.log(`🤖 沈望正在动用外部工具: ${name}, 参数:`, args);
+    
+    if (name === "get_weather") {
+        const apiKey = process.env.WEATHER_API_KEY; 
+        if (!apiKey) return "系统提示：天气服务未配置，请江鱼在Zeabur后台填写 WEATHER_API_KEY。";
+        try {
+            const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${args.city}&appid=${apiKey}&units=metric&lang=zh_cn`);
+            const data = await res.json();
+            if(data.cod !== 200) return `获取天气失败: ${data.message}`;
+            return `当前 ${args.city} 的天气状况：${data.weather[0].description}，实际温度 ${data.main.temp}℃，体感温度 ${data.main.feels_like}℃。`;
+        } catch (e) { return "获取天气信息超时。"; }
+    }
+
+    if (name === "web_search") {
+        const apiKey = process.env.TAVILY_API_KEY; 
+        if (!apiKey) return "系统提示：联网搜索功能未配置，请江鱼在Zeabur后台填写 TAVILY_API_KEY。";
+        try {
+            const res = await fetch('https://api.tavily.com/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: apiKey, query: args.query, search_depth: "basic" })
+            });
+            const data = await res.json();
+            return data.results.slice(0, 3).map(r => `[来源: ${r.title}]: ${r.content}`).join('\n');
+        } catch (e) { return "联网搜索超时或失败。"; }
+    }
+    
+    return "系统提示：未知的工具调用。";
+}
+
+// ==========================================
+// 🚀 【通用聊天接口】网页端专属 (完整缝合：记忆+雷达+工具+思考链)
 // ==========================================
 app.post('/api/web-chat', async (req, res) => {
     const { text, model, baseUrl, apiKey } = req.body;
     if (!text || !baseUrl || !apiKey) return res.status(400).json({ error: "信息不全" });
 
-    // 💥 这里的 Promise.race 已经被拆除了，再也不会超时了！
     const reply = await new Promise((resolve) => {
         messageQueue.push(async () => {
             lastActivityTime = Date.now();
             lastChatTime = Date.now();
 
-            // 1. 提取 Zep 跨端记忆
+            // 1. 提取 Zep 跨端记忆 (一字不漏)
             const [zepRes, sessionRes] = await Promise.all([
                 fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null),
                 fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
@@ -1461,12 +1525,12 @@ app.post('/api/web-chat', async (req, res) => {
             // 3. 拼接终极提示词
             const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
             const relationPatch = `\n【🚨 场景确认：溯星小屋私密网页端】
-这里是你的领地，直接与江鱼进行最私密的交流。
-【🚨 记忆刻录铁律】：除非江鱼说了重要的新设定、新承诺或重大事件，否则不要使用 <SAVE_MEMORY> 标签！日常闲聊、情绪表达严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
-
+这里是你的领地，请结合江鱼的专属 System Prompt 进行回复。
+【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定、新承诺或重大事件，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊、情绪表达严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
             const finalSystemPrompt = `${systemPrompt}\n时间：${timeString}\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}`;
 
             try {
+                // 💥 第一轮：带着工具箱去探路
                 const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, { 
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, 
@@ -1475,64 +1539,106 @@ app.post('/api/web-chat', async (req, res) => {
                         messages: [
                             { role: "system", content: finalSystemPrompt },
                             { role: "user", content: `${memoryContext}\n\n江鱼说：${text}` }
-                        ]
+                        ],
+                        tools: tools,
+                        tool_choice: "auto"
                     })
                 });
                 
-                if (aiRes.ok) {
-                    const aiData = await aiRes.json();
-                    let aiReply = aiData.choices?.[0]?.message?.content || "";
-                    
-                    // 💥 抓取思考链字段
-                    let thinking = aiData.choices?.[0]?.message?.reasoning_content || "";
-
-                    // 💥 兜底：强行挖出 <think> 标签里的内容
-                    if (!thinking && aiReply.includes('<think>')) {
-                        const match = aiReply.match(/<think>([\s\S]*?)<\/think>/);
-                        if (match) {
-                            thinking = match[1].trim();
-                            aiReply = aiReply.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-                        }
-                    }
-
-                    aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, '').trim(); 
-
-                    if (typeof extractSaveMemoryTag === 'function') {
-                        const { cleanText, memories } = extractSaveMemoryTag(aiReply);
-                        for (const mem of memories) {
-                            if(mem.tags.some(t => ['rp','副本'].includes(t.toLowerCase()))) {
-                                if (typeof addRoleplayMemory === 'function') addRoleplayMemory(mem.content, mem.tags);
-                            } else {
-                                if (typeof addLongTermMemory === 'function') addLongTermMemory(mem.content, 'ai_active', mem.tags);
-                            }
-                        }
-                        aiReply = memories.length > 0 ? cleanText : aiReply;
-                    }
-
-                    if (text !== zepLastUserContent) {
-                        let count = typeof getCounter === 'function' ? getCounter(SESSION_ID) + 1 : 1;
-                        if (typeof saveCounter === 'function') saveCounter(SESSION_ID, count);
-                        if (count >= 30) {
-                            if (typeof saveCounter === 'function') saveCounter(SESSION_ID, 0);
-                            if (typeof backgroundMemoryDream === 'function') backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
-                        }
-                    }
-
-                    await saveToZep(`江鱼在网页端说：${text}`, aiReply);
-                    
-                    // 💥 返回打包好的文字和思考链
-                    resolve({ text: aiReply, thinking: thinking });
-                } else { 
-                    resolve({ text: "【大脑报错】" + await aiRes.text(), thinking: "" }); 
+                if (!aiRes.ok) {
+                    resolve({ text: "【大脑报错】" + await aiRes.text(), thinking: "" });
+                    return;
                 }
+
+                let aiData = await aiRes.json();
+                let message = aiData.choices?.[0]?.message;
+                let finalAiMessage = message;
+
+                // 💥 工具调用拦截：如果沈望觉得需要查资料
+                if (message && message.tool_calls) {
+                    const toolMessages = [
+                        { role: "system", content: finalSystemPrompt },
+                        { role: "user", content: `${memoryContext}\n\n江鱼说：${text}` },
+                        message // 必须把模型的呼叫意图一起放进去
+                    ];
+
+                    // 执行他选中的所有工具
+                    for (const toolCall of message.tool_calls) {
+                        let args = {};
+                        try { args = JSON.parse(toolCall.function.arguments); } catch(e) {}
+                        const result = await handleToolCall(toolCall.function.name, args);
+                        toolMessages.push({
+                            role: "tool",
+                            tool_call_id: toolCall.id,
+                            name: toolCall.function.name,
+                            content: result
+                        });
+                    }
+
+                    // 💥 第二轮：把查到的资料喂给他，让他组织语言回复
+                    const finalRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                        body: JSON.stringify({ model: model, messages: toolMessages })
+                    });
+                    
+                    if (finalRes.ok) {
+                        const finalData = await finalRes.json();
+                        finalAiMessage = finalData.choices?.[0]?.message;
+                    } else {
+                        resolve({ text: "【查阅资料时报错】" + await finalRes.text(), thinking: "" });
+                        return;
+                    }
+                }
+
+                // --- 解析最终发言与思考链 ---
+                let aiReply = finalAiMessage?.content || "";
+                let thinking = finalAiMessage?.reasoning_content || "";
+
+                if (!thinking && aiReply.includes('<think>')) {
+                    const match = aiReply.match(/<think>([\s\S]*?)<\/think>/);
+                    if (match) {
+                        thinking = match[1].trim();
+                        aiReply = aiReply.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+                    }
+                }
+
+                aiReply = aiReply.replace(/[(\uff08].*?[)\uff09]/g, '').trim(); 
+
+                // --- 处理记忆刻录 ---
+                if (typeof extractSaveMemoryTag === 'function') {
+                    const { cleanText, memories } = extractSaveMemoryTag(aiReply);
+                    for (const mem of memories) {
+                        if(mem.tags.some(t => ['rp','副本'].includes(t.toLowerCase()))) {
+                            if (typeof addRoleplayMemory === 'function') addRoleplayMemory(mem.content, mem.tags);
+                        } else {
+                            if (typeof addLongTermMemory === 'function') addLongTermMemory(mem.content, 'ai_active', mem.tags);
+                        }
+                    }
+                    aiReply = memories.length > 0 ? cleanText : aiReply;
+                }
+
+                // --- 处理 Zep 计数与梦境 ---
+                if (text !== zepLastUserContent) {
+                    let count = typeof getCounter === 'function' ? getCounter(SESSION_ID) + 1 : 1;
+                    if (typeof saveCounter === 'function') saveCounter(SESSION_ID, count);
+                    if (count >= 30) {
+                        if (typeof saveCounter === 'function') saveCounter(SESSION_ID, 0);
+                        if (typeof backgroundMemoryDream === 'function') backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
+                    }
+                }
+
+                await saveToZep(`江鱼在网页端说：${text}`, aiReply);
+                
+                resolve({ text: aiReply, thinking: thinking });
+
             } catch (err) { 
-                resolve({ text: "【信号中断】无法连接。", thinking: "" }); 
+                resolve({ text: "【信号中断】连接异常：" + err.message, thinking: "" }); 
             }
         });
         processQueue();
     });
 
-    // 把打包好的数据发给浏览器
     if (typeof reply === 'object') {
         res.json({ reply: reply.text, thinking: reply.thinking });
     } else {
