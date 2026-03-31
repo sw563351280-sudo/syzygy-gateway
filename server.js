@@ -1240,7 +1240,7 @@ if (friendTempMemory[senderId].length > 10) friendTempMemory[senderId].shift();
 if (!aiKey) return console.log("❌ 缺少 QQ_CHAT_KEY，沈望无法思考！");
 
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 120000); 
+                    const timeoutId = setTimeout(() => controller.abort(), 300000); 
 
                     try {
                         console.log("🚀 正在呼叫沈望的官方大脑...");
