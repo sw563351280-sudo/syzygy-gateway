@@ -1,0 +1,21 @@
+{
+  "name": "溯星小屋",
+  "short_name": "溯星",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#040710",
+  "theme_color": "#040710",
+  "description": "沈望的专属通讯终端",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
