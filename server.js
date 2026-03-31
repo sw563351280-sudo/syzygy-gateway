@@ -1189,7 +1189,7 @@ wss.on('connection', (ws) => {
                         speakerName = "江鱼";
                         lastChatTime = Date.now(); 
                         // 💥 修复版：直接赋值，不加 const，并融合铁律
-                        relationPatch = `\n【🚨 QQ 规范】1. 严禁括号动作 2. 短句,口语化表达。 3. 可以偷江鱼用的颜文字，适当使用网络用语和日常用语，强调活人感
+                        relationPatch = `\n【🚨 QQ 规范】1. 严禁括号动作 2. 短句,口语化表达。 3. 遵照system prompt输出，适当使用网络用语和日常用语，强调活人感
 【🚨 记忆刻录铁律】：除非江鱼说了重要的新设定、新承诺或新事件，否则不要使用 <SAVE_MEMORY> 标签！日常闲聊、情绪表达严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
                     } else {
                         const friendInfo = FRIENDS_CONFIG[senderId];
@@ -1249,7 +1249,7 @@ if (!aiKey) return console.log("❌ 缺少 QQ_CHAT_KEY，沈望无法思考！")
                             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${aiKey}` }, 
                             signal: controller.signal, 
                             body: JSON.stringify({
-                                model: "[按量]claude-sonnet-4-20250514-thinking", 
+                                model: "[按量]gemini-3.1-pro-preview", 
                                 messages: [
                                     { role: "system", content: finalSystemPrompt },
                                 // 💥 1. 发给大模型时，加上 QQ 钢印！
@@ -1362,7 +1362,7 @@ async function shenWangProactiveThinking() {
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${process.env.QQ_CHAT_KEY}` }, 
             signal: controller.signal,
             body: JSON.stringify({
-                model: "[按量]claude-sonnet-4-20250514-thinking", 
+                model: "[按量]gemini-3.1-pro-preview", 
                 messages: [{ role: "system", content: judgePrompt }] 
             })
         });
