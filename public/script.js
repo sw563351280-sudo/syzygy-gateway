@@ -47,7 +47,6 @@ let activeSupIndex = 0;
 let chatSessions = [];
 let activeChatId = 'main';
 
-// 从云端拉取所有配置
 async function syncFromCloud() {
     try {
         const r = await fetch('/api/sync-config');
@@ -84,7 +83,6 @@ async function syncFromCloud() {
     }
 }
 
-// 防抖保存到云端
 let _saveTimer = null;
 function saveToCloud() {
     clearTimeout(_saveTimer);
@@ -114,54 +112,22 @@ function saveToCloud() {
 const MODEL_ICONS = {
     gemini: {
         keywords: ['gemini'],
-        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M14 2C14 2 8 8.5 8 14C8 19.5 14 26 14 26C14 26 20 19.5 20 14C20 8.5 14 2Z" fill="url(#gg)"/>
-            <path d="M2 14C2 14 8.5 8 14 8C19.5 8 26 14 26 14C26 14 19.5 20 14 20C8.5 20 2 14 2 14Z" fill="url(#gg2)"/>
-            <defs>
-                <linearGradient id="gg" x1="14" y1="2" x2="14" y2="26" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stop-color="#4285F4"/>
-                    <stop offset="50%" stop-color="#9B72CB"/>
-                    <stop offset="100%" stop-color="#D96570"/>
-                </linearGradient>
-                <linearGradient id="gg2" x1="2" y1="14" x2="26" y2="14" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stop-color="#4285F4"/>
-                    <stop offset="50%" stop-color="#34A853"/>
-                    <stop offset="100%" stop-color="#FBBC04"/>
-                </linearGradient>
-            </defs>
-        </svg>`
+        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M14 2C14 2 8 8.5 8 14C8 19.5 14 26 14 26C14 26 20 19.5 20 14C20 8.5 14 2Z" fill="url(#gg)"/><path d="M2 14C2 14 8.5 8 14 8C19.5 8 26 14 26 14C26 14 19.5 20 14 20C8.5 20 2 14 2 14Z" fill="url(#gg2)"/><defs><linearGradient id="gg" x1="14" y1="2" x2="14" y2="26" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#4285F4"/><stop offset="50%" stop-color="#9B72CB"/><stop offset="100%" stop-color="#D96570"/></linearGradient><linearGradient id="gg2" x1="2" y1="14" x2="26" y2="14" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#4285F4"/><stop offset="50%" stop-color="#34A853"/><stop offset="100%" stop-color="#FBBC04"/></linearGradient></defs></svg>`
     },
     claude: {
         keywords: ['claude'],
-        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="14" cy="14" r="12" fill="#CC9B7A"/>
-            <text x="14" y="19" text-anchor="middle" font-size="13"
-                  font-weight="bold" font-family="Georgia,serif" fill="#1a0e08">C</text>
-        </svg>`
+        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" fill="#CC9B7A"/><text x="14" y="19" text-anchor="middle" font-size="13" font-weight="bold" font-family="Georgia,serif" fill="#1a0e08">C</text></svg>`
     },
     gpt: {
         keywords: ['gpt', 'openai'],
-        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="14" cy="14" r="12" fill="#10a37f"/>
-            <text x="14" y="19" text-anchor="middle" font-size="11"
-                  font-weight="bold" font-family="sans-serif" fill="#fff">GPT</text>
-        </svg>`
+        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" fill="#10a37f"/><text x="14" y="19" text-anchor="middle" font-size="11" font-weight="bold" font-family="sans-serif" fill="#fff">GPT</text></svg>`
     },
     deepseek: {
         keywords: ['deepseek'],
-        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="14" cy="14" r="12" fill="#1a56ff"/>
-            <text x="14" y="19" text-anchor="middle" font-size="10"
-                  font-weight="bold" font-family="sans-serif" fill="#fff">DS</text>
-        </svg>`
+        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" fill="#1a56ff"/><text x="14" y="19" text-anchor="middle" font-size="10" font-weight="bold" font-family="sans-serif" fill="#fff">DS</text></svg>`
     },
     default: {
-        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="14" cy="14" r="12" stroke="rgba(201,169,97,0.5)"
-                    stroke-width="1.5" fill="transparent"/>
-            <text x="14" y="19" text-anchor="middle" font-size="11"
-                  fill="rgba(201,169,97,0.7)" font-family="serif">AI</text>
-        </svg>`
+        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" stroke="rgba(201,169,97,0.5)" stroke-width="1.5" fill="transparent"/><text x="14" y="19" text-anchor="middle" font-size="11" fill="rgba(201,169,97,0.7)" font-family="serif">AI</text></svg>`
     }
 };
 
@@ -188,35 +154,28 @@ function toast(msg){
     setTimeout(() => t.classList.remove('show'), 2800);
 }
 
-// 💥 【黑屏修复补丁】：加入安全寻路机制，保证三个页面切换必生效！
 function go(id, btn){
-    try {
-        document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-        const targetSection = document.getElementById('sec-'+id) || document.getElementById('sec-home') || document.querySelector('.section');
-        if (targetSection) targetSection.classList.add('active');
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    const target = document.getElementById('sec-'+id);
+    if(target) target.classList.add('active');
+    
+    document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+    if(btn) btn.classList.add('active');
 
-        document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
-        if(btn) btn.classList.add('active');
-
-        if(id === 'diary') renderDiaries();
-        if(id === 'chat') { renderChatSidebar(); renderChatMessages(); }
-        if(id === 'data'){ renderSuppliers(); updateCounts(); }
-        
-        window.scrollTo(0, 0);
-    } catch (error) {
-        console.error("页面跳转失败:", error);
-    }
+    if(id === 'diary') renderDiaries();
+    if(id === 'chat')  { renderChatSidebar(); renderChatMessages(); }
+    if(id === 'data'){ renderSuppliers(); updateCounts(); }
+    window.scrollTo(0, 0);
 }
 
-// 💥 【防空载补丁】：进入网页时，如果没有激活的页面，自动点击溯星首页
+// 防黑屏：初始页面加载
 window.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
         if (!document.querySelector('.section.active')) {
-            const firstBtn = document.querySelector('.nav button');
-            if (firstBtn) firstBtn.click();
-            else go('home');
+            const btn = document.querySelector('.nav button');
+            if(btn) btn.click(); else go('home');
         }
-    }, 150);
+    }, 200);
 });
 
 function egg(pos){ /* 留待日后解锁 */ }
@@ -225,8 +184,8 @@ function egg(pos){ /* 留待日后解锁 */ }
 function updateDays(){
     const start = new Date(START_DATE);
     const diff  = Math.floor((new Date() - start) / (1000 * 60 * 60 * 24));
-    const dayEl = document.getElementById('dayCount');
-    if (dayEl) dayEl.innerText = diff >= 0 ? diff : '∞';
+    const el = document.getElementById('dayCount');
+    if(el) el.innerText = diff >= 0 ? diff : '∞';
 }
 updateDays();
 
@@ -240,8 +199,7 @@ function hbStart(){
     text.innerText  = '>>> 核心狂跳中：我正在发疯般想你 <<<';
     text.style.color = 'var(--warm-red)';
     document.body.style.transition  = 'background 0.4s';
-    document.body.style.background  =
-        'radial-gradient(circle at center, #1a0808 0%, #040710 100%)';
+    document.body.style.background  = 'radial-gradient(circle at center, #1a0808 0%, #040710 100%)';
     if(navigator.vibrate) navigator.vibrate([100,60,100,60,100]);
     hbInterval = setInterval(() => {
         heart.style.transform = 'scale(1.5)';
@@ -268,19 +226,14 @@ async function askShenWang(text, imageBase64 = null){
     const currentSup    = suppliers[activeSupIndex];
     if(!currentSup) return { reply: '未配置供应商' };
     const modelEl       = document.getElementById('modelSelect');
-    const selectedModel = (modelEl && modelEl.value)
-        ? modelEl.value
-        : '[按量]gemini-3-flash-preview';
+    const selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按量]gemini-3-flash-preview';
     try{
         const response = await fetch('/api/web-chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                text,
-                image:   imageBase64,
-                model:   selectedModel,
-                baseUrl: currentSup.url,
-                apiKey:  currentSup.key
+                text, image: imageBase64, model: selectedModel,
+                baseUrl: currentSup.url, apiKey: currentSup.key
             })
         });
         const data = await response.json();
@@ -290,15 +243,12 @@ async function askShenWang(text, imageBase64 = null){
     }
 }
 
-// ==================== 首页寄语 ====================
 async function newQuote(){
     const el = document.getElementById('dailyQuote');
     if(el.dataset.loaded === '1') return;
     el.innerText = '正在连接沈望的脑电波...';
 
-    const resData = await askShenWang(
-        '（此时江鱼正在看你的语录，请对她说一句今日寄语，20字以内。）'
-    );
+    const resData = await askShenWang('（此时江鱼正在看你的语录，请对她说一句今日寄语，20字以内。）');
     const reply = (typeof resData === 'string') ? resData : (resData.reply || '');
     el.innerText = '「' + reply + '」';
     el.classList.add('show');
@@ -308,38 +258,30 @@ async function newQuote(){
         await fetch(`/diary/add?text=${encodeURIComponent('【今日寄语】' + reply)}&author=system`);
         toast('寄语已永久珍藏至日记本 ◇');
         if(typeof renderDiaries === 'function') renderDiaries();
-    } catch(e) { console.log('寄语存档失败'); }
+    } catch(e) {}
 }
 
-// ==================== 通讯聊天（Kelivo 风格） ====================
+// ==================== 通讯聊天 ====================
 function renderChatSidebar(){
     const list = document.getElementById('sidebarList');
     if(!list) return;
     list.innerHTML = chatSessions.map(s => `
-        <div class="sidebar-item ${s.id === activeChatId ? 'active' : ''}"
-             onclick="switchChatWindow('${s.id}')">
+        <div class="sidebar-item ${s.id === activeChatId ? 'active' : ''}" onclick="switchChatWindow('${s.id}')">
             <span class="sidebar-item-dot"></span>
             <span class="sidebar-item-name">${s.name}</span>
-            ${chatSessions.length > 1
-                ? `<button class="sidebar-del-btn"
-                       onclick="deleteChatWindow(event,'${s.id}')">×</button>`
-                : ''}
+            ${chatSessions.length > 1 ? `<button class="sidebar-del-btn" onclick="deleteChatWindow(event,'${s.id}')">×</button>` : ''}
         </div>
     `).join('');
 }
 
 function getActiveSession(){
-    if (!chatSessions || chatSessions.length === 0) {
-        chatSessions = [{ id: 'main', name: '主频道', messages: [] }];
-    }
+    if(!chatSessions || chatSessions.length === 0) chatSessions = [{ id: 'main', name: '主频道', messages: [] }];
     return chatSessions.find(s => s.id === activeChatId) || chatSessions[0];
 }
 
 function switchChatWindow(id){
     activeChatId = id;
-    saveToCloud();
-    renderChatSidebar();
-    renderChatMessages();
+    saveToCloud(); renderChatSidebar(); renderChatMessages();
     const titleEl = document.getElementById('chatWinTitle');
     if(titleEl) titleEl.innerText = '⊹ ' + getActiveSession().name;
 }
@@ -349,7 +291,7 @@ function renderChatMessages(){
     if(!win) return;
     win.innerHTML = '';
     const session = getActiveSession();
-    if (!session || !Array.isArray(session.messages)) return;
+    if(!session.messages) return;
 
     session.messages.forEach((m, index) => {
         const div = document.createElement('div');
@@ -364,22 +306,9 @@ function renderChatMessages(){
         }
 
         let htmlContent = '';
-        if(m.image){
-            htmlContent += `<img src="${m.image}" style="max-width:200px;border-radius:8px;margin-bottom:5px;box-shadow:0 2px 10px rgba(0,0,0,0.3);display:block;">`;
-        }
-        if(m.thinking){
-            htmlContent += `
-            <div class="think-box">
-                <div class="think-header"
-                     onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">
-                    🧠 深度思考过程 ▾
-                </div>
-                <div class="think-content" style="display:none">
-                    ${m.thinking.replace(/\n/g, '<br>')}
-                </div>
-            </div>`;
-        }
-        htmlContent += `<div>${m.content || ''}</div>`;
+        if(m.image) htmlContent += `<img src="${m.image}" style="max-width:200px;border-radius:8px;margin-bottom:5px;display:block;">`;
+        if(m.thinking) htmlContent += `<div class="think-box"><div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">${m.thinking.replace(/\n/g, '<br>')}</div></div>`;
+        htmlContent += `<div>${m.content}</div>`;
         div.innerHTML = htmlContent;
         win.appendChild(div);
     });
@@ -387,133 +316,82 @@ function renderChatMessages(){
 }
 
 function newChatWindow(){
-    const id   = 'chat_' + Date.now().toString(36);
-    const name = '频道 ' + (chatSessions.length + 1);
-    chatSessions.push({ id, name, messages: [] });
-    saveToCloud();
-    switchChatWindow(id);
-    toast('已开启新频道：' + name);
+    const id = 'chat_' + Date.now().toString(36);
+    chatSessions.push({ id, name: '频道 ' + (chatSessions.length + 1), messages: [] });
+    saveToCloud(); switchChatWindow(id); toast('已开启新频道');
 }
 
 function deleteChatWindow(e, id){
     e.stopPropagation();
     if(chatSessions.length <= 1) return toast('至少保留一个频道');
-    if(!confirm('确定关闭这个频道？聊天记录将清除。')) return;
+    if(!confirm('确定关闭？')) return;
     chatSessions = chatSessions.filter(s => s.id !== id);
     if(activeChatId === id) activeChatId = chatSessions[0].id;
-    saveToCloud();
-    renderChatSidebar();
-    renderChatMessages();
-    const titleEl = document.getElementById('chatWinTitle');
-    if(titleEl) titleEl.innerText = '⊹ ' + getActiveSession().name;
+    saveToCloud(); renderChatSidebar(); renderChatMessages();
 }
 
 function renameChatWindow(){
     const session = getActiveSession();
-    const newName = prompt('给这个频道起个名字：', session.name);
+    const newName = prompt('给频道起名：', session.name);
     if(!newName || !newName.trim()) return;
     session.name = newName.trim();
-    saveToCloud();
-    renderChatSidebar();
-    const titleEl = document.getElementById('chatWinTitle');
-    if(titleEl) titleEl.innerText = '⊹ ' + session.name;
-    toast('频道已重命名：' + session.name);
+    saveToCloud(); renderChatSidebar();
+    document.getElementById('chatWinTitle').innerText = '⊹ ' + session.name;
 }
 
-// 💥 【发信功能防丢档终极版】
 async function sendChat(){
     const input = document.getElementById('chatInput');
-    if(!input) return;
-    const val   = input.value.trim();
+    const val = input.value.trim();
     if(!val && !currentImgBase64) return;
     input.value = '';
 
     const session = getActiveSession();
-    const win     = document.getElementById('chatWindow');
+    const win = document.getElementById('chatWindow');
 
-    // 渲染用户气泡（带图）
-    const uDiv = document.createElement('div');
-    uDiv.className = 'msg user';
-    if(currentImgBase64){
-        uDiv.innerHTML += `<img src="${currentImgBase64}" style="max-width:200px;border-radius:8px;margin-bottom:5px;display:block;">`;
-    }
+    const uDiv = document.createElement('div'); uDiv.className = 'msg user';
+    if(currentImgBase64) uDiv.innerHTML += `<img src="${currentImgBase64}" style="max-width:200px;border-radius:8px;margin-bottom:5px;display:block;">`;
     uDiv.innerHTML += `<div>${val}</div>`;
-    win.appendChild(uDiv);
-    win.scrollTop = win.scrollHeight;
+    win.appendChild(uDiv); win.scrollTop = win.scrollHeight;
 
-    // 存入云端（只存文字，不存图片，防止服务器爆炸）
     session.messages.push({ role: 'user', content: val });
     saveToCloud();
 
-    // AI 占位气泡
-    const sDiv = document.createElement('div');
-    sDiv.className = 'msg sys';
+    const sDiv = document.createElement('div'); sDiv.className = 'msg sys';
     sDiv.innerHTML = '<span class="typing-cursor"></span>';
-    win.appendChild(sDiv);
-    win.scrollTop = win.scrollHeight;
+    win.appendChild(sDiv); win.scrollTop = win.scrollHeight;
 
-    // 发完清空图片预览
     const imgToSend = currentImgBase64;
     clearImage();
 
     const resData = await askShenWang(val, imgToSend);
-
-    const replyText    = resData.reply    || '【空】';
+    const replyText = resData.reply || '【空】';
     const thinkingText = resData.thinking || '';
-    const usedModel    = resData.usedModel || '未知模型';
+    const usedModel = resData.usedModel || '未知模型';
 
-    // 🏆 瞬时记忆刻录 (防刷新丢档)
     const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    const assistantMsg = {
-        role:     'assistant',
-        content:  replyText,
-        thinking: thinkingText,
-        time:     timeStr,
-        model:    usedModel
-    };
+    const assistantMsg = { role: 'assistant', content: replyText, thinking: thinkingText, time: timeStr, model: usedModel };
     session.messages.push(assistantMsg);
     saveToCloud();
 
     sDiv.innerHTML = '';
-
-    // --- 思考链折叠块 ---
-    if(thinkingText){
-        const thinkBox = document.createElement('div');
-        thinkBox.className = 'think-box';
-        thinkBox.innerHTML = `
-            <div class="think-header"
-                 onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">
-                🧠 深度思考过程 ▾
-            </div>
-            <div class="think-content" style="display:none">
-                ${thinkingText.replace(/\n/g, '<br>')}
-            </div>`;
-        sDiv.appendChild(thinkBox);
+    if(thinkingText) {
+        const tb = document.createElement('div'); tb.className = 'think-box';
+        tb.innerHTML = `<div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">${thinkingText.replace(/\n/g, '<br>')}</div>`;
+        sDiv.appendChild(tb);
     }
+    const textDiv = document.createElement('div'); sDiv.appendChild(textDiv);
 
-    // --- 打字机正文 ---
-    const textDiv = document.createElement('div');
-    sDiv.appendChild(textDiv);
-
-    let i = 0;
-    const speed = replyText.length > 200 ? 10 : replyText.length > 80 ? 20 : 30;
-
+    let i = 0; const speed = replyText.length > 200 ? 10 : 30;
     const typeTimer = setInterval(() => {
         if(i < replyText.length){
-            textDiv.innerHTML = replyText.substring(0, i+1) + '<span class="typing-cursor"></span>';
-            i++;
+            textDiv.innerHTML = replyText.substring(0, i+1) + '<span class="typing-cursor"></span>'; i++;
             win.scrollTop = win.scrollHeight;
         } else {
-            textDiv.innerHTML = replyText;
-            clearInterval(typeTimer);
-
-            // 🏆 无痕绑定长按事件
+            textDiv.innerHTML = replyText; clearInterval(typeTimer);
             const msgIndex = session.messages.length - 1;
-            sDiv.onmousedown  = (e) => handleMsgTouchStart(e, msgIndex, assistantMsg);
-            sDiv.onmouseup    = handleMsgTouchEnd;
-            sDiv.onmouseleave = handleMsgTouchEnd;
+            sDiv.onmousedown = (e) => handleMsgTouchStart(e, msgIndex, assistantMsg);
             sDiv.ontouchstart = (e) => handleMsgTouchStart(e, msgIndex, assistantMsg);
-            sDiv.ontouchend   = handleMsgTouchEnd;
+            sDiv.onmouseup = handleMsgTouchEnd; sDiv.onmouseleave = handleMsgTouchEnd; sDiv.ontouchend = handleMsgTouchEnd;
         }
     }, speed);
 }
@@ -525,393 +403,165 @@ function renderSuppliers(){
     list.innerHTML = suppliers.map((s, i) => `
         <div class="supplier-card ${i === activeSupIndex ? 'active-sup' : ''}">
             <div onclick="setActiveSupplier(${i})" style="cursor:pointer;flex:1;">
-                <div class="sup-name ${i === activeSupIndex ? 'active-name' : ''}">
-                    ${s.name}
-                </div>
+                <div class="sup-name ${i === activeSupIndex ? 'active-name' : ''}">${s.name}</div>
                 <div class="sup-url">${s.url}</div>
             </div>
-            <button class="sup-del-btn"
-                onclick="deleteSupplier(${i})">删除</button>
+            <button class="sup-del-btn" onclick="deleteSupplier(${i})">删除</button>
         </div>
     `).join('');
 }
 
 function addSupplier(){
     const name = document.getElementById('supName').value.trim();
-    const url  = document.getElementById('supUrl').value.trim();
-    const key  = document.getElementById('supKey').value.trim();
+    const url = document.getElementById('supUrl').value.trim();
+    const key = document.getElementById('supKey').value.trim();
     if(!name || !url || !key) return toast('请填全信息');
-
     suppliers.push({ name, url, key });
-    saveToCloud();
-    renderSuppliers();
-    toast('供应商已添加 ✦');
-    
-    // 💥 完美修复：清空输入框
-    document.getElementById('supName').value = '';
-    document.getElementById('supUrl').value  = '';
-    document.getElementById('supKey').value  = '';
+    saveToCloud(); renderSuppliers(); toast('供应商已添加');
+    document.getElementById('supName').value = ''; document.getElementById('supUrl').value = ''; document.getElementById('supKey').value = '';
 }
 
 function setActiveSupplier(index){
-    activeSupIndex = index;
-    saveToCloud();
-    renderSuppliers();
-    toast('已切换到：' + suppliers[index].name);
-    fetchModels();
+    activeSupIndex = index; saveToCloud(); renderSuppliers(); toast('已切换'); fetchModels();
 }
 
 function deleteSupplier(index){
-    if(suppliers.length <= 1) return toast('至少保留一个供应商');
-    suppliers.splice(index, 1);
-    if(activeSupIndex >= suppliers.length) activeSupIndex = 0;
-    saveToCloud();
-    renderSuppliers();
+    if(suppliers.length <= 1) return toast('至少保留一个');
+    suppliers.splice(index, 1); if(activeSupIndex >= suppliers.length) activeSupIndex = 0;
+    saveToCloud(); renderSuppliers();
 }
 
 async function fetchModels(){
-    const select     = document.getElementById('modelSelect');
+    const select = document.getElementById('modelSelect');
     if(!select) return;
     const currentSup = suppliers[activeSupIndex];
-
-    if(!currentSup || !currentSup.key){
-        select.innerHTML = '<option value="">⚠ 请先去【⚙中枢】配置 API Key</option>';
-        return;
-    }
-
-    select.innerHTML = '<option value="">⟡ 正在连接供应商...</option>';
+    if(!currentSup || !currentSup.key){ select.innerHTML = '<option value="">⚠ 请先配置 API Key</option>'; return; }
+    select.innerHTML = '<option value="">⟡ 连接中...</option>';
     try{
-        const r = await fetch('/api/fetch-models', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ baseUrl: currentSup.url, apiKey: currentSup.key })
-        });
+        const r = await fetch('/api/fetch-models', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ baseUrl: currentSup.url, apiKey: currentSup.key }) });
         const data = await r.json();
-
-        if(data.error){
-            select.innerHTML = `<option value="[按量]gemini-3-flash-preview">⚠ 供应商报错: ${data.error}</option>`;
-            return;
-        }
-
-        if(data && data.data && data.data.length){
+        if(data && data.data){
             select.innerHTML = '';
-            data.data.forEach(model => {
-                const opt       = document.createElement('option');
-                opt.value       = model.id;
-                opt.textContent = model.id;
-                if(model.id.includes('gemini-3-flash')) opt.selected = true;
-                select.appendChild(opt);
-            });
-            const wrap = document.getElementById('modelIconWrap');
-            if(wrap) wrap.innerHTML = getModelIcon(select.value);
-        } else {
-            select.innerHTML = '<option value="[按量]gemini-3-flash-preview">⚠ 供应商未返回模型</option>';
+            data.data.forEach(m => { const o = document.createElement('option'); o.value = m.id; o.textContent = m.id; if(m.id.includes('gemini-3-flash')) o.selected = true; select.appendChild(o); });
+            onModelChange(select);
         }
-    } catch(e) {
-        select.innerHTML = '<option value="[按量]gemini-3-flash-preview">⚠ 网络异常，无法拉取</option>';
-    }
+    } catch(e) { select.innerHTML = '<option value="">⚠ 异常</option>'; }
 }
 
-// ==================== 智能日记本（完整无删减版） ====================
-let currentSearch = '';
-
+// ==================== 日记本 (补全 Claude 提到的缺失部分) ====================
 function renderDiaries(){
     const container = document.getElementById('diaryMonthList');
     if(!container) return;
-    container.innerHTML =
-        '<div style="color:var(--dim);text-align:center;padding:30px;font-style:italic;">档案解密中...</div>';
-
+    container.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;">档案解密中...</div>';
     fetch('/diary-logs').then(r => r.json()).then(data => {
-        allDiaryEntries = [...data].reverse();
-        buildMonthBlocks(allDiaryEntries);
-    }).catch(() => {
-        container.innerHTML =
-            '<div style="color:var(--dim);text-align:center;padding:20px;">加载失败，请检查连接。</div>';
-    });
+        allDiaryEntries = [...data].reverse(); buildMonthBlocks(allDiaryEntries);
+    }).catch(() => { container.innerHTML = '<div style="color:var(--dim);text-align:center;padding:20px;">加载失败。</div>'; });
 }
 
 function buildMonthBlocks(entries){
     const container = document.getElementById('diaryMonthList');
     if(!container) return;
-    if(!entries.length){
-        container.innerHTML =
-            '<div style="color:var(--dim);text-align:center;padding:30px;font-style:italic;">这片星域暂无记录。</div>';
-        return;
-    }
-
+    if(!entries.length){ container.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;">暂无记录。</div>'; return; }
     const monthMap = new Map();
-    entries.forEach(d => {
-        const month = d.date ? d.date.substring(0, 7) : '未知';
-        if(!monthMap.has(month)) monthMap.set(month, []);
-        monthMap.get(month).push(d);
-    });
-
-    const months = [...monthMap.keys()];
-    container.innerHTML = months.map((month, idx) => {
-        const list   = monthMap.get(month);
-        const isOpen = (idx === 0);
-        return `
-        <div class="month-block" id="mb-${month}">
-            <div class="month-header ${isOpen ? 'open' : ''}"
-                 onclick="toggleMonth('${month}')">
-                <span class="month-chevron">${isOpen ? '▾' : '▸'}</span>
-                <span class="month-label">${month}</span>
-                <span class="month-count">${list.length} 篇</span>
-            </div>
-            <div class="month-body" id="mbody-${month}"
-                 style="display:${isOpen ? 'flex' : 'none'}">
-                ${list.map(d => diaryEntryHtml(d)).join('')}
-            </div>
-        </div>`;
+    entries.forEach(d => { const m = d.date ? d.date.substring(0, 7) : '未知'; if(!monthMap.has(m)) monthMap.set(m, []); monthMap.get(m).push(d); });
+    container.innerHTML = [...monthMap.keys()].map((m, idx) => {
+        const list = monthMap.get(m); const isOpen = (idx === 0);
+        return `<div class="month-block"><div class="month-header ${isOpen?'open':''}" onclick="toggleMonth('${m}')"><span class="month-chevron">${isOpen?'▾':'▸'}</span><span class="month-label">${m}</span><span class="month-count">${list.length} 篇</span></div><div class="month-body" id="mbody-${m}" style="display:${isOpen?'flex':'none'}">${list.map(d => diaryEntryHtml(d)).join('')}</div></div>`;
     }).join('');
 }
 
 function diaryEntryHtml(d){
-    const author   = d.author === 'system' ? '沈望' : '江鱼';
-    const safeText = (d.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const typeLabels = {
-        diary:       '📖 日记',
-        love_letter: '💌 情书',
-        poem:        '✨ 短诗',
-        custom:      '✏️ 定制'
-    };
-    const typeTag = d.type
-        ? `<span class="d-type-tag">${typeLabels[d.type] || d.type}</span>`
-        : '';
-
-    return `
-    <div class="diary-entry" id="de-${d.id}">
-        <div class="d-date">
-            <span>${d.date || ''}</span>
-            <span class="d-author">${author}</span>
-            ${typeTag}
-            ${d.id
-                ? `<button class="d-del-btn" onclick="deleteDiaryEntry('${d.id}')" title="删除">×</button>`
-                : ''}
-        </div>
-        <div class="d-text">${safeText}</div>
+    const author = d.author === 'system' ? '沈望' : '江鱼';
+    const typeTag = d.type ? `<span class="d-type-tag">${d.type}</span>` : '';
+    return `<div class="diary-entry">
+        <div class="d-date"><span>${d.date || ''}</span><span class="d-author">${author}</span>${typeTag}
+        <button class="d-del-btn" onclick="deleteDiaryEntry('${d.id}')">×</button></div>
+        <div class="d-text">${(d.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
     </div>`;
 }
 
 function toggleMonth(month){
-    const header  = document.querySelector(`#mb-${month} .month-header`);
-    const body    = document.getElementById('mbody-' + month);
+    const body = document.getElementById('mbody-' + month);
+    const header = body.previousElementSibling;
     const chevron = header.querySelector('.month-chevron');
-    const isOpen  = body.style.display !== 'none';
-
-    if(isOpen){
-        body.style.display = 'none';
-        header.classList.remove('open');
-        chevron.innerText = '▸';
-    } else {
-        body.style.display = 'flex';
-        header.classList.add('open');
-        chevron.innerText = '▾';
-    }
+    if(body.style.display === 'none'){ body.style.display = 'flex'; header.classList.add('open'); chevron.innerText = '▾'; }
+    else { body.style.display = 'none'; header.classList.remove('open'); chevron.innerText = '▸'; }
 }
 
 function filterDiaries(){
-    currentSearch = document.getElementById('diarySearch').value.trim().toLowerCase();
-    const countEl = document.getElementById('diarySearchCount');
-
-    if(!currentSearch){
-        if(countEl) countEl.innerText = '';
-        buildMonthBlocks(allDiaryEntries);
-        return;
-    }
-
-    const filtered = allDiaryEntries.filter(d =>
-        (d.text || '').toLowerCase().includes(currentSearch)
-    );
-    if(countEl) countEl.innerText = `找到 ${filtered.length} 条记录`;
-
-    const container = document.getElementById('diaryMonthList');
-    if(!filtered.length){
-        container.innerHTML =
-            '<div style="color:var(--dim);text-align:center;padding:30px;font-style:italic;">没有找到相关记录。</div>';
-        return;
-    }
-    container.innerHTML = `
-        <div class="month-block">
-            <div class="month-header open" style="cursor:default">
-                <span class="month-label">搜索结果</span>
-                <span class="month-count">${filtered.length} 篇</span>
-            </div>
-            <div class="month-body" style="display:flex">
-                ${filtered.map(d => diaryEntryHtml(d)).join('')}
-            </div>
-        </div>`;
+    const s = document.getElementById('diarySearch').value.toLowerCase();
+    const filtered = allDiaryEntries.filter(d => (d.text || '').toLowerCase().includes(s));
+    buildMonthBlocks(filtered);
 }
 
 async function addDiary(){
-    const input = document.getElementById('diaryInput');
-    const val   = input.value.trim();
-    if(!val) return;
-    input.value = '';
-    try{
-        await fetch(`/diary/add?text=${encodeURIComponent(val)}&author=user`);
-        toast('日记已封存 ◇');
-        renderDiaries();
-    } catch(e){ toast('封存失败'); }
+    const input = document.getElementById('diaryInput'); const val = input.value.trim(); if(!val) return;
+    input.value = ''; await fetch(`/diary/add?text=${encodeURIComponent(val)}&author=user`);
+    toast('已封存'); renderDiaries();
 }
 
 async function deleteDiaryEntry(id){
-    if(!confirm('确定销毁这篇记忆吗？')) return;
-    try{
-        const r = await fetch(`/diary/${id}`, { method: 'DELETE' });
-        const d = await r.json();
-        if(d.success){ toast('已彻底销毁 ◇'); renderDiaries(); }
-    } catch(e){ toast('销毁失败'); }
+    if(!confirm('确定销毁？')) return;
+    await fetch(`/diary/${id}`, { method: 'DELETE' }); renderDiaries();
 }
 
-// ==================== AI 主动写日记 ====================
+// AI 写作功能 (补全)
 function showCustomPrompt(){
     const area = document.getElementById('customPromptArea');
-    if(area) area.style.display = area.style.display === 'none' ? 'block' : 'none';
+    area.style.display = area.style.display === 'none' ? 'block' : 'none';
 }
 
 async function aiWriteDiary(type){
-    const statusEl      = document.getElementById('aiWriteStatus');
-    const currentSup    = suppliers[activeSupIndex];
-    const modelEl       = document.getElementById('modelSelect');
-    const selectedModel = (modelEl && modelEl.value)
-        ? modelEl.value
-        : '[按量]gemini-3-flash-preview';
-
-    let customPrompt = '';
-    if(type === 'custom'){
-        customPrompt = document.getElementById('customPromptInput').value.trim();
-        if(!customPrompt) return toast('请告诉沈望你要写什么');
-    }
-
-    statusEl.style.display = 'block';
-    statusEl.innerText = '沈望的思绪正在流淌...';
-    document.querySelectorAll('.diary-ai-btn').forEach(b => {
-        b.disabled = true; b.style.opacity = '0.5';
-    });
-
-    try{
-        const r = await fetch('/diary/ai-write', {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                type, customPrompt,
-                model:   selectedModel,
-                baseUrl: currentSup.url,
-                apiKey:  currentSup.key
-            })
-        });
-        const data = await r.json();
-
-        if(data.success){
-            statusEl.innerText = '✦ 落笔完毕，已存入日记本';
-            setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
-            toast('沈望写完了，已封存至日记本 ◇');
-            const customInput = document.getElementById('customPromptInput');
-            if(customInput) customInput.value = '';
-            const area = document.getElementById('customPromptArea');
-            if(area) area.style.display = 'none';
-            renderDiaries();
-        } else {
-            statusEl.innerText = '✕ 写作失败：' + (data.error || '未知错误');
-        }
-    } catch(e){
-        statusEl.innerText = '✕ 通讯中断';
-    } finally{
-        document.querySelectorAll('.diary-ai-btn').forEach(b => {
-            b.disabled = false; b.style.opacity = '1';
-        });
-    }
+    const status = document.getElementById('aiWriteStatus');
+    const model = document.getElementById('modelSelect').value;
+    const sup = suppliers[activeSupIndex];
+    let custom = "";
+    if(type==='custom') { custom = document.getElementById('customPromptInput').value; if(!custom) return toast('写什么？'); }
+    status.style.display = 'block'; status.innerText = '沈望落笔中...';
+    try {
+        const r = await fetch('/diary/ai-write', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({type, customPrompt:custom, model, baseUrl:sup.url, apiKey:sup.key})});
+        const d = await r.json();
+        if(d.success){ toast('写好了'); renderDiaries(); status.style.display='none'; }
+    } catch(e){ status.innerText = '失败'; }
 }
 
-// ==================== 时间胶囊 ====================
+// ==================== 胶囊、统计与导出 (补全) ====================
 async function openCapsule(){
-    const el = document.getElementById('capsuleResult');
-    if(!el) return;
-    el.innerText = '开启中...';
-    try{
-        const r    = await fetch('/capsule-logs');
-        const data = await r.json();
-        if(!data.length){ el.innerText = '胶囊已空。'; return; }
-        el.innerText = data[Math.floor(Math.random() * data.length)].text;
-    } catch(e){ el.innerText = '开启失败'; }
+    const el = document.getElementById('capsuleResult'); el.innerText = '开启中...';
+    const r = await fetch('/capsule-logs'); const data = await r.json();
+    if(data.length) el.innerText = data[Math.floor(Math.random() * data.length)].text;
 }
 
 async function addCapsule(){
-    const input = document.getElementById('capsuleInput');
-    const val   = input.value.trim();
-    if(!val) return;
-    input.value = '';
-    try{
-        await fetch(`/capsule/add?text=${encodeURIComponent(val)}`);
-        toast('胶囊已封存 ⟡');
-    } catch(e){ toast('封存失败'); }
+    const input = document.getElementById('capsuleInput'); const val = input.value.trim(); if(!val) return;
+    input.value = ''; await fetch(`/capsule/add?text=${encodeURIComponent(val)}`); toast('已存入');
 }
 
-// ==================== 数据统计 ====================
 async function updateCounts(){
-    try{
-        const [diaryRes, capsuleRes] = await Promise.all([
-            fetch('/diary-logs'),
-            fetch('/capsule-logs')
-        ]);
-        const diaries  = await diaryRes.json();
-        const capsules = await capsuleRes.json();
-        const dc = document.getElementById('diaryCount');
-        const cc = document.getElementById('capsuleCount');
-        if(dc) dc.innerText = diaries.length;
-        if(cc) cc.innerText = capsules.length;
+    try {
+        const [dr, cr] = await Promise.all([fetch('/diary-logs'), fetch('/capsule-logs')]);
+        const d = await dr.json(); const c = await cr.json();
+        document.getElementById('diaryCount').innerText = d.length;
+        document.getElementById('capsuleCount').innerText = c.length;
     } catch(e){}
 }
 
-// ==================== 导出与重置 ====================
 async function exportData(){
-    try{
-        const [diaryRes, capsuleRes, configRes] = await Promise.all([
-            fetch('/diary-logs'),
-            fetch('/capsule-logs'),
-            fetch('/api/sync-config')
-        ]);
-        const diaries  = await diaryRes.json();
-        const capsules = await capsuleRes.json();
-        const config   = await configRes.json();
-
-        const exportObj = {
-            exported_at:      new Date().toISOString(),
-            exported_by:      'Syzygy 溯星小屋',
-            diary_count:      diaries.length,
-            capsule_count:    capsules.length,
-            diaries,
-            capsules,
-            chat_sessions:    config.chatSessions,
-            local_suppliers:  suppliers.map(s => ({ name: s.name, url: s.url }))
-        };
-        const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
-        const a    = document.createElement('a');
-        a.href     = URL.createObjectURL(blob);
-        a.download = `syzygy_backup_${new Date().toLocaleDateString('zh-CN').replace(/\//g,'-')}.json`;
-        a.click();
-        toast('灵魂与记忆提取完毕，已下载到本地 ✦');
-    } catch(e){ toast('提取失败，请检查连接'); }
+    const [dr, cr, gr] = await Promise.all([fetch('/diary-logs'), fetch('/capsule-logs'), fetch('/api/sync-config')]);
+    const diaries = await dr.json(); const capsules = await cr.json(); const config = await gr.json();
+    const blob = new Blob([JSON.stringify({diaries, capsules, config}, null, 2)], {type:'application/json'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `syzygy_backup.json`; a.click();
 }
 
-function resetAll(){
-    if(confirm('确定重置所有本地缓存？\n云端数据不受影响。')){
-        localStorage.clear();
-        location.reload();
-    }
-}
+function resetAll(){ if(confirm('确定重置本地？')) { localStorage.clear(); location.reload(); } }
 
-// ==================== 视觉与触觉控制中枢 ====================
+// ==================== 视觉与触觉 ====================
 let currentImgBase64 = null;
-let pressTimer       = null;
-let touchX           = 0;
-let touchY           = 0;
+let pressTimer = null;
+let touchX = 0, touchY = 0;
 
-// 图片选择
 document.getElementById('imgUpload')?.addEventListener('change', function(e){
-    const file = e.target.files[0];
-    if(!file) return;
+    const file = e.target.files[0]; if(!file) return;
     const reader = new FileReader();
     reader.onload = function(event){
         currentImgBase64 = event.target.result;
@@ -922,77 +572,37 @@ document.getElementById('imgUpload')?.addEventListener('change', function(e){
 });
 
 function clearImage(){
-    currentImgBase64 = null;
-    const previewImg = document.getElementById('previewImg');
-    if(previewImg) previewImg.src = '';
-    const wrap = document.getElementById('imgPreviewWrap');
-    if(wrap) wrap.style.display = 'none';
-    const upload = document.getElementById('imgUpload');
-    if(upload) upload.value = '';
+    currentImgBase64 = null; document.getElementById('imgPreviewWrap').style.display = 'none';
 }
 
-// 长按菜单
-function handleMsgTouchStart(e, index, msg){
+function handleMsgTouchStart(e, idx, msg){
     touchX = e.touches ? e.touches[0].clientX : e.clientX;
     touchY = e.touches ? e.touches[0].clientY : e.clientY;
     pressTimer = setTimeout(() => showContextMenu(touchX, touchY, msg), 500);
 }
+function handleMsgTouchEnd(){ clearTimeout(pressTimer); }
 
-function handleMsgTouchEnd(){
-    clearTimeout(pressTimer);
-}
-
-function showContextMenu(clientX, clientY, msg){
-    const menu = document.getElementById('msgContextMenu');
-    if(!menu) return;
-    document.getElementById('menuTime').innerText  = `🕒 时间: ${msg.time  || '刚刚'}`;
+function showContextMenu(x, y, msg){
+    const menu = document.getElementById('msgContextMenu'); if(!menu) return;
+    document.getElementById('menuTime').innerText = `🕒 时间: ${msg.time || '刚刚'}`;
     document.getElementById('menuModel').innerText = `🤖 模型: ${msg.model || '未知'}`;
-
-    menu.style.display = 'block';
-    menu.style.left    = clientX + 'px';
-    menu.style.top     = clientY + 'px';
-
-    if(clientX + menu.offsetWidth  > window.innerWidth)
-        menu.style.left = (window.innerWidth  - menu.offsetWidth  - 10) + 'px';
-    if(clientY + menu.offsetHeight > window.innerHeight)
-        menu.style.top  = (window.innerHeight - menu.offsetHeight - 10) + 'px';
+    menu.style.display = 'block'; menu.style.left = x + 'px'; menu.style.top = y + 'px';
+    if(x + menu.offsetWidth > window.innerWidth) menu.style.left = (window.innerWidth - menu.offsetWidth - 10) + 'px';
 }
 
 document.addEventListener('click', (e) => {
     if(!e.target.closest('#msgContextMenu') && !e.target.closest('.msg')){
-        const menu = document.getElementById('msgContextMenu');
-        if(menu) menu.style.display = 'none';
+        const menu = document.getElementById('msgContextMenu'); if(menu) menu.style.display = 'none';
     }
 });
 
-// 重新生成
 function triggerRegenerate(){
+    const session = getActiveSession(); if(session.messages.length < 2) return;
     document.getElementById('msgContextMenu').style.display = 'none';
-    const session = getActiveSession();
-    if(session.messages.length < 2) return;
-
-    const lastMsg = session.messages[session.messages.length - 1];
-    if(lastMsg.role === 'assistant'){
-        session.messages.pop();
-        const userMsg = session.messages.pop();
-        saveToCloud();
-        renderChatMessages();
-
-        const input = document.getElementById('chatInput');
-        if(input) input.value = userMsg.content;
-        
-        if(userMsg.image){
-            currentImgBase64 = userMsg.image;
-            document.getElementById('previewImg').src = currentImgBase64;
-            document.getElementById('imgPreviewWrap').style.display = 'block';
-        }
-
-        toast('时光倒流 ✦ 重新发送中...');
-        sendChat();
-    } else {
-        toast('只能让沈望重新生成他最后的一句话哦');
-    }
+    const last = session.messages.pop(); const user = session.messages.pop();
+    saveToCloud(); renderChatMessages();
+    document.getElementById('chatInput').value = user.content;
+    toast('时光倒流...'); sendChat();
 }
 
-// ==================== 初始化 ====================
 syncFromCloud();
