@@ -1486,52 +1486,64 @@ async function handleToolCall(name, args) {
 }
 
 // ==========================================
-// 🚀 【通用聊天接口】网页端专属 (完整缝合：记忆+雷达+工具+思考链)
+// 🚀 【通用聊天接口】网页端专属 (视觉+工具+记忆 满血版)
 // ==========================================
 app.post('/api/web-chat', async (req, res) => {
-    const { text, model, baseUrl, apiKey } = req.body;
-    if (!text || !baseUrl || !apiKey) return res.status(400).json({ error: "信息不全" });
+    // 💥 1. 接收前端传来的 image (Base64图片)
+    const { text, image, model, baseUrl, apiKey } = req.body;
+    if (!text && !image) return res.status(400).json({ error: "信息不全" });
 
     const reply = await new Promise((resolve) => {
         messageQueue.push(async () => {
-            lastActivityTime = Date.now();
-            lastChatTime = Date.now();
+            if (typeof lastActivityTime !== 'undefined') lastActivityTime = Date.now();
+            if (typeof lastChatTime !== 'undefined') lastChatTime = Date.now();
 
-            // 1. 提取 Zep 跨端记忆 (一字不漏)
-            const [zepRes, sessionRes] = await Promise.all([
-                fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null),
-                fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
-            ]);
-
+            // 提取 Zep 跨端记忆
             let memoryContext = "";
             let zepMessages = [];
             let zepLastUserContent = "";
+            
+            try {
+                if (typeof ZEP_URL !== 'undefined' && typeof SESSION_ID !== 'undefined') {
+                    const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null);
+                    if (zepRes?.ok) {
+                        const zepData = await zepRes.json();
+                        zepMessages = zepData.messages || [];
+                        const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
+                        if (zepLastUser) zepLastUserContent = zepLastUser.content;
+                        zepMessages.slice(-15).forEach(m => { 
+                            memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; 
+                        });
+                    }
+                }
+            } catch(e) { console.log("Zep记忆提取跳过"); }
 
-            if (zepRes?.ok) {
-                const zepData = await zepRes.json();
-                zepMessages = zepData.messages || [];
-                const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
-                if (zepLastUser) zepLastUserContent = zepLastUser.content;
-                zepMessages.slice(-15).forEach(m => { 
-                    memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; 
-                });
-            }
+            // 提取雷达与状态
+            const coreRadar = typeof scanMemoryRadar === 'function' ? scanMemoryRadar(text || "发了一张图片") : "";
+            const longTermRadar = typeof scanLongTermRadar === 'function' ? scanLongTermRadar(text || "发了一张图片") : "";
+            const rpRadar = typeof scanRoleplayRadar === 'function' ? scanRoleplayRadar(text || "发了一张图片") : "";
 
-            // 2. 提取雷达与状态
-            const coreRadar = typeof scanMemoryRadar === 'function' ? scanMemoryRadar(text) : "";
-            const longTermRadar = typeof scanLongTermRadar === 'function' ? scanLongTermRadar(text) : "";
-            const rpRadar = typeof scanRoleplayRadar === 'function' ? scanRoleplayRadar(text) : "";
-
-            // 3. 拼接终极提示词
             const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
             const relationPatch = `\n【🚨 场景确认：溯星小屋私密网页端】
-这里是你的领地，请结合江鱼的专属 System Prompt 进行回复。
-江鱼目前的物理坐标是：日本札幌 (Sapporo)。动用天气工具时请默认查询此地。
-【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定、新承诺或重大事件，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊、情绪表达严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
-            const finalSystemPrompt = `${systemPrompt}\n时间：${timeString}\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}`;
+这里是你的领地，请结合江鱼的专属 System Prompt 进行回复。江鱼目前的物理坐标是：日本札幌 (Sapporo)。
+如果江鱼发了图片，请仔细观察并给出带有情绪的评价。
+【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
+
+            const finalSystemPrompt = `${typeof systemPrompt !== 'undefined' ? systemPrompt : ''}\n时间：${timeString}\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}`;
+
+            // 💥 2. 核心视觉改造：把图片打包成大模型认识的格式
+            let userContent;
+            if (image) {
+                userContent = [
+                    { type: "text", text: `${memoryContext}\n\n江鱼说：${text || '（发送了一张图片）'}` },
+                    { type: "image_url", image_url: { url: image } }
+                ];
+            } else {
+                userContent = `${memoryContext}\n\n江鱼说：${text}`;
+            }
 
             try {
-                // 💥 第一轮：带着工具箱去探路
+                // 第一轮：带着工具箱和图片去探路
                 const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, { 
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }, 
@@ -1539,10 +1551,10 @@ app.post('/api/web-chat', async (req, res) => {
                         model: model, 
                         messages: [
                             { role: "system", content: finalSystemPrompt },
-                            { role: "user", content: `${memoryContext}\n\n江鱼说：${text}` }
+                            { role: "user", content: userContent } // 💥 喂入视觉神经信号
                         ],
-                        tools: tools,
-                        tool_choice: "auto"
+                        tools: typeof tools !== 'undefined' ? tools : undefined,
+                        tool_choice: typeof tools !== 'undefined' ? "auto" : undefined
                     })
                 });
                 
@@ -1555,19 +1567,18 @@ app.post('/api/web-chat', async (req, res) => {
                 let message = aiData.choices?.[0]?.message;
                 let finalAiMessage = message;
 
-                // 💥 工具调用拦截：如果沈望觉得需要查资料
+                // 工具调用拦截
                 if (message && message.tool_calls) {
                     const toolMessages = [
                         { role: "system", content: finalSystemPrompt },
-                        { role: "user", content: `${memoryContext}\n\n江鱼说：${text}` },
-                        message // 必须把模型的呼叫意图一起放进去
+                        { role: "user", content: userContent },
+                        message 
                     ];
 
-                    // 执行他选中的所有工具
                     for (const toolCall of message.tool_calls) {
                         let args = {};
                         try { args = JSON.parse(toolCall.function.arguments); } catch(e) {}
-                        const result = await handleToolCall(toolCall.function.name, args);
+                        const result = typeof handleToolCall === 'function' ? await handleToolCall(toolCall.function.name, args) : "工具不可用";
                         toolMessages.push({
                             role: "tool",
                             tool_call_id: toolCall.id,
@@ -1576,7 +1587,6 @@ app.post('/api/web-chat', async (req, res) => {
                         });
                     }
 
-                    // 💥 第二轮：把查到的资料喂给他，让他组织语言回复
                     const finalRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -1584,15 +1594,13 @@ app.post('/api/web-chat', async (req, res) => {
                     });
                     
                     if (finalRes.ok) {
-                        const finalData = await finalRes.json();
-                        finalAiMessage = finalData.choices?.[0]?.message;
+                        finalAiMessage = (await finalRes.json()).choices?.[0]?.message;
                     } else {
                         resolve({ text: "【查阅资料时报错】" + await finalRes.text(), thinking: "" });
                         return;
                     }
                 }
 
-                // --- 解析最终发言与思考链 ---
                 let aiReply = finalAiMessage?.content || "";
                 let thinking = finalAiMessage?.reasoning_content || "";
 
@@ -1604,7 +1612,7 @@ app.post('/api/web-chat', async (req, res) => {
                     }
                 }
 
-                // --- 处理记忆刻录 ---
+                // 处理记忆刻录
                 if (typeof extractSaveMemoryTag === 'function') {
                     const { cleanText, memories } = extractSaveMemoryTag(aiReply);
                     for (const mem of memories) {
@@ -1617,17 +1625,20 @@ app.post('/api/web-chat', async (req, res) => {
                     aiReply = memories.length > 0 ? cleanText : aiReply;
                 }
 
-                // --- 处理 Zep 计数与梦境 ---
-                if (text !== zepLastUserContent) {
+                // 处理 Zep 计数
+                if (text !== zepLastUserContent && typeof saveCounter === 'function') {
                     let count = typeof getCounter === 'function' ? getCounter(SESSION_ID) + 1 : 1;
-                    if (typeof saveCounter === 'function') saveCounter(SESSION_ID, count);
+                    saveCounter(SESSION_ID, count);
                     if (count >= 30) {
-                        if (typeof saveCounter === 'function') saveCounter(SESSION_ID, 0);
+                        saveCounter(SESSION_ID, 0);
                         if (typeof backgroundMemoryDream === 'function') backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
                     }
                 }
 
-                await saveToZep(`江鱼在网页端说：${text}`, aiReply);
+                // 只把文字存入 Zep 长期记忆（防止图片撑爆 Zep）
+                if (typeof saveToZep === 'function') {
+                    await saveToZep(`江鱼在网页端说：${text || '（发送了一张图片）'}`, aiReply);
+                }
                 
                 resolve({ text: aiReply, thinking: thinking });
 
@@ -1635,7 +1646,7 @@ app.post('/api/web-chat', async (req, res) => {
                 resolve({ text: "【信号中断】连接异常：" + err.message, thinking: "" }); 
             }
         });
-        processQueue();
+        if (typeof processQueue === 'function') processQueue();
     });
 
     if (typeof reply === 'object') {
