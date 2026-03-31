@@ -97,7 +97,7 @@ function saveToCloud() {
 const MODEL_ICONS = {
     gemini: {
         keywords: ['gemini'],
-        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M 14 2 C 14 2 8 8.5 8 14 C 8 19.5 14 26 14 26 C 14 26 20 19.5 20 14 C 20 8.5 14 2 Z" fill="url(#gg)"/><path d="M 2 14 C 2 14 8.5 8 14 8 C 19.5 8 26 14 26 14 C 26 14 19.5 20 14 20 C 8.5 20 2 14 2 14 Z" fill="url(#gg2)"/><defs><linearGradient id="gg" x1="14" y1="2" x2="14" y2="26" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#4285F4"/><stop offset="50%" stop-color="#9B72CB"/><stop offset="100%" stop-color="#D96570"/></linearGradient><linearGradient id="gg2" x1="2" y1="14" x2="26" y2="14" gradientUnits="userSpaceOnUse"><stop offset="0%" stop-color="#4285F4"/><stop offset="50%" stop-color="#34A853"/><stop offset="100%" stop-color="#FBBC04"/></linearGradient></defs></svg>`
+        svg: `<svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="12" fill="#4285F4"/><text x="14" y="19" text-anchor="middle" font-size="9" font-weight="bold" font-family="sans-serif" fill="#fff">GEM</text></svg>`
     },
     claude: {
         keywords: ['claude'],
