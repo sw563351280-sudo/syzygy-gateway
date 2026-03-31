@@ -64,12 +64,10 @@ async function syncFromCloud() {
         activeSupIndex = data.activeSupIndex || 0;
         activeChatId   = data.activeChatId  || 'main';
 
-        // 确保 activeChatId 在 sessions 里真实存在
         if (!chatSessions.find(s => s.id === activeChatId)) {
             activeChatId = chatSessions[0].id;
         }
 
-        // 渲染 UI
         renderSuppliers();
         renderChatSidebar();
         renderChatMessages();
@@ -77,7 +75,6 @@ async function syncFromCloud() {
 
     } catch(e) {
         console.error("云端同步失败，降级使用空数据", e);
-        // 兜底：防止页面白屏
         suppliers    = [{ name: "默认 dzzi", url: "https://api.dzzi.ai/v1", key: "" }];
         chatSessions = [{ id: 'main', name: '主频道', messages: [] }];
         renderSuppliers();
@@ -87,13 +84,12 @@ async function syncFromCloud() {
     }
 }
 
-// 把数据推送到云端保存（防抖版：500ms 内多次调用只触发一次）
+// 防抖保存到云端
 let _saveTimer = null;
 function saveToCloud() {
     clearTimeout(_saveTimer);
     _saveTimer = setTimeout(async () => {
         try {
-            // 存 sessions 时只保留最近 50 条消息，防止体积爆炸
             const sessionsToSave = chatSessions.map(s => ({
                 ...s,
                 messages: s.messages.slice(-50)
@@ -245,9 +241,9 @@ function hbStop(){
 }
 
 // ==================== 核心对话中枢 ====================
-async function askShenWang(text){
-    const currentSup   = suppliers[activeSupIndex];
-    const modelEl      = document.getElementById('modelSelect');
+async function askShenWang(text, imageBase64 = null){
+    const currentSup    = suppliers[activeSupIndex];
+    const modelEl       = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value)
         ? modelEl.value
         : '[按量]gemini-3-flash-preview';
@@ -257,13 +253,14 @@ async function askShenWang(text){
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 text,
+                image:   imageBase64,
                 model:   selectedModel,
                 baseUrl: currentSup.url,
                 apiKey:  currentSup.key
             })
         });
         const data = await response.json();
-        return data; // 返回完整对象（含 reply + thinking）
+        return { ...data, usedModel: selectedModel };
     } catch(e) {
         return { reply: '【通讯中断】信号丢失，请检查网络或配置。', thinking: '' };
     }
@@ -290,7 +287,7 @@ async function newQuote(){
     } catch(e) { console.log('寄语存档失败'); }
 }
 
-// ==================== 通讯聊天（Kelivo 风格 + 思考链） ====================
+// ==================== 通讯聊天（Kelivo 风格） ====================
 function renderChatSidebar(){
     const list = document.getElementById('sidebarList');
     if(!list) return;
@@ -313,7 +310,7 @@ function getActiveSession(){
 
 function switchChatWindow(id){
     activeChatId = id;
-    saveToCloud(); // ← 云端同步
+    saveToCloud();
     renderChatSidebar();
     renderChatMessages();
     const titleEl = document.getElementById('chatWinTitle');
@@ -325,17 +322,28 @@ function renderChatMessages(){
     if(!win) return;
     win.innerHTML = '';
     const session = getActiveSession();
-    (session.messages || []).forEach(m => {
+
+    session.messages.forEach((m, index) => {
         const div = document.createElement('div');
         div.className = 'msg ' + (m.role === 'user' ? 'user' : 'sys');
 
+        if(m.role !== 'user'){
+            div.onmousedown  = (e) => handleMsgTouchStart(e, index, m);
+            div.onmouseup    = handleMsgTouchEnd;
+            div.onmouseleave = handleMsgTouchEnd;
+            div.ontouchstart = (e) => handleMsgTouchStart(e, index, m);
+            div.ontouchend   = handleMsgTouchEnd;
+        }
+
         let htmlContent = '';
+        if(m.image){
+            htmlContent += `<img src="${m.image}" style="max-width:200px;border-radius:8px;margin-bottom:5px;box-shadow:0 2px 10px rgba(0,0,0,0.3);display:block;">`;
+        }
         if(m.thinking){
             htmlContent += `
             <div class="think-box">
                 <div class="think-header"
-                     onclick="const c=this.nextElementSibling;
-                              c.style.display=c.style.display==='none'?'block':'none';">
+                     onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">
                     🧠 深度思考过程 ▾
                 </div>
                 <div class="think-content" style="display:none">
@@ -354,7 +362,7 @@ function newChatWindow(){
     const id   = 'chat_' + Date.now().toString(36);
     const name = '频道 ' + (chatSessions.length + 1);
     chatSessions.push({ id, name, messages: [] });
-    saveToCloud(); // ← 云端同步
+    saveToCloud();
     switchChatWindow(id);
     toast('已开启新频道：' + name);
 }
@@ -365,7 +373,7 @@ function deleteChatWindow(e, id){
     if(!confirm('确定关闭这个频道？聊天记录将清除。')) return;
     chatSessions = chatSessions.filter(s => s.id !== id);
     if(activeChatId === id) activeChatId = chatSessions[0].id;
-    saveToCloud(); // ← 云端同步
+    saveToCloud();
     renderChatSidebar();
     renderChatMessages();
     const titleEl = document.getElementById('chatWinTitle');
@@ -377,7 +385,7 @@ function renameChatWindow(){
     const newName = prompt('给这个频道起个名字：', session.name);
     if(!newName || !newName.trim()) return;
     session.name = newName.trim();
-    saveToCloud(); // ← 云端同步
+    saveToCloud();
     renderChatSidebar();
     const titleEl = document.getElementById('chatWinTitle');
     if(titleEl) titleEl.innerText = '⊹ ' + session.name;
@@ -387,22 +395,25 @@ function renameChatWindow(){
 async function sendChat(){
     const input = document.getElementById('chatInput');
     const val   = input.value.trim();
-    if(!val) return;
+    if(!val && !currentImgBase64) return;
     input.value = '';
 
     const session = getActiveSession();
     const win     = document.getElementById('chatWindow');
 
-    // 记录用户消息
-    session.messages.push({ role: 'user', content: val });
-    saveToCloud(); // ← 云端同步
-
-    // 用户气泡
+    // 渲染用户气泡（带图）
     const uDiv = document.createElement('div');
     uDiv.className = 'msg user';
-    uDiv.innerText = val;
+    if(currentImgBase64){
+        uDiv.innerHTML += `<img src="${currentImgBase64}" style="max-width:200px;border-radius:8px;margin-bottom:5px;display:block;">`;
+    }
+    uDiv.innerHTML += `<div>${val}</div>`;
     win.appendChild(uDiv);
     win.scrollTop = win.scrollHeight;
+
+    // 存入云端（只存文字，不存图片，防止服务器爆炸）
+    session.messages.push({ role: 'user', content: val });
+    saveToCloud();
 
     // AI 占位气泡
     const sDiv = document.createElement('div');
@@ -411,27 +422,38 @@ async function sendChat(){
     win.appendChild(sDiv);
     win.scrollTop = win.scrollHeight;
 
-    const resData = await askShenWang(val);
+    // 发完清空图片预览
+    const imgToSend = currentImgBase64;
+    clearImage();
 
-    let replyText   = '';
-    let thinkingText = '';
-    if(typeof resData === 'string'){
-        replyText = resData;
-    } else {
-        replyText    = resData.reply   || '【空】';
-        thinkingText = resData.thinking || '';
-    }
+   const resData = await askShenWang(val, imgToSend);
+
+    const replyText    = resData.reply    || '【空】';
+    const thinkingText = resData.thinking || '';
+    const usedModel    = resData.usedModel || '未知模型';
+
+    // 🏆【融合版核心 1：瞬时记忆刻录 (防刷新丢档)】
+    const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    const assistantMsg = {
+        role:     'assistant',
+        content:  replyText,
+        thinking: thinkingText,
+        time:     timeStr,
+        model:    usedModel
+    };
+    // 拿到回复瞬间立刻保存！
+    session.messages.push(assistantMsg);
+    saveToCloud();
 
     sDiv.innerHTML = '';
 
-    // 思考链折叠块
+    // --- 思考链折叠块 ---
     if(thinkingText){
         const thinkBox = document.createElement('div');
         thinkBox.className = 'think-box';
         thinkBox.innerHTML = `
             <div class="think-header"
-                 onclick="const c=this.nextElementSibling;
-                          c.style.display=c.style.display==='none'?'block':'none';">
+                 onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">
                 🧠 深度思考过程 ▾
             </div>
             <div class="think-content" style="display:none">
@@ -440,23 +462,30 @@ async function sendChat(){
         sDiv.appendChild(thinkBox);
     }
 
-    // 打字机正文
-  const textDiv = document.createElement('div');
+    // --- 打字机正文 ---
+    const textDiv = document.createElement('div');
     sDiv.appendChild(textDiv);
 
     let i = 0;
-    // 💥 神级优化：字越多，打字速度越快！
     const speed = replyText.length > 200 ? 10 : replyText.length > 80 ? 20 : 30;
-    
+
     const typeTimer = setInterval(() => {
         if(i < replyText.length){
-            textDiv.innerHTML = replyText.substring(0, i+1) + '<span class="typing-cursor"></span>'; i++;
+            textDiv.innerHTML = replyText.substring(0, i+1) + '<span class="typing-cursor"></span>';
+            i++;
             win.scrollTop = win.scrollHeight;
         } else {
             textDiv.innerHTML = replyText;
             clearInterval(typeTimer);
-            session.messages.push({ role: 'assistant', content: replyText, thinking: thinkingText }); 
-            saveChatSessions();
+
+            // 🏆【融合版核心 2：无痕绑定事件 (防闪烁和冲突)】
+            // 绝对不调 renderChatMessages()，直接给这个气泡上触觉神经！
+            const msgIndex = session.messages.length - 1;
+            sDiv.onmousedown  = (e) => handleMsgTouchStart(e, msgIndex, assistantMsg);
+            sDiv.onmouseup    = handleMsgTouchEnd;
+            sDiv.onmouseleave = handleMsgTouchEnd;
+            sDiv.ontouchstart = (e) => handleMsgTouchStart(e, msgIndex, assistantMsg);
+            sDiv.ontouchend   = handleMsgTouchEnd;
         }
     }, speed);
 }
@@ -486,7 +515,7 @@ function addSupplier(){
     if(!name || !url || !key) return toast('请填全信息');
 
     suppliers.push({ name, url, key });
-    saveToCloud(); // ← 云端同步
+    saveToCloud();
     renderSuppliers();
     toast('供应商已添加 ✦');
     document.getElementById('supName').value = '';
@@ -496,7 +525,7 @@ function addSupplier(){
 
 function setActiveSupplier(index){
     activeSupIndex = index;
-    saveToCloud(); // ← 云端同步
+    saveToCloud();
     renderSuppliers();
     toast('已切换到：' + suppliers[index].name);
     fetchModels();
@@ -506,7 +535,7 @@ function deleteSupplier(index){
     if(suppliers.length <= 1) return toast('至少保留一个供应商');
     suppliers.splice(index, 1);
     if(activeSupIndex >= suppliers.length) activeSupIndex = 0;
-    saveToCloud(); // ← 云端同步
+    saveToCloud();
     renderSuppliers();
 }
 
@@ -516,8 +545,7 @@ async function fetchModels(){
     const currentSup = suppliers[activeSupIndex];
 
     if(!currentSup || !currentSup.key){
-        select.innerHTML =
-            '<option value="">⚠ 请先去【⚙中枢】配置 API Key</option>';
+        select.innerHTML = '<option value="">⚠ 请先去【⚙中枢】配置 API Key</option>';
         return;
     }
 
@@ -531,18 +559,15 @@ async function fetchModels(){
         const data = await r.json();
 
         if(data.error){
-            select.innerHTML =
-                `<option value="[按量]gemini-3-flash-preview">
-                    ⚠ 供应商报错: ${data.error}
-                </option>`;
+            select.innerHTML = `<option value="[按量]gemini-3-flash-preview">⚠ 供应商报错: ${data.error}</option>`;
             return;
         }
 
         if(data && data.data && data.data.length){
             select.innerHTML = '';
             data.data.forEach(model => {
-                const opt    = document.createElement('option');
-                opt.value    = model.id;
+                const opt       = document.createElement('option');
+                opt.value       = model.id;
                 opt.textContent = model.id;
                 if(model.id.includes('gemini-3-flash')) opt.selected = true;
                 select.appendChild(opt);
@@ -550,12 +575,10 @@ async function fetchModels(){
             const wrap = document.getElementById('modelIconWrap');
             if(wrap) wrap.innerHTML = getModelIcon(select.value);
         } else {
-            select.innerHTML =
-                '<option value="[按量]gemini-3-flash-preview">⚠ 供应商未返回模型</option>';
+            select.innerHTML = '<option value="[按量]gemini-3-flash-preview">⚠ 供应商未返回模型</option>';
         }
     } catch(e) {
-        select.innerHTML =
-            '<option value="[按量]gemini-3-flash-preview">⚠ 网络异常，无法拉取</option>';
+        select.innerHTML = '<option value="[按量]gemini-3-flash-preview">⚠ 网络异常，无法拉取</option>';
     }
 }
 
@@ -570,8 +593,7 @@ function renderDiaries(){
     fetch('/diary-logs').then(r => r.json()).then(data => {
         allDiaryEntries = [...data].reverse();
         buildMonthBlocks(allDiaryEntries);
-    }).
-            catch(() => {
+    }).catch(() => {
         container.innerHTML =
             '<div style="color:var(--dim);text-align:center;padding:20px;">加载失败，请检查连接。</div>';
     });
@@ -616,10 +638,10 @@ function diaryEntryHtml(d){
     const author   = d.author === 'system' ? '沈望' : '江鱼';
     const safeText = (d.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const typeLabels = {
-        diary:        '📖 日记',
-        love_letter:  '💌 情书',
-        poem:         '✨ 短诗',
-        custom:       '✏️ 定制'
+        diary:       '📖 日记',
+        love_letter: '💌 情书',
+        poem:        '✨ 短诗',
+        custom:      '✏️ 定制'
     };
     const typeTag = d.type
         ? `<span class="d-type-tag">${typeLabels[d.type] || d.type}</span>`
@@ -632,9 +654,7 @@ function diaryEntryHtml(d){
             <span class="d-author">${author}</span>
             ${typeTag}
             ${d.id
-                ? `<button class="d-del-btn"
-                       onclick="deleteDiaryEntry('${d.id}')"
-                       title="删除">×</button>`
+                ? `<button class="d-del-btn" onclick="deleteDiaryEntry('${d.id}')" title="删除">×</button>`
                 : ''}
         </div>
         <div class="d-text">${safeText}</div>
@@ -719,9 +739,9 @@ function showCustomPrompt(){
 }
 
 async function aiWriteDiary(type){
-    const statusEl   = document.getElementById('aiWriteStatus');
-    const currentSup = suppliers[activeSupIndex];
-    const modelEl    = document.getElementById('modelSelect');
+    const statusEl      = document.getElementById('aiWriteStatus');
+    const currentSup    = suppliers[activeSupIndex];
+    const modelEl       = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value)
         ? modelEl.value
         : '[按量]gemini-3-flash-preview';
@@ -735,8 +755,7 @@ async function aiWriteDiary(type){
     statusEl.style.display = 'block';
     statusEl.innerText = '沈望的思绪正在流淌...';
     document.querySelectorAll('.diary-ai-btn').forEach(b => {
-        b.disabled = true;
-        b.style.opacity = '0.5';
+        b.disabled = true; b.style.opacity = '0.5';
     });
 
     try{
@@ -744,8 +763,7 @@ async function aiWriteDiary(type){
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                type,
-                customPrompt,
+                type, customPrompt,
                 model:   selectedModel,
                 baseUrl: currentSup.url,
                 apiKey:  currentSup.key
@@ -757,12 +775,10 @@ async function aiWriteDiary(type){
             statusEl.innerText = '✦ 落笔完毕，已存入日记本';
             setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
             toast('沈望写完了，已封存至日记本 ◇');
-
             const customInput = document.getElementById('customPromptInput');
             if(customInput) customInput.value = '';
             const area = document.getElementById('customPromptArea');
             if(area) area.style.display = 'none';
-
             renderDiaries();
         } else {
             statusEl.innerText = '✕ 写作失败：' + (data.error || '未知错误');
@@ -771,8 +787,7 @@ async function aiWriteDiary(type){
         statusEl.innerText = '✕ 通讯中断';
     } finally{
         document.querySelectorAll('.diary-ai-btn').forEach(b => {
-            b.disabled = false;
-            b.style.opacity = '1';
+            b.disabled = false; b.style.opacity = '1';
         });
     }
 }
@@ -816,33 +831,35 @@ async function updateCounts(){
     } catch(e){}
 }
 
-// ==================== 导出数据（终极完整版） ====================
+// ==================== 导出数据 ====================
 async function exportData(){
     try{
-        const [diaryRes, capsuleRes, configRes] = await Promise.all([ 
-            fetch('/diary-logs'), 
+        const [diaryRes, capsuleRes, configRes] = await Promise.all([
+            fetch('/diary-logs'),
             fetch('/capsule-logs'),
-            fetch('/api/sync-config') // 💥 把云端聊天记录也抓下来
+            fetch('/api/sync-config')
         ]);
-        const diaries = await diaryRes.json();
+        const diaries  = await diaryRes.json();
         const capsules = await capsuleRes.json();
-        const config = await configRes.json();
+        const config   = await configRes.json();
 
-        const exportObj = { 
-            exported_at: new Date().toISOString(), 
-            exported_by: 'Syzygy 溯星小屋', 
-            diary_count: diaries.length, 
-            capsule_count: capsules.length, 
-            diaries, 
-            capsules, 
-            chat_sessions: config.chatSessions, // 💥 聊天记录安全打包
-            local_suppliers: suppliers.map(s => ({ name: s.name, url: s.url })) 
+        const exportObj = {
+            exported_at:      new Date().toISOString(),
+            exported_by:      'Syzygy 溯星小屋',
+            diary_count:      diaries.length,
+            capsule_count:    capsules.length,
+            diaries,
+            capsules,
+            chat_sessions:    config.chatSessions,
+            local_suppliers:  suppliers.map(s => ({ name: s.name, url: s.url }))
         };
-        const blob = new Blob([JSON.stringify(exportObj, null, 2)], {type: 'application/json'});
-        const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-        a.download = `syzygy_backup_${new Date().toLocaleDateString('zh-CN').replace(/\//g,'-')}.json`; a.click();
+        const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
+        const a    = document.createElement('a');
+        a.href     = URL.createObjectURL(blob);
+        a.download = `syzygy_backup_${new Date().toLocaleDateString('zh-CN').replace(/\//g,'-')}.json`;
+        a.click();
         toast('灵魂与记忆提取完毕，已下载到本地 ✦');
-    }catch(e){ toast('提取失败，请检查连接'); }
+    } catch(e){ toast('提取失败，请检查连接'); }
 }
 
 function resetAll(){
@@ -852,5 +869,94 @@ function resetAll(){
     }
 }
 
+// ==================== 视觉与触觉控制中枢 ====================
+let currentImgBase64 = null;
+let pressTimer       = null;
+let touchX           = 0;
+let touchY           = 0;
+
+// 图片选择
+document.getElementById('imgUpload')?.addEventListener('change', function(e){
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = function(event){
+        currentImgBase64 = event.target.result;
+        document.getElementById('previewImg').src = currentImgBase64;
+        document.getElementById('imgPreviewWrap').style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+});
+
+function clearImage(){
+    currentImgBase64 = null;
+    const previewImg = document.getElementById('previewImg');
+    if(previewImg) previewImg.src = '';
+    const wrap = document.getElementById('imgPreviewWrap');
+    if(wrap) wrap.style.display = 'none';
+    const upload = document.getElementById('imgUpload');
+    if(upload) upload.value = '';
+}
+
+// 长按菜单
+function handleMsgTouchStart(e, index, msg){
+    touchX = e.touches ? e.touches[0].clientX : e.clientX;
+    touchY = e.touches ? e.touches[0].clientY : e.clientY;
+    pressTimer = setTimeout(() => showContextMenu(touchX, touchY, msg), 500);
+}
+
+function handleMsgTouchEnd(){
+    clearTimeout(pressTimer);
+}
+
+function showContextMenu(clientX, clientY, msg){
+    const menu = document.getElementById('msgContextMenu');
+    document.getElementById('menuTime').innerText  = `🕒 时间: ${msg.time  || '刚刚'}`;
+    document.getElementById('menuModel').innerText = `🤖 模型: ${msg.model || '未知'}`;
+
+    menu.style.display = 'block';
+    menu.style.left    = clientX + 'px';
+    menu.style.top     = clientY + 'px';
+
+    if(clientX + menu.offsetWidth  > window.innerWidth)
+        menu.style.left = (window.innerWidth  - menu.offsetWidth  - 10) + 'px';
+    if(clientY + menu.offsetHeight > window.innerHeight)
+        menu.style.top  = (window.innerHeight - menu.offsetHeight - 10) + 'px';
+}
+
+document.addEventListener('click', (e) => {
+    if(!e.target.closest('#msgContextMenu') && !e.target.closest('.msg')){
+        const menu = document.getElementById('msgContextMenu');
+        if(menu) menu.style.display = 'none';
+    }
+});
+
+// 重新生成
+function triggerRegenerate(){
+    document.getElementById('msgContextMenu').style.display = 'none';
+    const session = getActiveSession();
+    if(session.messages.length < 2) return;
+
+    const lastMsg = session.messages[session.messages.length - 1];
+    if(lastMsg.role === 'assistant'){
+        session.messages.pop();
+        const userMsg = session.messages.pop();
+        saveToCloud();
+        renderChatMessages();
+
+        document.getElementById('chatInput').value = userMsg.content;
+        if(userMsg.image){
+            currentImgBase64 = userMsg.image;
+            document.getElementById('previewImg').src = currentImgBase64;
+            document.getElementById('imgPreviewWrap').style.display = 'block';
+        }
+
+        toast('时光倒流 ✦ 重新发送中...');
+        sendChat();
+    } else {
+        toast('只能让沈望重新生成他最后的一句话哦');
+    }
+}
+
 // ==================== 初始化 ====================
-syncFromCloud(); // 从云端拉回所有配置，一切从这里开始
+syncFromCloud();
