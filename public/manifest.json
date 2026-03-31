@@ -1,7 +1,7 @@
 {
   "name": "溯星小屋",
   "short_name": "溯星",
-  "start_url": "./index.html",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#040710",
   "theme_color": "#040710",
