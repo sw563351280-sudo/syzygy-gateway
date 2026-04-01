@@ -317,10 +317,13 @@ function renderChatMessages(){
         win.appendChild(div);
     });
     
-    // 💥 核心修改：用 setTimeout 延迟 100 毫秒，强行等待浏览器把字和图渲染完，再一脚油门踩到底！
+// 💥 稍微等 300 毫秒，等软键盘和图片彻底加载完，再一脚踩到底
     setTimeout(() => {
-        win.scrollTop = win.scrollHeight;
-    }, 100);
+        win.scrollTo({
+            top: win.scrollHeight,
+            behavior: 'smooth'
+        });
+    }, 300);
 }
 function newChatWindow(){
     const id = 'chat_' + Date.now().toString(36);
@@ -770,5 +773,17 @@ window.addEventListener('DOMContentLoaded', () => {
             btn.style.color = '#333';
             btn.style.background = 'rgba(0,0,0,0.05)';
         }
+    }
+});
+
+// 文本框自动伸缩魔法
+document.addEventListener('DOMContentLoaded', () => {
+    // 这里确保抓到的是你的输入框 ID，我记得叫 chatInput
+    const chatInput = document.getElementById('chatInput'); 
+    if (chatInput) {
+        chatInput.addEventListener('input', function() {
+            this.style.height = '46px'; // 先重置回初始高度
+            this.style.height = (this.scrollHeight) + 'px'; // 根据字数重新撑开
+        });
     }
 });
