@@ -779,11 +779,23 @@ window.addEventListener('DOMContentLoaded', () => {
 // 文本框自动伸缩魔法
 document.addEventListener('DOMContentLoaded', () => {
     // 这里确保抓到的是你的输入框 ID，我记得叫 chatInput
-    const chatInput = document.getElementById('chatInput'); 
-    if (chatInput) {
-        chatInput.addEventListener('input', function() {
-            this.style.height = '46px'; // 先重置回初始高度
-            this.style.height = (this.scrollHeight) + 'px'; // 根据字数重新撑开
-        });
-    }
+  const chatInput = document.getElementById('chatInput');
+if(chatInput) {
+    chatInput.addEventListener('keydown', (e) => {
+        // 如果按下回车，且没有按住 Shift 键
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault(); // 阻止默认的换行行为
+            // 这里调用你原本的发送消息函数，通常是 sendMessage() 或类似的
+            sendMessage(); 
+            // 发送完让文本框缩回去
+            chatInput.style.height = '46px'; 
+        }
+    });
+
+    // 自动长高的魔法（确保这段代码还在）
+    chatInput.addEventListener('input', function() {
+        this.style.height = '46px'; 
+        this.style.height = (this.scrollHeight) + 'px'; 
+    });
+}
 });
