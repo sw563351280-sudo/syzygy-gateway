@@ -1276,9 +1276,17 @@ canvas#starmap{
 @media(max-width:600px){
     .chat-layout{
         flex-direction:column;
-        /* 💥 手机端强行霸占整个可视屏幕，底栏自然就粘在最下面了 */
-        height: calc(100dvh - 70px);
-        min-height: calc(100dvh - 70px);
+        /* 💥 锁死高度，扣除底部导航栏的大概高度(70px)，用 dvh 完美适配软键盘 */
+        height: calc(100dvh - 70px) !important;
+        min-height: calc(100dvh - 70px) !important;
+        overflow: hidden !important; /* 严禁整个页面乱滚 */
+    }
+
+    .chat-main {
+        height: 100% !important;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
     }
 
     .chat-sidebar{
@@ -1323,9 +1331,18 @@ canvas#starmap{
         display:none;
     }
 
-.chat-main .chat-window{
-        height: auto;
-        flex: 1;
+/* 💥 强迫聊天区占据剩余所有空间，并自己独立滚动 */
+    .chat-main .chat-window{
+        flex: 1 1 auto !important;
+        height: 0 !important; /* Flex 魔法：必须设为0，让 flex 自己去撑开 */
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch; /* 让苹果手机滚动更丝滑 */
+        padding-bottom: 20px !important;
+    }
+
+    /* 确保底部输入框绝对不被挤压 */
+    .chat-bottom-bar {
+        flex-shrink: 0 !important;
     }
 }
 
