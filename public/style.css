@@ -608,6 +608,15 @@ canvas#starmap{
     transition: border-color 0.3s, box-shadow 0.3s;
 }
 
+/* 💥 新增魔法：专门针对多行文本框，让它自动伸缩 */
+.input-row textarea {
+    min-height: 46px; /* 初始单行高度 */
+    max-height: 160px; /* 极限高度，再多就内部滚动，不挡住聊天 */
+    height: 46px;
+    overflow-y: auto;
+    line-height: 1.5;
+}
+
 .input-row input::placeholder,
 .input-row textarea::placeholder{
     color:var(--dim);
@@ -1036,10 +1045,10 @@ canvas#starmap{
     color:var(--warm-red);
 }
 
-/* ============ 通讯：Kelivo 风格双栏布局 ============ */
+/* 通讯：Kelivo 风格双栏布局 */
 .chat-layout{
     display:flex;
-    height:calc(100vh - 70px);
+    height:calc(100dvh - 70px); /* 💥 关键修改：用 dvh 完美适配手机软键盘 */
     max-width:900px;
     margin:0 auto;
     padding:0;
@@ -1267,8 +1276,9 @@ canvas#starmap{
 @media(max-width:600px){
     .chat-layout{
         flex-direction:column;
-        height:auto;
-        min-height:calc(100vh - 70px);
+        /* 💥 手机端强行霸占整个可视屏幕，底栏自然就粘在最下面了 */
+        height: calc(100dvh - 70px);
+        min-height: calc(100dvh - 70px);
     }
 
     .chat-sidebar{
@@ -1313,8 +1323,9 @@ canvas#starmap{
         display:none;
     }
 
-    .chat-main .chat-window{
-        height:45vh;
+.chat-main .chat-window{
+        height: auto;
+        flex: 1;
     }
 }
 
