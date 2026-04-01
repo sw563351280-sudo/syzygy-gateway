@@ -112,7 +112,7 @@
                                 <label for="imgUpload" style="cursor: pointer; font-size: 1.4em; padding: 0 5px;">📎</label>
                                 <input type="file" id="imgUpload" accept="image/*" style="display: none;">
                                 
-                                <input type="text" id="chatInput" placeholder="发消息给沈望..." style="flex: 1; background: transparent; border: none; color: white; outline: none; font-size: 1em;" onkeydown="if(event.key==='Enter') sendChat()">
+                               <textarea id="chatInput" rows="1" placeholder="发消息给沈望..."></textarea> style="flex: 1; background: transparent; border: none; color: white; outline: none; font-size: 1em;" onkeydown="if(event.key==='Enter') sendChat()">
                                 
                                 <button onclick="sendChat()" style="background: var(--blue); border: none; padding: 8px 15px; border-radius: 8px; color: white; cursor: pointer; font-weight: bold;">发送 ✦</button>
                             </div>
