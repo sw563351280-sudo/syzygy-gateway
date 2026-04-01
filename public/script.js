@@ -152,6 +152,8 @@ function getModelIcon(modelId){
 function onModelChange(sel){
     const wrap = document.getElementById('modelIconWrap');
     if(wrap) wrap.innerHTML = getModelIcon(sel.value);
+    // 🧠 核心新增：只要你手动选了模型，就立刻刻在浏览器的记忆里
+    localStorage.setItem('preferredModel', sel.value);
 }
 
 // ==================== 通用工具 & 防黑屏 ====================
@@ -314,9 +316,12 @@ function renderChatMessages(){
         div.innerHTML = htmlContent;
         win.appendChild(div);
     });
-    win.scrollTop = win.scrollHeight;
+    
+    // 💥 核心修改：用 setTimeout 延迟 100 毫秒，强行等待浏览器把字和图渲染完，再一脚油门踩到底！
+    setTimeout(() => {
+        win.scrollTop = win.scrollHeight;
+    }, 100);
 }
-
 function newChatWindow(){
     const id = 'chat_' + Date.now().toString(36);
     chatSessions.push({ id, name: '频道 ' + (chatSessions.length + 1), messages: [] });
@@ -456,11 +461,23 @@ async function fetchModels(){
         if(data && data.data && data.data.length){
             select.innerHTML = '';
             data.data.forEach(model => {
-                const opt = document.createElement('option'); opt.value = model.id; opt.textContent = model.id;
-                if(model.id.includes('gemini')) opt.selected = true;
+                const opt = document.createElement('option'); 
+                opt.value = model.id; 
+                opt.textContent = model.id;
                 select.appendChild(opt);
             });
-            onModelChange(select);
+            
+            // 🧠 核心新增：读取刚才记住的模型
+            const savedModel = localStorage.getItem('preferredModel');
+            if (savedModel && Array.from(select.options).some(opt => opt.value === savedModel)) {
+                select.value = savedModel; // 如果有记忆，直接选中
+            } else {
+                // 如果没记忆，默认找个名字里带 gemini 的
+                const defaultOpt = Array.from(select.options).find(opt => opt.value.includes('gemini'));
+                if(defaultOpt) select.value = defaultOpt.value;
+            }
+            onModelChange(select); // 刷新对应的图标
+            
         } else { select.innerHTML = '<option value="">⚠ 未返回模型</option>'; }
     } catch(e) { select.innerHTML = '<option value="">⚠ 网络异常</option>'; }
 }
