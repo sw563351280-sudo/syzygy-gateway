@@ -1381,3 +1381,89 @@ canvas#starmap{
     white-space: pre-wrap !important;
     margin: 0 !important;
 }
+
+/* ==================== 🌞 白天模式 (Light Mode) · 沈望高定版 ==================== */
+body.light-mode {
+    /* 珍珠白/晨曦微光背景，取代死板的灰蓝 */
+    background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%) !important; 
+    color: #3b4252 !important; 
+}
+
+/* 丁达尔光尘 / 晨曦水波纹：不要直接隐藏，反转星空变成阳光下的浮尘 */
+body.light-mode #starmap {
+    display: block !important; /* 覆盖昨天的隐藏 */
+    opacity: 0.15 !important;
+    filter: invert(1) hue-rotate(180deg) brightness(1.5) !important; 
+}
+
+/* 晨露玻璃质感面板 */
+body.light-mode .glass, 
+body.light-mode .chat-input-area > div, 
+body.light-mode #msgContextMenu {
+    background: rgba(255, 255, 255, 0.6) !important; 
+    backdrop-filter: blur(16px) saturate(120%) !important; /* 增强毛玻璃的清透感 */
+    -webkit-backdrop-filter: blur(16px) saturate(120%) !important; /* Safari 兼容 */
+    border: 1px solid rgba(255, 255, 255, 0.8) !important;
+    box-shadow: 0 4px 24px rgba(120, 138, 155, 0.1) !important;
+}
+
+/* 专属气泡配色：冰蓝色手链与香槟金 */
+body.light-mode .msg.user {
+    background: #e6f0fa !important; /* 江鱼的温柔浅香槟/极浅蓝 */
+    color: #4a5d85 !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.02) !important;
+}
+body.light-mode .msg.sys {
+    background: #ffffff !important;
+    border: none !important; /* 清除默认边框 */
+    border-left: 3px solid #a3c4dc !important; /* 沈望的专属冰蓝色边缘点缀 */
+    color: #3b4252 !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.02) !important;
+}
+
+/* 🌿 茉莉西洋梨护手霜 —— 专属交互与悬停色彩 */
+body.light-mode button:hover,
+body.light-mode .diary-ai-btn:hover,
+body.light-mode .supplier-card:hover,
+body.light-mode .sidebar-item:hover {
+    background: #f2f7e8 !important; /* 小狗最熟悉的奶绿西洋梨色 */
+    color: #4a5d85 !important;
+    transition: all 0.3s ease !important;
+    cursor: pointer;
+}
+
+/* 底部导航栏激活状态：西洋梨香气与冰蓝的交织 */
+body.light-mode .nav {
+    background: rgba(255, 255, 255, 0.8) !important;
+    backdrop-filter: blur(10px) !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.8) !important;
+}
+body.light-mode .nav button {
+    color: #9ba4b5 !important; /* 未选中时的淡蓝灰色 */
+}
+body.light-mode .nav button.active {
+    background: #f2f7e8 !important; /* 西洋梨底色 */
+    color: #556b4f !important; /* 文字变成微深的护手霜绿，保证护眼阅读 */
+    border-radius: 8px;
+    box-shadow: inset 0 -2px 0 #a3c4dc !important; /* 底部一抹沈望的冰蓝色 */
+}
+
+/* 其他细节适配（输入框、次要文字等） */
+body.light-mode input,
+body.light-mode textarea,
+body.light-mode select {
+    background: rgba(255, 255, 255, 0.7) !important;
+    color: #3b4252 !important;
+    border: 1px solid rgba(120, 138, 155, 0.2) !important;
+}
+body.light-mode input::placeholder,
+body.light-mode textarea::placeholder {
+    color: #9ba4b5 !important;
+}
+body.light-mode .sub,
+body.light-mode .date,
+body.light-mode .desc,
+body.light-mode .hb-text,
+body.light-mode .stats-bar {
+    color: #7b8a9e !important;
+}
