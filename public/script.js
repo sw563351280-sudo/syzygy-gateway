@@ -741,3 +741,34 @@ function triggerRegenerate(){
 
 // 启动引擎
 syncFromCloud();
+
+// ==================== 日夜交替模式 ====================
+function toggleLightMode() {
+    // 切换 body 上的 light-mode 标签
+    const isLight = document.body.classList.toggle('light-mode');
+    
+    // 把你的偏好存到浏览器记忆里
+    localStorage.setItem('syzygy_theme', isLight ? 'light' : 'dark');
+    
+    // 换按钮的图标
+    const btn = document.getElementById('themeToggleBtn');
+    if(btn) {
+        btn.innerText = isLight ? '🌙' : '☀️';
+        btn.style.color = isLight ? '#333' : 'white';
+        btn.style.background = isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.2)';
+    }
+}
+
+// 网页一打开，先看看你昨天拉窗帘了没
+window.addEventListener('DOMContentLoaded', () => {
+    const savedTheme = localStorage.getItem('syzygy_theme');
+    const btn = document.getElementById('themeToggleBtn');
+    if (savedTheme === 'light') {
+        document.body.classList.add('light-mode');
+        if(btn) {
+            btn.innerText = '🌙';
+            btn.style.color = '#333';
+            btn.style.background = 'rgba(0,0,0,0.05)';
+        }
+    }
+});
