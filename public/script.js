@@ -690,6 +690,33 @@ function clearImage(){
     const upload = document.getElementById('imgUpload'); if(upload) upload.value = '';
 }
 
+// ==================== 文本框魔法：自动长高 + 回车发送 ====================
+document.addEventListener('DOMContentLoaded', () => {
+    const chatInput = document.getElementById('chatInput');
+    if (chatInput) {
+        // 1. 自动长高魔法
+        chatInput.addEventListener('input', function() {
+            this.style.height = '46px'; // 先重置
+            this.style.height = (this.scrollHeight) + 'px'; // 根据内容撑开
+        });
+
+        // 2. 回车发送，Shift+回车换行
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault(); // 拦住默认的换行
+                
+                // 确保调用你代码里的发消息函数
+                if (typeof sendChat === 'function') {
+                    sendChat(); 
+                }
+                
+                // 发送完，让文本框立刻缩回原来大小
+                chatInput.style.height = '46px'; 
+            }
+        });
+    }
+});
+
 function handleMsgTouchStart(e, index, msg){
     touchX = e.touches ? e.touches[0].clientX : e.clientX;
     touchY = e.touches ? e.touches[0].clientY : e.clientY;
