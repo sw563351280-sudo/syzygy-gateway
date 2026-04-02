@@ -1552,10 +1552,11 @@ body.light-mode .stats-bar {
 
 .note-content {
     color: var(--cream);
-    font-size: 1.5em; /* 手写体通常比较小，字号要开大点 */
+    font-size: 1.5em;
     line-height: 1.5;
     letter-spacing: 2px;
     text-shadow: 0 0 2px rgba(201,169,97,0.3);
+    font-family: 'ximai', 'Georgia', serif; /* ← 加这一行 */
 }
 
 .note-time {
