@@ -561,6 +561,51 @@ canvas#starmap{
 .chat-window::-webkit-scrollbar{width:2px}
 .chat-window::-webkit-scrollbar-thumb{background:rgba(201,169,97,0.2);border-radius:10px}
 
+/* 1. 消息的外部包裹层（让气泡和按钮横向排列） */
+.msg-row {
+    display: flex;
+    align-items: center; /* 按钮和气泡垂直居中对齐 */
+    gap: 8px; /* 按钮和气泡的间距 */
+    max-width: 100%;
+    align-self: flex-start; /* 默认靠左 */
+}
+
+/* 2. 区分用户和系统的排版方向 */
+.msg-row.user {
+    align-self: flex-end; /* 用户的消息整体靠右 */
+    flex-direction: row-reverse; /* 关键：反向排列，让按钮出现在气泡左边！ */
+}
+
+/* 3. 极其优雅的菜单小按键 */
+.msg-action-btn {
+    background: transparent;
+    border: none;
+    color: var(--dim);
+    font-size: 1.2em;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 50%;
+    transition: all 0.25s ease;
+    opacity: 0; /* 默认隐藏，保持界面清爽 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+}
+
+/* 当鼠标滑过（或手指点击）这一整行时，显示小按键 */
+.msg-row:hover .msg-action-btn,
+.msg-action-btn:active {
+    opacity: 0.7;
+}
+
+.msg-action-btn:hover {
+    opacity: 1;
+    color: var(--gold);
+    background: rgba(201,169,97,0.1);
+}
+
 .msg{
     max-width:78%;
     padding:12px 16px;
@@ -580,7 +625,6 @@ canvas#starmap{
 }
 
 .msg.user{
-    align-self:flex-end;
     background:rgba(201,169,97,0.1);
     border:1px solid rgba(201,169,97,0.2);
     border-bottom-right-radius:4px;
@@ -588,7 +632,6 @@ canvas#starmap{
 }
 
 .msg.sys{
-    align-self:flex-start;
     background:rgba(196,83,74,0.06);
     border:1px solid rgba(196,83,74,0.15);
     border-bottom-left-radius:4px;
