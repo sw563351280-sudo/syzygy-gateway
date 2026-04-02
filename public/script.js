@@ -82,8 +82,9 @@ function saveToCloud() {
     _saveTimer = setTimeout(async () => {
         try {
             const sessionsToSave = chatSessions.map(s => ({
-                ...s, messages: s.messages.slice(-50)
-            }));
+    ...s, messages: s.messages.slice(-200) // 从50扩大到200条
+}));
+
             await fetch('/api/sync-config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -308,6 +309,7 @@ session.messages.forEach((m, index) => {
         // 1. 创建包裹层大盒子
         const rowDiv = document.createElement('div');
         rowDiv.className = 'msg-row ' + (m.role === 'user' ? 'user' : 'sys');
+     rowDiv.setAttribute('data-msg-index', index); // 👈 加这一行
 
         // 2. 创建原来的聊天气泡
         const div = document.createElement('div');
@@ -1109,3 +1111,79 @@ function startStickyNoteTimer() {
 
 // 网页一加载完毕，立刻启动这个定时器
 document.addEventListener('DOMContentLoaded', startStickyNoteTimer);
+
+// ==================== 对话索引 ====================
+function toggleChatIndex() {
+    // 确保面板存在，不存在就创建
+    let panel = document.getElementById('chatIndexPanel');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.className = 'chat-index-panel';
+        panel.id = 'chatIndexPanel';
+        panel.innerHTML = `
+            <div class="chat-index-header">
+                <span>◈ 对话索引</span>
+                <button class="chat-index-close" onclick="toggleChatIndex()">✕</button>
+            </div>
+            <div class="chat-index-list" id="chatIndexList"></div>
+        `;
+        const chatMain = document.querySelector('.chat-main');
+        if (chatMain) chatMain.appendChild(panel);
+    }
+
+    const isOpen = panel.classList.toggle('open');
+    if (isOpen) buildChatIndex();
+}
+
+function buildChatIndex() {
+    const list = document.getElementById('chatIndexList');
+    if (!list) return;
+
+    const session = getActiveSession();
+    if (!session || !session.messages || session.messages.length === 0) {
+        list.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;font-size:0.82em;">还没有对话记录</div>';
+        return;
+    }
+
+    // 只索引有实质内容的消息（过滤掉占位符）
+    const indexable = session.messages
+        .map((m, i) => ({ ...m, originalIndex: i }))
+        .filter(m => m.content && m.content.trim().length > 0);
+
+    list.innerHTML = indexable.map(m => {
+        const preview = (m.content || '').replace(/\n/g, ' ').substring(0, 60);
+        const roleLabel = m.role === 'user' ? '江鱼' : '沈望';
+        const roleClass = m.role === 'user' ? 'idx-role-user' : 'idx-role-sys';
+        const timeStr = m.time || '';
+        return `
+            <div class="chat-index-item" onclick="jumpToMessage(${m.originalIndex})">
+                <div class="idx-time">
+                    <span class="${roleClass}">${roleLabel}</span>
+                    ${timeStr ? `· ${timeStr}` : ''}
+                </div>
+                <div class="idx-preview">${preview.replace(/</g, '&lt;')}${m.content.length > 60 ? '...' : ''}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function jumpToMessage(index) {
+    const win = document.getElementById('chatWindow');
+    if (!win) return;
+
+    const target = win.querySelector(`[data-msg-index="${index}"]`);
+    if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // 高亮闪烁一下，标记找到了
+        target.style.transition = 'background 0.3s';
+        target.style.background = 'rgba(201,169,97,0.12)';
+        setTimeout(() => { target.style.background = ''; }, 1200);
+    }
+
+    // 手机端：跳转后自动关闭索引面板
+    if (window.innerWidth <= 600) {
+        const panel = document.getElementById('chatIndexPanel');
+        if (panel) panel.classList.remove('open');
+    }
+}
+
