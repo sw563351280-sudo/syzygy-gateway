@@ -363,7 +363,7 @@ function renameChatWindow(){
     toast('频道已重命名');
 }
 
-async function sendChat(){
+async function sendChat() {
     const input = document.getElementById('chatInput');
     if(!input) return;
     const val = input.value.trim();
@@ -373,6 +373,7 @@ async function sendChat(){
     const session = getActiveSession();
     const win = document.getElementById('chatWindow');
 
+    // --- 1. 把你的消息展示到屏幕上 ---
     const uRow = document.createElement('div'); uRow.className = 'msg-row user';
     const uDiv = document.createElement('div'); uDiv.className = 'msg user';
     if(currentImgBase64) uDiv.innerHTML += `<img src="${currentImgBase64}" style="max-width:200px;border-radius:8px;margin-bottom:5px;display:block;">`;
@@ -383,6 +384,7 @@ async function sendChat(){
     session.messages.push({ role: 'user', content: val });
     saveToCloud();
 
+    // --- 2. 准备好沈望回复的空白气泡 ---
     const sRow = document.createElement('div'); sRow.className = 'msg-row sys';
     const sDiv = document.createElement('div'); sDiv.className = 'msg sys';
     sDiv.innerHTML = '<span class="typing-cursor"></span>';
@@ -400,35 +402,174 @@ async function sendChat(){
     const imgToSend = currentImgBase64;
     clearImage();
 
-    const resData = await askShenWang(val, imgToSend);
-    const replyText = resData.reply || '【空】';
-    const thinkingText = resData.thinking || '';
-    const usedModel = resData.usedModel || '未知模型';
-
-    const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-    const assistantMsg = { role: 'assistant', content: replyText, thinking: thinkingText, time: timeStr, model: usedModel };
-    session.messages.push(assistantMsg);
-    saveToCloud();
-
-    sDiv.innerHTML = '';
-    if(thinkingText){
-        const thinkBox = document.createElement('div'); thinkBox.className = 'think-box';
-        thinkBox.innerHTML = `<div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">${thinkingText.replace(/\n/g, '<br>')}</div>`;
-        sDiv.appendChild(thinkBox);
+    // --- 3. 获取供应商、模型和流式开关 ---
+    const currentSup = suppliers[activeSupIndex];
+    if(!currentSup) {
+        sDiv.innerHTML = '【系统提示】未配置供应商';
+        return;
     }
-    const textDiv = document.createElement('div'); sDiv.appendChild(textDiv);
+    const modelEl = document.getElementById('modelSelect');
+    const selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按量]gemini-3-flash-preview';
+    
+    // 💥 关键：去抓你刚刚在 HTML 写的 checkbox！
+    const streamToggle = document.getElementById('streamToggle');
+    const isStream = streamToggle ? streamToggle.checked : true; // 默认开启
 
-    let i = 0; const speed = replyText.length > 200 ? 10 : 30;
-    const typeTimer = setInterval(() => {
-        if(i < replyText.length){
-            textDiv.innerHTML = replyText.substring(0, i+1) + '<span class="typing-cursor"></span>';
-            i++; win.scrollTop = win.scrollHeight;
-       } else {
-            textDiv.innerHTML = replyText; clearInterval(typeTimer);
-            actionBtn.style.visibility = 'visible'; // 打字结束，亮出按键！
-            actionBtn.onclick = (e) => showContextMenu(e.clientX, e.clientY, assistantMsg);
+    // --- 4. 组装请求参数 (兼容图片) ---
+    let userContent = val;
+    if (imgToSend) {
+        userContent = [
+            { type: "text", text: val || "（发送了一张图片）" },
+            { type: "image_url", image_url: { url: imgToSend } }
+        ];
+    }
+
+    const requestBody = {
+        model: selectedModel,
+        messages: [{ role: 'user', content: userContent }],
+        stream: isStream 
+    };
+
+    try {
+        // 🚨 核心提醒：因为你要流式输出，必须直接调用服务器真正的聊天接口
+        const response = await fetch('/v1/chat/completions', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentSup.key}` // 传给后端的备用钥匙
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            sDiv.innerHTML = `【通讯中断】服务器返回: ${err}`;
+            return;
         }
-    }, speed);
+
+        let fullReply = "";
+        let thinkContent = "";
+
+        // ==========================================
+        // 🌊 流式接收核心逻辑 (Stream = true)
+        // ==========================================
+        if (isStream) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let buffer = "";
+
+            // 创建两个用于装文字的框框
+            sDiv.innerHTML = '';
+            const thinkBox = document.createElement('div');
+            thinkBox.className = 'think-box';
+            thinkBox.style.display = 'none'; // 默认隐藏，如果有内容再显示
+            thinkBox.innerHTML = `<div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none"></div>`;
+            const thinkTextDiv = thinkBox.querySelector('.think-content');
+            sDiv.appendChild(thinkBox);
+            
+            const mainTextDiv = document.createElement('div');
+            sDiv.appendChild(mainTextDiv);
+
+            let inThinking = false; // 判断当前文字是不是包在 <think> 里面
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop(); // 保留不完整的最后一行
+
+                for (const line of lines) {
+                    if (!line.startsWith("data: ")) continue;
+                    const dataStr = line.replace("data: ", "").trim();
+                    if (dataStr === "[DONE]") continue;
+
+                    try {
+                        const parsed = JSON.parse(dataStr);
+                        const delta = parsed.choices[0].delta;
+                        
+                        // 1. 处理推理内容 (reasoning_content) - 如果模型支持
+                        if (delta.reasoning_content) {
+                            thinkContent += delta.reasoning_content;
+                            thinkBox.style.display = 'block'; // 显示思考框
+                            thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
+                            win.scrollTop = win.scrollHeight;
+                        }
+
+                        // 2. 处理正文内容 (content)
+                        if (delta.content) {
+                            const chunk = delta.content;
+                            
+                            // 暴力判断深思标签，做打字机切换
+                            if (chunk.includes('<think>')) {
+                                inThinking = true;
+                                thinkBox.style.display = 'block';
+                                continue;
+                            }
+                            if (chunk.includes('</think>')) {
+                                inThinking = false;
+                                continue;
+                            }
+
+                            if (inThinking) {
+                                thinkContent += chunk;
+                                thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
+                            } else {
+                                fullReply += chunk;
+                                mainTextDiv.innerHTML = fullReply + '<span class="typing-cursor"></span>';
+                            }
+                            win.scrollTop = win.scrollHeight;
+                        }
+                    } catch (e) {
+                        // 解析出错跳过
+                    }
+                }
+            }
+            
+            // 接收完毕，把光标去掉
+            mainTextDiv.innerHTML = fullReply;
+            
+        } else {
+            // ==========================================
+            // 🐌 非流式接收逻辑 (Stream = false)
+            // ==========================================
+            const data = await response.json();
+            fullReply = data.choices[0].message.content || "";
+            
+            // 处理思考过程
+            if (fullReply.includes('<think>')) {
+                const match = fullReply.match(/<think>([\s\S]*?)<\/think>/);
+                if (match) {
+                    thinkContent = match[1].trim();
+                    fullReply = fullReply.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+                }
+            }
+
+            sDiv.innerHTML = '';
+            if (thinkContent) {
+                const thinkBox = document.createElement('div');
+                thinkBox.className = 'think-box';
+                thinkBox.innerHTML = `<div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">${thinkContent.replace(/\n/g, '<br>')}</div>`;
+                sDiv.appendChild(thinkBox);
+            }
+            const mainTextDiv = document.createElement('div');
+            sDiv.appendChild(mainTextDiv);
+            mainTextDiv.innerHTML = fullReply;
+        }
+
+        // --- 5. 存入云端记忆和按钮绑定 ---
+        const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        const assistantMsg = { role: 'assistant', content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel };
+        session.messages.push(assistantMsg);
+        saveToCloud();
+
+        actionBtn.style.visibility = 'visible'; // 亮出按键！
+        actionBtn.onclick = (e) => showContextMenu(e.clientX, e.clientY, assistantMsg);
+
+    } catch (err) {
+        sDiv.innerHTML = `【网络崩溃】请检查代理或服务是否启动: ${err.message}`;
+    }
 }
 
 // ==================== 供应商与模型库 ====================
