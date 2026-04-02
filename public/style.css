@@ -1808,3 +1808,20 @@ body.light-mode .stats-bar {
     position: relative;
     overflow: hidden; /* 防止 panel 撑破布局 */
 }
+
+/* 聊天页不需要 section 的默认 padding */
+#sec-chat {
+    padding: 0 !important;
+    height: calc(100dvh - 70px);
+    overflow: hidden;
+}
+
+/* 手机端输入框高度锁死，不允许无限长高 */
+@media(max-width: 600px) {
+    .input-row textarea {
+        min-height: 42px !important;
+        max-height: 100px !important; /* 比桌面端更保守 */
+        height: 42px !important;
+    }
+}
+
