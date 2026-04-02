@@ -17,6 +17,7 @@
     <title>沈望 × 江鱼 | 溯星小屋</title>
     <link rel="stylesheet" href="style.css">
 </head>
+    <link href="https://fonts.googleapis.com/css2?family=Liu+Jian+Mao+Cao&display=swap" rel="stylesheet">
 <body>
     <button id="themeToggleBtn" onclick="toggleLightMode()" style="position: fixed; top: 20px; right: 20px; z-index: 9999; background: rgba(255,255,255,0.2); border: 1px solid var(--glass-border); border-radius: 50%; width: 40px; height: 40px; font-size: 20px; cursor: pointer; backdrop-filter: blur(5px); box-shadow: 0 4px 10px rgba(0,0,0,0.3); color: white;">☀️</button>
     <canvas id="starmap"></canvas>
@@ -52,22 +53,24 @@
                 </div>
             </div>
         </div>
-        <div class="glass">
-            <div class="quote-box">
-                <div class="q" id="dailyQuote">欢迎回家，江鱼。</div>
-                <button class="quote-gen-btn" onclick="newQuote()" style="margin-top: 15px; padding: 8px 15px; background: var(--blue); color: white; border: none; border-radius: 8px; cursor: pointer;">
-                    ✦ 抽取沈望今日寄语
-                </button>
+      <div class="glass" id="stickyNoteWrapper" style="background: transparent; border: none; box-shadow: none;">
+            <div class="sticky-note-container" id="currentNote" onclick="collectNoteAndJump()">
+                <div class="sticky-note">
+                    <div class="note-pin"></div>
+                    <div class="note-content" id="shenwangNote" style="font-family: 'Liu Jian Mao Cao', 'Kaiti', cursive;">
+                        "去倒杯温水喝，别让我隔着屏幕心疼。"
+                    </div>
+                    <div class="note-time" id="shenwangNoteTime">1:15 AM</div>
+                </div>
+                <div class="note-hint">✦ 点击便签，推门回主卧找他</div>
             </div>
         </div>
-        <div class="glass">
-            <div class="hb-zone" id="hbZone"
-                 onmousedown="hbStart()" onmouseup="hbStop()"
-                 onmouseleave="hbStop()"
-                 ontouchstart="hbStart()" ontouchend="hbStop()">
-                <div class="heart">🖤</div>
-                <div class="hb-text">按住这里，感受沈望的心跳</div>
-            </div>
+
+        <div class="glass mailbox-container" onclick="openMailbox()">
+            <div class="mailbox-icon">🗃️</div>
+            <div class="mailbox-title">时光信箱</div>
+            <div class="mailbox-desc">收录沈望留下的所有碎碎念</div>
+        </div>
         </div>
     </div>
 
