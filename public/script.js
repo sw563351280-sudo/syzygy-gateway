@@ -1056,6 +1056,21 @@ function renderStickyNote(text, timeStr) {
     
     // 存到本地，刷新后还在
     localStorage.setItem(STICKY_NOTE_KEY, JSON.stringify({ text, timeStr }));
+    // 顺手推进云端
+    _saveStickyToCloud(text, timeStr);
+}
+// 新增这个函数
+async function _saveStickyToCloud(text, timeStr) {
+    try {
+        const r = await fetch('/api/sync-config');
+        const data = await r.json();
+        data.stickyNote = { text, timeStr };
+        await fetch('/api/sync-config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+    } catch(e) { /* 静默失败，不影响正常使用 */ }
 }
 
 // 尝试生成新便签
@@ -1092,7 +1107,18 @@ async function tryGenerateStickyNote() {
 }
 
 // 页面加载时，先恢复上次的便签内容
-function restoreStickyNote() {
+async function restoreStickyNote() {
+    try {
+        // 先读云端（跨设备同步的来源）
+        const r = await fetch('/api/sync-config');
+        const data = await r.json();
+        if(data.stickyNote && data.stickyNote.text) {
+            renderStickyNote(data.stickyNote.text, data.stickyNote.timeStr);
+            return;
+        }
+    } catch(e) {}
+
+    // 云端没有，降级读本机 localStorage
     const saved = localStorage.getItem(STICKY_NOTE_KEY);
     if(saved) {
         try {
@@ -1103,10 +1129,10 @@ function restoreStickyNote() {
 }
 
 // 启动引擎
-function startStickyNoteTimer() {
-    restoreStickyNote();         // 1. 先恢复上次的便签
-    tryGenerateStickyNote();     // 2. 打开页面时立刻检查一次
-    setInterval(tryGenerateStickyNote, 60 * 1000); // 3. 之后每30分钟巡逻一次
+async function startStickyNoteTimer() {
+    await restoreStickyNote();       // 等云端数据回来再检查
+    tryGenerateStickyNote();
+    setInterval(tryGenerateStickyNote, 60 * 1000);
 }
 
 // 网页一加载完毕，立刻启动这个定时器
