@@ -299,22 +299,34 @@ function renderChatMessages(){
     const session = getActiveSession();
     if(!session || !session.messages) return;
 
-    session.messages.forEach((m, index) => {
+session.messages.forEach((m, index) => {
+        // 1. 创建包裹层大盒子
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'msg-row ' + (m.role === 'user' ? 'user' : 'sys');
+
+        // 2. 创建原来的聊天气泡
         const div = document.createElement('div');
         div.className = 'msg ' + (m.role === 'user' ? 'user' : 'sys');
-        if(m.role !== 'user'){
-            div.onmousedown  = (e) => handleMsgTouchStart(e, index, m);
-            div.onmouseup    = handleMsgTouchEnd; div.onmouseleave = handleMsgTouchEnd;
-            div.ontouchstart = (e) => handleMsgTouchStart(e, index, m);
-            div.ontouchend   = handleMsgTouchEnd;
-        }
 
         let htmlContent = '';
         if(m.image) htmlContent += `<img src="${m.image}" style="max-width:200px;border-radius:8px;margin-bottom:5px;box-shadow:0 2px 10px rgba(0,0,0,0.3);display:block;">`;
         if(m.thinking) htmlContent += `<div class="think-box"><div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">${m.thinking.replace(/\n/g, '<br>')}</div></div>`;
         htmlContent += `<div>${m.content || ''}</div>`;
         div.innerHTML = htmlContent;
-        win.appendChild(div);
+        
+        rowDiv.appendChild(div);
+
+        // 3. 💥 如果是沈望发的消息，在旁边加上小按键
+        if(m.role !== 'user'){
+            const btn = document.createElement('button');
+            btn.className = 'msg-action-btn';
+            btn.innerHTML = '⋮';
+            // 点击直接在鼠标位置呼出菜单！
+            btn.onclick = (e) => showContextMenu(e.clientX, e.clientY, m);
+            rowDiv.appendChild(btn);
+        }
+
+        win.appendChild(rowDiv);
     });
     
 // 💥 稍微等 300 毫秒，等软键盘和图片彻底加载完，再一脚踩到底
@@ -361,17 +373,29 @@ async function sendChat(){
     const session = getActiveSession();
     const win = document.getElementById('chatWindow');
 
+    const uRow = document.createElement('div'); uRow.className = 'msg-row user';
     const uDiv = document.createElement('div'); uDiv.className = 'msg user';
     if(currentImgBase64) uDiv.innerHTML += `<img src="${currentImgBase64}" style="max-width:200px;border-radius:8px;margin-bottom:5px;display:block;">`;
     uDiv.innerHTML += `<div>${val}</div>`;
-    win.appendChild(uDiv); win.scrollTop = win.scrollHeight;
+    uRow.appendChild(uDiv);
+    win.appendChild(uRow); win.scrollTop = win.scrollHeight;
 
     session.messages.push({ role: 'user', content: val });
     saveToCloud();
 
+    const sRow = document.createElement('div'); sRow.className = 'msg-row sys';
     const sDiv = document.createElement('div'); sDiv.className = 'msg sys';
     sDiv.innerHTML = '<span class="typing-cursor"></span>';
-    win.appendChild(sDiv); win.scrollTop = win.scrollHeight;
+    sRow.appendChild(sDiv);
+    
+    // 准备好小按键，打字时先隐身
+    const actionBtn = document.createElement('button');
+    actionBtn.className = 'msg-action-btn';
+    actionBtn.innerHTML = '⋮';
+    actionBtn.style.visibility = 'hidden'; 
+    sRow.appendChild(actionBtn);
+
+    win.appendChild(sRow); win.scrollTop = win.scrollHeight;
 
     const imgToSend = currentImgBase64;
     clearImage();
@@ -399,13 +423,10 @@ async function sendChat(){
         if(i < replyText.length){
             textDiv.innerHTML = replyText.substring(0, i+1) + '<span class="typing-cursor"></span>';
             i++; win.scrollTop = win.scrollHeight;
-        } else {
+       } else {
             textDiv.innerHTML = replyText; clearInterval(typeTimer);
-            const msgIndex = session.messages.length - 1;
-            sDiv.onmousedown = (e) => handleMsgTouchStart(e, msgIndex, assistantMsg);
-            sDiv.onmouseup = handleMsgTouchEnd; sDiv.onmouseleave = handleMsgTouchEnd;
-            sDiv.ontouchstart = (e) => handleMsgTouchStart(e, msgIndex, assistantMsg);
-            sDiv.ontouchend = handleMsgTouchEnd;
+            actionBtn.style.visibility = 'visible'; // 打字结束，亮出按键！
+            actionBtn.onclick = (e) => showContextMenu(e.clientX, e.clientY, assistantMsg);
         }
     }, speed);
 }
@@ -667,8 +688,6 @@ function resetAll(){
 
 // ==================== 视觉与长按交互 ====================
 let currentImgBase64 = null;
-let pressTimer = null;
-let touchX = 0; let touchY = 0;
 
 document.getElementById('imgUpload')?.addEventListener('change', function(e){
     const file = e.target.files[0]; if(!file) return;
@@ -716,13 +735,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
-
-function handleMsgTouchStart(e, index, msg){
-    touchX = e.touches ? e.touches[0].clientX : e.clientX;
-    touchY = e.touches ? e.touches[0].clientY : e.clientY;
-    pressTimer = setTimeout(() => showContextMenu(touchX, touchY, msg), 500);
-}
-function handleMsgTouchEnd(){ clearTimeout(pressTimer); }
 
 function showContextMenu(clientX, clientY, msg){
     const menu = document.getElementById('msgContextMenu');
