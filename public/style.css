@@ -568,6 +568,15 @@ canvas#starmap{
     font-size:0.92em;
     line-height:1.7;
     animation:msgIn 0.4s ease;
+    /* 👇 增加的物理防误触手感 */
+    transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1), filter 0.2s;
+    transform-origin: center center;
+}
+
+/* 👇 气泡按住时的收缩状态 */
+.msg.touch-active {
+    transform: scale(0.96); 
+    filter: brightness(0.9);
 }
 
 .msg.user{
