@@ -678,9 +678,12 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 
         const newMessages = [...cleanMessages];
         newMessages.unshift({ role: 'system', content: finalSystemPrompt });
-        if (vectorSearchContext.trim().length > 0) {
+        
+        // 🌟 核心修复：把 vectorSearchContext 换成 memoryContext！
+        if (memoryContext.trim().length > 0) {
             const lastMsgIndex = newMessages.length - 1;
-            newMessages[lastMsgIndex].content = `${vectorSearchContext}\n\n【我现在的最新消息】：\n${newMessages[lastMsgIndex].content}`;
+            // 🌟 这里也换成 memoryContext，把 Zep 的摘要和最近15条记录全部喂给沈望！
+            newMessages[lastMsgIndex].content = `${memoryContext}\n\n【我现在的最新消息】：\n${newMessages[lastMsgIndex].content}`;
         }
         body.messages = newMessages;
 
