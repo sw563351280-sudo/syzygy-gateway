@@ -22,6 +22,8 @@ const API_ROUTES = {
     'msui':'https://www.msuicode.com/v1/chat/completions',
     'api521': 'https://www.api521.pro/v1/chat/completions',
     'dzzi':   'https://api.dzzi.ai/v1/chat/completions',
+    'ekan':   'https://api.ekan8.com/v1/chat/completions',
+
 };
 
 function resolveApiUrl(reqPath) {
