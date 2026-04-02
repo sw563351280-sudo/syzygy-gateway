@@ -1677,3 +1677,134 @@ body.light-mode .stats-bar {
     font-size: 0.8em;
     font-style: italic;
 }
+
+/* ============ 聊天页专属修复 ============ */
+#sec-chat {
+    padding: 0 !important;
+    height: calc(100dvh - 70px);
+    overflow: hidden;
+    display: block; /* 覆盖 .section 的 display:none/block 切换 */
+}
+
+/* 手机端输入框高度收紧 */
+@media(max-width: 600px) {
+    .input-row textarea {
+        min-height: 42px !important;
+        max-height: 90px !important;
+        height: 42px !important;
+    }
+}
+
+/* ============ 对话索引面板 ============ */
+.chat-index-panel {
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 220px;
+    background: rgba(4, 7, 16, 0.96);
+    border-left: 1px solid rgba(201,169,97,0.15);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.23,1,0.32,1);
+}
+
+.chat-index-panel.open {
+    transform: translateX(0);
+}
+
+.chat-index-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(201,169,97,0.1);
+    color: var(--gold);
+    font-size: 0.8em;
+    letter-spacing: 2px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.chat-index-close {
+    background: transparent;
+    border: none;
+    color: var(--dim);
+    cursor: pointer;
+    font-size: 1.1em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: 0.2s;
+}
+
+.chat-index-close:hover {
+    color: var(--warm-red);
+}
+
+.chat-index-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+
+.chat-index-list::-webkit-scrollbar { width: 2px; }
+.chat-index-list::-webkit-scrollbar-thumb {
+    background: rgba(201,169,97,0.15);
+}
+
+.chat-index-item {
+    padding: 10px 14px;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+    transition: 0.2s;
+    font-size: 0.78em;
+}
+
+.chat-index-item:hover {
+    background: rgba(201,169,97,0.06);
+    border-left-color: var(--gold);
+}
+
+.chat-index-item .idx-time {
+    color: var(--dim);
+    font-size: 0.85em;
+    margin-bottom: 3px;
+}
+
+.chat-index-item .idx-preview {
+    color: var(--cream);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.5;
+}
+
+.chat-index-item .idx-role-sys { color: #e8b4a0; }
+.chat-index-item .idx-role-user { color: var(--gold); }
+
+/* 索引按钮 */
+.chat-index-btn {
+    background: transparent;
+    border: 1px solid rgba(201,169,97,0.15);
+    color: var(--dim);
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.78em;
+    transition: 0.2s;
+    font-family: inherit;
+    margin-right: 8px;
+}
+
+.chat-index-btn:hover {
+    border-color: var(--gold);
+    color: var(--gold);
+}
+
+/* chat-main 需要 position:relative 才能让 panel 定位 */
+.chat-main {
+    position: relative;
+    overflow: hidden; /* 防止 panel 撑破布局 */
+}
