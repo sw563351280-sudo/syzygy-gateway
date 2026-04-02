@@ -1062,15 +1062,23 @@ function renderStickyNote(text, timeStr) {
 // 新增这个函数
 async function _saveStickyToCloud(text, timeStr) {
     try {
+        // 1. 先读现有云端数据
         const r = await fetch('/api/sync-config');
         const data = await r.json();
-        data.stickyNote = { text, timeStr };
+        
+        // 2. 只追加 stickyNote，其他字段原样保留
         await fetch('/api/sync-config', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
+            body: JSON.stringify({
+                suppliers:      data.suppliers      || suppliers,
+                chatSessions:   data.chatSessions   || chatSessions,
+                activeSupIndex: data.activeSupIndex ?? activeSupIndex,
+                activeChatId:   data.activeChatId   || activeChatId,
+                stickyNote: { text, timeStr }        // 👈 追加进去
+            })
         });
-    } catch(e) { /* 静默失败，不影响正常使用 */ }
+    } catch(e) {}
 }
 
 // 尝试生成新便签
