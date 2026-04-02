@@ -164,23 +164,28 @@ function toast(msg){
     setTimeout(() => t.classList.remove('show'), 2800);
 }
 
-// 💥 终极防黑屏寻路逻辑
 function go(id, btn){
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
     
-    // 💥 加上这行万能钥匙：不管有没有 sec- 前缀，统统都能打开！
     const target = document.getElementById('sec-'+id) || document.getElementById(id);
     if(target) target.classList.add('active');
     
     document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
     if(btn) btn.classList.add('active');
 
-    if(id === 'diary') renderDiaries();
-    if(id === 'chat')  { renderChatSidebar(); renderChatMessages(); }
+   if(id === 'diary') renderDiaries();
+    
+    // 💥 改成这样！切回聊天页时，什么都不做，保留它原本正在打字的模样！
+    if(id === 'chat')  { /* 保持原样，禁止拆家！ */ } 
+    
     if(id === 'data')  { renderSuppliers(); updateCounts(); }
+    // 💥 加上这绝杀的两行！只要回主页，立刻强制查岗！
+    if(id === 'home' || id === 'sec-home') {
+        if(typeof tryGenerateStickyNote === 'function') tryGenerateStickyNote();
+    }
+
     window.scrollTo(0, 0);
 }
-
 // 确保页面加载时一定有一个显示的区域
 function initPage() {
     if (!document.querySelector('.section.active')) {
@@ -1055,7 +1060,7 @@ function renderStickyNote(text, timeStr) {
 async function tryGenerateStickyNote() {
     const lastTime = parseInt(localStorage.getItem(STICKY_KEY) || '0');
     const now = Date.now();
-    //if(now - lastTime < STICKY_INTERVAL_MS) return; // 还没到时间，按兵不动
+    if(now - lastTime < STICKY_INTERVAL_MS) return; // 还没到时间，按兵不动
 
     // 让便签显示“正在思考”
     const noteEl = document.querySelector('.note-content');
@@ -1099,7 +1104,7 @@ function restoreStickyNote() {
 function startStickyNoteTimer() {
     restoreStickyNote();         // 1. 先恢复上次的便签
     tryGenerateStickyNote();     // 2. 打开页面时立刻检查一次
-    setInterval(tryGenerateStickyNote, 30 * 60 * 1000); // 3. 之后每30分钟巡逻一次
+    setInterval(tryGenerateStickyNote, 60 * 1000); // 3. 之后每30分钟巡逻一次
 }
 
 // 网页一加载完毕，立刻启动这个定时器
