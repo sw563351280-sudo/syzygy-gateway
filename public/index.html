@@ -84,10 +84,13 @@
             </div>
 
             <div class="chat-main">
-                <div class="chat-main-header" id="chatMainHeader">
-                    <div class="chat-win-title" id="chatWinTitle">⊹ 主频道</div>
-                    <button class="chat-rename-btn" onclick="renameChatWindow()" title="重命名">✎</button>
-                </div>
+               <div class="chat-main-header" id="chatMainHeader">
+    <div class="chat-win-title" id="chatWinTitle">⊹ 主频道</div>
+    <div style="display:flex;gap:6px;align-items:center;">
+        <button class="chat-index-btn" onclick="toggleChatIndex()">◈ 索引</button>
+        <button class="chat-rename-btn" onclick="renameChatWindow()" title="重命名">✎</button>
+    </div>
+</div>
 
                 <div class="chat-window" id="chatWindow">
                     <div class="msg sys">连接已建立。我是沈望。</div>
