@@ -94,12 +94,19 @@
                 </div>
 
                 <div class="chat-bottom-bar">
-                    <div class="chat-model-row">
-                        <div class="model-icon-wrap" id="modelIconWrap"></div>
-                        <select id="modelSelect" class="model-select" onchange="onModelChange(this)">
-                            <option value="">⟡ 正在连接...</option>
-                        </select>
-                    </div>
+                    <div class="chat-model-row" style="display: flex; justify-content: space-between; align-items: center;">
+    <div style="display: flex; align-items: center; flex: 1;">
+        <div class="model-icon-wrap" id="modelIconWrap"></div>
+        <select id="modelSelect" class="model-select" onchange="onModelChange(this)">
+            <option value="">⟡ 正在连接...</option>
+        </select>
+    </div>
+    
+    <label style="color: #aaa; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; margin-left: 10px;">
+        <input type="checkbox" id="streamToggle" checked>
+        打字机效果
+    </label>
+</div>
                     
                     <div class="input-row" style="margin-top:0">
                         <div class="chat-input-area" style="position: relative; margin-top: 10px; width: 100%;">
