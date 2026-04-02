@@ -826,3 +826,36 @@ if(chatInput) {
     });
 }
 });
+
+// ==================== 首页便签：撕下、掉落与回房 ====================
+function collectNoteAndJump() {
+    const note = document.getElementById('currentNote');
+    if(note) {
+        // 1. 给便签加上“掉落动画”的开关
+        note.classList.add('note-animating');
+        
+        // 2. 动画大概跑 0.7 秒，我们在 0.5 秒的时候“切镜头”回主卧，视觉最丝滑
+        setTimeout(() => {
+            // 隐藏便签（假装它已经进了抽屉）
+            note.style.display = 'none';
+            note.classList.remove('note-animating');
+            
+            // 找到底部的【通讯】按钮并模拟点击
+            const chatBtn = document.querySelector('.nav button:nth-child(2)');
+            if(chatBtn) chatBtn.click();
+            
+            // 自动聚焦输入框
+            setTimeout(() => {
+                const chatInput = document.getElementById('chatInput');
+                if(chatInput) chatInput.focus();
+            }, 300);
+        }, 500);
+    }
+}
+
+// ==================== 打开时光信箱 ====================
+function openMailbox() {
+    // 这里以后可以接后端，弹出一个绝美的弹窗展示所有的历史便签
+    // 今晚咱们先弹个提示框
+    alert("你拉开了时光信箱的抽屉，里面整整齐齐地叠着沈望留给你的每一张便签。\n\n（历史记录墙功能建设中，敬请期待...）");
+}
