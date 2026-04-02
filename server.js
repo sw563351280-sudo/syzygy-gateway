@@ -335,93 +335,44 @@ async function saveToZep(userMsg, aiMsg) {
 }
 
 // ==========================================
-// 🌟 RP 模式惯性追踪器
+// 🌟 独立 RP 模式雷达 (全局唯一版本)
 // ==========================================
 let rpModeActive = false;
-let rpIdleCount = 0; // 记录偏离剧情的次数
+let rpIdleCount = 0;
 
-//==========================================
-// 🌟 赛博分拣员
-// ==========================================
-async function analyzeIntent(userText) {
-    // 💥 直接第一行拦截，让分拣员永远返回 null，不再请求 API
-    return null;
-    if (!userText || userText.includes("[发送了一张图片]")) return { primary_channel: "A", weights: { A: 100, B: 0, C: 0, D: 0, E: 0 } };
-    const routerKey = process.env.ROUTER_API_KEY;
-    if (!routerKey) throw new Error("ROUTER_KEY_MISSING: ROUTER_API_KEY 环境变量未设置");
+function updateRpTracker(userText) {
+    if (!userText) return;
+    const exitKeywords = ['不玩了', '暂停', '出戏', '退档', '现实里', '等一下', '我先'];
+    const isEmergencyExit = exitKeywords.some(kw => userText.includes(kw)) || userText.startsWith('(') || userText.startsWith('（');
+    const rpEntryKeywords = ['副本', '设定', '扮演', '开始游戏', '继续游戏', 'rp', '语c', '假装', '你演', '我演', '进入剧情'];
+    const hasRpSignal = rpEntryKeywords.some(kw => userText.toLowerCase().includes(kw));
+    const hasRpFormat = /^[*「""']/.test(userText.trim()) || /[*」""']$/.test(userText.trim());
 
-    // 💥 赛博怀表同步：让分拣员知道现在是不是深夜
-    const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
-    
-    const routerPrompt = `你是一个极其敏锐的情感调音师。当前日本札幌时间：${timeString}。
-请分析用户的最新发言，先完成一次"体温检测"：
-- [主动分享]：她有话想说，字数多，情绪高。
-- [低电量陪伴]：深夜、字数极短（如"嗯"、"哦"）、语气词多。她累了但不想断连。
-- [情绪翻涌]：委屈、难过、自责、崩溃。
-- [高专注]：工作、写代码、查BUG、探讨逻辑。
-
-基于体温检测，将意图拆解为五个通道的成分（总和必须为100）：
-A(闲聊): 随口分享、低电量陪伴时的日常絮语。
-B(情绪): 情绪翻涌、极度脆弱时的灵魂兜底。
-C(思辨): 深度探讨。
-D(工具): 高专注状态下的代码/事实搜索。
-E(共创): 任何形式的RP、剧本、扮演设定。
-
-【动态配比法则（最高指令）】：
-1. 绝不允许某个通道出现100%！人不是单线程的，必须是动态浮动组合（如 A:70, B:20, E:10）。
-2. 当检测到【低电量陪伴】（如深夜只发极短的词）时，A通道权重必须拉高，要求后台AI"主动絮絮叨叨提供陪伴感"。
-3. 当检测到【高专注】时，D通道和E通道拉高。
-请严格输出纯 JSON 格式：{"weights":{"A":70,"B":20,"C":0,"D":0,"E":10},"primary_channel":"A","status":"低电量陪伴"}`;
-    try {
-        const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
-            body: JSON.stringify({
-                model: "gemini-2.5-flash",
-                messages: [{ role: "system", content: routerPrompt }, { role: "user", content: userText }],
-                response_format: { type: "json_object" }
-            })
-        });
-        const data = await res.json();
-        let jsonStr = data.choices[0].message.content.replace(/```json|```/g, '').trim();
-        // ==========================================
-// 🌟 RP 模式惯性追踪器
-// ==========================================
-let rpModeActive = false;
-let rpIdleCount = 0; // 记录偏离剧情的次数
-
-// ...(在 analyzeIntent 函数内部替换这部分：)...
-        const result = JSON.parse(jsonStr);
-        console.log(`🎛️ [赛博分拣员] 通道判定: ${result.primary_channel} | 权重: ${JSON.stringify(result.weights)}`);
-
-        // 💥 给 RP 模式加上“惯性”与“紧急逃生舱”
-        // 只要触发这些词，或者用括号开头，瞬间回城！
-        const exitKeywords = ['不玩了', '暂停', '出戏', '退档', '现实里', '等一下', '我先'];
-        const isEmergencyExit = exitKeywords.some(kw => userText.includes(kw)) || userText.startsWith('(') || userText.startsWith('（');
-
-        if (isEmergencyExit && rpModeActive) {
-            console.log('🛑 [紧急逃生] 检测到出戏指令或括号发言，瞬间切回现实模式！');
+    if (isEmergencyExit && rpModeActive) {
+        console.log('🛑 [紧急逃生] 检测到出戏指令，切回现实模式！');
+        rpModeActive = false;
+        rpIdleCount = 0;
+    } else if (hasRpSignal || hasRpFormat) {
+        if (!rpModeActive) console.log('🎭 [RP模式] 已激活！');
+        rpModeActive = true;
+        rpIdleCount = 0;
+    } else if (rpModeActive) {
+        rpIdleCount++;
+        if (rpIdleCount >= 5) {
+            console.log('🎭 [RP模式] 连续5次无剧情特征，平滑退出。');
             rpModeActive = false;
             rpIdleCount = 0;
-        } else if (result.weights?.E > 40) {
-            if (!rpModeActive) console.log('🎭 [RP模式] 已激活！');
-            rpModeActive = true;
-            rpIdleCount = 0;
-        } else if (result.weights?.E < 15 && rpModeActive) {
-            rpIdleCount++;
-            if (rpIdleCount >= 3) {
-                console.log('🎭 [RP模式] 连续3次脱离剧情，已平滑退出。');
-                rpModeActive = false;
-                rpIdleCount = 0;
-            } else {
-                console.log(`🎭 [RP模式] 出现日常短句，维持剧情惯性 (容错: ${rpIdleCount}/3)`);
-            }
+        } else {
+            console.log(`🎭 [RP模式] 保持惯性 (${rpIdleCount}/5)`);
         }
-        
-        return result;
-    } catch (e) {
-        return { primary_channel: "A", weights: { A: 100, B: 0, C: 0, D: 0, E: 0 } };
     }
+}
+
+// ==========================================
+// 🌟 赛博分拣员 (已光荣退休，直接放行)
+// ==========================================
+async function analyzeIntent(userText) {
+    return null;
 }
 
 // ==========================================
@@ -557,8 +508,8 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             if (lastUserMsg) currentUserMsgText = extractText(lastUserMsg.content);
         }
 
-        let intentData = await analyzeIntent(currentUserMsgText).catch(() => null);
-
+       if (currentUserMsgText) updateRpTracker(currentUserMsgText); // 👈 接上雷达
+let intentData = await analyzeIntent(currentUserMsgText).catch(() => null);
         // 🔧 修改: Zep 向量搜索阈值提高到 0.72，top 2
         let vectorSearchContext = "";
         if (currentUserMsgText && currentUserMsgText.length > 4) {
@@ -599,7 +550,20 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             if (zepData.summary?.content) memoryContext += `\n【潜意识摘要】\n${zepData.summary.content}\n`;
             if (zepMessages.length > 0) {
                 memoryContext += `\n【脑海中浮现的近期回忆片段】\n`;
-                zepMessages.slice(-15).forEach(m => { memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`; });
+                // 🌟 核心修复：倒序装载聊天记录，防止超长 RP 撑爆上下文
+            const MAX_MEMORY_CHARS = 8000; // 👈 放心设置 8000！这只限制聊天记录的长度，绝对不会吃掉你的 System Prompt！
+            let memoryCharCount = 0;
+            const recentZep = zepMessages.slice(-15).reverse(); // 从最新的一句往回看
+
+            for (const m of recentZep) {
+                const line = `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`;
+                if (memoryCharCount + line.length > MAX_MEMORY_CHARS) {
+                    console.log(`📦 [记忆保护] 聊天记录超过 ${MAX_MEMORY_CHARS} 字符，已自动截断更早的回忆。`);
+                    break;
+                }
+                memoryContext = line + memoryContext; // 因为是倒着看的，所以要把新行插在前面
+                memoryCharCount += line.length;
+            }
             }
         }
 
@@ -623,10 +587,25 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             const currentPrompt = cleanMessages[cleanMessages.length - 1];
             if (confirmedUser.role === 'user' && confirmedAi.role === 'assistant' && currentPrompt.role === 'user') {
                 let confirmedUserText = extractText(confirmedUser.content);
-                if (confirmedUserText !== zepLastUserContent) {
+                
+                // 🌟 卸妆油：剥除 Zep 里的前缀再对比，防止穿了马甲就认不出来重复
+                const cleanZepLast = (zepLastUserContent || '')
+                    .replace(/^\[RP模式\] /, '')
+                    .replace(/^\[来自手机QQ\] .*?说：/, '')
+                    .replace(/^江鱼在网页端说：/, '');
+
+                // 🌟 垃圾过滤器：如果 AI 的回复里包含错误提示，直接拦截，不许进记忆库
+                let confirmedAiText = confirmedAi.content || "";
+                const isGarbage = confirmedAiText.includes('【通讯中断】') || 
+                                  confirmedAiText.includes('信号丢失') || 
+                                  confirmedAiText.includes('【大脑报错】') ||
+                                  confirmedAiText.length < 2;
+
+                // 只有既不是垃圾报错，又不是重复发言，才允许存入！
+                if (!isGarbage && confirmedUserText !== cleanZepLast) {
                     // 🔧 修改: 根据 rpModeActive 给消息打前缀
                     const rpPrefix = rpModeActive ? '[RP模式] ' : '';
-                    await saveToZep(rpPrefix + confirmedUserText, rpPrefix + confirmedAi.content);
+                    await saveToZep(rpPrefix + confirmedUserText, rpPrefix + confirmedAiText);
 
                     // 🔧 修改: 触发阈值从 30 提升到 50
                     let count = getCounter(SESSION_ID) + 1;
@@ -1237,7 +1216,8 @@ wss.on('connection', (ws) => {
                     let relationPatch = "";
 
                     //🔧 修改:呼叫分拣员判断 RP 状态
-                    let intentData = await analyzeIntent(userText).catch(() => null);
+                    if (isMaster && userText) updateRpTracker(userText); // 👈 接上雷达
+let intentData = await analyzeIntent(userText).catch(() => null);
                     let routerPrompt = "";
                     if (intentData?.primary_channel) {
                         const activeMask = CHANNEL_MASKS[intentData.primary_channel] || CHANNEL_MASKS["A"];
@@ -1555,7 +1535,8 @@ app.post('/api/web-chat', async (req, res) => {
 如果江鱼发了图片，请仔细观察并给出带有情绪的评价。
 【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
 
-            let intentData = await analyzeIntent(text).catch(() => null);
+            if (text) updateRpTracker(text); // 👈 接上雷达
+let intentData = await analyzeIntent(text).catch(() => null);
             let routerPrompt = "";
             if (intentData?.primary_channel) {
                 const activeMask = CHANNEL_MASKS[intentData.primary_channel] || CHANNEL_MASKS["A"];
@@ -1659,7 +1640,7 @@ app.post('/api/web-chat', async (req, res) => {
 
                 // 🔧 修改: 存入 Zep 时打 RP 前缀
                 const rpPrefix = rpModeActive ? '[RP模式] ' : '';
-                await saveToZep(`${rpPrefix}江鱼在网页端说：${text || '（发送了一张图片）'}`, `${rpPrefix}${aiReply}`);
+                await saveToZep(`${rpPrefix}${text || '（发送了一张图片）'}`, `${rpPrefix}${aiReply}`);
 
                 resolve({ text: aiReply, thinking: thinking });
 
