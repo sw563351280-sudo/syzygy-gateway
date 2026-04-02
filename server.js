@@ -23,6 +23,7 @@ const API_ROUTES = {
     'api521': 'https://www.api521.pro/v1/chat/completions',
     'dzzi':   'https://api.dzzi.ai/v1/chat/completions',
     'ekan':   'https://api.ekan8.com/v1/chat/completions',
+     'orange':   'https://i.orangepie.org/v1/chat/completions',
 
 };
 
