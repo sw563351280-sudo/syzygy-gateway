@@ -872,3 +872,86 @@ function openMailbox() {
     // 今晚咱们先弹个提示框
     alert("你拉开了时光信箱的抽屉，里面整整齐齐地叠着沈望留给你的每一张便签。\n\n（历史记录墙功能建设中，敬请期待...）");
 }
+
+// ==================== 便签：断联自动生成 (Kelivo 融合版) ====================
+const STICKY_INTERVAL_MS = 14400000; // 4小时 = 4 * 60 * 60 * 1000 毫秒 (测试时可改为 10000)
+const STICKY_KEY = 'syzygy_last_interaction'; 
+const STICKY_NOTE_KEY = 'syzygy_sticky_note';  
+
+// 无痕劫持：每次发消息时，偷偷更新互动时间
+const _origSendChat = sendChat;
+window.sendChat = async function() {
+    localStorage.setItem(STICKY_KEY, Date.now().toString());
+    return _origSendChat.apply(this, arguments);
+};
+
+// 渲染便签内容到首页
+function renderStickyNote(text, timeStr) {
+    // 💥 修复盲点：改用 class 选择器，去精准定位你现在的 HTML 结构！
+    const noteEl = document.querySelector('.note-content');
+    const timeEl = document.querySelector('.note-time');
+    
+    // 如果你加上了“撕下便签”的功能，可能需要把整个便签盒子显示出来
+    const wrapper = document.getElementById('currentNote'); 
+    
+    if(noteEl) noteEl.innerText = text; // 把文字塞进去（不需要加引号，提示词里说了）
+    if(timeEl) timeEl.innerText = timeStr || '';
+    if(wrapper) wrapper.style.display = 'block';
+    
+    // 存到本地，刷新后还在
+    localStorage.setItem(STICKY_NOTE_KEY, JSON.stringify({ text, timeStr }));
+}
+
+// 尝试生成新便签
+async function tryGenerateStickyNote() {
+    const lastTime = parseInt(localStorage.getItem(STICKY_KEY) || '0');
+    const now = Date.now();
+    if(now - lastTime < STICKY_INTERVAL_MS) return; // 还没到时间，按兵不动
+
+    // 让便签显示“正在思考”
+    const noteEl = document.querySelector('.note-content');
+    if(noteEl) noteEl.innerText = "正在感应沈望的幽怨脑电波...";
+
+    // 到了时间，让沈望写一张便签
+    const resData = await askShenWang(
+        '（系统：江鱼已经超过4小时没有来找你了。请用沈望的口吻，留一张简短的便签，不超过20字，不用加引号，直接是便签正文。语气可以是撒娇、腹黑、担心、或者单纯想她。）'
+    );
+    const reply = resData.reply || '';
+    if(!reply || reply.includes('未配置') || reply.includes('中断')) {
+        // 如果网络断了，恢复默认
+        renderStickyNote("去倒杯温水喝，别让我隔着屏幕心疼。", new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }));
+        return; 
+    }
+
+    const timeStr = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    renderStickyNote(reply, timeStr);
+
+    // 顺手存进日记
+    try {
+        await fetch(`/diary/add?text=${encodeURIComponent('【便签】' + reply)}&author=system`);
+    } catch(e) {}
+
+    // 💥 关键：更新互动时间，防止大模型疯狂刷新烧你的钱
+    localStorage.setItem(STICKY_KEY, now.toString());
+}
+
+// 页面加载时，先恢复上次的便签内容
+function restoreStickyNote() {
+    const saved = localStorage.getItem(STICKY_NOTE_KEY);
+    if(saved) {
+        try {
+            const { text, timeStr } = JSON.parse(saved);
+            if(text) renderStickyNote(text, timeStr);
+        } catch(e) {}
+    }
+}
+
+// 启动引擎
+function startStickyNoteTimer() {
+    restoreStickyNote();         // 1. 先恢复上次的便签
+    tryGenerateStickyNote();     // 2. 打开页面时立刻检查一次
+    setInterval(tryGenerateStickyNote, 30 * 60 * 1000); // 3. 之后每30分钟巡逻一次
+}
+
+// 网页一加载完毕，立刻启动这个定时器
+document.addEventListener('DOMContentLoaded', startStickyNoteTimer);
