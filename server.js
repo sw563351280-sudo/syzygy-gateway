@@ -1776,12 +1776,13 @@ app.get('/api/sync-config', (req, res) => {
 });
 
 app.post('/api/sync-config', (req, res) => {
-    const { suppliers, chatSessions, activeSupIndex, activeChatId } = req.body;
+    const { suppliers, chatSessions, activeSupIndex, activeChatId, stickyNote } = req.body;
     const data = {
         suppliers: suppliers || [],
         chatSessions: chatSessions || [],
         activeSupIndex: activeSupIndex || 0,
-        activeChatId: activeChatId || 'main'
+        activeChatId: activeChatId || 'main',
+        stickyNote: stickyNote || null   // 👈 加这一行
     };
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2));
     res.json({ success: true });
