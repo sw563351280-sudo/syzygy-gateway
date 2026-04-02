@@ -749,7 +749,8 @@ function showContextMenu(clientX, clientY, msg){
 }
 
 document.addEventListener('click', (e) => {
-    if(!e.target.closest('#msgContextMenu') && !e.target.closest('.msg')){
+    // 💥 加上了 !e.target.closest('.msg-action-btn')，给小按键发免死金牌
+    if(!e.target.closest('#msgContextMenu') && !e.target.closest('.msg') && !e.target.closest('.msg-action-btn')){
         const menu = document.getElementById('msgContextMenu');
         if(menu) menu.style.display = 'none';
     }
