@@ -1691,7 +1691,7 @@ body.light-mode .stats-bar {
     .input-row textarea {
         min-height: 42px !important;
         max-height: 90px !important;
-        height: 42px !important;
+        /* height 交给 JS 自己管，不要写死 */
     }
 }
 
