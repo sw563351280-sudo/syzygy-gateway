@@ -1055,7 +1055,7 @@ function renderStickyNote(text, timeStr) {
 async function tryGenerateStickyNote() {
     const lastTime = parseInt(localStorage.getItem(STICKY_KEY) || '0');
     const now = Date.now();
-    if(now - lastTime < STICKY_INTERVAL_MS) return; // 还没到时间，按兵不动
+    //if(now - lastTime < STICKY_INTERVAL_MS) return; // 还没到时间，按兵不动
 
     // 让便签显示“正在思考”
     const noteEl = document.querySelector('.note-content');
