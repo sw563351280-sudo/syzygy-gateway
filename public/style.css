@@ -1495,3 +1495,120 @@ body.light-mode .hb-text,
 body.light-mode .stats-bar {
     color: #7b8a9e !important;
 }
+
+/* ============ 沈望的专属留言板 (升级版) ============ */
+.sticky-note-container {
+    cursor: pointer;
+    transition: transform 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+    text-align: center;
+    position: relative;
+    padding-bottom: 10px;
+    transform-origin: bottom center; /* 动画重心设在底部 */
+}
+
+.sticky-note-container:hover {
+    transform: translateY(-6px) scale(1.02); 
+}
+
+.sticky-note-container:hover .note-hint {
+    opacity: 1;
+    color: var(--warm-red); 
+}
+
+.sticky-note {
+    background: rgba(201, 169, 97, 0.05);
+    border: 1px solid rgba(201, 169, 97, 0.2);
+    border-radius: 8px 24px 8px 8px; 
+    padding: 24px 28px;
+    position: relative;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2), inset 0 0 20px rgba(201,169,97,0.02);
+    animation: noteBreathe 4s ease-in-out infinite;
+}
+
+.note-pin {
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 45px;
+    height: 12px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    backdrop-filter: blur(4px);
+}
+
+.note-content {
+    color: var(--cream);
+    font-size: 1.5em; /* 手写体通常比较小，字号要开大点 */
+    line-height: 1.5;
+    letter-spacing: 2px;
+    text-shadow: 0 0 2px rgba(201,169,97,0.3);
+}
+
+.note-time {
+    color: var(--dim);
+    font-size: 0.75em;
+    margin-top: 15px;
+    text-align: right;
+    font-family: monospace;
+}
+
+.note-hint {
+    color: var(--gold);
+    font-size: 0.75em;
+    margin-top: 16px;
+    opacity: 0.5;
+    transition: all 0.3s;
+    letter-spacing: 2px;
+}
+
+/* 💥 折叠掉落的终极动画 */
+@keyframes foldAndDrop {
+    0% { transform: scale(1) translateY(0) rotate(0deg); opacity: 1; }
+    30% { transform: scale(0.9) translateY(-15px) rotate(-5deg); opacity: 0.9; } /* 撕下来的瞬间 */
+    100% { transform: scale(0.2) translateY(180px) rotate(15deg); opacity: 0; } /* 缩小掉进抽屉 */
+}
+
+.note-animating {
+    animation: foldAndDrop 0.7s forwards cubic-bezier(0.5, 0, 0.2, 1);
+    pointer-events: none; /* 动画期间禁止再点 */
+}
+
+/* ============ 时光信箱抽屉 ============ */
+.mailbox-container {
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    padding: 25px 20px !important;
+}
+
+.mailbox-container:hover {
+    transform: translateY(-3px);
+    border-color: var(--gold);
+    box-shadow: 0 0 20px rgba(201,169,97,0.15);
+}
+
+.mailbox-icon {
+    font-size: 2.8em;
+    margin-bottom: 12px;
+    filter: drop-shadow(0 2px 10px rgba(201,169,97,0.3));
+    transition: transform 0.3s ease;
+}
+
+.mailbox-container:hover .mailbox-icon {
+    transform: scale(1.1) translateY(-2px); /* 抽屉微微打开的暗示 */
+}
+
+.mailbox-title {
+    color: var(--gold);
+    font-size: 1.1em;
+    letter-spacing: 3px;
+    margin-bottom: 6px;
+}
+
+.mailbox-desc {
+    color: var(--dim);
+    font-size: 0.8em;
+    font-style: italic;
+}
