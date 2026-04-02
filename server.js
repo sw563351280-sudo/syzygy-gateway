@@ -344,6 +344,8 @@ let rpIdleCount = 0; // 记录偏离剧情的次数
 // 🌟 赛博分拣员
 // ==========================================
 async function analyzeIntent(userText) {
+    // 💥 直接第一行拦截，让分拣员永远返回 null，不再请求 API
+    return null;
     if (!userText || userText.includes("[发送了一张图片]")) return { primary_channel: "A", weights: { A: 100, B: 0, C: 0, D: 0, E: 0 } };
     const routerKey = process.env.ROUTER_API_KEY;
     if (!routerKey) throw new Error("ROUTER_KEY_MISSING: ROUTER_API_KEY 环境变量未设置");
