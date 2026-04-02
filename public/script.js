@@ -430,13 +430,21 @@ async function sendChat() {
         stream: isStream 
     };
 
-    try {
-        // 🚨 核心提醒：因为你要流式输出，必须直接调用服务器真正的聊天接口
-        const response = await fetch('/v1/chat/completions', {
+   try {
+        // 🌟 核心修复：根据你的供应商 URL，自动拼接正确的路由路径！
+        let apiUrl = '/v1/chat/completions'; // 默认走 msui
+        const supUrl = currentSup.url.toLowerCase();
+        
+        if (supUrl.includes('dzzi')) apiUrl = '/via/dzzi/v1/chat/completions';
+        else if (supUrl.includes('api521')) apiUrl = '/via/api521/v1/chat/completions';
+        else if (supUrl.includes('ekan')) apiUrl = '/via/ekan/v1/chat/completions';
+        else if (supUrl.includes('orange')) apiUrl = '/via/orange/v1/chat/completions';
+
+        const response = await fetch(apiUrl, {
             method: 'POST',
             headers: { 
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${currentSup.key}` // 传给后端的备用钥匙
+                'Authorization': `Bearer ${currentSup.key}`
             },
             body: JSON.stringify(requestBody)
         });
