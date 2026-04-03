@@ -1824,3 +1824,15 @@ body.light-mode .stats-bar {
     }
 }
 
+/* 手机端：模型栏与输入框贴紧 */
+@media(max-width: 600px) {
+    .chat-bottom-bar {
+        padding: 6px 10px 8px !important;
+    }
+    .chat-model-row {
+        margin-bottom: 4px !important;
+    }
+    .chat-input-area {
+        margin-top: 4px !important;
+    }
+}
