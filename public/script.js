@@ -395,10 +395,6 @@ async function sendChat() {
 
     win.appendChild(sRow); win.scrollTop = win.scrollHeight;
 
-    // 💥 把相册打包复印一份，准备交给大模型
-    const imgsToSend = [...currentImgBase64List]; 
-    clearImage(); // 网页上的预览区和全局相册清空
-
     // 💥 1. 拷贝图片并清空相册
     var imgsToSend = [...currentImgBase64List]; 
     clearImage(); 
