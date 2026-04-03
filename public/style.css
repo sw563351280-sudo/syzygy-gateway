@@ -1679,11 +1679,10 @@ body.light-mode .stats-bar {
 }
 
 /* ============ 聊天页专属修复 ============ */
-#sec-chat {
+#sec-chat.active {
     padding: 0 !important;
     height: calc(100dvh - 70px);
     overflow: hidden;
-    display: block; /* 覆盖 .section 的 display:none/block 切换 */
 }
 
 /* 手机端输入框高度收紧 */
@@ -1810,7 +1809,7 @@ body.light-mode .stats-bar {
 }
 
 /* 聊天页不需要 section 的默认 padding */
-#sec-chat {
+#sec-chat.active {
     padding: 0 !important;
     height: calc(100dvh - 70px);
     overflow: hidden;
