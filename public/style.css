@@ -2517,3 +2517,38 @@ body.light-mode .chat-tool-item:hover {
 .chat-window .msg .think-content {
     font-size: 0.82em !important;
 }
+
+/* ============ 输入栏撑满对齐模型栏 ============ */
+.chat-bottom-bar > div:last-child {
+    width: 100% !important;
+    display: flex !important;
+    gap: 6px !important;
+    align-items: flex-end !important;
+}
+
+.chat-bottom-bar #chatInput {
+    flex: 1 !important;
+    min-height: 38px !important;
+    height: 38px !important;
+    max-height: 120px !important;
+    padding: 8px 12px !important;
+    font-size: 0.9em !important;
+    line-height: 1.5 !important;
+    border-radius: 8px !important;
+    resize: none !important;
+    overflow-y: auto !important;
+    word-break: break-word !important;
+}
+
+.chat-bottom-bar .chat-tool-btn {
+    width: 38px !important;
+    height: 38px !important;
+    flex-shrink: 0 !important;
+}
+
+.chat-bottom-bar button[onclick="sendChat()"] {
+    height: 38px !important;
+    padding: 0 16px !important;
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+}
