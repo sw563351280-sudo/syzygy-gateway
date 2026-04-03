@@ -2561,19 +2561,39 @@ body.light-mode .chat-sidebar {
 }
 
 /* ==========================================
-   📱 手机端终极 UI：右侧极简悬浮列 (FAB Stack)
+   📱 手机端终极 UI：右侧极简悬浮列 (修复与极致瘦身版)
    ========================================== */
 @media(max-width: 600px) {
     .chat-layout { position: relative; }
-    /* 给顶部留出呼吸空间，不让第一句话顶着天花板 */
+    /* 给顶部留出呼吸空间 */
     .chat-main .chat-window { padding-top: 20px !important; }
 
-    /* ================= 1. 频道栏瘦身：移到右侧 ================= */
+    /* ====== 💥 公共魔法：统一直径 32px 的精致小圆圈 ====== */
+    .sidebar-title, .sidebar-new-btn, .chat-index-btn, .chat-rename-btn {
+        width: 32px !important; 
+        height: 32px !important;
+        background: rgba(255, 255, 255, 0.7) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        border: 1px solid rgba(201,169,97,0.3) !important;
+        border-radius: 50% !important;
+        box-shadow: 0 4px 15px rgba(139, 115, 85, 0.1) !important;
+        display: flex !important; 
+        justify-content: center !important; 
+        align-items: center !important;
+        margin: 0 !important; 
+        padding: 0 !important;
+        font-size: 0 !important; /* 彻底隐身原生文字 */
+        color: transparent !important;
+        flex-shrink: 0 !important;
+    }
+
+    /* ================= 1. 频道栏 (上层) ================= */
     .chat-sidebar {
         position: absolute !important;
-        top: 65px !important; /* 💥 完美躲开顶部的月亮按钮 */
+        top: 70px !important; /* 往下挪一点，完美避开月亮 */
         right: 12px !important;
-        left: auto !important; /* 解除左侧绑定 */
+        left: auto !important;
         width: auto !important;
         background: transparent !important;
         border: none !important;
@@ -2582,55 +2602,29 @@ body.light-mode .chat-sidebar {
     }
 
     .sidebar-header {
+        display: flex !important;
+        flex-direction: column !important; /* 强制竖排队 */
+        align-items: center !important;
         background: transparent !important;
         border: none !important;
         box-shadow: none !important;
         padding: 0 !important;
-        flex-direction: column !important; /* 💥 竖向排队 */
-        gap: 12px !important;
+        gap: 10px !important; /* 缩小间距 */
     }
 
-    /* 汉堡按钮（原“频道会话”） */
-    .sidebar-title {
-        font-size: 0 !important; /* 💥 魔法：直接隐藏长文字 */
-        width: 38px; height: 38px;
-        background: rgba(255, 255, 255, 0.7) !important;
-        backdrop-filter: blur(10px) !important;
-        -webkit-backdrop-filter: blur(10px) !important;
-        border: 1px solid rgba(201,169,97,0.3) !important;
-        border-radius: 50% !important; /* 变成完美圆形 */
-        box-shadow: 0 4px 15px rgba(139, 115, 85, 0.1) !important;
-        display: flex; justify-content: center; align-items: center;
-    }
-    /* 用三道杠(☰)替代文字 */
-    .sidebar-title::before {
-        content: '☰'; 
-        font-size: 18px;
-        color: var(--gold);
-    }
-    .sidebar-title::after { display: none !important; } /* 杀掉原来的小箭头 */
+    /* 优雅的纯线稿图标 */
+    .sidebar-title::before { content: '☰'; font-size: 14px; color: var(--gold); }
+    .sidebar-title::after { display: none !important; }
+    .sidebar-new-btn::before { content: '+'; font-size: 18px; color: var(--gold); font-weight: 300; }
 
-    /* 新建(+)按钮变圆 */
-    .sidebar-new-btn {
-        width: 38px !important; height: 38px !important;
-        background: rgba(255, 255, 255, 0.7) !important;
-        backdrop-filter: blur(10px) !important;
-        -webkit-backdrop-filter: blur(10px) !important;
-        border: 1px solid rgba(201,169,97,0.3) !important;
-        border-radius: 50% !important;
-        box-shadow: 0 4px 15px rgba(139, 115, 85, 0.1) !important;
-        margin: 0 !important;
-        font-size: 20px !important; /* 保持加号大小 */
-    }
-
-    /* 💥 频道下拉菜单：现在从右边向左侧弹出！ */
+    /* 下拉菜单位置微调 */
     .sidebar-list {
         display: none !important;
         position: absolute;
         top: 0 !important;
-        right: 48px !important; /* 出现在按钮的左边 */
+        right: 42px !important; /* 贴近瘦身后的按钮 */
         left: auto !important;
-        width: 140px !important;
+        width: 130px !important;
         background: rgba(255, 255, 255, 0.95) !important;
         backdrop-filter: blur(15px) !important;
         -webkit-backdrop-filter: blur(15px) !important;
@@ -2645,10 +2639,13 @@ body.light-mode .chat-sidebar {
         animation: menuFadeIn 0.2s ease;
     }
 
-    /* ================= 2. 工具栏瘦身：接在频道栏下面 ================= */
+    /* ================= 2. 工具栏 (下层) ================= */
     .chat-main-header {
+        display: flex !important;
+        flex-direction: column !important; /* 💥 绝对强制竖排队！ */
+        align-items: center !important;
         position: absolute !important;
-        top: 165px !important; /* 💥 紧接着上面的两个按钮排队 (65 + 38 + 12 + 38 + 12 = 165) */
+        top: 154px !important; /* 精准计算：70 + 32 + 10 + 32 + 10 = 154 */
         right: 12px !important;
         left: auto !important;
         width: auto !important;
@@ -2656,28 +2653,14 @@ body.light-mode .chat-sidebar {
         background: transparent !important;
         border: none !important;
         z-index: 99;
-        flex-direction: column !important; /* 💥 竖向排队 */
-        gap: 12px !important;
+        gap: 10px !important; /* 缩小间距 */
     }
 
     .chat-win-title { display: none !important; }
 
-    /* 索引和改名变圆形 */
-    .chat-index-btn, .chat-rename-btn {
-        font-size: 0 !important; /* 💥 隐藏文字 */
-        width: 38px !important; height: 38px !important;
-        background: rgba(255, 255, 255, 0.7) !important;
-        backdrop-filter: blur(10px) !important;
-        -webkit-backdrop-filter: blur(10px) !important;
-        border: 1px solid rgba(201, 169, 97, 0.3) !important;
-        box-shadow: 0 4px 15px rgba(139, 115, 85, 0.1) !important;
-        border-radius: 50% !important;
-        margin: 0 !important; padding: 0 !important;
-        display: flex !important; justify-content: center; align-items: center;
-    }
-    /* 用图标替代文字 */
-    .chat-index-btn::before { content: '◈'; font-size: 16px; color: var(--gold); }
-    .chat-rename-btn::before { content: '✏️'; font-size: 14px; }
+    /* 替换 Emoji，改用纯线稿符号 */
+    .chat-index-btn::before { content: '◈'; font-size: 13px; color: var(--gold); }
+    .chat-rename-btn::before { content: '✎'; font-size: 15px; color: var(--gold); } /* 优雅的钢笔尖/铅笔符号 */
 
     /* ================= 黑夜模式自适应 ================= */
     body:not(.light-mode) .sidebar-title,
