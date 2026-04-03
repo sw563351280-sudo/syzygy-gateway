@@ -658,12 +658,27 @@ let intentData = await analyzeIntent(currentUserMsgText).catch(() => null);
         const newMessages = [...cleanMessages];
         newMessages.unshift({ role: 'system', content: finalSystemPrompt });
         
-        // 🌟 核心修复：把 vectorSearchContext 换成 memoryContext！
         if (memoryContext.trim().length > 0) {
-            const lastMsgIndex = newMessages.length - 1;
-            // 🌟 这里也换成 memoryContext，把 Zep 的摘要和最近15条记录全部喂给沈望！
-            newMessages[lastMsgIndex].content = `${memoryContext}\n\n【我现在的最新消息】：\n${newMessages[lastMsgIndex].content}`;
+    const lastMsgIndex = newMessages.length - 1;
+    const lastContent = newMessages[lastMsgIndex].content;
+
+    if (Array.isArray(lastContent)) {
+        // 🛡️ 多模态消息（含图片）：只往 text 部分注入记忆，图片原封不动保留
+        const textPart = lastContent.find(p => p.type === 'text');
+        if (textPart) {
+            textPart.text = `${memoryContext}\n\n【我现在的最新消息】：\n${textPart.text}`;
+        } else {
+            lastContent.unshift({
+                type: "text",
+                text: `${memoryContext}\n\n【我现在的最新消息】：\n（发送了图片）`
+            });
         }
+    } else {
+        // 纯文本消息：原来的逻辑不变
+        newMessages[lastMsgIndex].content = `${memoryContext}\n\n【我现在的最新消息】：\n${lastContent}`;
+    }
+}
+
         body.messages = newMessages;
 
         const isGemini = (body.model || '').toLowerCase().includes('gemini');
