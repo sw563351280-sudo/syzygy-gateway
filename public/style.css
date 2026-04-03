@@ -2561,114 +2561,107 @@ body.light-mode .chat-sidebar {
 }
 
 /* ==========================================
-   📱 手机端终极 UI：右侧极简悬浮列 (最终除虫版)
+   📱 手机端终极 UI：右侧极简悬浮列 (强迫症像素级对齐版)
    ========================================== */
 @media(max-width: 600px) {
     .chat-layout { position: relative; }
     .chat-main .chat-window { padding-top: 20px !important; }
 
-    /* 💥 杀虫剂 1：彻底撕掉白天模式遗留的侧边栏白板背景！ */
-    body.light-mode .chat-sidebar {
+    /* 💥 核平 1：彻底清除所有遗留的边框、底线和白板背景 */
+    .chat-sidebar, .chat-main-header, .sidebar-header, body.light-mode .chat-sidebar {
         background: transparent !important;
-        box-shadow: none !important;
         border: none !important;
+        border-bottom: none !important; /* 杀掉那条诡异的底线 */
+        box-shadow: none !important;
     }
 
-    /* ====== 公共魔法：统一直径 32px ====== */
+    /* 💥 核平 2：把飘出来的“主频道”文字挫骨扬灰 */
+    .chat-win-title {
+        display: none !important;
+        opacity: 0 !important;
+        width: 0 !important; height: 0 !important;
+        overflow: hidden !important;
+        position: absolute !important;
+    }
+
+    /* ====== 公共魔法：绝对正圆，强制 32px ====== */
     .sidebar-title, .sidebar-new-btn, .chat-index-btn, .chat-rename-btn {
-        width: 32px !important;
-        height: 32px !important;
-        min-width: 32px !important;
-        min-height: 32px !important;
+        width: 32px !important; height: 32px !important;
+        min-width: 32px !important; min-height: 32px !important;
+        max-width: 32px !important; max-height: 32px !important;
         background: rgba(255, 255, 255, 0.7) !important;
-        backdrop-filter: blur(10px) !important;
-        -webkit-backdrop-filter: blur(10px) !important;
+        backdrop-filter: blur(10px) !important; -webkit-backdrop-filter: blur(10px) !important;
         border: 1px solid rgba(201,169,97,0.3) !important;
         border-radius: 50% !important;
         box-shadow: 0 4px 15px rgba(139, 115, 85, 0.1) !important;
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        margin: 0 !important;
+        display: flex !important; justify-content: center !important; align-items: center !important;
+        margin: 0 auto !important; /* 💥 居中对齐的最关键指令 */
         padding: 0 !important;
-        font-size: 0 !important;
-        color: transparent !important;
-        flex-shrink: 0 !important;
-        line-height: 1 !important;
+        font-size: 0 !important; color: transparent !important;
+        flex-shrink: 0 !important; line-height: 1 !important;
+        box-sizing: border-box !important;
     }
 
-    /* ================= 1. 频道栏 (上层) ================= */
+    /* 统一的优雅线稿图标 */
+    .sidebar-title::before { content: '☰'; font-size: 14px; color: var(--gold); }
+    .sidebar-title::after { display: none !important; }
+    .sidebar-new-btn::before { content: '+'; font-size: 18px; color: var(--gold); font-weight: 300; }
+    .chat-index-btn::before { content: '◈'; font-size: 13px; color: var(--gold); }
+    .chat-rename-btn::before { content: '✎'; font-size: 15px; color: var(--gold); }
+
+    /* ================= 1. 上半部 (频道菜单) ================= */
     .chat-sidebar {
         position: absolute !important;
         top: 70px !important;
         right: 12px !important;
         left: auto !important;
-        width: auto !important;
+        width: 32px !important; /* 💥 锁死外层盒子宽度，防止里面歪扭 */
         z-index: 100;
         overflow: visible !important;
+        padding: 0 !important;
     }
 
     .sidebar-header {
-        display: flex !important;
-        flex-direction: column !important;
+        display: flex !important; flex-direction: column !important;
         align-items: center !important;
-        background: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
-        padding: 0 !important;
-        gap: 10px !important;
+        width: 32px !important;
+        gap: 12px !important;
     }
 
-    .sidebar-title::before { content: '☰'; font-size: 14px; color: var(--gold); }
-    .sidebar-title::after { display: none !important; }
-    .sidebar-new-btn::before { content: '+'; font-size: 18px; color: var(--gold); font-weight: 300; }
-
+    /* 下拉菜单向左弹出 */
     .sidebar-list {
         display: none !important;
-        position: absolute;
-        top: 0 !important;
-        right: 42px !important;
-        left: auto !important;
+        position: absolute; top: 0 !important; right: 44px !important; left: auto !important;
         width: 130px !important;
         background: rgba(255, 255, 255, 0.95) !important;
-        backdrop-filter: blur(15px) !important;
-        -webkit-backdrop-filter: blur(15px) !important;
+        backdrop-filter: blur(15px) !important; -webkit-backdrop-filter: blur(15px) !important;
         border: 1px solid rgba(201,169,97,0.2) !important;
         border-radius: 12px !important;
         box-shadow: 0 6px 20px rgba(0,0,0,0.1);
-        flex-direction: column !important;
-        padding: 6px 0 !important;
+        flex-direction: column !important; padding: 6px 0 !important;
     }
     .chat-sidebar.menu-open .sidebar-list { display: flex !important; animation: menuFadeIn 0.2s ease; }
 
-    /* ================= 2. 工具栏 (下层) ================= */
+    /* ================= 2. 下半部 (工具按键) ================= */
     .chat-main-header {
-        display: flex !important;
-        flex-direction: column !important;
+        display: flex !important; flex-direction: column !important;
         align-items: center !important;
         position: absolute !important;
-        top: 154px !important;
-        right: 12px !important;
-        left: auto !important;
-        width: auto !important;
+        top: 158px !important; /* 精确计算的距离 */
+        right: 12px !important; left: auto !important;
+        width: 32px !important; /* 💥 锁死外层盒子宽度 */
         padding: 0 !important;
-        background: transparent !important;
-        border: none !important;
         z-index: 99;
-        gap: 10px !important;
     }
 
-    /* 💥 杀虫剂 2：打穿隐形包裹层！强制内部所有元素也必须排成一列！ */
+    /* 💥 强行打穿多余的包裹层，确保内部完美对齐 */
     .chat-main-header > div {
-        display: flex !important;
-        flex-direction: column !important;
-        gap: 10px !important;
+        display: flex !important; flex-direction: column !important;
+        align-items: center !important;
+        width: 32px !important;
+        margin: 0 !important; padding: 0 !important;
+        gap: 12px !important;
     }
-
-    .chat-win-title { display: none !important; }
-
-    .chat-index-btn::before { content: '◈'; font-size: 13px; color: var(--gold); }
-    .chat-rename-btn::before { content: '✎'; font-size: 15px; color: var(--gold); }
 
     /* ================= 黑夜模式自适应 ================= */
     body:not(.light-mode) .sidebar-title,
