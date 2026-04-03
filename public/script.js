@@ -1098,6 +1098,12 @@ function triggerRegenerate(){
 function toggleLightMode() {
     // 切换 body 上的 light-mode 标签
     const isLight = document.body.classList.toggle('light-mode');
+
+    // 如果切换到了白天模式，把顶部变成奶油色；如果是黑夜，变回深渊色
+const metaTheme = document.getElementById('theme-color-meta');
+if (metaTheme) {
+    metaTheme.setAttribute('content', document.body.classList.contains('light-mode') ? '#FFFAF0' : '#0d1225');
+}
     
     // 把你的偏好存到浏览器记忆里
     localStorage.setItem('syzygy_theme', isLight ? 'light' : 'dark');
