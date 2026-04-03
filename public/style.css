@@ -2317,3 +2317,48 @@ body.light-mode #imgPreviewWrap img {
         margin-top: 4px !important;
     }
 }
+
+/* ============ 修复：底栏紧贴 + 对话字号缩小 ============ */
+
+/* 1. 底栏整体收紧 */
+.chat-bottom-bar {
+    padding: 6px 12px 8px !important;
+}
+
+.chat-model-row {
+    margin-bottom: 4px !important;
+}
+
+/* 罪魁祸首：图片预览区在没图时仍占据空白高度 */
+#imgPreviewWrap:empty,
+#imgPreviewWrap[style*="display: none"] {
+    margin: 0 !important;
+    padding: 0 !important;
+    height: 0 !important;
+    min-height: 0 !important;
+}
+
+#imgPreviewWrap {
+    padding: 4px 0 !important;
+    margin: 0 !important;
+}
+
+.chat-bottom-bar .input-row {
+    margin-top: 0 !important;
+    gap: 6px !important;
+}
+
+/* 2. 只缩小对话框里的文字 */
+.chat-window .msg {
+    font-size: 0.82em !important;
+    line-height: 1.65 !important;
+}
+
+.chat-window .msg .think-header {
+    font-size: 0.8em !important;
+}
+
+.chat-window .msg .think-content {
+    font-size: 0.82em !important;
+}
+
