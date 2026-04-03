@@ -235,20 +235,39 @@ function hbStop(){
 }
 
 // ==================== 核心对话中枢 ====================
-async function askShenWang(text, images = []){ // 💥 1. 参数改成接收图片数组
-    const currentSup    = suppliers[activeSupIndex];
-    if(!currentSup) return { reply: '未配置供应商' };
-    const modelEl       = document.getElementById('modelSelect');
-    const selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按量]gemini-3-flash-preview';
-    try{
+// ==================== 核心对话中枢 ====================
+async function askShenWang(text, images = []) {
+    const currentSup = suppliers[activeSupIndex];
+    if (!currentSup) return { reply: '未配置供应商' };
+    const modelEl = document.getElementById('modelSelect');
+    const selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
+
+    // 💥 核心：在这里把文字和多张图片，严严实实地装进一个箱子里
+    let finalContent = text;
+    if (images.length > 0) {
+        finalContent = [{ type: "text", text: text || "（发送了图片）" }];
+        images.forEach(img => {
+            finalContent.push({
+                type: "image_url",
+                image_url: { url: img }
+            });
+        });
+    }
+
+    try {
         const response = await fetch('/api/web-chat', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            // 💥 2. 把发给后端的包裹里，image 换成 images 数组
-            body: JSON.stringify({ text, images: images, model: selectedModel, baseUrl: currentSup.url, apiKey: currentSup.key })
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                content: finalContent,   // 💥 传这个装好的箱子！不再是裸着的文字和图片了
+                model: selectedModel,
+                baseUrl: currentSup.url,
+                apiKey: currentSup.key
+            })
         });
         const data = await response.json();
         return { ...data, usedModel: selectedModel };
-    } catch(e) {
+    } catch (e) {
         return { reply: '【通讯中断】信号丢失，请检查网络或配置。', thinking: '' };
     }
 }
@@ -413,12 +432,21 @@ async function sendChat() {
     const streamToggle = document.getElementById('streamToggle');
     const isStream = streamToggle ? streamToggle.checked : true; // 默认开启
 
-    // --- 4. 💥 组装请求参数 (完美兼容多图组装) ---
+   // --- 4. 💥 组装请求参数 (带严谨 Base64 格式护盾) ---
     var userContent = val;
     if (imgsToSend.length > 0) {
         userContent = [{ type: "text", text: val || "（发送了图片）" }];
         for (var i = 0; i < imgsToSend.length; i++) {
-            userContent.push({ type: "image_url", image_url: { url: imgsToSend[i] } });
+            const imgData = imgsToSend[i];
+            // 剥离并重新组装标准格式，防止代理站发疯
+            const mimeMatch = imgData.match(/^data:(image\/\w+);base64,/);
+            const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+            const base64 = imgData.replace(/^data:image\/\w+;base64,/, '');
+            
+            userContent.push({
+                type: "image_url",
+                image_url: { url: `data:${mimeType};base64,${base64}` }
+            });
         }
     }
 
