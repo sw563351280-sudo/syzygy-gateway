@@ -1392,3 +1392,27 @@ function jumpToMessage(index) {
     }
 }
 
+/* 工具菜单开关 */
+function toggleChatToolMenu() {
+    const menu = document.getElementById('chatToolMenu');
+    const btn  = document.getElementById('chatToolBtn');
+    const isOpen = menu.classList.contains('show');
+    
+    if (isOpen) {
+        menu.classList.remove('show');
+        btn.classList.remove('open');
+    } else {
+        menu.classList.add('show');
+        btn.classList.add('open');
+    }
+}
+
+/* 点击其他地方自动收起 */
+document.addEventListener('click', function(e) {
+    const wrap = document.querySelector('.chat-tool-wrap');
+    const menu = document.getElementById('chatToolMenu');
+    if (menu && wrap && !wrap.contains(e.target)) {
+        menu.classList.remove('show');
+        document.getElementById('chatToolBtn')?.classList.remove('open');
+    }
+});
