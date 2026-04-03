@@ -242,7 +242,7 @@ function hbStop(){
 }
 
 // ==================== 核心对话中枢 ====================
-async function askShenWang(text, imageBase64 = null){
+async function askShenWang(text, images = []){ // 💥 1. 参数改成接收图片数组
     const currentSup    = suppliers[activeSupIndex];
     if(!currentSup) return { reply: '未配置供应商' };
     const modelEl       = document.getElementById('modelSelect');
@@ -250,28 +250,14 @@ async function askShenWang(text, imageBase64 = null){
     try{
         const response = await fetch('/api/web-chat', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, image: imageBase64, model: selectedModel, baseUrl: currentSup.url, apiKey: currentSup.key })
+            // 💥 2. 把发给后端的包裹里，image 换成 images 数组
+            body: JSON.stringify({ text, images: images, model: selectedModel, baseUrl: currentSup.url, apiKey: currentSup.key })
         });
         const data = await response.json();
         return { ...data, usedModel: selectedModel };
     } catch(e) {
         return { reply: '【通讯中断】信号丢失，请检查网络或配置。', thinking: '' };
     }
-}
-
-async function newQuote(){
-    const el = document.getElementById('dailyQuote');
-    if(!el || el.dataset.loaded === '1') return;
-    el.innerText = '正在连接沈望的脑电波...';
-    const resData = await askShenWang('（此时江鱼正在看你的语录，请对她说一句今日寄语，20字以内。）');
-    const reply = (typeof resData === 'string') ? resData : (resData.reply || '');
-    el.innerText = '「' + reply + '」';
-    el.classList.add('show'); el.dataset.loaded = '1';
-    try{
-        await fetch(`/diary/add?text=${encodeURIComponent('【今日寄语】' + reply)}&author=system`);
-        toast('寄语已永久珍藏至日记本 ◇');
-        if(typeof renderDiaries === 'function') renderDiaries();
-    } catch(e) {}
 }
 
 // ==================== 通讯聊天 ====================
@@ -934,26 +920,70 @@ function resetAll(){
 }
 
 // ==================== 视觉与长按交互 ====================
-let currentImgBase64 = null;
+let currentImgBase64List = [];
 
+// 💥 多图上传监听
 document.getElementById('imgUpload')?.addEventListener('change', function(e){
-    const file = e.target.files[0]; if(!file) return;
-    const reader = new FileReader();
-    reader.onload = function(event){
-        currentImgBase64 = event.target.result;
-        const previewImg = document.getElementById('previewImg');
-        const wrap = document.getElementById('imgPreviewWrap');
-        if(previewImg) previewImg.src = currentImgBase64;
-        if(wrap) wrap.style.display = 'block';
-    };
-    reader.readAsDataURL(file);
+    const files = e.target.files; 
+    if(!files || files.length === 0) return;
+
+    // 循环读取你选的每一张图片
+    for(let i = 0; i < files.length; i++){
+        const reader = new FileReader();
+        reader.onload = function(event){
+            // 塞进咱们刚才建好的大相册里
+            currentImgBase64List.push(event.target.result);
+            updateImagePreview(); // 刷新预览区
+        };
+        reader.readAsDataURL(files[i]);
+    }
 });
 
+// 💥 刷新预览区（带绝美的小红叉删除按钮）
+function updateImagePreview() {
+    const wrap = document.getElementById('imgPreviewWrap');
+    if (!wrap) return;
+    
+    // 如果相册空了，就把预览区藏起来
+    if (currentImgBase64List.length === 0) {
+        wrap.style.display = 'none';
+        wrap.innerHTML = ''; 
+        return;
+    }
+    
+    // 否则，横向排列显示所有图片
+    wrap.style.display = 'flex'; 
+    wrap.style.flexWrap = 'wrap';
+    wrap.style.gap = '10px';
+    wrap.style.padding = '8px 0';
+    
+    let html = '';
+    for (let i = 0; i < currentImgBase64List.length; i++) {
+        html += `<div style="position:relative; display:inline-block;">
+            <img src="${currentImgBase64List[i]}" style="max-width:60px; max-height:60px; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,0.3); border:1px solid rgba(201,169,97,0.3);">
+            <span onclick="removeImg(${i})" style="position:absolute; top:-6px; right:-6px; background:var(--warm-red); color:white; border-radius:50%; width:20px; height:20px; font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 5px rgba(0,0,0,0.5);">✕</span>
+        </div>`;
+    }
+    wrap.innerHTML = html;
+}
+
+// 💥 点击小红叉单独删掉某一张
+function removeImg(index) {
+    currentImgBase64List.splice(index, 1); // 从相册里把这张图抽走
+    updateImagePreview(); // 重新排版
+    // 如果删光了，顺手把 input 里的缓存清空
+    if(currentImgBase64List.length === 0) {
+        const upload = document.getElementById('imgUpload');
+        if(upload) upload.value = '';
+    }
+}
+
+// 💥 发送完毕后，一键清空相册
 function clearImage(){
-    currentImgBase64 = null;
-    const previewImg = document.getElementById('previewImg'); if(previewImg) previewImg.src = '';
-    const wrap = document.getElementById('imgPreviewWrap'); if(wrap) wrap.style.display = 'none';
-    const upload = document.getElementById('imgUpload'); if(upload) upload.value = '';
+    currentImgBase64List = [];
+    updateImagePreview();
+    const upload = document.getElementById('imgUpload'); 
+    if(upload) upload.value = '';
 }
 
 // ==================== 文本框魔法：自动长高 + 回车发送 ====================
