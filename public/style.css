@@ -2560,46 +2560,124 @@ body.light-mode .chat-sidebar {
     background: rgba(255, 255, 255, 0.4) !important;
 }
 
+/* ==========================================
+   📱 手机端终极 UI：定海神针版 (绝对垂直对齐)
+   ========================================== */
 @media(max-width: 600px) {
+    .chat-layout { position: relative; }
+    .chat-main .chat-window { padding-top: 20px !important; }
 
-    /* ===== 月亮/主题切换按钮 统一成32px圆 ===== */
-    .theme-toggle-btn,
-    .dark-mode-btn,
-    [class*="theme"],
-    [class*="dark-toggle"],
-    [class*="mode-btn"] {
-        width: 32px !important;
-        height: 32px !important;
-        min-width: 32px !important;
-        min-height: 32px !important;
-        max-width: 32px !important;
-        max-height: 32px !important;
-        border-radius: 50% !important;
+    /* 💥 杀掉所有原生边框、背景、线条和多余文字 */
+    .chat-sidebar, .chat-main-header, .sidebar-header, body.light-mode .chat-sidebar {
+        background: transparent !important;
+        border: none !important; border-bottom: none !important;
+        box-shadow: none !important;
+    }
+    .chat-win-title {
+        display: none !important; opacity: 0 !important;
+        width: 0 !important; height: 0 !important;
+        overflow: hidden !important; position: absolute !important;
+    }
+
+    /* ====== 💥 5个小圆圈的“定海神针”统一规格 ====== */
+    #themeToggleBtn, .sidebar-title, .sidebar-new-btn, .chat-index-btn, .chat-rename-btn {
+        width: 32px !important; height: 32px !important;
+        min-width: 32px !important; min-height: 32px !important;
+        max-width: 32px !important; max-height: 32px !important;
         background: rgba(255, 255, 255, 0.7) !important;
-        backdrop-filter: blur(10px) !important;
-        -webkit-backdrop-filter: blur(10px) !important;
+        backdrop-filter: blur(10px) !important; -webkit-backdrop-filter: blur(10px) !important;
         border: 1px solid rgba(201,169,97,0.3) !important;
+        border-radius: 50% !important;
         box-shadow: 0 4px 15px rgba(139, 115, 85, 0.1) !important;
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        padding: 0 !important;
-        font-size: 16px !important; /* 月亮emoji保留正常大小 */
+        display: flex !important; justify-content: center !important; align-items: center !important;
+        margin: 0 !important; padding: 0 !important;
+        font-size: 0 !important; color: transparent !important; /* 隐藏所有原生文字 */
+        flex-shrink: 0 !important; line-height: 1 !important;
         box-sizing: border-box !important;
-        /* 定位：放在整列最顶部 */
-        position: absolute !important;
+    }
+
+    /* 注入干净的线稿符号 */
+    .sidebar-title::before { content: '☰'; font-size: 14px; color: var(--gold); }
+    .sidebar-title::after { display: none !important; }
+    .sidebar-new-btn::before { content: '+'; font-size: 18px; color: var(--gold); font-weight: 300; }
+    .chat-index-btn::before { content: '◈'; font-size: 13px; color: var(--gold); }
+    .chat-rename-btn::before { content: '✎'; font-size: 15px; color: var(--gold); }
+    
+    /* 月亮按钮是个例外，它需要保留原本自带的字（☾/☼） */
+    #themeToggleBtn { font-size: 16px !important; color: #5C4033 !important; }
+
+    /* ==========================================
+       🚀 核心：全局固定定位 (Fixed)
+       把它们全部剥离原本的容器，直接钉在屏幕玻璃上！
+       这样就绝对不可能存在容器偏移导致的对不齐！
+       ========================================== */
+    
+    /* 1. 月亮 (第一个，最顶上) */
+    #themeToggleBtn {
+        position: fixed !important;
         top: 70px !important;
         right: 12px !important;
-        left: auto !important;
-        z-index: 101 !important;
+        z-index: 105 !important;
     }
 
-    /* ===== 把菜单列整体下移，给月亮让位 ===== */
+    /* 2. 频道栏 (第二个，包含菜单和新建) */
     .chat-sidebar {
-        top: 114px !important; /* 70 + 32 + 12间距 = 114 */
+        position: fixed !important;
+        top: 114px !important; /* 严谨计算：70 + 32(月亮) + 12(间距) = 114 */
+        right: 12px !important; left: auto !important;
+        width: 32px !important;
+        z-index: 100 !important;
+        overflow: visible !important; padding: 0 !important;
+    }
+    .sidebar-header {
+        display: flex !important; flex-direction: column !important;
+        align-items: center !important; width: 32px !important;
+        gap: 12px !important;
     }
 
-    .chat-main-header {
-        top: 202px !important; /* 114 + 32(菜单icon) + 12 + 32(+号) + 12 = 202 */
+    /* 下拉菜单 (向左弹出) */
+    .sidebar-list {
+        display: none !important;
+        position: absolute; top: 0 !important; right: 44px !important; left: auto !important;
+        width: 130px !important;
+        background: rgba(255, 255, 255, 0.95) !important;
+        backdrop-filter: blur(15px) !important; -webkit-backdrop-filter: blur(15px) !important;
+        border: 1px solid rgba(201,169,97,0.2) !important;
+        border-radius: 12px !important;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+        flex-direction: column !important; padding: 6px 0 !important;
     }
+    .chat-sidebar.menu-open .sidebar-list { display: flex !important; animation: menuFadeIn 0.2s ease; }
+
+    /* 3. 工具栏 (第三个，包含索引和改名) */
+    .chat-main-header {
+        position: fixed !important;
+        top: 202px !important; /* 严谨计算：114 + 32(菜单) + 12(间距) + 32(新建) + 12(间距) = 202 */
+        right: 12px !important; left: auto !important;
+        width: 32px !important;
+        padding: 0 !important; z-index: 99 !important;
+        display: flex !important; flex-direction: column !important; align-items: center !important;
+    }
+    .chat-main-header > div {
+        display: flex !important; flex-direction: column !important;
+        align-items: center !important; width: 32px !important;
+        margin: 0 !important; padding: 0 !important; gap: 12px !important;
+    }
+
+    /* ================= 黑夜模式自适应 ================= */
+    body:not(.light-mode) #themeToggleBtn,
+    body:not(.light-mode) .sidebar-title,
+    body:not(.light-mode) .sidebar-new-btn,
+    body:not(.light-mode) .chat-index-btn,
+    body:not(.light-mode) .chat-rename-btn,
+    body:not(.light-mode) .sidebar-list {
+        background: rgba(12, 16, 28, 0.8) !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.4) !important;
+        color: var(--gold) !important; /* 黑夜里月亮和符号统一变成金色 */
+    }
+}
+
+@keyframes menuFadeIn {
+    from { opacity: 0; transform: translateX(10px); }
+    to { opacity: 1; transform: translateX(0); }
 }
