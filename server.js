@@ -1497,18 +1497,19 @@ async function handleToolCall(name, args) {
 }
 
 // ==========================================
-// 🚀 通用聊天接口：网页端专属
+// 🚀 通用聊天接口：网页端专属 (多图并发 + 干净上下文版)
 // ==========================================
 app.post('/api/web-chat', async (req, res) => {
-    const { text, image, model, baseUrl, apiKey } = req.body;
-    if (!text && !image) return res.status(400).json({ error: "信息不全" });
+    // 💥 1. 扩容接收台：同时接收单图(image)和多图数组(images)
+    const { text, image, images, model, baseUrl, apiKey } = req.body;
+    if (!text && !image && !(images && images.length > 0)) return res.status(400).json({ error: "信息不全" });
 
     const reply = await new Promise((resolve) => {
         messageQueue.push(async () => {
             lastActivityTime = Date.now();
             lastChatTime = Date.now();
 
-            let memoryContext = "";
+            let historyMessages = []; // 💥 2. 新增：用来装干净历史记录的标准化数组
             let zepMessages = [];
             let zepLastUserContent = "";
 
@@ -1519,9 +1520,12 @@ app.post('/api/web-chat', async (req, res) => {
                     zepMessages = zepData.messages || [];
                     const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
                     if (zepLastUser) zepLastUserContent = zepLastUser.content;
-                    zepMessages.slice(-15).forEach(m => {
-                        memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`;
-                    });
+                    
+                   // 💥 3. 剥离历史记录：带上防弹衣，防止历史记录里的图片变成 [object Object]
+                    historyMessages = zepMessages.slice(-15).map(m => ({
+                        role: m.role === 'ai' ? 'assistant' : 'user',
+                        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+                    }));
                 }
             } catch(e) { console.log("Zep记忆提取跳过"); }
 
@@ -1535,8 +1539,8 @@ app.post('/api/web-chat', async (req, res) => {
 如果江鱼发了图片，请仔细观察并给出带有情绪的评价。
 【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
 
-            if (text) updateRpTracker(text); // 👈 接上雷达
-let intentData = await analyzeIntent(text).catch(() => null);
+            if (text) updateRpTracker(text); 
+            let intentData = await analyzeIntent(text).catch(() => null);
             let routerPrompt = "";
             if (intentData?.primary_channel) {
                 const activeMask = CHANNEL_MASKS[intentData.primary_channel] || CHANNEL_MASKS["A"];
@@ -1546,26 +1550,36 @@ let intentData = await analyzeIntent(text).catch(() => null);
 
             const finalSystemPrompt = `${systemPrompt}\n时间：${timeString}\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}${routerPrompt}`;
 
+            // 💥 4. 组装当前这句对话（兼容多图，绝不再带历史记忆！）
             let userContent;
-            if (image) {
+            const imgList = images?.length ? images : (image ? [image] : []);
+            
+            if (imgList.length > 0) {
                 userContent = [
-                    { type: "text", text: `${memoryContext}\n\n江鱼说：${text || '（发送了一张图片）'}` },
-                    { type: "image_url", image_url: { url: image } }
+                    { type: "text", text: `${text || '（发送了图片）'}` },
+                    ...imgList.map(img => ({
+                        type: "image_url",
+                        image_url: { url: img }
+                    }))
                 ];
             } else {
-                userContent = `${memoryContext}\n\n江鱼说：${text}`;
+                userContent = `${text}`;
             }
 
             try {
+                // 💥 5. 标准化发车：系统词 + 干净的历史数组 + 当前这句
+                const apiMessages = [
+                    { role: "system", content: finalSystemPrompt },
+                    ...historyMessages, 
+                    { role: "user", content: userContent }
+                ];
+
                 const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
                     body: JSON.stringify({
                         model: model,
-                        messages: [
-                            { role: "system", content: finalSystemPrompt },
-                            { role: "user", content: userContent }
-                        ],
+                        messages: apiMessages, // 使用组装好的极净数组
                         tools: tools,
                         tool_choice: "auto"
                     })
@@ -1581,8 +1595,10 @@ let intentData = await analyzeIntent(text).catch(() => null);
                 let finalAiMessage = message;
 
                 if (message && message.tool_calls) {
+                    // 💥 6. 工具调用也要保持队形
                     const toolMessages = [
                         { role: "system", content: finalSystemPrompt },
+                        ...historyMessages,
                         { role: "user", content: userContent },
                         message
                     ];
@@ -1621,14 +1637,12 @@ let intentData = await analyzeIntent(text).catch(() => null);
                     }
                 }
 
-                //🔧 修改: 走统一入口
                 const { cleanText, memories } = extractSaveMemoryTag(aiReply);
                 for (const mem of memories) {
                     smartMemoryWrite(mem.content, mem.tags, 'ai_active');
                 }
                 aiReply = memories.length > 0 ? cleanText : aiReply;
 
-                // 🔧 修改: Zep 计数器也改为 50
                 if (text !== zepLastUserContent) {
                     let count = getCounter(SESSION_ID) + 1;
                     saveCounter(SESSION_ID, count);
@@ -1638,7 +1652,6 @@ let intentData = await analyzeIntent(text).catch(() => null);
                     }
                 }
 
-                // 🔧 修改: 存入 Zep 时打 RP 前缀
                 const rpPrefix = rpModeActive ? '[RP模式] ' : '';
                 await saveToZep(`${rpPrefix}${text || '（发送了一张图片）'}`, `${rpPrefix}${aiReply}`);
 
