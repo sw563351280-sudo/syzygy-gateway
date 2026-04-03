@@ -862,8 +862,6 @@ async function aiWriteDiary(type) {
         let result = data.choices[0].message.content || '';
 
         // 清理
-
-// ==================== 胶囊、统计、导出 ====================
 async function openCapsule(){
     const el = document.getElementById('capsuleResult');
     if(!el) return;
