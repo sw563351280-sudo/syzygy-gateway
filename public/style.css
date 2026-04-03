@@ -2561,121 +2561,136 @@ body.light-mode .chat-sidebar {
 }
 
 /* ==========================================
-   📱 手机端终极 UI：折叠下拉菜单 + 左右分离工具栏
+   📱 手机端终极 UI：右侧极简悬浮列 (FAB Stack)
    ========================================== */
 @media(max-width: 600px) {
-    /* 1. 布局基座：给顶部的两块悬浮版留出呼吸空间 */
     .chat-layout { position: relative; }
-    .chat-main .chat-window { padding-top: 60px !important; }
+    /* 给顶部留出呼吸空间，不让第一句话顶着天花板 */
+    .chat-main .chat-window { padding-top: 20px !important; }
 
-    /* 2. 左上角：把频道侧边栏变成一个“悬浮下拉菜单” */
+    /* ================= 1. 频道栏瘦身：移到右侧 ================= */
     .chat-sidebar {
         position: absolute !important;
-        top: 10px; left: 12px;
+        top: 65px !important; /* 💥 完美躲开顶部的月亮按钮 */
+        right: 12px !important;
+        left: auto !important; /* 解除左侧绑定 */
         width: auto !important;
-        height: auto !important;
         background: transparent !important;
         border: none !important;
         z-index: 100;
-        flex-direction: column !important; /* 频道列表变回竖排 */
         overflow: visible !important;
     }
 
-    /* 触发下拉的按钮 (原本的“频道会话”头部) */
     .sidebar-header {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+        flex-direction: column !important; /* 💥 竖向排队 */
+        gap: 12px !important;
+    }
+
+    /* 汉堡按钮（原“频道会话”） */
+    .sidebar-title {
+        font-size: 0 !important; /* 💥 魔法：直接隐藏长文字 */
+        width: 38px; height: 38px;
         background: rgba(255, 255, 255, 0.7) !important;
         backdrop-filter: blur(10px) !important;
         -webkit-backdrop-filter: blur(10px) !important;
         border: 1px solid rgba(201,169,97,0.3) !important;
-        border-radius: 12px !important;
-        padding: 8px 14px !important;
+        border-radius: 50% !important; /* 变成完美圆形 */
         box-shadow: 0 4px 15px rgba(139, 115, 85, 0.1) !important;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        transition: 0.3s;
+        display: flex; justify-content: center; align-items: center;
     }
-    
-    /* 给“频道会话”旁边加个小小的下拉箭头暗示（纯CSS生成） */
-    .sidebar-title::after {
-        content: ' ▾';
-        font-size: 1.1em;
-        opacity: 0.7;
+    /* 用三道杠(☰)替代文字 */
+    .sidebar-title::before {
+        content: '☰'; 
+        font-size: 18px;
+        color: var(--gold);
+    }
+    .sidebar-title::after { display: none !important; } /* 杀掉原来的小箭头 */
+
+    /* 新建(+)按钮变圆 */
+    .sidebar-new-btn {
+        width: 38px !important; height: 38px !important;
+        background: rgba(255, 255, 255, 0.7) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        border: 1px solid rgba(201,169,97,0.3) !important;
+        border-radius: 50% !important;
+        box-shadow: 0 4px 15px rgba(139, 115, 85, 0.1) !important;
+        margin: 0 !important;
+        font-size: 20px !important; /* 保持加号大小 */
     }
 
-    /* 隐藏的频道列表 (点击后悬浮显示) */
+    /* 💥 频道下拉菜单：现在从右边向左侧弹出！ */
     .sidebar-list {
-        display: none !important; /* 默认隐藏 */
+        display: none !important;
         position: absolute;
-        top: 45px; left: 0;
-        width: 160px;
-        background: rgba(255, 255, 255, 0.9) !important;
+        top: 0 !important;
+        right: 48px !important; /* 出现在按钮的左边 */
+        left: auto !important;
+        width: 140px !important;
+        background: rgba(255, 255, 255, 0.95) !important;
         backdrop-filter: blur(15px) !important;
         -webkit-backdrop-filter: blur(15px) !important;
         border: 1px solid rgba(201,169,97,0.2) !important;
-        border-radius: 10px;
+        border-radius: 12px !important;
         box-shadow: 0 6px 20px rgba(0,0,0,0.1);
         flex-direction: column !important;
         padding: 6px 0 !important;
     }
-
-    /* 💥 核心魔法：当JS加上 .menu-open 类时，显示下拉菜单 */
     .chat-sidebar.menu-open .sidebar-list {
         display: flex !important;
         animation: menuFadeIn 0.2s ease;
     }
 
-    /* 菜单里的选项变回竖向，且不拥挤 */
-    .sidebar-item {
-        width: 100% !important;
-        border-bottom: none !important;
-        border-left: 2px solid transparent !important;
-        padding: 10px 14px !important;
-    }
-    .sidebar-item.active {
-        border-left-color: var(--gold) !important;
-        background: rgba(201,169,97,0.08) !important;
-    }
-
-    /* 3. 右上角：把主标题栏彻底压缩成两个工具按钮 */
+    /* ================= 2. 工具栏瘦身：接在频道栏下面 ================= */
     .chat-main-header {
         position: absolute !important;
-        top: 10px !important;
+        top: 165px !important; /* 💥 紧接着上面的两个按钮排队 (65 + 38 + 12 + 38 + 12 = 165) */
         right: 12px !important;
+        left: auto !important;
         width: auto !important;
-        height: auto !important;
         padding: 0 !important;
         background: transparent !important;
         border: none !important;
         z-index: 99;
+        flex-direction: column !important; /* 💥 竖向排队 */
+        gap: 12px !important;
     }
 
-    /* 彻底斩掉多余的“✨主频道”标题 */
     .chat-win-title { display: none !important; }
 
-    /* 右上角按钮的磨砂玻璃质感 */
+    /* 索引和改名变圆形 */
     .chat-index-btn, .chat-rename-btn {
+        font-size: 0 !important; /* 💥 隐藏文字 */
+        width: 38px !important; height: 38px !important;
         background: rgba(255, 255, 255, 0.7) !important;
         backdrop-filter: blur(10px) !important;
         -webkit-backdrop-filter: blur(10px) !important;
         border: 1px solid rgba(201, 169, 97, 0.3) !important;
         box-shadow: 0 4px 15px rgba(139, 115, 85, 0.1) !important;
-        border-radius: 12px !important;
-        padding: 8px 12px !important;
-        margin-left: 8px;
+        border-radius: 50% !important;
+        margin: 0 !important; padding: 0 !important;
+        display: flex !important; justify-content: center; align-items: center;
     }
+    /* 用图标替代文字 */
+    .chat-index-btn::before { content: '◈'; font-size: 16px; color: var(--gold); }
+    .chat-rename-btn::before { content: '✏️'; font-size: 14px; }
 
-    /* 黑夜模式的颜色自适应 */
-    body:not(.light-mode) .sidebar-header,
-    body:not(.light-mode) .sidebar-list,
+    /* ================= 黑夜模式自适应 ================= */
+    body:not(.light-mode) .sidebar-title,
+    body:not(.light-mode) .sidebar-new-btn,
     body:not(.light-mode) .chat-index-btn,
-    body:not(.light-mode) .chat-rename-btn {
+    body:not(.light-mode) .chat-rename-btn,
+    body:not(.light-mode) .sidebar-list {
         background: rgba(12, 16, 28, 0.8) !important;
         box-shadow: 0 4px 15px rgba(0,0,0,0.4) !important;
     }
 }
 
 @keyframes menuFadeIn {
-    from { opacity: 0; transform: translateY(-5px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateX(10px); }
+    to { opacity: 1; transform: translateX(0); }
 }
