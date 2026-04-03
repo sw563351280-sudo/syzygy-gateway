@@ -143,6 +143,12 @@
 
         <div class="glass">
             <div class="diary-ai-label" style="font-weight: bold; margin-bottom: 10px; color: var(--blue);">✦ 让沈望来写</div>
+            <div style="margin-bottom: 12px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+    <label style="color:var(--dim); font-size:0.82em; white-space:nowrap;">📅 回溯日期：</label>
+    <input type="date" id="diaryDatePicker" style="flex:1; min-width:140px; padding:8px 12px; border-radius:8px; border:1px solid var(--glass-border, rgba(201,169,97,0.18)); background:rgba(0,0,0,0.2); color:white; font-family:inherit; font-size:0.85em;">
+    <span style="color:var(--dim); font-size:0.72em; font-style:italic;">留空=最近30条</span>
+</div>
+
             <div class="diary-ai-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 <button class="diary-ai-btn" onclick="aiWriteDiary('diary')" style="padding: 10px; border-radius: 8px;">📖 今日日记</button>
                 <button class="diary-ai-btn" onclick="aiWriteDiary('love_letter')" style="padding: 10px; border-radius: 8px;">💌 霸道情书</button>
