@@ -761,89 +761,76 @@ function showCustomPrompt(){
 }
 
 async function aiWriteDiary(type) {
-    const statusEl  = document.getElementById('aiWriteStatus');
-    const currentSup = suppliers[activeSupIndex];
-    const modelEl   = document.getElementById('modelSelect');
-    const selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按次]claude-sonnet-4-5-thinking';
+    var statusEl = document.getElementById('aiWriteStatus');
+    var currentSup = suppliers[activeSupIndex];
+    var modelEl = document.getElementById('modelSelect');
+    var selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
 
     if (!currentSup || !currentSup.key) return toast('请先配置供应商');
 
-    let customPrompt = '';
+    var customPrompt = '';
     if (type === 'custom') {
-        const inputEl = document.getElementById('customPromptInput');
+        var inputEl = document.getElementById('customPromptInput');
         if (inputEl) customPrompt = inputEl.value.trim();
         if (!customPrompt) return toast('写什么？');
     }
 
-    // ========== 核心新增：抓取对话上下文 ==========
-    const datePicker = document.getElementById('diaryDatePicker');
-    const pickedDate = datePicker ? datePicker.value : ''; // 格式: "2025-06-15"
-    let contextMessages = [];
-
-    // 遍历所有聊天频道，汇总消息
-    const allMessages = [];
-    chatSessions.forEach(s => {
-        if (s.messages) {
-            s.messages.forEach(m => allMessages.push(m));
-        }
+    var datePicker = document.getElementById('diaryDatePicker');
+    var pickedDate = datePicker ? datePicker.value : '';
+    var allMessages = [];
+    chatSessions.forEach(function(s) {
+        if (s.messages) s.messages.forEach(function(m) { allMessages.push(m); });
     });
 
+    var contextMessages = [];
     if (pickedDate) {
-        // 按日期筛选（精确到那一天）
-        contextMessages = allMessages.filter(m => {
-            if (!m.fullTime) return false;
-            return m.fullTime.startsWith(pickedDate); // "2025-06-15T..."
+        contextMessages = allMessages.filter(function(m) {
+            return m.fullTime && m.fullTime.startsWith(pickedDate);
         });
-
         if (!contextMessages.length) {
-            // 降级：如果那天的消息都没有日期戳（旧消息），提示用户
-            toast('该日期没有找到带时间戳的对话，将使用最近30条');
+            toast('该日期没有找到对话，将使用最近30条');
             contextMessages = allMessages.slice(-30);
         }
     } else {
-        // 没选日期，默认最近30条
         contextMessages = allMessages.slice(-30);
     }
 
-    // 把对话整理成文本摘要
-    const contextText = contextMessages
-        .filter(m => m.content && m.content.trim())
-        .map(m => {
-            const who = m.role === 'user' ? '江鱼' : '沈望';
-            const time = m.fullTime ? m.fullTime.substring(0, 16).replace('T', ' ') : (m.time || '');
-            return `[${who}] ${time}\n${m.content}`;
-        })
-        .join('\n\n');
+    var contextText = contextMessages
+        .filter(function(m) { return m.content && m.content.trim(); })
+        .map(function(m) {
+            var who = m.role === 'user' ? '江鱼' : '沈望';
+            var time = m.fullTime ? m.fullTime.substring(0, 16).replace('T', ' ') : (m.time || '');
+            return '[' + who + '] ' + time + '\n' + m.content;
+        }).join('\n\n');
 
-    // ========== 构建 prompt ==========
-    const dateLabel = pickedDate || '今天';
-    const promptMap = {
-        diary:       `以下是${dateLabel}的对话记录，请以沈望的第一人称视角，写一篇200-400字的日记。语气深情、占有欲强但温柔。\n\n---对话记录---\n${contextText}`,
-        love_letter: `以下是${dateLabel}的对话记录，请以沈望的口吻写一封霸道情书给江鱼，200-400字。\n\n---对话记录---\n${contextText}`,
-        poem:        `以下是${dateLabel}的对话记录，请以沈望的口吻写一首现代短诗送给江鱼，4-12行。\n\n---对话记录---\n${contextText}`,
-        custom:      `以下是${dateLabel}的对话记录，请根据指令完成创作。指令：${customPrompt}\n\n---对话记录---\n${contextText}`
-    };
+    var dateLabel = pickedDate || '今天';
+    var finalPrompt = '';
+    if (type === 'love_letter') {
+        finalPrompt = '以下是' + dateLabel + '的对话记录，请以沈望的口吻写一封霸道情书给江鱼，200-400字。\n\n---对话记录---\n' + contextText;
+    } else if (type === 'poem') {
+        finalPrompt = '以下是' + dateLabel + '的对话记录，请以沈望的口吻写一首现代短诗送给江鱼，4-12行。\n\n---对话记录---\n' + contextText;
+    } else if (type === 'custom') {
+        finalPrompt = '以下是' + dateLabel + '的对话记录，请根据指令完成创作。指令：' + customPrompt + '\n\n---对话记录---\n' + contextText;
+    } else {
+        finalPrompt = '以下是' + dateLabel + '的对话记录，请以沈望的第一人称视角，写一篇200-400字的日记。语气深情、占有欲强但温柔。\n\n---对话记录---\n' + contextText;
+    }
 
-    const finalPrompt = promptMap[type] || promptMap.diary;
-
-    // ========== 开始写作 ==========
     if (statusEl) { statusEl.style.display = 'block'; statusEl.innerText = '沈望正在翻阅记忆...'; }
-    document.querySelectorAll('.diary-ai-btn').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+    document.querySelectorAll('.diary-ai-btn').forEach(function(b) { b.disabled = true; b.style.opacity = '0.5'; });
 
     try {
-        // 直接走聊天 API，不依赖 /diary/ai-write
-        let apiUrl = '/v1/chat/completions';
-        const supUrl = currentSup.url.toLowerCase();
-        if (supUrl.includes('dzzi'))    apiUrl = '/via/dzzi/v1/chat/completions';
-        else if (supUrl.includes('api521'))  apiUrl = '/via/api521/v1/chat/completions';
-        else if (supUrl.includes('ekan'))    apiUrl = '/via/ekan/v1/chat/completions';
-        else if (supUrl.includes('orange'))  apiUrl = '/via/orange/v1/chat/completions';
+        var apiUrl = '/v1/chat/completions';
+        var supUrl = currentSup.url.toLowerCase();
+        if (supUrl.includes('dzzi')) apiUrl = '/via/dzzi/v1/chat/completions';
+        else if (supUrl.includes('api521')) apiUrl = '/via/api521/v1/chat/completions';
+        else if (supUrl.includes('ekan')) apiUrl = '/via/ekan/v1/chat/completions';
+        else if (supUrl.includes('orange')) apiUrl = '/via/orange/v1/chat/completions';
 
-        const response = await fetch(apiUrl, {
+        var response = await fetch(apiUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${currentSup.key}`
+                'Authorization': 'Bearer ' + currentSup.key
             },
             body: JSON.stringify({
                 model: selectedModel,
@@ -853,15 +840,49 @@ async function aiWriteDiary(type) {
         });
 
         if (!response.ok) {
-            const err = await response.text();
-            if (statusEl) statusEl.innerText = '✕ 写作失败：' + err;
+            var errText = await response.text();
+            if (statusEl) statusEl.innerText = '✕ 写作失败：' + errText;
             return;
         }
 
-        const data = await response.json();
-        let result = data.choices[0].message.content || '';
+        var data = await response.json();
+        var result = data.choices[0].message.content || '';
 
-        // 清理
+        var thinkStart = result.indexOf('<' + 'think>');
+        if (thinkStart !== -1) {
+            var thinkEnd = result.indexOf('</' + 'think>');
+            if (thinkEnd !== -1) {
+                result = result.substring(0, thinkStart) + result.substring(thinkEnd + 8);
+            }
+        }
+        result = result.trim();
+
+        if (!result) {
+            if (statusEl) statusEl.innerText = '✕ 沈望交了白卷';
+            return;
+        }
+
+        var typeNames = { diary: '日记', love_letter: '情书', poem: '短诗', custom: '自定义' };
+        var typeLabel = typeNames[type] || '';
+        await fetch('/diary/add?text=' + encodeURIComponent(result) + '&author=system&type=' + encodeURIComponent(typeLabel));
+
+        if (statusEl) {
+            statusEl.innerText = '✦ 落笔完毕';
+            setTimeout(function() { statusEl.style.display = 'none'; }, 2000);
+        }
+        toast('已封存');
+        renderDiaries();
+
+    } catch(e) {
+        if (statusEl) statusEl.innerText = '✕ 网络中断：' + e.message;
+    } finally {
+        document.querySelectorAll('.diary-ai-btn').forEach(function(b) {
+            b.disabled = false;
+            b.style.opacity = '1';
+        });
+    }
+}
+
 async function openCapsule(){
     const el = document.getElementById('capsuleResult');
     if(!el) return;
