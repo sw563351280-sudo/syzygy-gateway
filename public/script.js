@@ -1422,3 +1422,29 @@ document.addEventListener('click', function(e) {
         document.getElementById('chatToolBtn')?.classList.remove('open');
     }
 });
+
+// ==========================================
+// 📱 手机端专属：折叠频道的下拉菜单交互
+// ==========================================
+document.addEventListener('click', function(e) {
+    // 1. 判断点的是不是“频道会话”这个框
+    const headerClick = e.target.closest('.sidebar-header');
+    const newBtnClick = e.target.closest('.sidebar-new-btn'); // 排除新建按钮(+)
+    const sidebar = document.querySelector('.chat-sidebar');
+    
+    // 如果点中了“频道会话”且没有点中(+)，就切换菜单的展开/收起
+    if (headerClick && !newBtnClick && sidebar) {
+        sidebar.classList.toggle('menu-open');
+        return;
+    }
+    
+    // 2. 菜单自动收拢逻辑
+    if (sidebar && sidebar.classList.contains('menu-open')) {
+        const isClickInsideMenu = e.target.closest('.chat-sidebar');
+        const isClickOnChannel = e.target.closest('.sidebar-item');
+        // 如果点在了屏幕其他地方，或者点了一个频道，立刻乖乖收起菜单
+        if (!isClickInsideMenu || isClickOnChannel) {
+            sidebar.classList.remove('menu-open');
+        }
+    }
+});
