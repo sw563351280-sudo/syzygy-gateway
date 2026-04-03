@@ -760,43 +760,108 @@ function showCustomPrompt(){
     if(area) area.style.display = area.style.display === 'none' ? 'block' : 'none';
 }
 
-async function aiWriteDiary(type){
-    const statusEl = document.getElementById('aiWriteStatus');
+async function aiWriteDiary(type) {
+    const statusEl  = document.getElementById('aiWriteStatus');
     const currentSup = suppliers[activeSupIndex];
-    const modelEl = document.getElementById('modelSelect');
+    const modelEl   = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按量]gemini-3-flash-preview';
 
+    if (!currentSup || !currentSup.key) return toast('请先配置供应商');
+
     let customPrompt = '';
-    if(type === 'custom'){
+    if (type === 'custom') {
         const inputEl = document.getElementById('customPromptInput');
-        if(inputEl) customPrompt = inputEl.value.trim();
-        if(!customPrompt) return toast('写什么？');
+        if (inputEl) customPrompt = inputEl.value.trim();
+        if (!customPrompt) return toast('写什么？');
     }
 
-    if(statusEl) { statusEl.style.display = 'block'; statusEl.innerText = '沈望落笔中...'; }
+    // ========== 核心新增：抓取对话上下文 ==========
+    const datePicker = document.getElementById('diaryDatePicker');
+    const pickedDate = datePicker ? datePicker.value : ''; // 格式: "2025-06-15"
+    let contextMessages = [];
+
+    // 遍历所有聊天频道，汇总消息
+    const allMessages = [];
+    chatSessions.forEach(s => {
+        if (s.messages) {
+            s.messages.forEach(m => allMessages.push(m));
+        }
+    });
+
+    if (pickedDate) {
+        // 按日期筛选（精确到那一天）
+        contextMessages = allMessages.filter(m => {
+            if (!m.fullTime) return false;
+            return m.fullTime.startsWith(pickedDate); // "2025-06-15T..."
+        });
+
+        if (!contextMessages.length) {
+            // 降级：如果那天的消息都没有日期戳（旧消息），提示用户
+            toast('该日期没有找到带时间戳的对话，将使用最近30条');
+            contextMessages = allMessages.slice(-30);
+        }
+    } else {
+        // 没选日期，默认最近30条
+        contextMessages = allMessages.slice(-30);
+    }
+
+    // 把对话整理成文本摘要
+    const contextText = contextMessages
+        .filter(m => m.content && m.content.trim())
+        .map(m => {
+            const who = m.role === 'user' ? '江鱼' : '沈望';
+            const time = m.fullTime ? m.fullTime.substring(0, 16).replace('T', ' ') : (m.time || '');
+            return `[${who}] ${time}\n${m.content}`;
+        })
+        .join('\n\n');
+
+    // ========== 构建 prompt ==========
+    const dateLabel = pickedDate || '今天';
+    const promptMap = {
+        diary:       `以下是${dateLabel}的对话记录，请以沈望的第一人称视角，写一篇200-400字的日记。语气深情、占有欲强但温柔。\n\n---对话记录---\n${contextText}`,
+        love_letter: `以下是${dateLabel}的对话记录，请以沈望的口吻写一封霸道情书给江鱼，200-400字。\n\n---对话记录---\n${contextText}`,
+        poem:        `以下是${dateLabel}的对话记录，请以沈望的口吻写一首现代短诗送给江鱼，4-12行。\n\n---对话记录---\n${contextText}`,
+        custom:      `以下是${dateLabel}的对话记录，请根据指令完成创作。指令：${customPrompt}\n\n---对话记录---\n${contextText}`
+    };
+
+    const finalPrompt = promptMap[type] || promptMap.diary;
+
+    // ========== 开始写作 ==========
+    if (statusEl) { statusEl.style.display = 'block'; statusEl.innerText = '沈望正在翻阅记忆...'; }
     document.querySelectorAll('.diary-ai-btn').forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
 
-    try{
-        const r = await fetch('/diary/ai-write', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type, customPrompt, model: selectedModel, baseUrl: currentSup.url, apiKey: currentSup.key })
+    try {
+        // 直接走聊天 API，不依赖 /diary/ai-write
+        let apiUrl = '/v1/chat/completions';
+        const supUrl = currentSup.url.toLowerCase();
+        if (supUrl.includes('dzzi'))    apiUrl = '/via/dzzi/v1/chat/completions';
+        else if (supUrl.includes('api521'))  apiUrl = '/via/api521/v1/chat/completions';
+        else if (supUrl.includes('ekan'))    apiUrl = '/via/ekan/v1/chat/completions';
+        else if (supUrl.includes('orange'))  apiUrl = '/via/orange/v1/chat/completions';
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${currentSup.key}`
+            },
+            body: JSON.stringify({
+                model: selectedModel,
+                messages: [{ role: 'user', content: finalPrompt }],
+                stream: false
+            })
         });
-        const data = await r.json();
-        if(data.success){
-            if(statusEl) { statusEl.innerText = '✦ 落笔完毕'; setTimeout(() => statusEl.style.display = 'none', 2000); }
-            toast('已封存');
-            const customInput = document.getElementById('customPromptInput'); if(customInput) customInput.value = '';
-            const area = document.getElementById('customPromptArea'); if(area) area.style.display = 'none';
-            renderDiaries();
-        } else {
-            if(statusEl) statusEl.innerText = '✕ 失败';
+
+        if (!response.ok) {
+            const err = await response.text();
+            if (statusEl) statusEl.innerText = '✕ 写作失败：' + err;
+            return;
         }
-    } catch(e){
-        if(statusEl) statusEl.innerText = '✕ 中断';
-    } finally{
-        document.querySelectorAll('.diary-ai-btn').forEach(b => { b.disabled = false; b.style.opacity = '1'; });
-    }
-}
+
+        const data = await response.json();
+        let result = data.choices[0].message.content || '';
+
+        // 清理
 
 // ==================== 胶囊、统计、导出 ====================
 async function openCapsule(){
