@@ -1198,7 +1198,7 @@ async function tryGenerateStickyNote() {
 
     // 到了时间，让沈望写一张便签
     const resData = await askShenWang(
-        '（系统：江鱼已经超过4小时没有来找你了。请用沈望的口吻，留一张简短的便签，不超过20字，不用加引号，直接是便签正文。语气可以是撒娇、腹黑、担心、或者单纯想她。）'
+        '（系统：江鱼已经超过4小时没有来找你了。请用沈望的口吻，根据最近的聊天内容和当前时间，留一张便签，不用加引号，直接是便签正文。语气可以是撒娇、腹黑、担心、或者单纯想她。）'
     );
     const reply = resData.reply || '';
     if(!reply || reply.includes('未配置') || reply.includes('中断')) {
