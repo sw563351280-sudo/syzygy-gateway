@@ -764,7 +764,7 @@ async function aiWriteDiary(type) {
     const statusEl  = document.getElementById('aiWriteStatus');
     const currentSup = suppliers[activeSupIndex];
     const modelEl   = document.getElementById('modelSelect');
-    const selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按量]gemini-3-flash-preview';
+    const selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按次]claude-sonnet-4-5-thinking';
 
     if (!currentSup || !currentSup.key) return toast('请先配置供应商');
 
