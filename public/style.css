@@ -2362,3 +2362,158 @@ body.light-mode #imgPreviewWrap img {
     font-size: 0.82em !important;
 }
 
+/* ============ 底栏工具菜单 ============ */
+.chat-bottom-bar {
+    padding: 6px 10px 8px !important;
+}
+
+.chat-bottom-bar .chat-model-row {
+    margin-bottom: 4px !important;
+}
+
+.chat-tool-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.chat-tool-btn {
+    width: 38px;
+    height: 38px;
+    background: transparent;
+    border: 1px solid var(--page-border);
+    color: var(--dim);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1.2em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.25s ease;
+    font-family: inherit;
+    line-height: 1;
+}
+
+.chat-tool-btn:hover,
+.chat-tool-btn.open {
+    color: var(--gold);
+    border-color: var(--gold);
+    background: rgba(201,169,97,0.06);
+}
+
+.chat-tool-btn.open {
+    transform: rotate(45deg);
+}
+
+/* 向上弹出的菜单 */
+.chat-tool-menu {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    min-width: 140px;
+    background: rgba(10, 14, 26, 0.95);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(201,169,97,0.2);
+    border-radius: 10px;
+    padding: 6px;
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+    z-index: 60;
+    animation: toolMenuIn 0.2s ease;
+}
+
+.chat-tool-menu.show {
+    display: flex;
+}
+
+@keyframes toolMenuIn {
+    from { opacity: 0; transform: translateY(6px) scale(0.95); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* 菜单三角箭头 */
+.chat-tool-menu::after {
+    content: '';
+    position: absolute;
+    bottom: -5px;
+    left: 14px;
+    width: 10px;
+    height: 10px;
+    background: rgba(10, 14, 26, 0.95);
+    border-right: 1px solid rgba(201,169,97,0.2);
+    border-bottom: 1px solid rgba(201,169,97,0.2);
+    transform: rotate(45deg);
+}
+
+.chat-tool-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 0.82em;
+    color: var(--cream);
+    transition: background 0.2s;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.chat-tool-item:hover {
+    background: rgba(201,169,97,0.08);
+}
+
+.chat-tool-item input[type="checkbox"] {
+    accent-color: var(--gold);
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+}
+
+/* ============ 白天模式适配 ============ */
+body.light-mode .chat-tool-btn {
+    border-color: rgba(196,165,123,0.25) !important;
+    color: #8B7355 !important;
+}
+
+body.light-mode .chat-tool-btn:hover,
+body.light-mode .chat-tool-btn.open {
+    color: #5C4033 !important;
+    border-color: #C4A57B !important;
+    background: rgba(255,249,230,0.4) !important;
+}
+
+body.light-mode .chat-tool-menu {
+    background: rgba(255, 250, 240, 0.97) !important;
+    border-color: rgba(196,165,123,0.25) !important;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.08) !important;
+}
+
+body.light-mode .chat-tool-menu::after {
+    background: rgba(255, 250, 240, 0.97) !important;
+    border-color: rgba(196,165,123,0.25) !important;
+}
+
+body.light-mode .chat-tool-item {
+    color: #5C4033 !important;
+}
+
+body.light-mode .chat-tool-item:hover {
+    background: rgba(255,249,230,0.6) !important;
+}
+
+/* ============ 对话框字号缩小 ============ */
+.chat-window .msg {
+    font-size: 0.82em !important;
+    line-height: 1.65 !important;
+}
+
+.chat-window .msg .think-header {
+    font-size: 0.8em !important;
+}
+
+.chat-window .msg .think-content {
+    font-size: 0.82em !important;
+}
