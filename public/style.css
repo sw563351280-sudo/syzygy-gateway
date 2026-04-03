@@ -1475,78 +1475,571 @@ canvas#starmap{
 }
 
 /* ==========================================
-   🌞 白天模式视觉升级 (清晨阳光与旧信纸)
-   ========================================== */
+  /* ==================== 🌞 白天模式 (Light Mode) · 晨曦信笺版 ==================== */
 
-/* 1. 主背景层：奶油色主调 */
+/* ──────── 背景层：奶油色床单 + 斜射阳光 + 树叶光斑 ──────── */
 body.light-mode {
     background: #FFFAF0 !important;
     color: #5C4033 !important;
 }
 
-/* 阳光斜射与树影光斑 */
+/* 隐藏暗夜装饰元素 */
+body.light-mode::after {
+    opacity: 0 !important; /* 装订线消失 */
+}
+
+/* 阳光斜射 + 7个树叶缝隙光斑 */
 body.light-mode::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-    /* 第一层：左上角阳光斜射 (透明度 0.3)
-      后续层：随机分布的树影光斑 (直径80-150px，透明度 0.03 - 0.05)
-    */
     background:
-        radial-gradient(circle at 10% 10%, rgba(255, 250, 220, 0.3) 0%, rgba(255, 250, 220, 0) 60%),
-        radial-gradient(circle 120px at 20% 30%, rgba(255, 249, 230, 0.05) 0%, rgba(255, 249, 230, 0) 70%),
-        radial-gradient(circle 80px at 75% 15%, rgba(255, 249, 230, 0.03) 0%, rgba(255, 249, 230, 0) 70%),
-        radial-gradient(circle 150px at 85% 65%, rgba(255, 249, 230, 0.05) 0%, rgba(255, 249, 230, 0) 70%),
-        radial-gradient(circle 100px at 30% 80%, rgba(255, 249, 230, 0.04) 0%, rgba(255, 249, 230, 0) 70%),
-        radial-gradient(circle 130px at 60% 45%, rgba(255, 249, 230, 0.03) 0%, rgba(255, 249, 230, 0) 70%) !important;
+        /* 主光源：左上角窗户斜射进来的暖光 */
+        radial-gradient(ellipse 900px 700px at 18% 12%, rgba(255, 250, 220, 0.35) 0%, transparent 70%),
+        /* 7个光斑：直径80-150px，透明度3-5% */
+        radial-gradient(circle 45px at 10% 22%, rgba(255, 249, 230, 0.05) 0%, transparent 100%),
+        radial-gradient(circle 70px at 78% 12%, rgba(255, 249, 230, 0.04) 0%, transparent 100%),
+        radial-gradient(circle 55px at 42% 55%, rgba(255, 249, 230, 0.05) 0%, transparent 100%),
+        radial-gradient(circle 75px at 88% 40%, rgba(255, 249, 230, 0.03) 0%, transparent 100%),
+        radial-gradient(circle 60px at 25% 72%, rgba(255, 249, 230, 0.04) 0%, transparent 100%),
+        radial-gradient(circle 50px at 62% 30%, rgba(255, 249, 230, 0.05) 0%, transparent 100%),
+        radial-gradient(circle 65px at 50% 82%, rgba(255, 249, 230, 0.03) 0%, transparent 100%) !important;
+    opacity: 1 !important;
 }
 
-/* 2. 便签墙：淡奶油黄 + 浅棕色边框 + 纸张折痕 */
+/* 星空画布在白天彻底隐身 */
+body.light-mode #starmap {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+/* ──────── 玻璃面板 → 晨露信纸 ──────── */
+body.light-mode .glass {
+    background: rgba(255, 255, 255, 0.6) !important;
+    backdrop-filter: blur(16px) saturate(120%) !important;
+    -webkit-backdrop-filter: blur(16px) saturate(120%) !important;
+    border: 1px solid rgba(196, 165, 123, 0.25) !important;
+    box-shadow: 0 2px 16px rgba(92, 64, 51, 0.06) !important;
+}
+
+body.light-mode .glass::before {
+    opacity: 0 !important; /* 隐藏左侧装订缝线 */
+}
+
+body.light-mode .glass:hover {
+    border-color: rgba(196, 165, 123, 0.4) !important;
+    box-shadow: 0 4px 24px rgba(92, 64, 51, 0.1) !important;
+}
+
+/* ──────── 便签墙：奶油信纸 + 四角折痕 ──────── */
 body.light-mode .sticky-note {
-    background-color: #FFF9E6 !important;
+    background: #FFF9E6 !important;
     border: 2px solid #C4A57B !important;
+    border-radius: 6px !important;
     box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
-    border-radius: 2px !important; /* 稍微方正一点更像真实信纸 */
-    
-    /* 核心魔法：用多重 CSS 线性渐变直接画出四个角的 1px 极细折痕 */
-    background-image:
-        linear-gradient(135deg, transparent 20px, #E6D7C3 20px, #E6D7C3 21px, transparent 21px),
-        linear-gradient(-135deg, transparent 20px, #E6D7C3 20px, #E6D7C3 21px, transparent 21px),
-        linear-gradient(45deg, transparent 20px, #E6D7C3 20px, #E6D7C3 21px, transparent 21px),
-        linear-gradient(-45deg, transparent 20px, #E6D7C3 20px, #E6D7C3 21px, transparent 21px) !important;
-    background-size: 30px 30px !important;
-    background-position: top left, top right, bottom left, bottom right !important;
-    background-repeat: no-repeat !important;
-    transition: all 0.3s ease !important;
+    animation: none !important; /* 白天不需要呼吸光效 */
+    position: relative;
 }
 
-/* 3. 悬停交互：边框加深 + 阴影加深 */
-body.light-mode .sticky-note-container:hover .sticky-note {
-    border-color: #B8935A !important;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
+/* 四角折痕：细对角线模拟翻阅痕迹 */
+body.light-mode .sticky-note::after {
+    content: '' !important;
+    position: absolute !important;
+    inset: -1px !important;
+    pointer-events: none !important;
+    border-radius: inherit !important;
+    z-index: 2 !important;
+    background:
+        /* 左上角折痕 */
+        linear-gradient(135deg, transparent 7px, #E6D7C3 7px, #E6D7C3 8px, transparent 8px) no-repeat 0 0 / 16px 16px,
+        /* 右上角折痕 */
+        linear-gradient(225deg, transparent 7px, #E6D7C3 7px, #E6D7C3 8px, transparent 8px) no-repeat 100% 0 / 16px 16px,
+        /* 左下角折痕 */
+        linear-gradient(45deg, transparent 7px, #E6D7C3 7px, #E6D7C3 8px, transparent 8px) no-repeat 0 100% / 16px 16px,
+        /* 右下角折痕 */
+        linear-gradient(315deg, transparent 7px, #E6D7C3 7px, #E6D7C3 8px, transparent 8px) no-repeat 100% 100% / 16px 16px !important;
 }
 
-/* 4. 字体与颜色方案 */
-body.light-mode .sticky-note .note-content {
+/* 便签固定胶带：白天变成更真实的纸胶带 */
+body.light-mode .note-pin {
+    background: rgba(196, 165, 123, 0.25) !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08) !important;
+    border: 1px solid rgba(196, 165, 123, 0.15);
+}
+
+/* 便签文字：喜脉字体 + 深咖啡色 */
+body.light-mode .note-content {
     font-family: 'ximai', 'Georgia', serif !important;
-    color: #5C4033 !important; /* 深咖啡色 */
-    text-shadow: none !important; /* 关掉黑夜模式的赛博发光 */
-}
-
-/* 辅助文字（时间戳、提示语） */
-body.light-mode .sticky-note .note-time,
-body.light-mode .sticky-note .note-hint {
-    color: #8B7355 !important; /* 浅棕灰色 */
+    color: #5C4033 !important;
     text-shadow: none !important;
 }
 
-/* 顺手把顶部的胶带/图钉也换成贴合白天模式的微透纸胶带质感 */
-body.light-mode .sticky-note .note-pin {
-    background: rgba(196, 165, 123, 0.25) !important;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
+body.light-mode .note-time {
+    color: #8B7355 !important;
 }
+
+body.light-mode .note-hint {
+    color: #C4A57B !important;
+}
+
+body.light-mode .sticky-note-container:hover .note-hint {
+    color: #B8935A !important;
+}
+
+/* ──────── 字体方案 ──────── */
+body.light-mode .totem h1,
+body.light-mode .chat-win-title,
+body.light-mode .month-label,
+body.light-mode .mailbox-title {
+    font-family: 'ximai', 'Georgia', serif !important;
+    color: #5C4033 !important;
+    text-shadow: none !important;
+}
+
+body.light-mode .totem .sub,
+body.light-mode .star-core .desc,
+body.light-mode .star-core .date,
+body.light-mode .hb-text,
+body.light-mode .stats-bar,
+body.light-mode .note-time,
+body.light-mode .sup-url,
+body.light-mode .month-count,
+body.light-mode .d-date,
+body.light-mode .diary-search-count {
+    color: #8B7355 !important;
+    text-shadow: none !important;
+}
+
+/* ──────── 主体文字与标题 ──────── */
+body.light-mode h1, body.light-mode h2, body.light-mode h3 {
+    color: #5C4033 !important;
+}
+
+body.light-mode .totem .icon {
+    text-shadow: 0 2px 10px rgba(196, 165, 123, 0.3) !important;
+}
+
+body.light-mode .star-core .day-num {
+    color: #C4534A !important;
+    text-shadow: 0 0 8px rgba(196, 83, 74, 0.15) !important;
+}
+
+body.light-mode .star-core .orbit {
+    box-shadow:
+        0 0 0 1px rgba(196, 165, 123, 0.2),
+        0 0 15px 2px rgba(196, 165, 123, 0.06) !important;
+}
+
+body.light-mode .star-core .planet {
+    background: #C4A57B !important;
+    box-shadow: 0 0 8px #C4A57B, 0 0 15px rgba(196, 165, 123, 0.3) !important;
+}
+
+/* ──────── 聊天气泡 ──────── */
+body.light-mode .msg.user {
+    background: #F0EDE4 !important;
+    border: 1px solid rgba(196, 165, 123, 0.2) !important;
+    color: #5C4033 !important;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.03) !important;
+}
+
+body.light-mode .msg.sys {
+    background: #FFFFFF !important;
+    border: none !important;
+    border-left: 3px solid #C4A57B !important;
+    color: #5C4033 !important;
+    box-shadow: 0 1px 8px rgba(0,0,0,0.04) !important;
+}
+
+body.light-mode .msg.sys .typing-cursor {
+    background: #C4A57B !important;
+}
+
+body.light-mode .msg div {
+    color: inherit !important;
+}
+
+/* 思考链盒子 */
+body.light-mode .think-box {
+    background: rgba(255, 249, 230, 0.6) !important;
+    border: 1px solid rgba(196, 165, 123, 0.25) !important;
+    box-shadow: inset 0 0 8px rgba(196, 165, 123, 0.05) !important;
+}
+
+body.light-mode .think-header {
+    color: #8B7355 !important;
+    background: linear-gradient(90deg, rgba(196, 165, 123, 0.08) 0%, transparent 100%) !important;
+}
+
+body.light-mode .think-content {
+    color: #8B7355 !important;
+    background: rgba(255, 249, 230, 0.3) !important;
+    border-top: 1px solid rgba(196, 165, 123, 0.12) !important;
+}
+
+/* ──────── 底部导航栏 ──────── */
+body.light-mode .nav {
+    background: rgba(255, 250, 240, 0.92) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border-top: 1px solid rgba(196, 165, 123, 0.15) !important;
+}
+
+body.light-mode .nav button {
+    color: #B5A48C !important;
+}
+
+body.light-mode .nav button.active,
+body.light-mode .nav button:hover {
+    color: #5C4033 !important;
+    text-shadow: none !important;
+}
+
+body.light-mode .nav button.active {
+    background: rgba(255, 249, 230, 0.6) !important;
+    border-radius: 8px;
+}
+
+/* ──────── 输入框与表单 ──────── */
+body.light-mode input,
+body.light-mode textarea,
+body.light-mode select,
+body.light-mode .config-input,
+body.light-mode .model-select,
+body.light-mode .diary-search-bar input {
+    background: rgba(255, 255, 255, 0.7) !important;
+    color: #5C4033 !important;
+    border: 1px solid rgba(196, 165, 123, 0.25) !important;
+}
+
+body.light-mode input::placeholder,
+body.light-mode textarea::placeholder {
+    color: #B5A48C !important;
+}
+
+body.light-mode input:focus,
+body.light-mode textarea:focus,
+body.light-mode select:focus {
+    border-color: #C4A57B !important;
+    box-shadow: 0 0 8px rgba(196, 165, 123, 0.15) !important;
+}
+
+/* ──────── 按钮系统 ──────── */
+body.light-mode .input-row button,
+body.light-mode .config-add-btn {
+    background: linear-gradient(135deg, rgba(196, 165, 123, 0.15), rgba(196, 165, 123, 0.06)) !important;
+    color: #5C4033 !important;
+    border: 1px solid rgba(196, 165, 123, 0.3) !important;
+}
+
+body.light-mode .input-row button:hover,
+body.light-mode .config-add-btn:hover {
+    background: linear-gradient(135deg, rgba(196, 165, 123, 0.25), rgba(196, 165, 123, 0.12)) !important;
+    border-color: #C4A57B !important;
+    box-shadow: 0 0 12px rgba(196, 165, 123, 0.15) !important;
+}
+
+body.light-mode .data-row button,
+body.light-mode .refresh-btn,
+body.light-mode .chat-rename-btn,
+body.light-mode .chat-index-btn {
+    color: #8B7355 !important;
+    border-color: rgba(196, 165, 123, 0.25) !important;
+    background: transparent !important;
+}
+
+body.light-mode .data-row button:hover,
+body.light-mode .refresh-btn:hover,
+body.light-mode .chat-rename-btn:hover,
+body.light-mode .chat-index-btn:hover {
+    color: #5C4033 !important;
+    border-color: #C4A57B !important;
+    background: rgba(255, 249, 230, 0.5) !important;
+}
+
+/* ──────── 侧边栏 ──────── */
+body.light-mode .chat-sidebar {
+    background: rgba(255, 250, 240, 0.5) !important;
+    border-right: 1px solid rgba(196, 165, 123, 0.15) !important;
+}
+
+body.light-mode .sidebar-title {
+    color: #8B7355 !important;
+}
+
+body.light-mode .sidebar-new-btn {
+    border-color: rgba(196, 165, 123, 0.25) !important;
+    color: #C4A57B !important;
+}
+
+body.light-mode .sidebar-new-btn:hover {
+    background: rgba(255, 249, 230, 0.5) !important;
+    border-color: #C4A57B !important;
+}
+
+body.light-mode .sidebar-item {
+    color: #8B7355 !important;
+}
+
+body.light-mode .sidebar-item:hover {
+    background: rgba(255, 249, 230, 0.4) !important;
+    color: #5C4033 !important;
+}
+
+body.light-mode .sidebar-item.active {
+    background: rgba(255, 249, 230, 0.6) !important;
+    border-left-color: #C4A57B !important;
+    color: #5C4033 !important;
+}
+
+/* ──────── 聊天主区域 ──────── */
+body.light-mode .chat-main {
+    background: rgba(255, 250, 240, 0.3) !important;
+}
+
+body.light-mode .chat-main-header {
+    border-bottom: 1px solid rgba(196, 165, 123, 0.12) !important;
+}
+
+body.light-mode .chat-bottom-bar {
+    background: rgba(255, 250, 240, 0.4) !important;
+    border-top: 1px solid rgba(196, 165, 123, 0.12) !important;
+}
+
+body.light-mode .msg-action-btn {
+    color: #B5A48C !important;
+}
+
+body.light-mode .msg-action-btn:hover {
+    color: #5C4033 !important;
+    background: rgba(196, 165, 123, 0.1) !important;
+}
+
+/* ──────── 右键菜单 ──────── */
+body.light-mode #msgContextMenu {
+    background: rgba(255, 255, 255, 0.92) !important;
+    backdrop-filter: blur(16px) saturate(120%) !important;
+    -webkit-backdrop-filter: blur(16px) saturate(120%) !important;
+    border: 1px solid rgba(196, 165, 123, 0.2) !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08) !important;
+}
+
+/* ──────── 供应商卡片 ──────── */
+body.light-mode .supplier-card {
+    background: rgba(255, 249, 230, 0.3) !important;
+    border: 1px solid rgba(196, 165, 123, 0.2) !important;
+}
+
+body.light-mode .supplier-card.active-sup {
+    border-color: #C4A57B !important;
+    background: rgba(255, 249, 230, 0.5) !important;
+}
+
+body.light-mode .supplier-card:hover {
+    border-color: rgba(196, 165, 123, 0.4) !important;
+}
+
+body.light-mode .sup-name {
+    color: #5C4033 !important;
+}
+
+body.light-mode .sup-name.active-name {
+    color: #8B6914 !important;
+}
+
+body.light-mode .sup-del-btn {
+    background: rgba(196, 83, 74, 0.08) !important;
+    border-color: rgba(196, 83, 74, 0.2) !important;
+    color: #C4534A !important;
+}
+
+/* ──────── 日记模块 ──────── */
+body.light-mode .diary-entry {
+    background: rgba(255, 249, 230, 0.25) !important;
+    border-left: 2px solid rgba(196, 165, 123, 0.3) !important;
+}
+
+body.light-mode .diary-entry:hover {
+    background: rgba(255, 249, 230, 0.45) !important;
+    border-left-color: #C4534A !important;
+}
+
+body.light-mode .diary-entry .d-text {
+    color: #5C4033 !important;
+}
+
+body.light-mode .diary-entry .d-author {
+    background: rgba(196, 165, 123, 0.1) !important;
+    border: 1px solid rgba(196, 165, 123, 0.25) !important;
+    color: #8B7355 !important;
+}
+
+body.light-mode .d-type-tag {
+    background: rgba(196, 83, 74, 0.06) !important;
+    border-color: rgba(196, 83, 74, 0.15) !important;
+    color: #C4534A !important;
+}
+
+body.light-mode .month-header {
+    background: rgba(255, 249, 230, 0.3) !important;
+    border: 1px solid rgba(196, 165, 123, 0.15) !important;
+}
+
+body.light-mode .month-header:hover,
+body.light-mode .month-header.open {
+    background: rgba(255, 249, 230, 0.5) !important;
+    border-color: rgba(196, 165, 123, 0.3) !important;
+}
+
+body.light-mode .month-chevron,
+body.light-mode .month-label {
+    color: #5C4033 !important;
+}
+
+/* ──────── AI写作按钮 ──────── */
+body.light-mode .diary-ai-btn {
+    background: rgba(255, 249, 230, 0.3) !important;
+    border: 1px solid rgba(196, 165, 123, 0.2) !important;
+    color: #5C4033 !important;
+}
+
+body.light-mode .diary-ai-btn:hover {
+    background: rgba(255, 249, 230, 0.6) !important;
+    border-color: #C4A57B !important;
+    color: #5C4033 !important;
+    box-shadow: 0 0 10px rgba(196, 165, 123, 0.12) !important;
+}
+
+body.light-mode .diary-ai-label {
+    color: #8B7355 !important;
+}
+
+/* ──────── 心跳区 ──────── */
+body.light-mode .hb-zone {
+    border-color: rgba(196, 165, 123, 0.2) !important;
+}
+
+body.light-mode .hb-zone:active {
+    border-color: #C4534A !important;
+    background: rgba(196, 83, 74, 0.04) !important;
+}
+
+/* ──────── 时光信箱 ──────── */
+body.light-mode .mailbox-container {
+    background: rgba(255, 249, 230, 0.3) !important;
+    border-color: rgba(196, 165, 123, 0.2) !important;
+}
+
+body.light-mode .mailbox-container:hover {
+    border-color: #C4A57B !important;
+    box-shadow: 0 4px 16px rgba(196, 165, 123, 0.12) !important;
+}
+
+body.light-mode .mailbox-desc {
+    color: #8B7355 !important;
+}
+
+/* ──────── 对话索引面板 ──────── */
+body.light-mode .chat-index-panel {
+    background: rgba(255, 250, 240, 0.96) !important;
+    border-left: 1px solid rgba(196, 165, 123, 0.2) !important;
+}
+
+body.light-mode .chat-index-header {
+    color: #5C4033 !important;
+    border-bottom-color: rgba(196, 165, 123, 0.12) !important;
+}
+
+body.light-mode .chat-index-item:hover {
+    background: rgba(255, 249, 230, 0.5) !important;
+    border-left-color: #C4A57B !important;
+}
+
+body.light-mode .chat-index-item .idx-time {
+    color: #8B7355 !important;
+}
+
+body.light-mode .chat-index-item .idx-preview {
+    color: #5C4033 !important;
+}
+
+body.light-mode .chat-index-item .idx-role-sys {
+    color: #C4534A !important;
+}
+
+body.light-mode .chat-index-item .idx-role-user {
+    color: #8B6914 !important;
+}
+
+/* ──────── Toast 通知 ──────── */
+body.light-mode .toast {
+    background: linear-gradient(135deg, #C4A57B, #B8935A) !important;
+    color: #FFFAF0 !important;
+    box-shadow: 0 4px 20px rgba(196, 165, 123, 0.35) !important;
+}
+
+/* ──────── 滚动条 ──────── */
+body.light-mode .chat-window::-webkit-scrollbar-thumb,
+body.light-mode .sidebar-list::-webkit-scrollbar-thumb,
+body.light-mode .chat-index-list::-webkit-scrollbar-thumb {
+    background: rgba(196, 165, 123, 0.2) !important;
+}
+
+/* ──────── 寄语区 ──────── */
+body.light-mode .quote-box .q {
+    color: #5C4033 !important;
+}
+
+body.light-mode .quote-gen-btn {
+    background: linear-gradient(135deg, rgba(196, 165, 123, 0.12), rgba(196, 165, 123, 0.04)) !important;
+    color: #8B7355 !important;
+    border-color: rgba(196, 165, 123, 0.25) !important;
+}
+
+body.light-mode .quote-gen-btn:hover {
+    color: #5C4033 !important;
+    border-color: #C4A57B !important;
+}
+
+/* ──────── 流式开关等杂项 ──────── */
+body.light-mode .model-select {
+    background: rgba(255, 255, 255, 0.7) !important;
+    color: #5C4033 !important;
+}
+
+body.light-mode .capsule-btn {
+    border-color: rgba(196, 165, 123, 0.25) !important;
+    color: #8B7355 !important;
+}
+
+body.light-mode .capsule-btn:hover {
+    border-color: #C4A57B !important;
+    color: #5C4033 !important;
+    background: rgba(255, 249, 230, 0.4) !important;
+}
+
+body.light-mode .capsule-result {
+    color: #5C4033 !important;
+}
+
+body.light-mode .intimacy-grid button {
+    background: rgba(255, 249, 230, 0.3) !important;
+    border-color: rgba(196, 165, 123, 0.2) !important;
+    color: #5C4033 !important;
+}
+
+body.light-mode .intimacy-grid button:hover {
+    background: rgba(255, 249, 230, 0.6) !important;
+    border-color: #C4A57B !important;
+}
+
+body.light-mode .intimacy-result {
+    color: #8B7355 !important;
+}
+
+/* ──────── 图片预览区 ──────── */
+body.light-mode #imgPreviewWrap img {
+    border: 1px solid rgba(196, 165, 123, 0.3) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
+}
+
 
 /* ============ 沈望的专属留言板 (升级版) ============ */
 .sticky-note-container {
