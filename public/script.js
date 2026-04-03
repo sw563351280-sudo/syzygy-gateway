@@ -431,10 +431,17 @@ async function sendChat() {
         ];
     }
 
-    const requestBody = {
+       // 把历史消息带上（不含刚刚push的最后一条）
+    var historyMsgs = session.messages.slice(0, -1).map(function(m) {
+        return { role: m.role, content: m.content };
+    });
+    // 最后一条用 userContent（可能含图片）
+    historyMsgs.push({ role: 'user', content: userContent });
+
+    var requestBody = {
         model: selectedModel,
-        messages: [{ role: 'user', content: userContent }],
-        stream: isStream 
+        messages: historyMsgs,
+        stream: isStream
     };
 
    try {
