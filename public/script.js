@@ -174,16 +174,9 @@ function go(id, btn){
     document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
     if(btn) btn.classList.add('active');
 
-   if(id === 'diary') renderDiaries();
-    
-    // 💥 改成这样！切回聊天页时，什么都不做，保留它原本正在打字的模样！
-    if(id === 'chat')  { /* 保持原样，禁止拆家！ */ } 
-    
+    if(id === 'diary') renderDiaries();
+    if(id === 'chat')  { /* 保持原样，千万别拆家！ */ } 
     if(id === 'data')  { renderSuppliers(); updateCounts(); }
-    // 💥 加上这绝杀的两行！只要回主页，立刻强制查岗！
-    if(id === 'home' || id === 'sec-home') {
-        if(typeof tryGenerateStickyNote === 'function') tryGenerateStickyNote();
-    }
 
     window.scrollTo(0, 0);
 }
@@ -367,13 +360,23 @@ async function sendChat() {
     const win = document.getElementById('chatWindow');
 
     // --- 1. 把你的消息展示到屏幕上 ---
-    const uRow = document.createElement('div'); uRow.className = 'msg-row user';
+   const uRow = document.createElement('div'); uRow.className = 'msg-row user';
     const uDiv = document.createElement('div'); uDiv.className = 'msg user';
-    if(currentImgBase64) uDiv.innerHTML += `<img src="${currentImgBase64}" style="max-width:200px;border-radius:8px;margin-bottom:5px;display:block;">`;
+    
+    // 💥 视觉渲染：把相册里的所有图片横向排布在气泡里（纯属好看，不进后台）
+    if(currentImgBase64List.length > 0) {
+        let imgHtml = '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">';
+        for(let i = 0; i < currentImgBase64List.length; i++) {
+            imgHtml += `<img src="${currentImgBase64List[i]}" style="max-width:140px; border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,0.2);">`;
+        }
+        imgHtml += '</div>';
+        uDiv.innerHTML += imgHtml;
+    }
     uDiv.innerHTML += `<div>${val}</div>`;
     uRow.appendChild(uDiv);
     win.appendChild(uRow); win.scrollTop = win.scrollHeight;
 
+   // 💥 铁律执行：历史记录里绝对只存文本和时间，图片滚蛋！省下巨量 Token！
     session.messages.push({ role: 'user', content: val, fullTime: new Date().toISOString() });
     saveToCloud();
 
@@ -392,8 +395,15 @@ async function sendChat() {
 
     win.appendChild(sRow); win.scrollTop = win.scrollHeight;
 
-    const imgToSend = currentImgBase64;
-    clearImage();
+    // 💥 把相册打包复印一份，准备交给大模型
+    const imgsToSend = [...currentImgBase64List]; 
+    clearImage(); // 网页上的预览区和全局相册清空
+
+    // 💥 1. 拷贝图片并清空相册
+    var imgsToSend = [...currentImgBase64List]; 
+    clearImage(); 
+
+    // ❌ 已经彻底删除了那句双倍烧钱的 await askShenWang！
 
     // --- 3. 获取供应商、模型和流式开关 ---
     const currentSup = suppliers[activeSupIndex];
@@ -404,24 +414,23 @@ async function sendChat() {
     const modelEl = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按量]gemini-3-flash-preview';
     
-    // 💥 关键：去抓你刚刚在 HTML 写的 checkbox！
     const streamToggle = document.getElementById('streamToggle');
     const isStream = streamToggle ? streamToggle.checked : true; // 默认开启
 
-    // --- 4. 组装请求参数 (兼容图片) ---
-    let userContent = val;
-    if (imgToSend) {
-        userContent = [
-            { type: "text", text: val || "（发送了一张图片）" },
-            { type: "image_url", image_url: { url: imgToSend } }
-        ];
+    // --- 4. 💥 组装请求参数 (完美兼容多图组装) ---
+    var userContent = val;
+    if (imgsToSend.length > 0) {
+        userContent = [{ type: "text", text: val || "（发送了图片）" }];
+        for (var i = 0; i < imgsToSend.length; i++) {
+            userContent.push({ type: "image_url", image_url: { url: imgsToSend[i] } });
+        }
     }
 
-       // 把历史消息带上（不含刚刚push的最后一条）
+    // 把历史消息带上（不含刚刚push的最后一条）
     var historyMsgs = session.messages.slice(0, -1).map(function(m) {
         return { role: m.role, content: m.content };
     });
-    // 最后一条用 userContent（可能含图片）
+    // 最后一条用 userContent（包含你刚重写的完美图片数组）
     historyMsgs.push({ role: 'user', content: userContent });
 
     var requestBody = {
@@ -429,7 +438,6 @@ async function sendChat() {
         messages: historyMsgs,
         stream: isStream
     };
-
    try {
         // 🌟 核心修复：根据你的供应商 URL，自动拼接正确的路由路径！
         let apiUrl = '/v1/chat/completions'; // 默认走 msui
@@ -1048,19 +1056,14 @@ function triggerRegenerate(){
         const input = document.getElementById('chatInput');
         if(input) input.value = userMsg.content;
         
+        // 💥 重新生成时，把历史消息里的图片重新塞回新相册
         if(userMsg.image){
-            currentImgBase64 = userMsg.image;
-            const previewImg = document.getElementById('previewImg');
-            const wrap = document.getElementById('imgPreviewWrap');
-            if(previewImg) previewImg.src = currentImgBase64;
-            if(wrap) wrap.style.display = 'block';
+            currentImgBase64List = [userMsg.image];
+            updateImagePreview();
         }
         toast('时光倒流...'); sendChat();
     } else { toast('只能重置他的回复哦'); }
 }
-
-// 启动引擎
-syncFromCloud();
 
 // ==================== 日夜交替模式 ====================
 function toggleLightMode() {
@@ -1271,15 +1274,19 @@ async function restoreStickyNote() {
     }
 }
 
-// 启动引擎
-async function startStickyNoteTimer() {
-    await restoreStickyNote();       // 等云端数据回来再检查
-    tryGenerateStickyNote();
-    setInterval(tryGenerateStickyNote, 60 * 1000);
+// ==================== 终极点火装置 ====================
+async function startSystem() {
+    // 1. 先把云端记忆（日记、聊天记录、配置）拉下来
+    await syncFromCloud(); 
+    
+    // 2. 然后启动沈望的便签查岗引擎
+    await restoreStickyNote();       // 恢复上次的便签
+    tryGenerateStickyNote();         // 强制查一次岗
+    setInterval(tryGenerateStickyNote, 60 * 1000); // 每1分钟自动巡逻
 }
 
-// 网页一加载完毕，立刻启动这个定时器
-document.addEventListener('DOMContentLoaded', startStickyNoteTimer);
+// 撕掉所有封印，暴力点火！
+startSystem();
 
 // ==================== 对话索引 ====================
 function toggleChatIndex() {
