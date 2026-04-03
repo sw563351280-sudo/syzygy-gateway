@@ -1110,7 +1110,7 @@ if (metaTheme) {
     // 换按钮的图标
     const btn = document.getElementById('themeToggleBtn');
     if(btn) {
-        btn.innerText = isLight ? '🌙' : '☀️';
+        btn.innerText = isLight ? '☾' : '☼';
         btn.style.color = isLight ? '#333' : 'white';
         btn.style.background = isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.2)';
     }
@@ -1123,7 +1123,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (savedTheme === 'light') {
         document.body.classList.add('light-mode');
         if(btn) {
-            btn.innerText = '🌙';
+            btn.innerText = '☾';
             btn.style.color = '#333';
             btn.style.background = 'rgba(0,0,0,0.05)';
         }
