@@ -241,5 +241,19 @@
             <span>🔄</span> 重新生成此条
         </div>
     </div>
+
+    <!-- 时光信箱弹窗 -->
+<div id="mailboxModal" style="display:none; position:fixed; inset:0; z-index:9998; background:rgba(0,0,0,0.7); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);" onclick="if(event.target===this)closeMailbox()">
+    <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:92%; max-width:500px; max-height:75vh; background:rgba(12,16,28,0.95); border:1px solid rgba(201,169,97,0.25); border-radius:14px; display:flex; flex-direction:column; overflow:hidden;">
+        <div style="padding:18px 20px; border-bottom:1px solid rgba(201,169,97,0.1); display:flex; justify-content:space-between; align-items:center;">
+            <span style="color:var(--gold); font-size:1em; letter-spacing:2px;">🗃️ 时光信箱</span>
+            <button onclick="closeMailbox()" style="background:transparent; border:none; color:var(--dim); font-size:1.3em; cursor:pointer;">✕</button>
+        </div>
+        <div id="mailboxList" style="flex:1; overflow-y:auto; padding:14px 18px; display:flex; flex-direction:column; gap:12px;">
+            <div style="color:var(--dim); text-align:center; padding:30px;">加载中...</div>
+        </div>
+    </div>
+</div>
+
 </body>
 </html>
