@@ -2552,3 +2552,10 @@ body.light-mode .chat-tool-item:hover {
     flex-shrink: 0 !important;
     white-space: nowrap !important;
 }
+
+/* 白天模式：侧边栏纸张层叠感 */
+body.light-mode .chat-sidebar {
+    border-right: none !important;
+    box-shadow: 2px 0 15px rgba(139, 115, 85, 0.05) !important; /* 极淡的暖棕色阴影 */
+    background: rgba(255, 255, 255, 0.4) !important;
+}
