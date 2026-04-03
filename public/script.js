@@ -388,7 +388,7 @@ async function sendChat() {
     uRow.appendChild(uDiv);
     win.appendChild(uRow); win.scrollTop = win.scrollHeight;
 
-    session.messages.push({ role: 'user', content: val });
+    session.messages.push({ role: 'user', content: val, fullTime: new Date().toISOString() });
     saveToCloud();
 
     // --- 2. 准备好沈望回复的空白气泡 ---
@@ -575,7 +575,7 @@ async function sendChat() {
 
         // --- 5. 存入云端记忆和按钮绑定 ---
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-        const assistantMsg = { role: 'assistant', content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel };
+       const assistantMsg = { role: 'assistant', content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() };
         session.messages.push(assistantMsg);
         saveToCloud();
 
@@ -998,12 +998,50 @@ function collectNoteAndJump() {
     }
 }
 
-// ==================== 打开时光信箱 ====================
-function openMailbox() {
-    // 这里以后可以接后端，弹出一个绝美的弹窗展示所有的历史便签
-    // 今晚咱们先弹个提示框
-    alert("你拉开了时光信箱的抽屉，里面整整齐齐地叠着沈望留给你的每一张便签。\n\n（历史记录墙功能建设中，敬请期待...）");
+// ==================== 时光信箱 ====================
+async function openMailbox() {
+    const modal = document.getElementById('mailboxModal');
+    const list  = document.getElementById('mailboxList');
+    if (!modal || !list) return;
+
+    modal.style.display = 'block';
+    list.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;">正在翻阅抽屉...</div>';
+
+    try {
+        const r = await fetch('/diary-logs');
+        const data = await r.json();
+
+        // 筛选出所有便签（沈望的碎碎念）
+        const notes = data.filter(d => d.text && d.text.startsWith('【便签】'));
+
+        if (!notes.length) {
+            list.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;font-style:italic;">信箱是空的，沈望还没有留过便签。</div>';
+            return;
+        }
+
+        // 最新的在最前面
+        notes.reverse();
+
+        list.innerHTML = notes.map(n => {
+            const text = n.text.replace('【便签】', '').trim();
+            const safeText = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return `
+                <div style="background:rgba(201,169,97,0.04); border-left:2px solid rgba(201,169,97,0.25); padding:14px 16px; border-radius:0 8px 8px 0;">
+                    <div style="font-family:'ximai','Georgia',serif; font-size:1.15em; color:var(--cream); line-height:1.6; letter-spacing:1px;">${safeText}</div>
+                    <div style="color:var(--dim); font-size:0.72em; margin-top:8px; text-align:right;">${n.date || ''}</div>
+                </div>
+            `;
+        }).join('');
+    } catch(e) {
+        list.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;">加载失败</div>';
+    }
 }
+
+function closeMailbox() {
+    const modal = document.getElementById('mailboxModal');
+    if (modal) modal.style.display = 'none';
+}
+
 
 // ==================== 便签：断联自动生成 (Kelivo 融合版) ====================
 const STICKY_INTERVAL_MS = 14400000; // 4小时 = 4 * 60 * 60 * 1000 毫秒 (测试时可改为 10000)
