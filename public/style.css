@@ -2559,3 +2559,123 @@ body.light-mode .chat-sidebar {
     box-shadow: 2px 0 15px rgba(139, 115, 85, 0.05) !important; /* 极淡的暖棕色阴影 */
     background: rgba(255, 255, 255, 0.4) !important;
 }
+
+/* ==========================================
+   📱 手机端终极 UI：折叠下拉菜单 + 左右分离工具栏
+   ========================================== */
+@media(max-width: 600px) {
+    /* 1. 布局基座：给顶部的两块悬浮版留出呼吸空间 */
+    .chat-layout { position: relative; }
+    .chat-main .chat-window { padding-top: 60px !important; }
+
+    /* 2. 左上角：把频道侧边栏变成一个“悬浮下拉菜单” */
+    .chat-sidebar {
+        position: absolute !important;
+        top: 10px; left: 12px;
+        width: auto !important;
+        height: auto !important;
+        background: transparent !important;
+        border: none !important;
+        z-index: 100;
+        flex-direction: column !important; /* 频道列表变回竖排 */
+        overflow: visible !important;
+    }
+
+    /* 触发下拉的按钮 (原本的“频道会话”头部) */
+    .sidebar-header {
+        background: rgba(255, 255, 255, 0.7) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        border: 1px solid rgba(201,169,97,0.3) !important;
+        border-radius: 12px !important;
+        padding: 8px 14px !important;
+        box-shadow: 0 4px 15px rgba(139, 115, 85, 0.1) !important;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        transition: 0.3s;
+    }
+    
+    /* 给“频道会话”旁边加个小小的下拉箭头暗示（纯CSS生成） */
+    .sidebar-title::after {
+        content: ' ▾';
+        font-size: 1.1em;
+        opacity: 0.7;
+    }
+
+    /* 隐藏的频道列表 (点击后悬浮显示) */
+    .sidebar-list {
+        display: none !important; /* 默认隐藏 */
+        position: absolute;
+        top: 45px; left: 0;
+        width: 160px;
+        background: rgba(255, 255, 255, 0.9) !important;
+        backdrop-filter: blur(15px) !important;
+        -webkit-backdrop-filter: blur(15px) !important;
+        border: 1px solid rgba(201,169,97,0.2) !important;
+        border-radius: 10px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+        flex-direction: column !important;
+        padding: 6px 0 !important;
+    }
+
+    /* 💥 核心魔法：当JS加上 .menu-open 类时，显示下拉菜单 */
+    .chat-sidebar.menu-open .sidebar-list {
+        display: flex !important;
+        animation: menuFadeIn 0.2s ease;
+    }
+
+    /* 菜单里的选项变回竖向，且不拥挤 */
+    .sidebar-item {
+        width: 100% !important;
+        border-bottom: none !important;
+        border-left: 2px solid transparent !important;
+        padding: 10px 14px !important;
+    }
+    .sidebar-item.active {
+        border-left-color: var(--gold) !important;
+        background: rgba(201,169,97,0.08) !important;
+    }
+
+    /* 3. 右上角：把主标题栏彻底压缩成两个工具按钮 */
+    .chat-main-header {
+        position: absolute !important;
+        top: 10px !important;
+        right: 12px !important;
+        width: auto !important;
+        height: auto !important;
+        padding: 0 !important;
+        background: transparent !important;
+        border: none !important;
+        z-index: 99;
+    }
+
+    /* 彻底斩掉多余的“✨主频道”标题 */
+    .chat-win-title { display: none !important; }
+
+    /* 右上角按钮的磨砂玻璃质感 */
+    .chat-index-btn, .chat-rename-btn {
+        background: rgba(255, 255, 255, 0.7) !important;
+        backdrop-filter: blur(10px) !important;
+        -webkit-backdrop-filter: blur(10px) !important;
+        border: 1px solid rgba(201, 169, 97, 0.3) !important;
+        box-shadow: 0 4px 15px rgba(139, 115, 85, 0.1) !important;
+        border-radius: 12px !important;
+        padding: 8px 12px !important;
+        margin-left: 8px;
+    }
+
+    /* 黑夜模式的颜色自适应 */
+    body:not(.light-mode) .sidebar-header,
+    body:not(.light-mode) .sidebar-list,
+    body:not(.light-mode) .chat-index-btn,
+    body:not(.light-mode) .chat-rename-btn {
+        background: rgba(12, 16, 28, 0.8) !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.4) !important;
+    }
+}
+
+@keyframes menuFadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
