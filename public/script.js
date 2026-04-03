@@ -174,8 +174,11 @@ function go(id, btn){
     document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
     if(btn) btn.classList.add('active');
 
-    if(id === 'diary') renderDiaries();
-    if(id === 'chat')  { /* 保持原样，千万别拆家！ */ } 
+   if(id === 'diary') renderDiaries();
+    if(id === 'chat')  { 
+        /* 保持原样，千万别拆家！ */ 
+        forceScrollToChatBottom(); // 💥 核心：切到聊天页的瞬间，强制拉到底部！
+    } 
     if(id === 'data')  { renderSuppliers(); updateCounts(); }
 
     window.scrollTo(0, 0);
@@ -334,14 +337,10 @@ session.messages.forEach((m, index) => {
         win.appendChild(rowDiv);
     });
     
-// 💥 稍微等 300 毫秒，等软键盘和图片彻底加载完，再一脚踩到底
-    setTimeout(() => {
-        win.scrollTo({
-            top: win.scrollHeight,
-            behavior: 'smooth'
-        });
-    }, 300);
+// 💥 消息渲染完毕，召唤终极置底魔法
+    forceScrollToChatBottom();
 }
+
 function newChatWindow(){
     const id = 'chat_' + Date.now().toString(36);
     chatSessions.push({ id, name: '频道 ' + (chatSessions.length + 1), messages: [] });
@@ -1448,3 +1447,21 @@ document.addEventListener('click', function(e) {
         }
     }
 });
+
+// ==========================================
+// 🚀 终极聊天区置底魔法 (专治切页面不滚动)
+// ==========================================
+function forceScrollToChatBottom() {
+    const win = document.getElementById('chatWindow');
+    if (!win) return;
+    
+    // 第一重保险：切页面的瞬间（50ms）拉到底
+    setTimeout(() => {
+        win.scrollTop = win.scrollHeight;
+    }, 50);
+    
+    // 第二重保险：等 CSS 动画和图片彻底渲染完（350ms）再踩一脚
+    setTimeout(() => {
+        win.scrollTop = win.scrollHeight;
+    }, 350);
+}
