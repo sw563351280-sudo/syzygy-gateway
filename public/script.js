@@ -372,7 +372,12 @@ async function sendChat() {
     const input = document.getElementById('chatInput');
     if(!input) return;
     const val = input.value.trim();
-    if(!val && !currentImgBase64) return;
+
+    // 💥 就在这里！Claude 让加的“侦察兵”
+    console.log('val类型:', typeof val, '值:', val);
+    console.log('currentImgBase64List:', currentImgBase64List.length);
+
+    if(!val && currentImgBase64List.length === 0) return;
     input.value = '';
 
     const session = getActiveSession();
