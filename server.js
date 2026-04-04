@@ -548,15 +548,7 @@ let intentData = await analyzeIntent(currentUserMsgText).catch(() => null);
             zepMessages = zepData.messages || [];
             const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
             if (zepLastUser) zepLastUserContent = zepLastUser.content;
-            if (zepData.summary?.content) {
-    // 🛡️ 摘要最多2000字符，防止累积膨胀
-    const cappedSummary = zepData.summary.content.substring(0, 2000);
-    memoryContext += `\n【潜意识摘要】\n${cappedSummary}\n`;
-    if (zepData.summary.content.length > 2000) {
-        console.log(`📦 [摘要截断] 原始${zepData.summary.content.length}字符 → 截断为2000`);
-    }
-}
-
+          
             // 🛡️ 客户端已经发了30条历史，这里不再重复注入Zep聊天记录
 // 只保留向量搜索和摘要（这些是客户端没有的信息）
 if (zepMessages.length > 0) {
@@ -682,13 +674,13 @@ if (zepMessages.length > 0) {
         // ====== 服务端X光 ======
 const totalChars = JSON.stringify(newMessages).length;
 const estimatedTokens = Math.round(totalChars / 4);
-console.log(`🔬 [X光] 最终发给API的消息条数: ${newMessages.length}`);
-console.log(`🔬 [X光] 总字符数: ${totalChars} ≈ ${estimatedTokens} tokens`);
+console.log(`🔬 [X光] 最终发给API: ${newMessages.length}条消息, ${totalChars}字符 ≈ ${estimatedTokens} tokens`);
 newMessages.forEach((m, i) => {
     const len = JSON.stringify(m.content).length;
-    console.log(`  📄 第${i}条[${m.role}] ${len}字符 ${len > 5000 ? '💀巨大!' : len > 2000 ? '⚠️较大' : '✅'}`);
+    if (len > 2000) console.log(`  💀 第${i}条[${m.role}] ${len}字符 - 异常大!`);
 });
 // ====== X光结束 ======
+
 
 
         const isGemini = (body.model || '').toLowerCase().includes('gemini');
@@ -1267,14 +1259,14 @@ let intentData = await analyzeIntent(userText).catch(() => null);
                     if (zepRes?.ok) {
                         const zepData = await zepRes.json();
                         if (isMaster) {
-                            if (zepData.summary?.content) memoryContext += `\n【前文摘要】\n${zepData.summary.content}\n`;if (zepData.messages?.length > 0) {
+                            if (zepData.messages?.length > 0) {
                                 memoryContext += `\n【近期回忆】\n`;
                                 zepData.messages.slice(-10).forEach(m => {
                                     memoryContext += `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`;
                                 });
                             }
                         } else {
-                            if (zepData.summary?.content) memoryContext += `\n【江鱼最近的动态摘要（仅供参考，江鱼本人不在场）】\n${zepData.summary.content}\n`;}
+                            }
                     }
 
                     if (isFriend && friendTempMemory[senderId] && friendTempMemory[senderId].length > 0) {
@@ -1743,8 +1735,7 @@ app.post('/diary/ai-write', async (req, res) => {
             const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=10`);
             if (zepRes.ok) {
                 const zepData = await zepRes.json();
-                if (zepData.summary?.content) recentContext = `\n【近期背景】${zepData.summary.content}\n`;
-            }
+            
         } catch(e) {}
 
         const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
