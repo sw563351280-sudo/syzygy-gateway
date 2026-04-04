@@ -496,7 +496,11 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${currentSup.key}`
             },
-            body: JSON.stringify(requestBody)
+            body: JSON.stringify({
+    model: selectedModel,
+    messages: historyMsgs,
+    stream: isStream
+})
         });
 
         if (!response.ok) {
