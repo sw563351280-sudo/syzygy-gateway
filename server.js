@@ -1730,12 +1730,13 @@ app.post('/diary/ai-write', async (req, res) => {
     const prompt = prompts[type] || prompts.diary;
 
     try {
-        let recentContext = '';
+       let recentContext = '';
         try {
             const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=10`);
             if (zepRes.ok) {
                 const zepData = await zepRes.json();
-            
+                // 你原本这里应该有处理 zepData 的代码
+            }   // ← 补上这个
         } catch(e) {}
 
         const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
