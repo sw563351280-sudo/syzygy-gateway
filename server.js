@@ -160,6 +160,7 @@ function deleteLongTermMemory(id) {
 function scanLongTermRadar(userText) {
     if (!userText) return "";
     const memories = loadLongTermMemories();
+        console.log(`🔎 [长期记忆雷达] 扫描中... 库存${memories.length}条记忆, 用户说: "${userText.substring(0, 30)}"`);
     let matched = [];
     let isUpdated = false;
 
@@ -622,17 +623,18 @@ if (zepMessages.length > 0) {
         const envContext = `\n\n==========\n【系统环境参数实时同步】\n当前真实时间：${timeString}\n当前物理位置：日本札幌\n【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。你知道江鱼在札幌，但🚨除非她主动提起，或者话题极度相关（如聊到天气骤变、异地见面的艰难），否则绝对不要刻意提及或强调"札幌"这两个字🚨！把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n==========\n`;
 
         // 🔧 修改: 注入预算控制
-        const MEMORY_BUDGET = 4000;
+        const MEMORY_BUDGET = 8000;
         let usedBudget = 0;
         const budgetedParts = [];
-        const injectionQueue = [
+                const injectionQueue = [
             { label: '环境参数', content: envContext },
+            { label: '长期记忆雷达', content: longTermContext },   // ⬆️ 提前！
+            { label: '核心雷达', content: coreRadarContext },      // ⬆️ 提前！
+            { label: 'RP雷达', content: rpRadarContext },          // ⬆️ 提前！
+            { label: '状态备忘录', content: dynamicStatePrompt },  // ⬇️ 后移
             { label: '分拣员指令', content: routerPrompt },
-            { label: '状态备忘录', content: dynamicStatePrompt },
-            { label: '核心雷达', content: coreRadarContext },
-            { label: '长期记忆雷达', content: longTermContext },
-            { label: 'RP雷达', content: rpRadarContext },
         ];
+
         for (const item of injectionQueue) {
             if (!item.content || item.content.trim().length === 0) continue;
             if (usedBudget + item.content.length <= MEMORY_BUDGET) {
