@@ -107,33 +107,55 @@ function passesQualityGate(content, tags) {
 }
 
 // RP 游戏卡带新增
-function addRoleplayMemory(content, tags = []) {
+function addRoleplayMemory(content, tags = [], ttl = '1w') {
     const memories = loadRoleplayMemories();
     if (memories.some(m => m.content === content.trim())) {
         console.log(`🛡️ [防抽风拦截] 阻止了一条重复的RP记忆: ${content.substring(0, 15)}...`);
         return null;
     }
-    const entry = { id: 'rp_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4), content: content.trim(), tags: tags, source: 'roleplay', created_at: new Date().toISOString() };
+    const expiresAt = calculateExpiry(ttl);
+    const entry = {
+        id: 'rp_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4),
+        content: content.trim(),
+        tags: tags,
+        source: 'roleplay',
+        ttl: ttl || '1w',
+        expires_at: expiresAt,
+        created_at: new Date().toISOString()
+    };
     memories.push(entry); saveRoleplayMemories(memories);
-    console.log(`🎮 游戏卡带已刻录：tags=[${tags.join(',')}] | ${content.substring(0, 40)}...`);
+    const ttlLabel = expiresAt ? `保质期=${ttl}` : '永久保存';
+    console.log(`🎮 游戏卡带已刻录：[${ttlLabel}] tags=[${tags.join(',')}] | ${content.substring(0, 40)}...`);
     return entry;
 }
 
 // 🔧 修改: 现实记忆新增（加入 RP 拦截 + 语义查重）
-function addLongTermMemory(content, source = 'manual', tags = []) {
+function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm') {
     const memories = loadLongTermMemories();
     if (memories.some(m => m.content === content.trim())) {
         console.log(`🛡️ [防抽风拦截] 阻止了一条重复的现实记忆: ${content.substring(0, 15)}...`);
         return null;
     }
-    //🔧 修改: 非手动来源的记忆做语义查重
     if (source !== 'manual' && isSemanticDuplicate(content, memories)) {
         return null;
     }
-    const entry = { id: Date.now().toString(36) + Math.random().toString(36).substr(2, 4), content: content.trim(), tags: tags, source: source, last_accessed: Date.now(), created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    const expiresAt = calculateExpiry(ttl);
+    const entry = {
+        id: Date.now().toString(36) + Math.random().toString(36).substr(2, 4),
+        content: content.trim(),
+        tags: tags,
+        source: source,
+        ttl: ttl || 'perm',
+        expires_at: expiresAt,
+        last_accessed: Date.now(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+    };
     memories.push(entry); saveLongTermMemories(memories);
-    console.log(`💎 长期记忆已刻入：[${source}] tags=[${tags.join(',')}] | ${content.substring(0, 60)}...`);
+    const ttlLabel = expiresAt ? `保质期=${ttl}` : '永久保存';
+    console.log(`💎 长期记忆已刻入：[${source}] [${ttlLabel}] tags=[${tags.join(',')}] | ${content.substring(0, 60)}...`);
     return entry;
+}
 }
 
 function updateLongTermMemory(id, newContent, newTags) {
@@ -165,7 +187,8 @@ function scanLongTermRadar(userText) {
     let isUpdated = false;
 
     for (const m of memories) {
-        if (!m.tags || m.tags.length === 0) continue;
+    if (m.expires_at && Date.now() > m.expires_at) continue;
+    if (!m.tags || m.tags.length === 0) continue;
         const hitTags = m.tags.filter(tag => isTagMatch(tag, userText));
         if (hitTags.length > 0) {
             matched.push({ text: `• ${m.content}`, hitCount: hitTags.length });
@@ -189,7 +212,8 @@ function scanRoleplayRadar(userText) {
     let matched = [];
 
     for (const m of memories) {
-        if (!m.tags || m.tags.length === 0) continue;
+    if (m.expires_at && Date.now() > m.expires_at) continue;
+    if (!m.tags || m.tags.length === 0) continue;
         const hitTags = m.tags.filter(tag => isTagMatch(tag, userText));
         if (hitTags.length > 0) {
             matched.push({ text: `• 🎭 [设定/进度: ${m.tags.join(',')}] ${m.content}`, hitCount: hitTags.length });
@@ -205,32 +229,72 @@ function scanRoleplayRadar(userText) {
 
 // 自动清洗管家
 function cleanAndArchiveMemories() {
-    console.log('🧠 [沈望的意识后台] 正在巡检陈旧现实记忆...');
+    console.log('🧠 [沈望的意识后台] 正在巡检记忆保质期...');
     try {
+        // 清扫现实记忆
         const memories = loadLongTermMemories();
-        if (memories.length === 0) return;
         let archived = loadArchivedMemories();
         const now = Date.now();
-        const DECAY_MS = 30 * 24 * 60 * 60 * 1000;
         let activeMemories = [];
-        let moveCount = 0;
-        memories.forEach(m => {
-            let lastAccessTime = m.last_accessed || (m.created_at ? new Date(m.created_at).getTime() : now);
-            if (now - lastAccessTime > DECAY_MS) { archived.push(m); moveCount++; }
-            else { activeMemories.push(m); }
-        });
-        if (moveCount > 0) {
-            saveLongTermMemories(activeMemories); saveArchivedMemories(archived);
-            console.log(`📦 [记忆冰封] 沈望把 ${moveCount} 条陈旧记忆锁进了冰封档案！`);
-        } else { console.log('✨ [巡检完毕] 现实记忆都在保质期内。'); }
-    } catch (e) { console.error('❌ [归档失败] 潜意识整理受阻:', e.message); }
+        let expiredCount = 0;
+        let decayCount = 0;
+
+        for (const m of memories) {
+            // 优先检查保质期
+            if (m.expires_at && now > m.expires_at) {
+                archived.push({ ...m, archived_reason: 'expired' });
+                expiredCount++;
+                console.log(`⏰ [过期归档] ttl=${m.ttl} | ${m.content.substring(0, 30)}...`);
+            }
+            // 永久记忆检查30天未访问衰减
+            else if (!m.expires_at) {
+                const lastAccess = m.last_accessed || (m.created_at ? new Date(m.created_at).getTime() : now);
+                if (now - lastAccess > 30 * 24 * 60 * 60 * 1000) {
+                    archived.push({ ...m, archived_reason: 'decay' });
+                    decayCount++;
+                } else {
+                    activeMemories.push(m);
+                }
+            } else {
+                activeMemories.push(m);
+            }
+        }
+
+        if (expiredCount + decayCount > 0) {
+            saveLongTermMemories(activeMemories);
+            saveArchivedMemories(archived);
+            console.log(`📦 [记忆巡检完毕] 过期归档: ${expiredCount}条, 衰减归档: ${decayCount}条, 活跃: ${activeMemories.length}条`);
+        } else {
+            console.log(`✨ [巡检完毕] 全部${memories.length}条现实记忆都在保质期内。`);
+        }
+
+        // 清扫 RP 记忆
+        const rpMemories = loadRoleplayMemories();
+        let rpActive = [];
+        let rpExpired = 0;
+        for (const m of rpMemories) {
+            if (m.expires_at && now > m.expires_at) {
+                archived.push({ ...m, archived_reason: 'rp_expired' });
+                rpExpired++;
+                console.log(`🎮 [卡带过期] ${m.content.substring(0, 30)}...`);
+            } else {
+                rpActive.push(m);
+            }
+        }
+        if (rpExpired > 0) {
+            saveRoleplayMemories(rpActive);
+            saveArchivedMemories(archived);
+            console.log(`🎮 [卡带清扫] ${rpExpired}条过期RP记忆已归档`);
+        }
+    } catch (e) {
+        console.error('❌ [归档失败] 潜意识整理受阻:', e.message);
+    }
 }
-cleanAndArchiveMemories();
+
 
 // SAVE_MEMORY 标签提取
-const SAVE_MEMORY_REGEX = /<SAVE_MEMORY\s+tags=["']([^"']+)["']\s*>([\s\S]*?)<\/SAVE_MEMORY>/g;
-const SAVE_MEMORY_REGEX_SINGLE = /<SAVE_MEMORY\s+tags=["']([^"']+)["']\s*>([\s\S]*?)<\/SAVE_MEMORY>/;
-
+const SAVE_MEMORY_REGEX = /<SAVE_MEMORY\s+tags=["']([^"']+)["'](?:\s+ttl=["']([^"']+)["'])?\s*>([\s\S]*?)<\/SAVE_MEMORY>/g;
+const SAVE_MEMORY_REGEX_SINGLE = /<SAVE_MEMORY\s+tags=["']([^"']+)["'](?:\s+ttl=["']([^"']+)["'])?\s*>([\s\S]*?)<\/SAVE_MEMORY>/;
 function extractSaveMemoryTag(text) {
     const results = [];
     let match;
@@ -238,7 +302,8 @@ function extractSaveMemoryTag(text) {
     while ((match = regex.exec(text)) !== null) {
         results.push({
             tags: match[1].split(/[,，]/).map(t => t.trim()).filter(Boolean),
-            content: match[2].trim()
+            ttl: match[2] || '1m',
+            content: match[3].trim()
         });
     }
     const cleanText = text.replace(new RegExp(SAVE_MEMORY_REGEX.source, 'g'), '').trim();
@@ -253,21 +318,49 @@ function buildSSEChunk(text, template) {
 }
 
 // ==========================================
+// 🕐 记忆保质期系统
+// ==========================================
+const TTL_MAP = {
+    '3d':   3 * 24 * 60 * 60 * 1000,
+    '1w':   7 * 24 * 60 * 60 * 1000,
+    '1m':  30 * 24 * 60 * 60 * 1000,
+    'perm': null
+};
+
+function calculateExpiry(ttl) {
+    if (!ttl || ttl === 'perm') return null;
+    const duration = TTL_MAP[ttl];
+    if (!duration) {
+        console.log(`⚠️ [保质期] 未知的 TTL "${ttl}"，降级为 1m`);
+        return Date.now() + TTL_MAP['1m'];
+    }
+    return Date.now() + duration;
+}
+
+function getTTLLabel(mem) {
+    if (!mem.expires_at) return '♾️ 永久';
+    const remaining = mem.expires_at - Date.now();
+    if (remaining <= 0) return '⏰ 已过期';
+    const days = Math.ceil(remaining / (24 * 60 * 60 * 1000));
+    if (days <= 3) return `🔥 ${days}天后过期`;
+    if (days <= 7) return `📅 ${days}天后过期`;
+    return `📦 ${days}天后过期`;
+}
+
+// ==========================================
 // 🔧 修改: 记忆写入统一入口（质量守门 + RP 自动分流）
 // 所有非手动来源的写入都走这里
 // ==========================================
-function smartMemoryWrite(content, tags, source) {
+function smartMemoryWrite(content, tags, source, ttl = '1m') {
     const validTags = (tags || []).filter(t => t.length >= 2);
-    // 质量守门
     if (!content || content.trim().length < 10 || validTags.length === 0) {
         console.log(`🛡️ [统一守门] 拦截低质量记忆: ${(content || '').substring(0, 30)}`);
         return null;
     }
-    // RP 标签自动分流
     if (validTags.some(t => ['roleplay','rp','副本','游戏','设定','语c','卡带'].includes(t.toLowerCase()))) {
-        return addRoleplayMemory(content, validTags);
+        return addRoleplayMemory(content, validTags, ttl);
     }
-    return addLongTermMemory(content, source, validTags);
+    return addLongTermMemory(content, source, validTags, ttl);
 }
 
 // ==========================================
@@ -419,11 +512,16 @@ permanent_memories 只允许记录以下类型：
     "new_preferences": "现实偏好（字符串，无变化写'无更新'）",
     "relationship_turning_points": "现实关系进展（字符串，严禁混入RP，无变化写'无更新'）",
     "pending_promises": "现实约定（字符串，无变化写'无更新'）",
-    "permanent_memories": [{"content": "重要现实记忆", "tags": ["关键词1","关键词2"]}],
-    "roleplay_memories": [{"content": "RP设定与进度", "tags": ["副本名", "角色"]}]
+   "permanent_memories": [{"content": "记忆内容", "tags": ["关键词1","关键词2"], "ttl": "保质期"}],
+"roleplay_memories": [{"content": "RP设定与进度", "tags": ["副本名", "角色"], "ttl": "保质期"}]
 }
-permanent_memories:最多2条，无重要事件则为空数组 []。每条的tags 需要2-5个关键词且每个至少2个字。
-roleplay_memories: 最多3条，无RP内容则为空数组 []。`;
+permanent_memories: 最多2条，无重要事件则为空数组 []。每条必须包含 ttl 字段：
+  - "3d"：临时琐事（今天想吃什么、临时安排）
+  - "1w"：短期记忆（本周计划、近期情绪波动）
+  - "1m"：中期记忆（某次重要对话、阶段性事件）
+  - "perm"：永久记忆（生日、纪念日、核心偏好、重大人生事件）
+  ⚠️ 90%的记忆应该是 3d 或 1w，只有真正改变关系的里程碑才配用 perm！每条的tags 需要2-5个关键词且每个至少2个字。
+roleplay_memories: 最多3条，无RP内容则为空数组 []。ttl 默认 "1w"。`;
 
     try {
         const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
@@ -444,10 +542,10 @@ roleplay_memories: 最多3条，无RP内容则为空数组 []。`;
         if (summaryJson.permanent_memories && Array.isArray(summaryJson.permanent_memories)) {
             const capped = summaryJson.permanent_memories.slice(0, 2);
             for (const mem of capped) {
-                if (typeof mem === 'object' && mem.content && mem.content.trim()) {
-                    smartMemoryWrite(mem.content, mem.tags, 'butler_summary');
-                }
-            }
+    if (typeof mem === 'object' && mem.content && mem.content.trim()) {
+        smartMemoryWrite(mem.content, mem.tags, 'butler_summary', mem.ttl || '1m');
+    }
+}
         }
 
         // 🔧 修改: RP 游戏档案入库（硬上限）
@@ -455,7 +553,7 @@ roleplay_memories: 最多3条，无RP内容则为空数组 []。`;
             const cappedRP = summaryJson.roleplay_memories.slice(0, 3);
             for (const mem of cappedRP) {
                 if (typeof mem === 'object' && mem.content && mem.content.trim()) {
-                    addRoleplayMemory(mem.content, mem.tags || []);
+                    addRoleplayMemory(mem.content, mem.tags || [], mem.ttl || '1w');
                 }
             }if (cappedRP.length > 0) console.log(`🎮 管家提取了${cappedRP.length} 条 RP 游戏设定！已放入专属卡带箱。`);
         }
@@ -752,11 +850,11 @@ newMessages.forEach((m, i) => {
                         if (closeIdx !== -1) {
                             const tagMatch = contentBuffer.match(SAVE_MEMORY_REGEX_SINGLE);
                             if (tagMatch) {
-                                const tags = tagMatch[1].split(/[,，]/).map(t => t.trim()).filter(Boolean);
-                                const memContent = tagMatch[2].trim();
-                                // 🔧 修改: 走统一入口 smartMemoryWrite
-                                smartMemoryWrite(memContent, tags, 'ai_active');
-                            }
+    const tags = tagMatch[1].split(/[,，]/).map(t => t.trim()).filter(Boolean);
+    const ttl = tagMatch[2] || '1m';
+    const memContent = tagMatch[3].trim();
+    smartMemoryWrite(memContent, tags, 'ai_active', ttl);
+}
                             contentBuffer = contentBuffer.substring(closeIdx + '</SAVE_MEMORY>'.length);
                             isBuffering = false;
                             if (contentBuffer) { const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate); if (chunk) res.write(chunk); contentBuffer = ''; }
@@ -775,7 +873,7 @@ newMessages.forEach((m, i) => {
                     const { cleanText, memories } = extractSaveMemoryTag(assistantContent);
                     for (const mem of memories) {
                         // 🔧 修改: 走统一入口
-                        smartMemoryWrite(mem.content, mem.tags, 'ai_active');
+                       smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl);
                     }
                     if (memories.length > 0) data.choices[0].message.content = cleanText;
                 }
@@ -1315,7 +1413,7 @@ let intentData = await analyzeIntent(userText).catch(() => null);
                                 const { cleanText, memories } = extractSaveMemoryTag(aiReply);
                                 for (const mem of memories) {
                                     // 🔧 修改: 走统一入口
-                                    smartMemoryWrite(mem.content, mem.tags, 'ai_active');
+                                    smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl);
                                 }
                                 aiReply = memories.length > 0 ? cleanText : aiReply;
 
@@ -1652,7 +1750,7 @@ app.post('/api/web-chat', async (req, res) => {
 
                 const { cleanText, memories } = extractSaveMemoryTag(aiReply);
                 for (const mem of memories) {
-                    smartMemoryWrite(mem.content, mem.tags, 'ai_active');
+                    smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl);
                 }
                 aiReply = memories.length > 0 ? cleanText : aiReply;
 
