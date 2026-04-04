@@ -458,8 +458,21 @@ async function sendChat() {
 // .slice(-21, -1) 的意思是从最后数第 31 条开始，取到倒数第 2 条
 // 这样沈望既能记得刚刚聊了什么，又不会因为看太多废话而烧掉你的 Token
 var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
-    return { role: m.role, content: m.content };
+    // 🛡️ 防爆盾：如果旧消息的 content 是数组（含图片），只取文字部分
+    var safeContent = m.content;
+    if (Array.isArray(m.content)) {
+        // 从数组里只挑出文字，图片全部扔掉
+        var textParts = m.content.filter(function(item) {
+            return item.type === 'text';
+        });
+        safeContent = textParts.map(function(item) {
+            return item.text || '';
+        }).join(' ');
+        if (!safeContent) safeContent = '（发送了图片）';
+    }
+    return { role: m.role, content: safeContent };
 });
+
     // 最后一条用 userContent（包含你刚重写的完美图片数组）
     historyMsgs.push({ role: 'user', content: userContent });
 
@@ -468,6 +481,12 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         messages: historyMsgs,
         stream: isStream
     };
+    console.log('📦 发送的消息条数:', historyMsgs.length);
+console.log('📦 总字符数:', JSON.stringify(historyMsgs).length);
+console.log('📦 每条消息长度:', historyMsgs.map((m,i) => 
+    `第${i}条[${m.role}]: ${JSON.stringify(m.content).length}字符`
+));
+
    try {
         // 🌟 核心修复：根据你的供应商 URL，自动拼接正确的路由路径！
         let apiUrl = '/v1/chat/completions'; // 默认走 msui
