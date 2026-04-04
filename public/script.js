@@ -480,23 +480,18 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
     // 最后一条用 userContent（包含你刚重写的完美图片数组）
     historyMsgs.push({ role: 'user', content: userContent });
 
-    var requestBody = {
-        model: selectedModel,
-        messages: historyMsgs,
-        stream: isStream
-    };
-// ====== X光扫描：揪出隐藏的图片炸弹 ======
-console.log('📦 发送消息条数:', historyMsgs.length);
-console.log('📦 请求体总字符数:', JSON.stringify(requestBody).length);
+    // ====== 终极X光 ======
+var bodyStr = JSON.stringify(requestBody);
+console.log('🔬 请求体总字符数:', bodyStr.length);
+console.log('🔬 消息条数:', historyMsgs.length);
+console.log('🔬 换算约token数:', Math.round(bodyStr.length / 4));
 historyMsgs.forEach(function(m, i) {
-    var len = JSON.stringify(m.content).length;
-    var isArray = Array.isArray(m.content);
-    var hasBase64 = JSON.stringify(m.content).includes('base64');
-    console.log('  第' + i + '条[' + m.role + '] 字符数:' + len + 
-        (isArray ? ' ⚠️是数组!' : '') + 
-        (hasBase64 ? ' 💀含base64图片!' : ''));
+    var contentStr = JSON.stringify(m.content);
+    console.log('  📄 第'+i+'条['+m.role+'] '+contentStr.length+'字符', 
+        contentStr.length > 2000 ? '⚠️异常大!' : '✅正常');
 });
-// ====== X光扫描结束 ======
+// ====== X光结束 ======
+
 
    try {
         // 🌟 核心修复：根据你的供应商 URL，自动拼接正确的路由路径！
@@ -1348,7 +1343,7 @@ async function startSystem() {
     // 2. 然后启动沈望的便签查岗引擎
     await restoreStickyNote();       // 恢复上次的便签
     tryGenerateStickyNote();         // 强制查一次岗
-    setInterval(tryGenerateStickyNote, 60 * 1000); // 每1分钟自动巡逻
+    setInterval(tryGenerateStickyNote, 3600 * 1000); // 每1分钟自动巡逻
 }
 
 // 撕掉所有封印，暴力点火！
