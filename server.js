@@ -548,24 +548,21 @@ let intentData = await analyzeIntent(currentUserMsgText).catch(() => null);
             zepMessages = zepData.messages || [];
             const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
             if (zepLastUser) zepLastUserContent = zepLastUser.content;
-            if (zepData.summary?.content) memoryContext += `\n【潜意识摘要】\n${zepData.summary.content}\n`;
-            if (zepMessages.length > 0) {
-                memoryContext += `\n【脑海中浮现的近期回忆片段】\n`;
-                // 🌟 核心修复：倒序装载聊天记录，防止超长 RP 撑爆上下文
-            const MAX_MEMORY_CHARS = 8000; // 👈 放心设置 8000！这只限制聊天记录的长度，绝对不会吃掉你的 System Prompt！
-            let memoryCharCount = 0;
-            const recentZep = zepMessages.slice(-15).reverse(); // 从最新的一句往回看
+            if (zepData.summary?.content) {
+    // 🛡️ 摘要最多2000字符，防止累积膨胀
+    const cappedSummary = zepData.summary.content.substring(0, 2000);
+    memoryContext += `\n【潜意识摘要】\n${cappedSummary}\n`;
+    if (zepData.summary.content.length > 2000) {
+        console.log(`📦 [摘要截断] 原始${zepData.summary.content.length}字符 → 截断为2000`);
+    }
+}
 
-            for (const m of recentZep) {
-                const line = `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}\n`;
-                if (memoryCharCount + line.length > MAX_MEMORY_CHARS) {
-                    console.log(`📦 [记忆保护] 聊天记录超过 ${MAX_MEMORY_CHARS} 字符，已自动截断更早的回忆。`);
-                    break;
-                }
-                memoryContext = line + memoryContext; // 因为是倒着看的，所以要把新行插在前面
-                memoryCharCount += line.length;
-            }
-            }
+            // 🛡️ 客户端已经发了30条历史，这里不再重复注入Zep聊天记录
+// 只保留向量搜索和摘要（这些是客户端没有的信息）
+if (zepMessages.length > 0) {
+    console.log(`📦 [去重保护] 跳过Zep历史注入，客户端已携带${cleanMessages.length}条上下文`);
+}
+
         }
 
         let dynamicStatePrompt = "";
@@ -681,6 +678,18 @@ let intentData = await analyzeIntent(currentUserMsgText).catch(() => null);
 }
 
         body.messages = newMessages;
+        
+        // ====== 服务端X光 ======
+const totalChars = JSON.stringify(newMessages).length;
+const estimatedTokens = Math.round(totalChars / 4);
+console.log(`🔬 [X光] 最终发给API的消息条数: ${newMessages.length}`);
+console.log(`🔬 [X光] 总字符数: ${totalChars} ≈ ${estimatedTokens} tokens`);
+newMessages.forEach((m, i) => {
+    const len = JSON.stringify(m.content).length;
+    console.log(`  📄 第${i}条[${m.role}] ${len}字符 ${len > 5000 ? '💀巨大!' : len > 2000 ? '⚠️较大' : '✅'}`);
+});
+// ====== X光结束 ======
+
 
         const isGemini = (body.model || '').toLowerCase().includes('gemini');
         if (!isGemini) { body.frequency_penalty = 0.4; body.presence_penalty = 0.4; }
