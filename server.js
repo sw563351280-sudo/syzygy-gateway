@@ -156,7 +156,6 @@ function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm') 
     console.log(`💎 长期记忆已刻入：[${source}] [${ttlLabel}] tags=[${tags.join(',')}] | ${content.substring(0, 60)}...`);
     return entry;
 }
-}
 
 function updateLongTermMemory(id, newContent, newTags) {
     const memories = loadLongTermMemories();
