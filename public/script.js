@@ -454,10 +454,12 @@ async function sendChat() {
         }
     }
 
-    // 把历史消息带上（不含刚刚push的最后一条）
-    var historyMsgs = session.messages.slice(0, -1).map(function(m) {
-        return { role: m.role, content: m.content };
-    });
+    // ✅ 修改后的代码：界面里依然存着 200 条，但我们只挑最近的 20 条发给沈望
+// .slice(-21, -1) 的意思是从最后数第 31 条开始，取到倒数第 2 条
+// 这样沈望既能记得刚刚聊了什么，又不会因为看太多废话而烧掉你的 Token
+var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
+    return { role: m.role, content: m.content };
+});
     // 最后一条用 userContent（包含你刚重写的完美图片数组）
     historyMsgs.push({ role: 'user', content: userContent });
 
