@@ -41,10 +41,11 @@ function resolveApiUrl(reqPath) {
 //==========================================
 // 🧠 持久化计数器与目录初始化
 // ==========================================
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = path.join(__dirname, 'data'); // 对应 Zeabur 里的 /app/data
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const COUNTER_FILE = path.join(__dirname, 'session_counters.json');
+// 💥 破案关键：把计分板文件也一起塞进安全的 DATA_DIR（外接硬盘）里！
+const COUNTER_FILE = path.join(DATA_DIR, 'session_counters.json');
 
 function loadCounters() { try { return JSON.parse(fs.readFileSync(COUNTER_FILE, 'utf8')); } catch(e) { return {}; } }
 function saveCounter(sessionId, count) { const counters = loadCounters(); counters[sessionId] = count; fs.writeFileSync(COUNTER_FILE, JSON.stringify(counters, null, 2), 'utf8'); }
@@ -962,12 +963,6 @@ app.get('/memory-manager', async (req, res) => {
 <h2>📌 总结记忆</h2>
 <h3>🗂管家便利贴 <button onclick="triggerDream()" style="font-size:12px;padding:3px 10px;border-radius:6px;cursor:pointer;border:1px solid #ddd;background:#fff;margin-left:8px;">🌙 立即总结</button></h3>
 ${stateHtml}
-<h3>📝 自动摘要</h3><div style="background:#f5f5f5;padding:12px;border-radius:8px;min-height:60px">${summary||'<p style="color:#888">还没有摘要～</p>'}</div>
-<h3>➕ 手动写入记忆</h3>
-<select id="role"><option value="user">user（你说的）</option><option value="assistant">assistant（他说的）</option></select>
-<textarea id="content" rows="3" placeholder="输入要写入的记忆内容..."></textarea>
-<button class="add" onclick="addMemory()">写入记忆</button>
-<p id="status" style="margin-top:10px;color:#666;"></p>
 </div><div class="card">
 <h2>💬 原始记录</h2>
 <div style="background:#e8f5e9;padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:13px;">📊 自动总结进度：<b>${currentCount}/50轮</b>${currentCount>=40?' ⚡即将触发！':''} |📬未总结：<b>${unsummarizedCount}</b>条${summarizedCount>0?` | 📦已总结：<b>${summarizedCount}</b>条 <button class="normal" onclick="toggleSummarized()" style="font-size:11px;padding:2px 8px;margin-left:4px;">显示/隐藏</button>`:''}</div>
