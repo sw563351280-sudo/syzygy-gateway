@@ -480,19 +480,6 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
     // 最后一条用 userContent（包含你刚重写的完美图片数组）
     historyMsgs.push({ role: 'user', content: userContent });
 
-    // ====== 终极X光 ======
-var bodyStr = JSON.stringify(requestBody);
-console.log('🔬 请求体总字符数:', bodyStr.length);
-console.log('🔬 消息条数:', historyMsgs.length);
-console.log('🔬 换算约token数:', Math.round(bodyStr.length / 4));
-historyMsgs.forEach(function(m, i) {
-    var contentStr = JSON.stringify(m.content);
-    console.log('  📄 第'+i+'条['+m.role+'] '+contentStr.length+'字符', 
-        contentStr.length > 2000 ? '⚠️异常大!' : '✅正常');
-});
-// ====== X光结束 ======
-
-
    try {
         // 🌟 核心修复：根据你的供应商 URL，自动拼接正确的路由路径！
         let apiUrl = '/v1/chat/completions'; // 默认走 msui
