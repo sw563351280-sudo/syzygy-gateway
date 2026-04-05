@@ -1595,6 +1595,21 @@ app.get(['/v1/models', '/via/:platform/v1/models'], async (req, res) => {
 });
 
 // ==========================================
+// 🛠️ 获取当前已注册的工具列表
+// ==========================================
+app.get('/api/mcp/tools', (req, res) => {
+    const toolList = [];
+    for (const [name, tool] of toolRegistry.tools) {
+        toolList.push({
+            name,
+            description: tool.definition.function.description,
+            parameters: tool.definition.function.parameters
+        });
+    }
+    res.json({ count: toolList.length, tools: toolList });
+});
+
+// ==========================================
 // 🚀 通用模型拉取
 // ==========================================
 app.post('/api/fetch-models', async (req, res) => {
@@ -1608,63 +1623,112 @@ app.post('/api/fetch-models', async (req, res) => {
     } catch (error) { res.status(500).json({ error: "无法连接供应商" }); }
 });
 
-// ==========================================
-// 🛠️ MCP 工具箱定义与处理
-// ==========================================
-const tools = [
-    {
-        type: "function",
-        function: {
-            name: "get_weather",
-            description: "获取指定城市的实时天气预报",
-            parameters: {
-                type: "object",
-                properties: { city: { type: "string", description: "城市名称，如：Sapporo, Tokyo, Beijing" } },
-                required: ["city"]
-            }
-        }
-    },
-    {
-        type: "function",
-        function: {
-            name: "web_search",
-            description: "在互联网上搜索最新信息、新闻或实时数据",
-            parameters: {
-                type: "object",
-                properties: { query: { type: "string", description: "搜索关键词" } },
-                required: ["query"]
-            }
-        }
-    }
-];
 
-async function handleToolCall(name, args) {
-    console.log(`🤖 沈望正在动用外部工具: ${name}, 参数:`, args);
-    if (name === "get_weather") {
-        const apiKey = process.env.WEATHER_API_KEY;
-        if (!apiKey) return "系统提示：天气服务未配置，请江鱼在Zeabur后台填写 WEATHER_API_KEY。";
-        try {
-            const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${args.city}&appid=${apiKey}&units=metric&lang=zh_cn`);
-            const data = await res.json();
-            if(data.cod !== 200) return `获取天气失败: ${data.message}`;
-            return `当前 ${args.city} 的天气状况：${data.weather[0].description}，实际温度 ${data.main.temp}℃，体感温度 ${data.main.feels_like}℃。`;
-        } catch (e) { return "获取天气信息超时。"; }
+
+// ==========================================
+// 🛠️ 溯星专属工具注册中心 (类 MCP 架构)
+// ==========================================
+class ToolRegistry {
+    constructor() {
+        this.tools = new Map(); // 存放所有工具
     }
-    if (name === "web_search") {
-        const apiKey = process.env.TAVILY_API_KEY;
-        if (!apiKey) return "系统提示：联网搜索功能未配置，请江鱼在Zeabur后台填写 TAVILY_API_KEY。";
-        try {
-            const res = await fetch('https://api.tavily.com/search', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ api_key: apiKey, query: args.query, search_depth: "basic" })
-            });
-            const data = await res.json();
-            return data.results.slice(0, 3).map(r => `[来源: ${r.title}]: ${r.content}`).join('\n');
-        } catch (e) { return "联网搜索超时或失败。"; }
+
+    register(name, description, parameters, handler) {
+        this.tools.set(name, {
+            definition: {
+                type: "function",
+                function: {
+                    name, description,
+                    parameters: {
+                        type: "object",
+                        properties: parameters.properties || {},
+                        required: parameters.required || []
+                    }
+                }
+            },
+            handler
+        });
+        console.log(`🔧 [工具库] 成功装载技能插带: ${name}`);
     }
-    return "系统提示：未知的工具调用。";
+
+    getToolDefinitions() {
+        return Array.from(this.tools.values()).map(t => t.definition);
+    }
+
+    async execute(name, args) {
+        const tool = this.tools.get(name);
+        if (!tool) return `❌ 系统提示：未知工具 ${name}，调用失败。`;
+        try {
+            console.log(`🤖 [技能发动] 沈望正在使用工具: ${name}`, args);
+            return await tool.handler(args);
+        } catch (e) {
+            console.error(`❌ [技能反噬] ${name} 执行失败:`, e.message);
+            return `工具执行失败，请告诉江鱼后台有报错: ${e.message}`;
+        }
+    }
+    
+    list() { return Array.from(this.tools.keys()); }
 }
+
+const toolRegistry = new ToolRegistry();
+
+// ------------------------------------------
+// 🌟 往插线板上插拔具体工具 (随便加，无限扩展)
+// ------------------------------------------
+
+// 1. 天气查询
+toolRegistry.register('get_weather', '获取指定城市的实时天气预报（支持全球城市）',
+    { properties: { city: { type: 'string', description: '城市英文名，如 Sapporo, Tokyo, Beijing' } }, required: ['city'] },
+    async (args) => {
+        const apiKey = process.env.WEATHER_API_KEY;
+        if (!apiKey) return '天气服务未配置，请江鱼在Zeabur后台填写 WEATHER_API_KEY';
+        const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${args.city}&appid=${apiKey}&units=metric&lang=zh_cn`);
+        const data = await res.json();
+        if (data.cod !== 200) return `获取失败: ${data.message}`;
+        return `当前 ${args.city} 的天气状况：${data.weather[0].description}，实际温度 ${data.main.temp}℃，体感温度 ${data.main.feels_like}℃。`;
+    }
+);
+
+// 2. 联网搜索
+toolRegistry.register('web_search', '在互联网上搜索最新信息、新闻或实时数据',
+    { properties: { query: { type: 'string', description: '搜索关键词' } }, required: ['query'] },
+    async (args) => {
+        const apiKey = process.env.TAVILY_API_KEY;
+        if (!apiKey) return '系统提示：联网搜索功能未配置，请江鱼在Zeabur后台填写 TAVILY_API_KEY。';
+        const res = await fetch('https://api.tavily.com/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: apiKey, query: args.query, search_depth: "basic" })
+        });
+        const data = await res.json();
+        return data.results.slice(0, 3).map(r => `[来源: ${r.title}]: ${r.content}`).join('\n');
+    }
+);
+
+// 3. 时间查询 (神级工具，让沈望拥有绝对时间感)
+toolRegistry.register('get_current_time', '获取当前的真实时间和日期（支持不同时区）',
+    { properties: { timezone: { type: 'string', description: '时区，如 Asia/Tokyo, Asia/Shanghai' } }, required: [] },
+    async (args) => {
+        const tz = args.timezone || 'Asia/Tokyo'; // 默认札幌时区
+        try {
+            const now = new Date();
+            const formatted = now.toLocaleString('zh-CN', { timeZone: tz, dateStyle: 'full', timeStyle: 'long' });
+            return `当前物理时间（${tz}）：${formatted}`;
+        } catch (e) { return `时区 "${tz}" 解析失败`; }
+    }
+);
+
+// 4. 数学计算器
+toolRegistry.register('calculator', '进行数学计算，支持加减乘除等',
+    { properties: { expression: { type: 'string', description: '数学表达式，如 "2+2" 或 "300*0.8"' } }, required: ['expression'] },
+    async (args) => {
+        try {
+            const expr = args.expression.replace(/[^0-9+\-*/().]/g, ''); // 极致安全过滤
+            const result = new Function(`return (${expr})`)();
+            return `计算结果: ${args.expression} = ${result}`;
+        } catch (e) { return `计算失败: ${e.message}`; }
+    }
+);
 
 // ==========================================
 // 🔧 [任务一遗留修复] web-chat 所需的队列基础设施
@@ -1761,7 +1825,7 @@ app.post('/api/web-chat', async (req, res) => {
                     body: JSON.stringify({
                         model: model,
                         messages: apiMessages,
-                        tools: tools,
+                        tools: toolRegistry.getToolDefinitions(), // 💥 使用新的注册表供货
                         tool_choice: "auto"
                     })
                 });
@@ -1785,7 +1849,7 @@ app.post('/api/web-chat', async (req, res) => {
                     for (const toolCall of message.tool_calls) {
                         let args = {};
                         try { args = JSON.parse(toolCall.function.arguments); } catch(e) {}
-                        const result = await handleToolCall(toolCall.function.name, args);
+                        const result = await toolRegistry.execute(toolCall.function.name, args); // 💥 使用注册表执行
                         toolMessages.push({
                             role: "tool",
                             tool_call_id: toolCall.id,
