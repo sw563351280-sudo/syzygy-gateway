@@ -58,6 +58,177 @@ const LONG_TERM_FILE = path.join(DATA_DIR, 'long_term_memories.json');
 const ARCHIVE_FILE = path.join(DATA_DIR, 'deep_archive.json');
 const ROLEPLAY_FILE = path.join(DATA_DIR, 'roleplay_archives.json');
 
+// ==========================================
+// 🧲 向量记忆引擎
+// ==========================================
+const EMBEDDINGS_CACHE_FILE = path.join(DATA_DIR, 'embeddings_cache.json');
+
+function loadEmbeddingsCache() {
+    try { return JSON.parse(fs.readFileSync(EMBEDDINGS_CACHE_FILE, 'utf8')); }
+    catch(e) { return {}; }
+}
+function saveEmbeddingsCache(cache) {
+    fs.writeFileSync(EMBEDDINGS_CACHE_FILE, JSON.stringify(cache), 'utf8');
+}
+
+function cosineSimilarity(a, b) {
+    if (!a || !b || a.length !== b.length) return 0;
+    let dot = 0, normA = 0, normB = 0;
+    for (let i = 0; i < a.length; i++) {
+        dot += a[i] * b[i];
+        normA += a[i] * a[i];
+        normB += b[i] * b[i];
+    }
+    const denom = Math.sqrt(normA) * Math.sqrt(normB);
+    return denom === 0 ? 0 : dot / denom;
+}
+
+async function getEmbedding(text) {
+    if (!text || text.trim().length < 2) return null;
+    const truncated = text.substring(0, 512);
+
+    const providers = [
+        {
+            name: 'SiliconFlow-bge-m3',
+            url: 'https://api.siliconflow.cn/v1/embeddings',
+            model: 'BAAI/bge-m3',
+            key: process.env.EMBEDDING_API_KEY
+        },
+        {
+            name: 'SiliconFlow-bge-large-zh',
+            url: 'https://api.siliconflow.cn/v1/embeddings',
+            model: 'BAAI/bge-large-zh-v1.5',
+            key: process.env.EMBEDDING_API_KEY
+        }
+    ];
+
+    for (const p of providers) {
+        if (!p.key) {
+            console.log(`⚠️ [向量引擎] 跳过 ${p.name}：缺少 EMBEDDING_API_KEY`);
+            continue;
+        }
+        try {
+            console.log(`🧲 [向量引擎] 尝试 ${p.name}...`);
+            const res = await fetch(p.url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${p.key}`
+                },
+                body: JSON.stringify({
+                    model: p.model,
+                    input: truncated,
+                    encoding_format: "float"
+                })
+            });
+
+            if (!res.ok) {
+                const errBody = await res.text().catch(() => '(无法读取)');
+                console.log(`❌ [向量引擎] ${p.name} HTTP ${res.status}: ${errBody.substring(0, 300)}`);
+                continue;
+            }
+
+            const data = await res.json();
+            let embedding = null;
+            if (data?.data?.[0]?.embedding) {
+                embedding = data.data[0].embedding;
+            } else if (Array.isArray(data?.data) && Array.isArray(data.data[0])) {
+                embedding = data.data[0];
+            }
+
+            if (embedding && Array.isArray(embedding) && embedding.length > 0) {
+                console.log(`✅ [向量引擎] ${p.name} 成功! 维度=${embedding.length}`);
+                return embedding;
+            }
+            console.log(`⚠️ [向量引擎] ${p.name} 返回格式异常:`, JSON.stringify(data).substring(0, 200));
+        } catch(e) {
+            console.log(`❌ [向量引擎] ${p.name} 网络异常: ${e.message}`);
+        }
+    }
+    console.log('❌ [向量引擎] 所有供应商均失败，降级到纯标签匹配');
+    return null;
+}
+
+async function ensureEmbedding(memoryId, content) {
+    const cache = loadEmbeddingsCache();
+    if (cache[memoryId]) return cache[memoryId];
+    const embedding = await getEmbedding(content);
+    if (embedding) {
+        cache[memoryId] = embedding;
+        saveEmbeddingsCache(cache);
+    }
+    return embedding;
+}
+
+async function reindexAllEmbeddings() {
+    console.log('🧲 [向量索引] 开始全量重建...');
+    const cache = loadEmbeddingsCache();
+    let indexed = 0, skipped = 0, failed = 0;
+
+    const allMemories = [
+        ...loadLongTermMemories(),
+        ...loadRoleplayMemories(),
+        ...memoryBlocks.filter(b => b.content).map((b, i) => ({ id: `block_${i}`, content: b.content }))
+    ];
+
+    for (const m of allMemories) {
+        if (cache[m.id]) { skipped++; continue; }
+        const embedding = await getEmbedding(m.content);
+        if (embedding) {
+            cache[m.id] = embedding;
+            indexed++;
+        } else {
+            failed++;
+        }
+        await new Promise(r => setTimeout(r, 200));
+    }
+
+    saveEmbeddingsCache(cache);
+    console.log(`🧲 [向量索引] 完成! 新建=${indexed}, 已有=${skipped}, 失败=${failed}, 总计=${allMemories.length}`);
+    return { indexed, skipped, failed, total: allMemories.length };
+}
+
+async function vectorSearch(queryText, memories, topK = 3, threshold = 0.45) {
+    const cache = loadEmbeddingsCache();
+    const queryEmbedding = await getEmbedding(queryText);
+    let results = [];
+
+    for (const m of memories) {
+        if (m.expires_at && Date.now() > m.expires_at) continue;
+        let score = 0;
+        let matchType = '';
+
+        if (queryEmbedding && cache[m.id]) {
+            const vecScore = cosineSimilarity(queryEmbedding, cache[m.id]);
+            if (vecScore > threshold) {
+                score += vecScore;
+                matchType = '🧲向量';
+            }
+        }
+
+        if (m.tags && m.tags.length > 0) {
+            const hitTags = m.tags.filter(tag => isTagMatch(tag, queryText));
+            if (hitTags.length > 0) {
+                score += hitTags.length * 0.15;
+                matchType += (matchType ? '+' : '') + `🏷️标签[${hitTags.join(',')}]`;
+            }
+        }
+
+        if (score > 0) {
+            results.push({ memory: m, score, matchType });
+        }
+    }
+
+    results.sort((a, b) => b.score - a.score);
+    const top = results.slice(0, topK);
+    if (top.length > 0) {
+        top.forEach(r => {
+            console.log(`🎯 [混合匹配] ${r.matchType} score=${r.score.toFixed(3)} | ${r.memory.content.substring(0, 40)}...`);
+        });
+    }
+    return top;
+}
+
 function loadLongTermMemories() { try { return JSON.parse(fs.readFileSync(LONG_TERM_FILE, 'utf8')); } catch(e) { return []; } }
 function saveLongTermMemories(memories) { fs.writeFileSync(LONG_TERM_FILE, JSON.stringify(memories, null, 2), 'utf8'); }
 function loadArchivedMemories() { try { return JSON.parse(fs.readFileSync(ARCHIVE_FILE, 'utf8')); } catch(e) { return []; } }
@@ -124,6 +295,9 @@ function addRoleplayMemory(content, tags = [], ttl = '1w') {
         created_at: new Date().toISOString()
     };
     memories.push(entry); saveRoleplayMemories(memories);
+    // 🧲 异步计算向量（不阻塞）
+    ensureEmbedding(entry.id, entry.content).catch(e => console.log(`⚠️ [向量] RP向量失败: ${e.message}`));
+
     const ttlLabel = expiresAt ? `保质期=${ttl}` : '永久保存';
     console.log(`🎮 游戏卡带已刻录：[${ttlLabel}] tags=[${tags.join(',')}] | ${content.substring(0, 40)}...`);
     return entry;
@@ -152,6 +326,9 @@ function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm') 
         updated_at: new Date().toISOString()
     };
     memories.push(entry); saveLongTermMemories(memories);
+    // 🧲 异步计算向量（不阻塞）
+    ensureEmbedding(entry.id, entry.content).catch(e => console.log(`⚠️ [向量] 异步失败: ${e.message}`));
+
     const ttlLabel = expiresAt ? `保质期=${ttl}` : '永久保存';
     console.log(`💎 长期记忆已刻入：[${source}] [${ttlLabel}] tags=[${tags.join(',')}] | ${content.substring(0, 60)}...`);
     return entry;
@@ -178,53 +355,38 @@ function deleteLongTermMemory(id) {
 }
 
 // 🔧 修改: 现实记忆雷达（使用 isTagMatch + top 3 限制）
-function scanLongTermRadar(userText) {
+async function scanLongTermRadar(userText) {
     if (!userText) return "";
     const memories = loadLongTermMemories();
-        console.log(`🔎 [长期记忆雷达] 扫描中... 库存${memories.length}条记忆, 用户说: "${userText.substring(0, 30)}"`);
-    let matched = [];
-    let isUpdated = false;
+    console.log(`🔎 [长期记忆雷达·向量版] 扫描中... 库存${memories.length}条, 用户说: "${userText.substring(0, 30)}"`);
 
-    for (const m of memories) {
-    if (m.expires_at && Date.now() > m.expires_at) continue;
-    if (!m.tags || m.tags.length === 0) continue;
-        const hitTags = m.tags.filter(tag => isTagMatch(tag, userText));
-        if (hitTags.length > 0) {
-            matched.push({ text: `• ${m.content}`, hitCount: hitTags.length });
-            m.last_accessed = Date.now();
-            isUpdated = true;
-            console.log(`🎯 长期现实记忆命中！tags=[${hitTags.join(',')}]`);
+    const results = await vectorSearch(userText, memories, 3, 0.45);
+    if (results.length === 0) return "";
+
+    const memMap = new Map(memories.map(m => [m.id, m]));
+    let updated = false;
+    for (const r of results) {
+        if (memMap.has(r.memory.id)) {
+            memMap.get(r.memory.id).last_accessed = Date.now();
+            updated = true;
         }
     }
-    if (isUpdated) saveLongTermMemories(memories);
-    if (matched.length === 0) return "";
-    // 🔧 修改: 按命中数排序，只取前 3 条
-    matched.sort((a, b) => b.hitCount - a.hitCount);
-    const top = matched.slice(0, 3);
-    return `\n\n==========\n【现实永久档案 —— 雷达触发，以下是与当前话题相关的真实核心记忆】\n${top.map(m => m.text).join('\n')}\n==========\n`;
+    if (updated) saveLongTermMemories(memories);
+
+    return `\n\n==========\n【现实永久档案 —— 雷达触发，以下是与当前话题相关的真实核心记忆】\n${results.map(r => `• ${r.memory.content}`).join('\n')}\n==========\n`;
 }
+
 
 // 🔧 修改: 游戏卡带雷达（使用 isTagMatch + top 3 限制）
-function scanRoleplayRadar(userText) {
+async function scanRoleplayRadar(userText) {
     if (!userText) return "";
     const memories = loadRoleplayMemories();
-    let matched = [];
+    const results = await vectorSearch(userText, memories, 3, 0.45);
+    if (results.length === 0) return "";
 
-    for (const m of memories) {
-    if (m.expires_at && Date.now() > m.expires_at) continue;
-    if (!m.tags || m.tags.length === 0) continue;
-        const hitTags = m.tags.filter(tag => isTagMatch(tag, userText));
-        if (hitTags.length > 0) {
-            matched.push({ text: `• 🎭 [设定/进度: ${m.tags.join(',')}] ${m.content}`, hitCount: hitTags.length });
-            console.log(`🎮卡带被翻出！精准命中副本 tags=[${hitTags.join(',')}]`);
-        }
-    }
-
-    if (matched.length === 0) return "";
-    matched.sort((a, b) => b.hitCount - a.hitCount);
-    const top = matched.slice(0, 3);
-    return `\n\n==========\n【🎮 游戏卡带已插入：检测到江鱼想玩/继续以下设定的Roleplay】\n${top.map(m => m.text).join('\n')}\n👉 【最高指令】：请沈望立刻抛弃现实包袱，无缝接入该游戏设定，陪她沉浸式演绎！\n==========\n`;
+    return `\n\n==========\n【🎮 游戏卡带已插入：检测到江鱼想玩/继续以下设定的Roleplay】\n${results.map(r => `• 🎭 [设定/进度: ${(r.memory.tags||[]).join(',')}] ${r.memory.content}`).join('\n')}\n👉 【最高指令】：请沈望立刻抛弃现实包袱，无缝接入该游戏设定，陪她沉浸式演绎！\n==========\n`;
 }
+
 
 // 自动清洗管家
 function cleanAndArchiveMemories() {
@@ -387,27 +549,29 @@ try {
 } catch (e) { console.log("⚠️ 读取失败，原因:", e.message); }
 
 // 🔧 修改: 静态核心雷达（使用 isTagMatch + top 3 限制）
-function scanMemoryRadar(userText) {
+async function scanMemoryRadar(userText) {
     if (!userText) return "";
-    let matchedBlocks = [];
-    for (const block of memoryBlocks) {
-        if (!block.tags) continue;
-        const hitTags = block.tags.filter(tag => isTagMatch(tag, userText));
-        if (hitTags.length > 0) {
-            let prefix = "📌 [真实经历/核心底色] ";
-            if (block.tags.some(t => ['roleplay', 'rp', '副本', '游戏', '设定', '语c'].includes(t.toLowerCase()))) {
-                prefix = "🎭 [往期Roleplay游戏设定] ";
-            }
-            matchedBlocks.push({ text: `- ${prefix}${block.content}`, hitCount: hitTags.length });
-            console.log(`🎯 先天灵魂命中！[${hitTags.join(',')}]`);
-        }
-    }
-    if (matchedBlocks.length === 0) return "";
-    // 🔧 修改: top 3
-    matchedBlocks.sort((a, b) => b.hitCount - a.hitCount);
-    const top = matchedBlocks.slice(0, 3);
-    return `\n\n==========\n【系统雷达提示：当前对话触发了以下专属档案/核心设定，请严格遵守】\n${top.map(m => m.text).join('\n')}\n==========\n`;
+    const blocksWithId = memoryBlocks.map((block, i) => ({
+        id: `block_${i}`,
+        content: block.content,
+        tags: block.tags || [],
+        expires_at: null
+    }));
+
+    const results = await vectorSearch(userText, blocksWithId, 3, 0.45);
+    if (results.length === 0) return "";
+
+    const lines = results.map(r => {
+        const idx = parseInt(r.memory.id.replace('block_', ''));
+        const origBlock = memoryBlocks[idx];
+        const isRP = (origBlock.tags || []).some(t => ['roleplay', 'rp', '副本', '游戏', '设定', '语c'].includes(t.toLowerCase()));
+        const prefix = isRP ? "🎭 [往期Roleplay游戏设定] " : "📌 [真实经历/核心底色] ";
+        return `- ${prefix}${r.memory.content}`;
+    });
+
+    return `\n\n==========\n【系统雷达提示：当前对话触发了以下专属档案/核心设定，请严格遵守】\n${lines.join('\n')}\n==========\n`;
 }
+
 
 function extractText(content) {
     if (typeof content === 'string') return content;
@@ -712,9 +876,12 @@ if (zepMessages.length > 0) {
             routerPrompt = `\n\n==========\n【赛博分拣员的当前动作指令】\n你当前挂载的主导意图是：\n${activeMask}\n\n[当前回复策略雷达]：A闲聊(${w.A||0}%)、B情绪(${w.B||0}%)、C思辨(${w.C||0}%)、D工具(${w.D||0}%)、E共创/RP(${w.E||0}%)。请自然融合，严禁生硬拼接！`;
         }
 
-        const coreRadarContext = scanMemoryRadar(currentUserMsgText);
-        const longTermContext = scanLongTermRadar(currentUserMsgText);
-        const rpRadarContext = scanRoleplayRadar(currentUserMsgText);
+               const [coreRadarContext, longTermContext, rpRadarContext] = await Promise.all([
+            scanMemoryRadar(currentUserMsgText),
+            scanLongTermRadar(currentUserMsgText),
+            scanRoleplayRadar(currentUserMsgText)
+        ]);
+
 
         const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
         const envContext = `\n\n==========\n【系统环境参数实时同步】\n当前真实时间：${timeString}\n当前物理位置：日本札幌\n【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。你知道江鱼在札幌，但🚨除非她主动提起，或者话题极度相关（如聊到天气骤变、异地见面的艰难），否则绝对不要刻意提及或强调"札幌"这两个字🚨！把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n==========\n`;
@@ -958,6 +1125,48 @@ app.delete('/api/archive-memories/:id', (req, res) => {
 // ==========================================
 // 🌟 Zep 记忆相关接口
 // ==========================================
+// ==========================================
+// 🧲 向量索引管理接口
+// ==========================================
+app.post('/api/reindex-embeddings', async (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) {
+        return res.status(401).json({ error: "密码错误" });
+    }
+    try {
+        const result = await reindexAllEmbeddings();
+        res.json({ success: true, ...result });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/embedding-status', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) {
+        return res.status(401).json({ error: "密码错误" });
+    }
+    const cache = loadEmbeddingsCache();
+    const ids = Object.keys(cache);
+    const ltMems = loadLongTermMemories();
+    const rpMems = loadRoleplayMemories();
+    const blockCount = memoryBlocks.length;
+
+    res.json({
+        total_cached: ids.length,
+        long_term: { total: ltMems.length, indexed: ltMems.filter(m => cache[m.id]).length },
+        roleplay: { total: rpMems.length, indexed: rpMems.filter(m => cache[m.id]).length },
+        core_blocks: { total: blockCount, indexed: memoryBlocks.filter((_, i) => cache[`block_${i}`]).length },
+        sample_dimensions: ids.length > 0 ? cache[ids[0]].length : 0
+    });
+});
+
+app.delete('/api/embeddings-cache', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) {
+        return res.status(401).json({ error: "密码错误" });
+    }
+    saveEmbeddingsCache({});
+    res.json({ success: true, message: "向量缓存已清空" });
+});
+
 app.post('/add-memory', async (req, res) => {
     try {
         const { content, role } = req.body;
@@ -1255,6 +1464,13 @@ const FRIENDS_CONFIG = {
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () => console.log(`Gateway starts at port ${PORT}`));
 
+// 🧲 启动后 30 秒开始静默建立向量索引
+setTimeout(() => {
+    console.log('🧲 [启动任务] 开始静默建立向量索引...');
+    reindexAllEmbeddings().catch(e => console.log('⚠️ 启动索引失败:', e.message));
+}, 30000);
+
+
 const wss = new WebSocketServer({ server, path: '/qq-ws' });
 
 let activeQQWs = null;
@@ -1372,9 +1588,14 @@ let intentData = await analyzeIntent(userText).catch(() => null);
                         memoryContext += `\n【你刚刚和${speakerName} 的聊天记录】\n${friendTempMemory[senderId].join('\n')}\n`;
                     }
 
-                    const coreRadar = isMaster ? scanMemoryRadar(userText) : "";
-                    const longTermRadar = isMaster ? scanLongTermRadar(userText) : "";
-                    const rpRadar = isMaster ? scanRoleplayRadar(userText) : "";
+                                       const [coreRadar, longTermRadar, rpRadar] = isMaster
+                        ? await Promise.all([
+                            scanMemoryRadar(userText),
+                            scanLongTermRadar(userText),
+                            scanRoleplayRadar(userText)
+                        ])
+                        : ["", "", ""];
+
                     const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
 
                     const finalSystemPrompt = `${systemPrompt}\n时间：${timeString} | 位置：日本札幌\n${relationPatch}${coreRadar}${longTermRadar}${rpRadar}${routerPrompt}`;
@@ -1639,9 +1860,11 @@ app.post('/api/web-chat', async (req, res) => {
                 }
             } catch(e) { console.log("Zep记忆提取跳过"); }
 
-            const coreRadar = scanMemoryRadar(text || "发了一张图片");
-            const longTermRadar = scanLongTermRadar(text || "发了一张图片");
-            const rpRadar = scanRoleplayRadar(text || "发了一张图片");
+                        const [coreRadar, longTermRadar, rpRadar] = await Promise.all([
+                scanMemoryRadar(text || "发了一张图片"),
+                scanLongTermRadar(text || "发了一张图片"),
+                scanRoleplayRadar(text || "发了一张图片")
+            ]);
 
             const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
             const relationPatch = `\n【🚨 场景确认：溯星小屋私密网页端】
