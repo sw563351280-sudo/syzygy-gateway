@@ -403,10 +403,17 @@ async function sendChat() {
     session.messages.push({ role: 'user', content: val, fullTime: new Date().toISOString() });
     saveToCloud();
 
-    // --- 2. 准备好沈望回复的空白气泡 ---
+   // --- 2. 准备好沈望回复的空白气泡 ---
     const sRow = document.createElement('div'); sRow.className = 'msg-row sys';
     const sDiv = document.createElement('div'); sDiv.className = 'msg sys';
-    sDiv.innerHTML = '<span class="typing-cursor"></span>';
+    
+    // 💥 换成带呼吸动画的技能检索提示！
+    sDiv.innerHTML = `
+        <div class="loading-dots" style="color: #4fc3f7; font-size: 0.9em; font-style: italic; display: flex; align-items: center; gap: 8px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin-icon"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
+            沈望正在思考及检索模组...
+        </div>
+    `;
     sRow.appendChild(sDiv);
     
     // 准备好小按键，打字时先隐身
@@ -1483,3 +1490,24 @@ function forceScrollToChatBottom() {
         win.scrollTop = win.scrollHeight;
     }, 350);
 }
+
+// 🌀 同步沈望的技能模组
+async function syncMcpTools() {
+    const listEl = document.getElementById('mcp-tools-list');
+    if (!listEl) return;
+    try {
+        const res = await fetch('/api/mcp/tools');
+        const data = await res.json();
+        listEl.innerHTML = data.tools.map(t => `
+            <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(79,195,247,0.2);">
+                <div style="color: #4fc3f7; font-size: 0.85em; font-weight: bold; margin-bottom: 4px;">📂 ${t.name}</div>
+                <div style="color: #bbb; font-size: 0.7em; line-height: 1.3;">${t.description}</div>
+            </div>
+        `).join('');
+    } catch (e) {
+        listEl.innerHTML = `<div style="grid-column: span 2; color:#ff5252;">模组同步失败</div>`;
+    }
+}
+
+// 记得在切换到“中枢”页面时调用它，或者初始化时调用一次
+syncMcpTools();
