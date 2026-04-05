@@ -817,6 +817,12 @@ app.post('/proxy/v1/chat/completions', async (req, res) => {
         res.status(response.status).json(await response.json());
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
+//==========================================
+// 🌟 大门路由（主通道 + MCP工具）
+// ==========================================
+app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (req, res) => {
+    try {
+        const body = req.body;
 
 const isGemini = (body.model || '').toLowerCase().includes('gemini');
         if (!isGemini) { body.frequency_penalty = 0.4; body.presence_penalty = 0.4; }
@@ -989,106 +995,6 @@ const isGemini = (body.model || '').toLowerCase().includes('gemini');
     } catch (error) { res.status(500).json({ error: "大门重组异常：" + error.message }); }
 }); 
 // 👆 这个 }); 刚好闭合你原本的代理接口！
-
-
-        const isGemini = (body.model || '').toLowerCase().includes('gemini');
-        if (!isGemini) { body.frequency_penalty = 0.4; body.presence_penalty = 0.4; }
-        else { delete body.frequency_penalty; delete body.presence_penalty; delete body.logprobs; delete body.top_logprobs; delete body.n; delete body.best_of; }
-
-        const apiUrl = resolveApiUrl(req.path);
-        const apiHeaders = {'Content-Type': 'application/json', 'Authorization': req.headers.authorization, 'HTTP-Referer': 'https://syzygy-zep.zeabur.app', 'X-Title': 'My_Cyber_Home' };
-
-        const response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
-        if (!response.ok) return res.status(response.status).json({ error: "模型报错：" + await response.text() });
-
-        //==========================================
-        // 流式与非流式处理
-        // ==========================================
-        if (body.stream) {
-            res.setHeader('Content-Type', 'text/event-stream');
-            res.setHeader('Cache-Control', 'no-cache');
-            res.setHeader('Connection', 'keep-alive');
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let sseBuffer = ''; let contentBuffer = ''; let isBuffering = false; let lastChunkTemplate = null;
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                sseBuffer += decoder.decode(value, { stream: true });
-                const lines = sseBuffer.split('\n');
-                sseBuffer = lines.pop();
-
-                for (const line of lines) {
-                    if (!line.startsWith('data: ')) { res.write(line + '\n'); continue; }
-                    const dataStr = line.substring(6).trim();
-                    if (dataStr === '[DONE]') {
-                        if (contentBuffer) res.write(buildSSEChunk(contentBuffer, lastChunkTemplate) || '');
-                        res.write('data: [DONE]\n\n'); continue;
-                    }
-                    let parsed; try { parsed = JSON.parse(dataStr); } catch(e) { res.write(line + '\n'); continue; }
-                    const delta = parsed.choices?.[0]?.delta;
-                    if (!delta || delta.content === undefined) { res.write(line + '\n'); continue; }
-                    lastChunkTemplate = parsed;
-                    const piece = delta.content; contentBuffer += piece;
-
-                    if (!isBuffering) {
-                        const saveIdx = contentBuffer.indexOf('<SAVE_MEMORY');
-                        if (saveIdx === -1) {
-                            const ltIdx = contentBuffer.lastIndexOf('<');
-                            if (ltIdx !== -1 && contentBuffer.substring(ltIdx).length< '<SAVE_MEMORY'.length) {
-                                const safe = contentBuffer.substring(0, ltIdx);
-                                const safeChunk = buildSSEChunk(safe, lastChunkTemplate);
-                                if (safeChunk) res.write(safeChunk);
-                                contentBuffer = contentBuffer.substring(ltIdx);} else {
-                                const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate);
-                                if (chunk) res.write(chunk);
-                                contentBuffer = '';
-                            }
-                        } else {
-                            const safe = contentBuffer.substring(0, saveIdx);
-                            if (safe) res.write(buildSSEChunk(safe, lastChunkTemplate));
-                            contentBuffer = contentBuffer.substring(saveIdx);
-                            isBuffering = true;
-                        }
-                    }
-
-                    if (isBuffering) {
-                        const closeIdx = contentBuffer.indexOf('</SAVE_MEMORY>');
-                        if (closeIdx !== -1) {
-                            const tagMatch = contentBuffer.match(SAVE_MEMORY_REGEX_SINGLE);
-                            if (tagMatch) {
-    const tags = tagMatch[1].split(/[,，]/).map(t => t.trim()).filter(Boolean);
-    const ttl = tagMatch[2] || '1m';
-    const memContent = tagMatch[3].trim();
-    smartMemoryWrite(memContent, tags, 'ai_active', ttl);
-}
-                            contentBuffer = contentBuffer.substring(closeIdx + '</SAVE_MEMORY>'.length);
-                            isBuffering = false;
-                            if (contentBuffer) { const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate); if (chunk) res.write(chunk); contentBuffer = ''; }
-                        }
-                    }
-                }
-            }
-            if (sseBuffer.trim()) res.write(sseBuffer + '\n');
-            res.end();
-        } else {
-            const rawText = await response.text();
-            try {
-                const data = JSON.parse(rawText);
-                const assistantContent = data.choices?.[0]?.message?.content;
-                if (assistantContent) {
-                    const { cleanText, memories } = extractSaveMemoryTag(assistantContent);
-                    for (const mem of memories) {
-                       smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl);
-                    }
-                    if (memories.length > 0) data.choices[0].message.content = cleanText;
-                }
-                res.status(response.status).json(data);
-            } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
-        }
-    } catch (error) { res.status(500).json({ error: "大门重组异常：" + error.message }); }
-});
 
 // ==========================================
 // 🌟 长期记忆 CRUD 接口
