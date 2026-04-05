@@ -1483,17 +1483,40 @@ body.light-mode {
     color: #5C4033 !important;
 }
 
-/* 隐藏暗夜装饰元素 */
-body.light-mode::after {
-    opacity: 0 !important; /* 装订线消失 */
-}
+/* ═══════════════════════════════════════════
+   🌞 白天模式升级：窗户阳光 + 薄荷钢笔 + 墨迹
+   ═══════════════════════════════════════════ */
 
-/* 阳光斜射 + 7个树叶缝隙光斑 */
+/* ---------- 1. 背景层：阳光斜射 + 光斑 + 笔尖墨迹 ---------- */
 body.light-mode::before {
     background:
-        /* 主光源：左上角窗户斜射进来的暖光 */
+        /* 💥 核心：窗户斜射暖阳 —— 中心偏左上，暖琥珀色渐变到透明 */
+        radial-gradient(
+            ellipse 75% 65% at 20% 15%,
+            rgba(255, 223, 142, 0.38) 0%,       /* 暖琥珀光心 */
+            rgba(255, 236, 179, 0.18) 30%,       /* 扩散过渡 */
+            rgba(255, 244, 210, 0.06) 55%,       /* 渐淡 */
+            transparent 70%                       /* 完全消失 */
+        ),
+
+        /* 🖋️ 笔尖墨迹：右下角的一滴深棕色墨水 */
+        radial-gradient(
+            circle 4px at calc(100% - 120px) calc(100% - 170px),
+            rgba(92, 64, 51, 0.55) 0%,
+            rgba(92, 64, 51, 0.25) 45%,
+            rgba(92, 64, 51, 0.08) 70%,
+            transparent 100%
+        ),
+        /* 墨迹晕开的微小扩散环 */
+        radial-gradient(
+            circle 9px at calc(100% - 119px) calc(100% - 168px),
+            rgba(92, 64, 51, 0.08) 0%,
+            rgba(92, 64, 51, 0.03) 60%,
+            transparent 100%
+        ),
+
+        /* ── 保留原有的7个树叶光斑 ── */
         radial-gradient(ellipse 900px 700px at 18% 12%, rgba(255, 250, 220, 0.35) 0%, transparent 70%),
-        /* 7个光斑：直径80-150px，透明度3-5% */
         radial-gradient(circle 45px at 10% 22%, rgba(255, 249, 230, 0.05) 0%, transparent 100%),
         radial-gradient(circle 70px at 78% 12%, rgba(255, 249, 230, 0.04) 0%, transparent 100%),
         radial-gradient(circle 55px at 42% 55%, rgba(255, 249, 230, 0.05) 0%, transparent 100%),
@@ -1503,6 +1526,102 @@ body.light-mode::before {
         radial-gradient(circle 65px at 50% 82%, rgba(255, 249, 230, 0.03) 0%, transparent 100%) !important;
     opacity: 1 !important;
 }
+
+/* ---------- 2. 薄荷绿钢笔（右下角，斜靠页边） ---------- */
+body.light-mode::after {
+    /* 彻底覆盖暗黑模式的装订线 */
+    content: '' !important;
+    position: fixed !important;
+    top: auto !important;
+    left: auto !important;
+    bottom: 100px !important;
+    right: 20px !important;
+
+    /* 笔身尺寸 */
+    width: 150px !important;
+    height: 8px !important;
+
+    /* 笔身渐变：左=笔尖（深棕→金属过渡→薄荷绿笔杆） */
+    background: linear-gradient(to right,
+        #3A2518 0%,          /* 笔尖尖端 - 极深棕 */
+        #5C4033 2.5%,        /* 笔尖主体 */
+        #8B7355 5%,          /* 金属笔舌过渡 */
+        #B8A87A 6.5%,        /* 金色笔夹扣 */
+        #80C9B8 9%,          /* 握位起始 */
+        #98D8C8 18%,         /* 薄荷绿笔杆 */
+        #A8E6D6 45%,         /* 笔杆高光区 */
+        #98D8C8 70%,         /* 回归主色 */
+        #8BCFBE 90%,         /* 笔尾渐深 */
+        #7EC4B3 100%         /* 笔帽末端 */
+    ) !important;
+
+    /* 笔尖收窄、笔尾圆润 */
+    border-radius: 0.5px 5px 5px 0.5px !important;
+
+    /* 笔尖朝左上方 */
+    transform: rotate(-38deg) !important;
+    transform-origin: right bottom !important;
+
+    /* 优雅低调的存在感 */
+    opacity: 0.5 !important;
+    z-index: 3 !important;
+    pointer-events: none !important;
+
+    /* 立体感：顶部高光 + 底部暗边 + 投影 */
+    box-shadow:
+        /* 笔身顶部反光条 */
+        inset 0 2.5px 0 rgba(255, 255, 255, 0.4),
+        /* 笔身底部暗线 */
+        inset 0 -1px 0 rgba(0, 0, 0, 0.08),
+        /* 桌面上的淡投影 */
+        3px 4px 12px rgba(92, 64, 51, 0.08),
+        /* 笔身周围极淡的环境光 */
+        0 0 20px rgba(152, 216, 200, 0.06) !important;
+}
+
+/* ---------- 3. 手机端适配：缩小钢笔 + 调整墨迹位置 ---------- */
+@media (max-width: 600px) {
+    body.light-mode::after {
+        width: 100px !important;
+        height: 6px !important;
+        bottom: 85px !important;
+        right: 10px !important;
+        opacity: 0.35 !important;
+    }
+
+    body.light-mode::before {
+        background:
+            /* 阳光在手机上稍收敛 */
+            radial-gradient(
+                ellipse 85% 60% at 15% 10%,
+                rgba(255, 223, 142, 0.3) 0%,
+                rgba(255, 236, 179, 0.12) 35%,
+                transparent 65%
+            ),
+            /* 墨迹位置跟随缩小后的笔 */
+            radial-gradient(
+                circle 3px at calc(100% - 80px) calc(100% - 130px),
+                rgba(92, 64, 51, 0.45) 0%,
+                rgba(92, 64, 51, 0.15) 50%,
+                transparent 100%
+            ),
+            radial-gradient(
+                circle 7px at calc(100% - 79px) calc(100% - 128px),
+                rgba(92, 64, 51, 0.06) 0%,
+                transparent 100%
+            ),
+            /* 光斑保留 */
+            radial-gradient(ellipse 900px 700px at 18% 12%, rgba(255, 250, 220, 0.35) 0%, transparent 70%),
+            radial-gradient(circle 45px at 10% 22%, rgba(255, 249, 230, 0.05) 0%, transparent 100%),
+            radial-gradient(circle 70px at 78% 12%, rgba(255, 249, 230, 0.04) 0%, transparent 100%),
+            radial-gradient(circle 55px at 42% 55%, rgba(255, 249, 230, 0.05) 0%, transparent 100%),
+            radial-gradient(circle 75px at 88% 40%, rgba(255, 249, 230, 0.03) 0%, transparent 100%),
+            radial-gradient(circle 60px at 25% 72%, rgba(255, 249, 230, 0.04) 0%, transparent 100%),
+            radial-gradient(circle 50px at 62% 30%, rgba(255, 249, 230, 0.05) 0%, transparent 100%),
+            radial-gradient(circle 65px at 50% 82%, rgba(255, 249, 230, 0.03) 0%, transparent 100%) !important;
+    }
+}
+
 
 /* 星空画布在白天彻底隐身 */
 body.light-mode #starmap {
