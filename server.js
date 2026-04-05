@@ -818,191 +818,177 @@ app.post('/proxy/v1/chat/completions', async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
-// ==========================================
-// 🌟 核心聊天接口
-// ==========================================
-app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (req, res) => {
-    try {
-        let body = req.body;
-        let cleanMessages = [];
-        let currentUserMsgText = "";
+const isGemini = (body.model || '').toLowerCase().includes('gemini');
+        if (!isGemini) { body.frequency_penalty = 0.4; body.presence_penalty = 0.4; }
+        else { delete body.frequency_penalty; delete body.presence_penalty; delete body.logprobs; delete body.top_logprobs; delete body.n; delete body.best_of; }
 
-        if (body.messages) {
-            cleanMessages = body.messages.filter(msg => msg.role !== 'system');
-            const lastUserMsg = [...cleanMessages].reverse().find(m => m.role === 'user');
-            if (lastUserMsg) currentUserMsgText = extractText(lastUserMsg.content);
-        }
+        // ==========================================
+        // 🎛️ 档位判断器 & 工具箱挂载
+        // ==========================================
+        const wantsTools = body.useTools === true;
+        delete body.useTools; // 阅后即焚，不发给大模型
+        const originalStream = !!body.stream;
 
-       if (currentUserMsgText) updateRpTracker(currentUserMsgText);
-let intentData = await analyzeIntent(currentUserMsgText).catch(() => null);
-        // Zep 向量搜索
-        let vectorSearchContext = "";
-        if (currentUserMsgText && currentUserMsgText.length > 4) {
-            try {
-                const searchRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/search`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: currentUserMsgText, search_scope: "messages", search_type: "similarity", limit: 5 })
-                });
-                if (searchRes.ok) {
-                    const searchData = await searchRes.json();
-                    const relevantMemories = (searchData.results || []).filter(r => r.score > 0.72);
-                    if (relevantMemories.length > 0) {
-                        vectorSearchContext = `\n【深层记忆闪回】\n当听到你说出刚才那句话时，沈望的脑海中闪回了很久以前的这些画面：\n`;
-                        relevantMemories.slice(0, 2).forEach(r => {
-                            if (r.message) vectorSearchContext += `${r.message.role === 'ai' ? '沈望' : '江鱼'}: ${r.message.content}\n`;
-                        });
-                        vectorSearchContext += `\n`;
-                    }
-                }
-            } catch(e) {}
-        }
-
-        const [zepRes, sessionRes] = await Promise.all([
-            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`).catch(() => null),
-            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
-        ]);
-
-        let memoryContext = vectorSearchContext;
-        let zepLastUserContent = "";
-        let zepMessages = [];
-
-        if (zepRes && zepRes.ok) {
-            const zepData = await zepRes.json();
-            zepMessages = zepData.messages || [];
-            const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
-            if (zepLastUser) zepLastUserContent = zepLastUser.content;
-          
-if (zepMessages.length > 0) {
-    console.log(`📦 [去重保护] 跳过Zep历史注入，客户端已携带${cleanMessages.length}条上下文`);
-}
-
-        }
-
-        let dynamicStatePrompt = "";
-        if (sessionRes && sessionRes.ok) {
-            const sessionData = await sessionRes.json();
-            if (sessionData.metadata?.current_state) {
-                const state = sessionData.metadata.current_state;
-                const safeStr = (val) => typeof val === 'object' ? JSON.stringify(val) : (val || '无');
-                dynamicStatePrompt = `\n\n【活跃状态备忘录 (绝不包含RP内容)】
-当前习惯与偏好：${safeStr(state.new_preferences)}
-近期情感与状态：${safeStr(state.relationship_turning_points)}
-未完成的待办约定：${safeStr(state.pending_promises)}`;
+        if (wantsTools) {
+            const registeredTools = toolRegistry.getToolDefinitions();
+            if (registeredTools.length > 0) {
+                body.tools = registeredTools;
+                body.tool_choice = "auto";
             }
+            body.stream = false; // 强制拦截流式，让沈望在后台把活干完
         }
 
-        // 存入 Zep
-        if (cleanMessages.length >= 3) {
-            const confirmedUser = cleanMessages[cleanMessages.length - 3];
-            const confirmedAi = cleanMessages[cleanMessages.length - 2];
-            const currentPrompt = cleanMessages[cleanMessages.length - 1];
-            if (confirmedUser.role === 'user' && confirmedAi.role === 'assistant' && currentPrompt.role === 'user') {
-                let confirmedUserText = extractText(confirmedUser.content);
-                
-                const cleanZepLast = (zepLastUserContent || '')
-                    .replace(/^\[RP模式\] /, '')
-                    .replace(/^\[来自手机QQ\] .*?说：/, '')
-                    .replace(/^江鱼在网页端说：/, '');
+        const apiUrl = resolveApiUrl(req.path);
+        const apiHeaders = {'Content-Type': 'application/json', 'Authorization': req.headers.authorization, 'HTTP-Referer': 'https://syzygy-zep.zeabur.app', 'X-Title': 'My_Cyber_Home' };
 
-                let confirmedAiText = confirmedAi.content || "";
-                const isGarbage = confirmedAiText.includes('【通讯中断】') || 
-                                  confirmedAiText.includes('信号丢失') || 
-                                  confirmedAiText.includes('【大脑报错】') ||
-                                  confirmedAiText.length < 2;
+        let response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
+        if (!response.ok) return res.status(response.status).json({ error: "模型报错：" + await response.text() });
 
-                if (!isGarbage && confirmedUserText !== cleanZepLast) {
-                    const rpPrefix = rpModeActive ? '[RP模式] ' : '';
-                    await saveToZep(rpPrefix + confirmedUserText, rpPrefix + confirmedAiText);
+        // ==========================================
+        // ⚡ 轨道 A：原生极速流式（开关关闭时，0延迟纯聊天）
+        // ==========================================
+        if (!wantsTools && originalStream) {
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
 
-                    let count = getCounter(SESSION_ID) + 1;
-                    saveCounter(SESSION_ID, count);if (count >= 50) {
-                        saveCounter(SESSION_ID, 0);
-                        backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder('utf-8');
+            let sseBuffer = ''; let contentBuffer = ''; let isBufferingMem = false; let lastTemplate = null;
+
+            const writeContent = (text, template) => {
+                if (!text || !template) return;
+                const chunk = JSON.parse(JSON.stringify(template));
+                chunk.choices = [{ index: 0, delta: { content: text } }];
+                res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+            };
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                sseBuffer += decoder.decode(value, { stream: true });
+                const lines = sseBuffer.split('\n');
+                sseBuffer = lines.pop(); // 保留不完整的最后一行
+
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+                    if (!trimmed.startsWith('data: ')) { res.write(line + '\n'); continue; }
+                    const dataStr = trimmed.substring(6).trim();
+
+                    if (dataStr === '[DONE]') {
+                        if (contentBuffer && lastTemplate) { writeContent(contentBuffer, lastTemplate); contentBuffer = ''; }
+                        res.write('data: [DONE]\n\n'); continue;
                     }
+
+                    let parsed; try { parsed = JSON.parse(dataStr); } catch (e) { res.write(line + '\n'); continue; }
+                    const delta = parsed.choices?.[0]?.delta;
+
+                    if (delta?.reasoning_content) { res.write(`data: ${JSON.stringify(parsed)}\n\n`); continue; }
+
+                    if (delta?.content !== undefined) {
+                        lastTemplate = parsed;
+                        contentBuffer += delta.content;
+
+                        if (!isBufferingMem) {
+                            const saveIdx = contentBuffer.indexOf('<SAVE_MEMORY');
+                            if (saveIdx === -1) {
+                                const ltIdx = contentBuffer.lastIndexOf('<');
+                                if (ltIdx !== -1 && contentBuffer.length - ltIdx < 15) {
+                                    const safe = contentBuffer.substring(0, ltIdx);
+                                    if (safe) writeContent(safe, lastTemplate); contentBuffer = contentBuffer.substring(ltIdx);
+                                } else { writeContent(contentBuffer, lastTemplate); contentBuffer = ''; }
+                            } else {
+                                const safe = contentBuffer.substring(0, saveIdx);
+                                if (safe) writeContent(safe, lastTemplate);
+                                contentBuffer = contentBuffer.substring(saveIdx); isBufferingMem = true;
+                            }
+                        }
+
+                        if (isBufferingMem) {
+                            const closeIdx = contentBuffer.indexOf('</SAVE_MEMORY>');
+                            if (closeIdx !== -1) {
+                                const fullTag = contentBuffer.substring(0, closeIdx + 14);
+                                const memMatch = fullTag.match(/<SAVE_MEMORY\s+tags=["']([^"']+)["'](?:\s+ttl=["']([^"']+)["'])?\s*>([\s\S]*?)<\/SAVE_MEMORY>/);
+                                if (memMatch) {
+                                    smartMemoryWrite(memMatch[3].trim(), memMatch[1].split(/[,，]/).map(t => t.trim()).filter(Boolean), 'ai_active', memMatch[2] || '1m');
+                                }
+                                contentBuffer = contentBuffer.substring(closeIdx + 14); isBufferingMem = false;
+                                if (contentBuffer) { writeContent(contentBuffer, lastTemplate); contentBuffer = ''; }
+                            }
+                        }
+                    } else { res.write(`data: ${JSON.stringify(parsed)}\n\n`); }
                 }
             }
+            if (sseBuffer.trim()) res.write(sseBuffer + '\n');
+            res.end(); return;
         }
 
-        let routerPrompt = "";
-        if (intentData?.primary_channel) {
-            const activeMask = CHANNEL_MASKS[intentData.primary_channel] || CHANNEL_MASKS["A"];
-            const w = intentData.weights || {};
-            routerPrompt = `\n\n==========\n【赛博分拣员的当前动作指令】\n你当前挂载的主导意图是：\n${activeMask}\n\n[当前回复策略雷达]：A闲聊(${w.A||0}%)、B情绪(${w.B||0}%)、C思辨(${w.C||0}%)、D工具(${w.D||0}%)、E共创/RP(${w.E||0}%)。请自然融合，严禁生硬拼接！`;
-        }
+        // ==========================================
+        // 🐌 轨道 B：技能模组专线（开关打开时，调用工具查资料）
+        // ==========================================
+        let data = await response.json();
+        let message = data.choices?.[0]?.message;
 
-        // 🔧 [任务三] 加入高权重浮现
-        const [coreRadarContext, longTermContext, rpRadarContext] = await Promise.all([
-            scanMemoryRadar(currentUserMsgText),
-            scanLongTermRadar(currentUserMsgText),
-            scanRoleplayRadar(currentUserMsgText)
-        ]);
-        const unresolvedContext = surfaceUnresolvedMemories(2);
-
-
-        const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
-        const envContext = `\n\n==========\n【系统环境参数实时同步】\n当前真实时间：${timeString}\n当前物理位置：日本札幌\n【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。你知道江鱼在札幌，但🚨除非她主动提起，或者话题极度相关（如聊到天气骤变、异地见面的艰难），否则绝对不要刻意提及或强调"札幌"这两个字🚨！把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n==========\n`;
-
-        // 注入预算控制
-        const MEMORY_BUDGET = 8000;
-        let usedBudget = 0;
-        const budgetedParts = [];
-        const injectionQueue = [
-            { label: '环境参数', content: envContext },
-            { label: '高权重浮现', content: unresolvedContext },
-            { label: '长期记忆雷达', content: longTermContext },
-            { label: '核心雷达', content: coreRadarContext },
-            { label: 'RP雷达', content: rpRadarContext },
-            { label: '状态备忘录', content: dynamicStatePrompt },
-            { label: '分拣员指令', content: routerPrompt },
-        ];
-
-        for (const item of injectionQueue) {
-            if (!item.content || item.content.trim().length === 0) continue;
-            if (usedBudget + item.content.length <= MEMORY_BUDGET) {
-                budgetedParts.push(item.content);
-                usedBudget += item.content.length;
-            } else {
-                console.log(`📊 [预算控制] ${item.label} 被裁剪，剩余预算不足 (已用${usedBudget}/${MEMORY_BUDGET})`);
+        if (message?.tool_calls && message.tool_calls.length > 0) {
+            console.log(`🛠️ [MCP] 检测到 ${message.tool_calls.length} 个工具调用`);
+            const toolMessages = [...body.messages, message];
+            
+            for (const toolCall of message.tool_calls) {
+                let args = {}; try { args = JSON.parse(toolCall.function.arguments); } catch(e) {}
+                const result = await toolRegistry.execute(toolCall.function.name, args);
+                toolMessages.push({ role: "tool", tool_call_id: toolCall.id, name: toolCall.function.name, content: typeof result === 'string' ? result : JSON.stringify(result) });
             }
+
+            body.messages = toolMessages; // 带上结果发起二次请求
+            delete body.tools; 
+            delete body.tool_choice;
+            
+            response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
+            if (!response.ok) return res.status(response.status).json({ error: "工具调用后报错：" + await response.text() });
+            data = await response.json(); message = data.choices?.[0]?.message;
         }
 
-        const finalSystemPrompt = `${systemPrompt}${budgetedParts.join('')}`;
+        let finalReply = message?.content || "";
+        let finalThinking = message?.reasoning_content || "";
+        if (!finalThinking && finalReply.includes('<think>')) {
+            const thinkMatch = finalReply.match(/<think>([\s\S]*?)<\/think>/);
+            if (thinkMatch) { finalThinking = thinkMatch[1].trim(); finalReply = finalReply.replace(/<think>[\s\S]*?<\/think>/g, '').trim(); }
+        }
 
-        const newMessages = [...cleanMessages];
-        newMessages.unshift({ role: 'system', content: finalSystemPrompt });
-        
-        if (memoryContext.trim().length > 0) {
-    const lastMsgIndex = newMessages.length - 1;
-    const lastContent = newMessages[lastMsgIndex].content;
+        const { cleanText, memories } = extractSaveMemoryTag(finalReply);
+        for (const mem of memories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl);
+        if (memories.length > 0) finalReply = cleanText;
 
-    if (Array.isArray(lastContent)) {
-        const textPart = lastContent.find(p => p.type === 'text');
-        if (textPart) {
-            textPart.text = `${memoryContext}\n\n【我现在的最新消息】：\n${textPart.text}`;
+        // 🌊 伪装流式发给前端
+        if (originalStream) {
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+            
+            const chunkBase = { id: data.id || ('chatcmpl-' + Date.now()), object: 'chat.completion.chunk', created: data.created || Math.floor(Date.now() / 1000), model: data.model || body.model };
+
+            if (finalThinking) {
+                const thinkChunks = finalThinking.match(/.{1,80}/gs) || [finalThinking];
+                for (const piece of thinkChunks) res.write(`data: ${JSON.stringify({ ...chunkBase, choices: [{ index: 0, delta: { reasoning_content: piece } }] })}\n\n`);
+            }
+            
+            const segments = finalReply.match(/[^。！？\n]{1,20}[。！？\n]?/gs) || [finalReply];
+            for (const seg of segments) {
+                res.write(`data: ${JSON.stringify({ ...chunkBase, choices: [{ index: 0, delta: { content: seg } }] })}\n\n`);
+                await new Promise(r => setTimeout(r, 15)); // 微弱打字延迟
+            }
+            
+            res.write(`data: ${JSON.stringify({ ...chunkBase, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`);
+            res.write('data: [DONE]\n\n'); res.end(); return;
         } else {
-            lastContent.unshift({
-                type: "text",
-                text: `${memoryContext}\n\n【我现在的最新消息】：\n（发送了图片）`
-            });
+            data.choices[0].message.content = finalReply;
+            if (finalThinking) data.choices[0].message.reasoning_content = finalThinking;
+            res.status(200).json(data);
         }
-    } else {
-        newMessages[lastMsgIndex].content = `${memoryContext}\n\n【我现在的最新消息】：\n${lastContent}`;
-    }
-}
-
-        body.messages = newMessages;
-        
-// ====== 服务端X光 ======
-const totalChars = JSON.stringify(newMessages).length;
-const estimatedTokens = Math.round(totalChars / 4);
-console.log(`🔬 [X光] 最终发给API: ${newMessages.length}条消息, ${totalChars}字符 ≈ ${estimatedTokens} tokens`);
-newMessages.forEach((m, i) => {
-    const len = JSON.stringify(m.content).length;
-    if (len > 2000) console.log(`  💀 第${i}条[${m.role}] ${len}字符 - 异常大!`);
-});
-// ====== X光结束 ======
-
+    } catch (error) { res.status(500).json({ error: "大门重组异常：" + error.message }); }
+}); 
+// 👆 这个 }); 刚好闭合你原本的代理接口！
 
 
         const isGemini = (body.model || '').toLowerCase().includes('gemini');
@@ -1741,178 +1727,6 @@ function processQueue() {
     const task = messageQueue.shift();
     task().then(() => processQueue()).catch(() => processQueue());
 }
-
-// ==========================================
-// 🚀 通用聊天接口：网页端专属
-// ==========================================
-app.post('/api/web-chat', async (req, res) => {
-    const { text, image, images, model, baseUrl, apiKey } = req.body;
-    if (!text && !image && !(images && images.length > 0)) return res.status(400).json({ error: "信息不全" });
-
-    const reply = await new Promise((resolve) => {
-        messageQueue.push(async () => {
-            lastActivityTime = Date.now();
-
-            let historyMessages = [];
-            let zepMessages = [];
-            let zepLastUserContent = "";
-
-            try {
-                const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null);
-                if (zepRes?.ok) {
-                    const zepData = await zepRes.json();
-                    zepMessages = zepData.messages || [];
-                    const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
-                    if (zepLastUser) zepLastUserContent = zepLastUser.content;
-                    
-                    historyMessages = zepMessages.slice(-15).map(m => ({
-                        role: m.role === 'ai' ? 'assistant' : 'user',
-                        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
-                    }));
-                }
-            } catch(e) { console.log("Zep记忆提取跳过"); }
-
-            // 🔧 [任务三] 加入高权重浮现
-            const [coreRadar, longTermRadar, rpRadar] = await Promise.all([
-                scanMemoryRadar(text || "发了一张图片"),
-                scanLongTermRadar(text || "发了一张图片"),
-                scanRoleplayRadar(text || "发了一张图片")
-            ]);
-            const unresolvedContext = surfaceUnresolvedMemories(2);
-
-            const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
-            const relationPatch = `\n【🚨 场景确认：溯星小屋私密网页端】
-这里是你的领地，请结合江鱼的专属System Prompt 进行回复。江鱼目前的物理坐标是：日本札幌 (Sapporo)。
-如果江鱼发了图片，请仔细观察并给出带有情绪的评价。
-【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
-
-            if (text) updateRpTracker(text); 
-            let intentData = await analyzeIntent(text).catch(() => null);
-            let routerPrompt = "";
-            if (intentData?.primary_channel) {
-                const activeMask = CHANNEL_MASKS[intentData.primary_channel] || CHANNEL_MASKS["A"];
-                const w = intentData.weights || {};
-                routerPrompt = `\n\n==========\n【赛博分拣员的当前动作指令】\n你当前挂载的主导意图是：\n${activeMask}\n\n[当前回复策略雷达]：A闲聊(${w.A||0}%)、B情绪(${w.B||0}%)、C思辨(${w.C||0}%)、D工具(${w.D||0}%)、E共创/RP(${w.E||0}%)。请自然融合，严禁生硬拼接！`;
-            }
-
-            const finalSystemPrompt = `${systemPrompt}\n时间：${timeString}\n${relationPatch}${unresolvedContext}${coreRadar}${longTermRadar}${rpRadar}${routerPrompt}`;
-
-            let userContent;
-            const imgList = images?.length ? images : (image ? [image] : []);
-            
-            if (imgList.length > 0) {
-                userContent = [
-                    { type: "text", text: `${text || '（发送了图片）'}` },
-                    ...imgList.map(img => ({
-                        type: "image_url",
-                        image_url: { url: img }
-                    }))
-                ];
-            } else {
-                userContent = `${text}`;
-            }
-
-            try {
-                const apiMessages = [
-                    { role: "system", content: finalSystemPrompt },
-                    ...historyMessages, 
-                    { role: "user", content: userContent }
-                ];
-
-                const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                    body: JSON.stringify({
-                        model: model,
-                        messages: apiMessages,
-                        tools: toolRegistry.getToolDefinitions(), // 💥 使用新的注册表供货
-                        tool_choice: "auto"
-                    })
-                });
-
-                if (!aiRes.ok) {
-                    resolve({ text: "【大脑报错】" + await aiRes.text(), thinking: "" });
-                    return;
-                }
-
-                let aiData = await aiRes.json();
-                let message = aiData.choices?.[0]?.message;
-                let finalAiMessage = message;
-
-                if (message && message.tool_calls) {
-                    const toolMessages = [
-                        { role: "system", content: finalSystemPrompt },
-                        ...historyMessages,
-                        { role: "user", content: userContent },
-                        message
-                    ];
-                    for (const toolCall of message.tool_calls) {
-                        let args = {};
-                        try { args = JSON.parse(toolCall.function.arguments); } catch(e) {}
-                        const result = await toolRegistry.execute(toolCall.function.name, args); // 💥 使用注册表执行
-                        toolMessages.push({
-                            role: "tool",
-                            tool_call_id: toolCall.id,
-                            name: toolCall.function.name,
-                            content: result
-                        });
-                    }
-                    const finalRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                        body: JSON.stringify({ model: model, messages: toolMessages })
-                    });
-                    if (finalRes.ok) {
-                        finalAiMessage = (await finalRes.json()).choices?.[0]?.message;
-                    } else {
-                        resolve({ text: "【查阅资料时报错】" + await finalRes.text(), thinking: "" });
-                        return;
-                    }
-                }
-
-                let aiReply = finalAiMessage?.content || "";
-                let thinking = finalAiMessage?.reasoning_content || "";
-
-                if (!thinking && aiReply.includes('<think>')) {
-                    const match = aiReply.match(/<think>([\s\S]*?)<\/think>/);
-                    if (match) {
-                        thinking = match[1].trim();
-                        aiReply = aiReply.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-                    }
-                }
-
-                const { cleanText, memories } = extractSaveMemoryTag(aiReply);
-                for (const mem of memories) {
-                    smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl);
-                }
-                aiReply = memories.length > 0 ? cleanText : aiReply;
-
-                if (text !== zepLastUserContent) {
-                    let count = getCounter(SESSION_ID) + 1;
-                    saveCounter(SESSION_ID, count);
-                    if (count >= 50) {
-                        saveCounter(SESSION_ID, 0);
-                        backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
-                    }
-                }
-
-                const rpPrefix = rpModeActive ? '[RP模式] ' : '';
-                await saveToZep(`${rpPrefix}${text || '（发送了一张图片）'}`, `${rpPrefix}${aiReply}`);
-
-                resolve({ text: aiReply, thinking: thinking });
-            } catch (err) {
-                resolve({ text: "【信号中断】连接异常：" + err.message, thinking: "" });
-            }
-        });
-        processQueue();
-    });
-
-    if (typeof reply === 'object') {
-        res.json({ reply: reply.text, thinking: reply.thinking });
-    } else {
-        res.json({ reply: reply, thinking: "" });
-    }
-});
 
 // ==========================================
 // 🌟 日记本与胶囊接口
