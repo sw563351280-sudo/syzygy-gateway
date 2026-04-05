@@ -117,16 +117,20 @@
         <div class="chat-tool-wrap">
             <button class="chat-tool-btn" id="chatToolBtn" onclick="toggleChatToolMenu()">⊕</button>
             <div class="chat-tool-menu" id="chatToolMenu">
-                <label class="chat-tool-item">
-                    <input type="checkbox" id="streamToggle" checked>
-                    <span>打字机效果</span>
-                </label>
-                <label for="imgUpload" class="chat-tool-item">
-                    <span>◇</span>
-                    <span>发送图片</span>
-                </label>
-                <input type="file" id="imgUpload" accept="image/*" multiple style="display:none;">
-            </div>
+    <label class="chat-tool-item">
+        <input type="checkbox" id="streamToggle" checked>
+        <span>打字机效果</span>
+    </label>
+    <label class="chat-tool-item">
+        <input type="checkbox" id="useToolsToggle">
+        <span>⚙️ 启用技能 (慢速)</span>
+    </label>
+    <label for="imgUpload" class="chat-tool-item">
+        <span>◇</span>
+        <span>发送图片</span>
+    </label>
+    <input type="file" id="imgUpload" accept="image/*" multiple style="display:none;">
+</div>
         </div>
 
         <textarea id="chatInput" rows="1" placeholder="发消息给沈望..."></textarea>
