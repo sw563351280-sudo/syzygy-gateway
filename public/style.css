@@ -2868,19 +2868,7 @@ body.light-mode .chat-sidebar {
 }
 
 /* 💥 沈望技能模组检索时的呼吸与旋转动画 */
-@keyframes loadingPulse {
-    0% { opacity: 0.5; }
-    50% { opacity: 1; }
-    100% { opacity: 0.5; }
-}
-.loading-dots {
-    animation: loadingPulse 1.5s ease-in-out infinite;
-    letter-spacing: 1px;
-}
-
-@keyframes spin {
-    100% { transform: rotate(360deg); }
-}
-.spin-icon {
-    animation: spin 1s linear infinite;
-}
+@keyframes loadingPulse { 0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; } }
+.loading-dots { animation: loadingPulse 1.5s ease-in-out infinite; letter-spacing: 1px; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
+.spin-icon { animation: spin 1.2s linear infinite; }
