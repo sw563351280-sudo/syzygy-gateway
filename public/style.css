@@ -1484,38 +1484,21 @@ body.light-mode {
 }
 
 /* ═══════════════════════════════════════════
-   🌞 白天模式升级：窗户阳光 + 薄荷钢笔 + 墨迹
+   🌞 白天模式升级：窗户阳光 + 信箱旁的钢笔
    ═══════════════════════════════════════════ */
 
-/* ---------- 1. 背景层：阳光斜射 + 光斑 + 笔尖墨迹 ---------- */
+/* ──── 1. 阳光斜射（覆盖原有的 body.light-mode::before） ──── */
 body.light-mode::before {
     background:
-        /* 💥 核心：窗户斜射暖阳 —— 中心偏左上，暖琥珀色渐变到透明 */
+        /* 💥 窗户暖阳：中心偏左上 */
         radial-gradient(
             ellipse 75% 65% at 20% 15%,
-            rgba(255, 223, 142, 0.38) 0%,       /* 暖琥珀光心 */
-            rgba(255, 236, 179, 0.18) 30%,       /* 扩散过渡 */
-            rgba(255, 244, 210, 0.06) 55%,       /* 渐淡 */
-            transparent 70%                       /* 完全消失 */
+            rgba(255, 223, 142, 0.35) 0%,
+            rgba(255, 236, 179, 0.18) 30%,
+            rgba(255, 244, 210, 0.06) 55%,
+            transparent 70%
         ),
-
-        /* 🖋️ 笔尖墨迹：右下角的一滴深棕色墨水 */
-        radial-gradient(
-            circle 4px at calc(100% - 120px) calc(100% - 170px),
-            rgba(92, 64, 51, 0.55) 0%,
-            rgba(92, 64, 51, 0.25) 45%,
-            rgba(92, 64, 51, 0.08) 70%,
-            transparent 100%
-        ),
-        /* 墨迹晕开的微小扩散环 */
-        radial-gradient(
-            circle 9px at calc(100% - 119px) calc(100% - 168px),
-            rgba(92, 64, 51, 0.08) 0%,
-            rgba(92, 64, 51, 0.03) 60%,
-            transparent 100%
-        ),
-
-        /* ── 保留原有的7个树叶光斑 ── */
+        /* 保留原有7个光斑 */
         radial-gradient(ellipse 900px 700px at 18% 12%, rgba(255, 250, 220, 0.35) 0%, transparent 70%),
         radial-gradient(circle 45px at 10% 22%, rgba(255, 249, 230, 0.05) 0%, transparent 100%),
         radial-gradient(circle 70px at 78% 12%, rgba(255, 249, 230, 0.04) 0%, transparent 100%),
@@ -1526,6 +1509,89 @@ body.light-mode::before {
         radial-gradient(circle 65px at 50% 82%, rgba(255, 249, 230, 0.03) 0%, transparent 100%) !important;
     opacity: 1 !important;
 }
+
+/* ──── 2. 隐藏暗夜装订线（保持原逻辑不变） ──── */
+body.light-mode::after {
+    opacity: 0 !important;
+}
+
+/* ──── 3. ✒ 钢笔：斜靠在时光信箱右下角 ──── */
+body.light-mode .mailbox-container {
+    position: relative !important;
+    overflow: visible !important; /* 让笔露出卡片边缘 */
+}
+
+body.light-mode .mailbox-container::after {
+    content: '✒';
+    position: absolute;
+    bottom: -6px;
+    right: -10px;
+    font-size: 2.6em;
+    transform: rotate(-40deg);
+    opacity: 0.45;
+    pointer-events: none;
+    z-index: 5;
+    filter: drop-shadow(2px 3px 6px rgba(92, 64, 51, 0.18));
+    transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* 鼠标划过信箱时，笔微微抬起 */
+body.light-mode .mailbox-container:hover::after {
+    transform: rotate(-35deg) translateY(-4px) scale(1.08);
+    opacity: 0.6;
+    filter: drop-shadow(3px 5px 10px rgba(92, 64, 51, 0.22));
+}
+
+/* ──── 4. 墨迹：笔尖处的一小滴 ──── */
+body.light-mode .mailbox-container::before {
+    /* 覆盖 .glass::before 的装订线（白天本就 opacity:0） */
+    content: '' !important;
+    position: absolute !important;
+    top: auto !important;
+    left: auto !important;
+    bottom: 10px !important;
+    right: 16px !important;
+    width: 7px !important;
+    height: 7px !important;
+    background: radial-gradient(
+        circle,
+        rgba(92, 64, 51, 0.55) 0%,
+        rgba(92, 64, 51, 0.2) 50%,
+        transparent 100%
+    ) !important;
+    border-radius: 50% !important;
+    opacity: 0.5 !important;
+    z-index: 6 !important;
+    pointer-events: none !important;
+    /* 墨迹不是正圆，微微椭圆+偏移 = 自然洇开感 */
+    transform: scale(1, 0.8) translate(2px, -2px) !important;
+    box-shadow:
+        1px 1px 3px rgba(92, 64, 51, 0.15),
+        -1px 0 5px rgba(92, 64, 51, 0.06) !important;
+    transition: opacity 0.5s ease !important;
+}
+
+body.light-mode .mailbox-container:hover::before {
+    opacity: 0.35 !important; /* 笔抬起来了，墨迹变淡 */
+}
+
+/* ──── 5. 手机端微调 ──── */
+@media (max-width: 600px) {
+    body.light-mode .mailbox-container::after {
+        font-size: 2em;
+        bottom: -4px;
+        right: -6px;
+        opacity: 0.35;
+    }
+    body.light-mode .mailbox-container::before {
+        width: 5px !important;
+        height: 5px !important;
+        bottom: 8px !important;
+        right: 14px !important;
+        opacity: 0.35 !important;
+    }
+}
+
 
 /* ---------- 2. 薄荷绿钢笔（右下角，斜靠页边） ---------- */
 body.light-mode::after {
