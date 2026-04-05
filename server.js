@@ -241,11 +241,18 @@ function saveRoleplayMemories(memories) { fs.writeFileSync(ROLEPLAY_FILE, JSON.s
 // ==========================================
 function isTagMatch(tag, text) {
     if (!tag || tag.length < 2) return false;
+    
+    // 3个字及以上的标签：直接包含匹配（"演唱会"、"明日方舟"这种不会有歧义）
+    if (tag.length >= 3) {
+        return text.toLowerCase().includes(tag.toLowerCase());
+    }
+    
+    // 2个字的短标签：保留边界检查，防止 "吃" 匹配 "吃醋"、"日记" 匹配 "日记本"
     const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // 中文：要求前后不紧跟其他汉字，防止 "吃" 匹配 "吃醋"
     const regex = new RegExp(`(?<![\\u4e00-\\u9fff])${escapedTag}(?![\\u4e00-\\u9fff])`, 'i');
     return regex.test(text);
 }
+
 
 // 🔧 修改: 模糊语义查重（防止管家用不同措辞重复写入同一件事）
 function isSemanticDuplicate(newContent, existingMemories) {
@@ -1158,6 +1165,61 @@ app.get('/api/embedding-status', (req, res) => {
         sample_dimensions: ids.length > 0 ? cache[ids[0]].length : 0
     });
 });
+
+// 🔬 诊断：测试某句话能搜到什么记忆
+app.post('/api/debug-search', async (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) {
+        return res.status(401).json({ error: "密码错误" });
+    }
+    const { query } = req.body;
+    if (!query) return res.status(400).json({ error: "需要 query 字段" });
+
+    const cache = loadEmbeddingsCache();
+    const queryEmbedding = await getEmbedding(query);
+
+    // 扫描所有记忆库
+    const allMemories = [
+        ...loadLongTermMemories().map(m => ({ ...m, _source: '现实记忆' })),
+        ...loadRoleplayMemories().map(m => ({ ...m, _source: 'RP卡带' })),
+        ...memoryBlocks.map((b, i) => ({ id: `block_${i}`, content: b.content, tags: b.tags || [], _source: '核心灵魂', expires_at: null }))
+    ];
+
+    const diagnostics = [];
+    for (const m of allMemories) {
+        if (m.expires_at && Date.now() > m.expires_at) continue;
+
+        const hasCache = !!cache[m.id];
+        const vecScore = (queryEmbedding && cache[m.id]) 
+            ? cosineSimilarity(queryEmbedding, cache[m.id]) 
+            : null;
+        const tagHits = (m.tags || []).filter(tag => isTagMatch(tag, query));
+
+        // 只输出有点关联的
+        if (vecScore > 0.3 || tagHits.length > 0) {
+            diagnostics.push({
+                id: m.id,
+                source: m._source,
+                content: m.content.substring(0, 80),
+                tags: m.tags,
+                has_embedding: hasCache,
+                vector_score: vecScore ? vecScore.toFixed(4) : 'N/A',
+                tag_hits: tagHits,
+                would_match: vecScore > 0.45 || tagHits.length > 0
+            });
+        }
+    }
+
+    diagnostics.sort((a, b) => parseFloat(b.vector_score || 0) - parseFloat(a.vector_score || 0));
+
+    res.json({
+        query,
+        query_embedding_ok: !!queryEmbedding,
+        total_memories_scanned: allMemories.length,
+        total_cached_embeddings: Object.keys(cache).length,
+        matches: diagnostics
+    });
+});
+
 
 app.delete('/api/embeddings-cache', (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) {
