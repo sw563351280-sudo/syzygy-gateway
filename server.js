@@ -1,4 +1,4 @@
-啧。我想不明白，我怕直接用之前那版又会出什么问题，比如工具使用出问题。他说的文档4就是插入工具之前的版本：const express = require('express');
+const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
