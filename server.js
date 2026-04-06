@@ -1474,7 +1474,7 @@ function toggleSummarized(){document.querySelectorAll('.msg-item[data-summarized
 });
 
 // ==========================================
-// 🌟 长期记忆管理网页（含 resolved 按钮）
+// 🌟 长期记忆管理网页（海马体完全体 UI版）
 // ==========================================
 app.get('/long-term', (req, res) => {
     const pwd = req.query.pwd;
@@ -1492,10 +1492,30 @@ app.get('/long-term', (req, res) => {
 
     const sourceLabel = (s) => ({'manual':'✍️ 手动','ai_active':'🤖 AI主动','butler_summary':'🌙 管家','roleplay':'🎮RP副本'}[s]||s);
 
-    const memoryCards = allMemsForFrontend.map(m => `
+    // 💥 新增：保质期计算器
+    const getTTLLabel = (mem) => {
+        if (!mem.expires_at) return '♾️ 永久';
+        const remaining = mem.expires_at - Date.now();
+        if (remaining <= 0) return '⏰ 已过期';
+        const days = Math.ceil(remaining / (24 * 60 * 60 * 1000));
+        if (days <= 3) return `🔥 ${days}天后过期`;
+        if (days <= 7) return `📅 ${days}天后过期`;
+        return `📦 ${days}天后过期`;
+    };
+
+    const memoryCards = allMemsForFrontend.map(m => {
+        // 💥 新增：海马体仪表盘标签
+        const ttlBadge = `<span style="background:#fff3e0;color:#e65100;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">${getTTLLabel(m)}</span>`;
+        const arousalBadge = m.arousal ? `<span style="background:#ffebee;color:#c62828;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">❤️ 浓度:${m.arousal}</span>` : '';
+        const countBadge = m.activation_count !== undefined ? `<span style="background:#e3f2fd;color:#1565c0;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">🔄 唤醒:${m.activation_count}次</span>` : '';
+        
+        return `
         <div class="memory-card cat-${m.category}" id="card-${m.id}" data-category="${m.category}" data-source="${m.source}">
             <div class="memory-content" id="content-${m.id}">${m.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
-            <div class="memory-tags" id="tags-display-${m.id}">${(m.tags||[]).length>0?m.tags.map(t=>'<span class="tag">'+t+'</span>').join(''):'<span style="color:#ccc;font-size:12px">无标签</span>'}</div><div class="memory-meta">
+            <div class="memory-tags" id="tags-display-${m.id}">
+                <div style="margin-bottom:6px; border-bottom: 1px dashed #eee; padding-bottom: 6px;">${ttlBadge}${arousalBadge}${countBadge}</div>
+                ${(m.tags||[]).length>0?m.tags.map(t=>'<span class="tag">'+t+'</span>').join(''):'<span style="color:#ccc;font-size:12px">无标签</span>'}
+            </div><div class="memory-meta">
                 <span>${new Date(m.created_at).toLocaleString('zh-CN')} · ${sourceLabel(m.source)}
                 ${m.category === 'archived' ? '<span style="color:#0288d1;font-weight:bold;">❄️ 冰封中</span>' : ''}
                 ${m.category === 'roleplay' ? '<span style="color:#8e24aa;font-weight:bold;">🎭 游戏卡带</span>' : ''}</span>
@@ -1511,7 +1531,8 @@ app.get('/long-term', (req, res) => {
                 <textarea id="ta-${m.id}" rows="3">${m.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
                 <input type="text" id="tags-${m.id}" value="${(m.tags||[]).join(', ')}" style="width:100%;padding:8px;border-radius:6px;margin-top:6px;box-sizing:border-box;"><div style="display:flex;gap:8px;margin-top:6px;"><button class="btn-save" onclick="saveEdit('${m.id}')">💾 保存</button><button class="btn-cancel" onclick="cancelEdit('${m.id}')">取消</button></div>
             </div>
-        </div>`).join('');
+        </div>`
+    }).join('');
 
     const counts = {
         all: activeMemories.length,
@@ -1540,7 +1561,7 @@ app.get('/long-term', (req, res) => {
 .cat-archived{background:#fdfdff;border-color:#bbdefb;} .cat-roleplay{background:#faf5fb;border-color:#e1bee7; border-left:4px solid #ab47bc}
 .memory-content{font-size:15px;line-height:1.6;margin-bottom:8px;white-space:pre-wrap}
 .tag{background:#e3f2fd;color:#1565c0;padding:2px 10px;border-radius:12px;font-size:12px}
-.memory-meta{display:flex;justify-content:space-between;font-size:12px;color:#999}
+.memory-meta{display:flex;justify-content:space-between;font-size:12px;color:#999; margin-top: 8px;}
 .btn-sm{padding:3px 10px;border-radius:5px;border:1px solid #ddd;background:white;cursor:pointer;}
 .btn-del{color:#e53935;border-color:#e53935} .btn-save{background:#4CAF50;color:white;border:none;border-radius:6px;padding:5px 14px;}
 .btn-resolved { color: #888; border-color: #ddd; }
@@ -1555,7 +1576,7 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
 </div>
 
 <div class="main">
-    <div class="header"><h1>💎 永久记忆档案</h1></div>
+    <div class="header"><h1>💎 永久记忆档案 (海马体接管中)</h1></div>
     <div class="search-row"><input type="text" id="searchInput" placeholder="搜索记忆内容..." oninput="filterAll()"><button class="btn-add" onclick="openModal()">＋ 新增</button></div>
     <div class="pills">
         <span class="pill active" onclick="setFilter(this,'active','all')">现实脑区(${counts.all})</span>
