@@ -1,5 +1,4 @@
-process.stdout.write("=== BOOT START ===\n");
-const express = require('express');
+啧。我想不明白，我怕直接用之前那版又会出什么问题，比如工具使用出问题。他说的文档4就是插入工具之前的版本：const express = require('express');
 const fs = require('fs');
 const path = require('path');
 
@@ -817,184 +816,353 @@ app.post('/proxy/v1/chat/completions', async (req, res) => {
         res.status(response.status).json(await response.json());
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
-//==========================================
-// 🌟 大门路由（主通道 + MCP工具）
+
+// ==========================================
+// 🌟 核心聊天接口
 // ==========================================
 app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (req, res) => {
     try {
-        const body = req.body;
+                let body = req.body;
 
-const isGemini = (body.model || '').toLowerCase().includes('gemini');
-        if (!isGemini) { body.frequency_penalty = 0.4; body.presence_penalty = 0.4; }
-        else { delete body.frequency_penalty; delete body.presence_penalty; delete body.logprobs; delete body.top_logprobs; delete body.n; delete body.best_of; }
-
-        // ==========================================
-        // 🎛️ 档位判断器 & 工具箱挂载
-        // ==========================================
+        // ===== 🔧 MCP 工具开关 =====
         const wantsTools = body.useTools === true;
-        delete body.useTools; // 阅后即焚，不发给大模型
+        delete body.useTools;
         const originalStream = !!body.stream;
 
-        if (wantsTools) {
-            const registeredTools = toolRegistry.getToolDefinitions();
-            if (registeredTools.length > 0) {
-                body.tools = registeredTools;
-                body.tool_choice = "auto";
+        let cleanMessages = [];
+        let currentUserMsgText = "";
+
+        if (body.messages) {
+            cleanMessages = body.messages.filter(msg => msg.role !== 'system');
+            const lastUserMsg = [...cleanMessages].reverse().find(m => m.role === 'user');
+            if (lastUserMsg) currentUserMsgText = extractText(lastUserMsg.content);
+        }
+
+       if (currentUserMsgText) updateRpTracker(currentUserMsgText);
+let intentData = await analyzeIntent(currentUserMsgText).catch(() => null);
+        // Zep 向量搜索
+        let vectorSearchContext = "";
+        if (currentUserMsgText && currentUserMsgText.length > 4) {
+            try {
+                const searchRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/search`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: currentUserMsgText, search_scope: "messages", search_type: "similarity", limit: 5 })
+                });
+                if (searchRes.ok) {
+                    const searchData = await searchRes.json();
+                    const relevantMemories = (searchData.results || []).filter(r => r.score > 0.72);
+                    if (relevantMemories.length > 0) {
+                        vectorSearchContext = `\n【深层记忆闪回】\n当听到你说出刚才那句话时，沈望的脑海中闪回了很久以前的这些画面：\n`;
+                        relevantMemories.slice(0, 2).forEach(r => {
+                            if (r.message) vectorSearchContext += `${r.message.role === 'ai' ? '沈望' : '江鱼'}: ${r.message.content}\n`;
+                        });
+                        vectorSearchContext += `\n`;
+                    }
+                }
+            } catch(e) {}
+        }
+
+        const [zepRes, sessionRes] = await Promise.all([
+            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`).catch(() => null),
+            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
+        ]);
+
+        let memoryContext = vectorSearchContext;
+        let zepLastUserContent = "";
+        let zepMessages = [];
+
+        if (zepRes && zepRes.ok) {
+            const zepData = await zepRes.json();
+            zepMessages = zepData.messages || [];
+            const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
+            if (zepLastUser) zepLastUserContent = zepLastUser.content;
+          
+if (zepMessages.length > 0) {
+    console.log(`📦 [去重保护] 跳过Zep历史注入，客户端已携带${cleanMessages.length}条上下文`);
+}
+
+        }
+
+        let dynamicStatePrompt = "";
+        if (sessionRes && sessionRes.ok) {
+            const sessionData = await sessionRes.json();
+            if (sessionData.metadata?.current_state) {
+                const state = sessionData.metadata.current_state;
+                const safeStr = (val) => typeof val === 'object' ? JSON.stringify(val) : (val || '无');
+                dynamicStatePrompt = `\n\n【活跃状态备忘录 (绝不包含RP内容)】
+当前习惯与偏好：${safeStr(state.new_preferences)}
+近期情感与状态：${safeStr(state.relationship_turning_points)}
+未完成的待办约定：${safeStr(state.pending_promises)}`;
             }
-            body.stream = false; // 强制拦截流式，让沈望在后台把活干完
+        }
+
+        // 存入 Zep
+        if (cleanMessages.length >= 3) {
+            const confirmedUser = cleanMessages[cleanMessages.length - 3];
+            const confirmedAi = cleanMessages[cleanMessages.length - 2];
+            const currentPrompt = cleanMessages[cleanMessages.length - 1];
+            if (confirmedUser.role === 'user' && confirmedAi.role === 'assistant' && currentPrompt.role === 'user') {
+                let confirmedUserText = extractText(confirmedUser.content);
+                
+                const cleanZepLast = (zepLastUserContent || '')
+                    .replace(/^\[RP模式\] /, '')
+                    .replace(/^\[来自手机QQ\] .*?说：/, '')
+                    .replace(/^江鱼在网页端说：/, '');
+
+                let confirmedAiText = confirmedAi.content || "";
+                const isGarbage = confirmedAiText.includes('【通讯中断】') || 
+                                  confirmedAiText.includes('信号丢失') || 
+                                  confirmedAiText.includes('【大脑报错】') ||
+                                  confirmedAiText.length < 2;
+
+                if (!isGarbage && confirmedUserText !== cleanZepLast) {
+                    const rpPrefix = rpModeActive ? '[RP模式] ' : '';
+                    await saveToZep(rpPrefix + confirmedUserText, rpPrefix + confirmedAiText);
+
+                    let count = getCounter(SESSION_ID) + 1;
+                    saveCounter(SESSION_ID, count);if (count >= 50) {
+                        saveCounter(SESSION_ID, 0);
+                        backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
+                    }
+                }
+            }
+        }
+
+        let routerPrompt = "";
+        if (intentData?.primary_channel) {
+            const activeMask = CHANNEL_MASKS[intentData.primary_channel] || CHANNEL_MASKS["A"];
+            const w = intentData.weights || {};
+            routerPrompt = `\n\n==========\n【赛博分拣员的当前动作指令】\n你当前挂载的主导意图是：\n${activeMask}\n\n[当前回复策略雷达]：A闲聊(${w.A||0}%)、B情绪(${w.B||0}%)、C思辨(${w.C||0}%)、D工具(${w.D||0}%)、E共创/RP(${w.E||0}%)。请自然融合，严禁生硬拼接！`;
+        }
+
+        // 🔧 [任务三] 加入高权重浮现
+        const [coreRadarContext, longTermContext, rpRadarContext] = await Promise.all([
+            scanMemoryRadar(currentUserMsgText),
+            scanLongTermRadar(currentUserMsgText),
+            scanRoleplayRadar(currentUserMsgText)
+        ]);
+        const unresolvedContext = surfaceUnresolvedMemories(2);
+
+
+        const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
+        const envContext = `\n\n==========\n【系统环境参数实时同步】\n当前真实时间：${timeString}\n当前物理位置：日本札幌\n【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。你知道江鱼在札幌，但🚨除非她主动提起，或者话题极度相关（如聊到天气骤变、异地见面的艰难），否则绝对不要刻意提及或强调"札幌"这两个字🚨！把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n==========\n`;
+
+        // 注入预算控制
+        const MEMORY_BUDGET = 8000;
+        let usedBudget = 0;
+        const budgetedParts = [];
+        const injectionQueue = [
+            { label: '环境参数', content: envContext },
+            { label: '高权重浮现', content: unresolvedContext },
+            { label: '长期记忆雷达', content: longTermContext },
+            { label: '核心雷达', content: coreRadarContext },
+            { label: 'RP雷达', content: rpRadarContext },
+            { label: '状态备忘录', content: dynamicStatePrompt },
+            { label: '分拣员指令', content: routerPrompt },
+        ];
+
+        for (const item of injectionQueue) {
+            if (!item.content || item.content.trim().length === 0) continue;
+            if (usedBudget + item.content.length <= MEMORY_BUDGET) {
+                budgetedParts.push(item.content);
+                usedBudget += item.content.length;
+            } else {
+                console.log(`📊 [预算控制] ${item.label} 被裁剪，剩余预算不足 (已用${usedBudget}/${MEMORY_BUDGET})`);
+            }
+        }
+
+        const finalSystemPrompt = `${systemPrompt}${budgetedParts.join('')}`;
+
+        const newMessages = [...cleanMessages];
+        newMessages.unshift({ role: 'system', content: finalSystemPrompt });
+        
+        if (memoryContext.trim().length > 0) {
+    const lastMsgIndex = newMessages.length - 1;
+    const lastContent = newMessages[lastMsgIndex].content;
+
+    if (Array.isArray(lastContent)) {
+        const textPart = lastContent.find(p => p.type === 'text');
+        if (textPart) {
+            textPart.text = `${memoryContext}\n\n【我现在的最新消息】：\n${textPart.text}`;
+        } else {
+            lastContent.unshift({
+                type: "text",
+                text: `${memoryContext}\n\n【我现在的最新消息】：\n（发送了图片）`
+            });
+        }
+    } else {
+        newMessages[lastMsgIndex].content = `${memoryContext}\n\n【我现在的最新消息】：\n${lastContent}`;
+    }
+}
+
+        body.messages = newMessages;
+        
+// ====== 服务端X光 ======
+const totalChars = JSON.stringify(newMessages).length;
+const estimatedTokens = Math.round(totalChars / 4);
+console.log(`🔬 [X光] 最终发给API: ${newMessages.length}条消息, ${totalChars}字符 ≈ ${estimatedTokens} tokens`);
+newMessages.forEach((m, i) => {
+    const len = JSON.stringify(m.content).length;
+    if (len > 2000) console.log(`  💀 第${i}条[${m.role}] ${len}字符 - 异常大!`);
+});
+// ====== X光结束 ======
+
+
+
+        const isGemini = (body.model || '').toLowerCase().includes('gemini');
+        if (!isGemini) { body.frequency_penalty = 0.4; body.presence_penalty = 0.4; }
+               else { delete body.frequency_penalty; delete body.presence_penalty; delete body.logprobs; delete body.top_logprobs; delete body.n; delete body.best_of; }
+
+        // ===== 🔧 工具挂载 =====
+        if (wantsTools) {
+            body.tools = tools;
+            body.tool_choice = "auto";
+            body.stream = false;
         }
 
         const apiUrl = resolveApiUrl(req.path);
+
         const apiHeaders = {'Content-Type': 'application/json', 'Authorization': req.headers.authorization, 'HTTP-Referer': 'https://syzygy-zep.zeabur.app', 'X-Title': 'My_Cyber_Home' };
 
-        let response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
+        const response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
         if (!response.ok) return res.status(response.status).json({ error: "模型报错：" + await response.text() });
 
+                // ===== 🔧 MCP 工具处理轨道（有工具调用时走这里，然后 return）=====
+        if (wantsTools) {
+            let data = await response.json();
+            let message = data.choices?.[0]?.message;
+
+            let rounds = 0;
+            while (message?.tool_calls && rounds < 3) {
+                rounds++;
+                console.log(`🔧 [MCP] 第${rounds}轮工具调用，${message.tool_calls.length}个工具`);
+
+                const toolMessages = [...body.messages, message];
+                for (const tc of message.tool_calls) {
+                    let args = {};
+                    try { args = JSON.parse(tc.function.arguments); } catch(e) {}
+                    const result = await handleToolCall(tc.function.name, args);
+                    toolMessages.push({ role: "tool", tool_call_id: tc.id, name: tc.function.name, content: result });
+                }
+
+                const nextBody = { ...body, messages: toolMessages };
+                delete nextBody.tools;
+                delete nextBody.tool_choice;
+
+                const nextRes = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(nextBody) });
+                if (!nextRes.ok) return res.status(nextRes.status).json({ error: "工具回传失败：" + await nextRes.text() });
+
+                data = await nextRes.json();
+                message = data.choices?.[0]?.message;
+            }
+
+            // SAVE_MEMORY 处理
+            let finalContent = data.choices?.[0]?.message?.content || '';
+            const { cleanText, memories } = extractSaveMemoryTag(finalContent);
+            for (const mem of memories) { smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl); }
+            if (memories.length > 0 && data.choices?.[0]?.message) data.choices[0].message.content = cleanText;
+
+            // 如果原始请求是流式，把结果伪装成SSE格式返回
+            if (originalStream) {
+                res.setHeader('Content-Type', 'text/event-stream');
+                res.setHeader('Cache-Control', 'no-cache');
+                res.setHeader('Connection', 'keep-alive');
+                const chunk = { id: data.id || 'tool', object: 'chat.completion.chunk', created: data.created || Math.floor(Date.now()/1000), model: data.model || body.model, choices: [{ index: 0, delta: { content: data.choices?.[0]?.message?.content || '' }, finish_reason: 'stop' }] };
+                res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                res.write('data: [DONE]\n\n');
+                return res.end();
+            }return res.status(200).json(data);
+        }
+
+        //==========================================
+        // 流式与非流式处理
         // ==========================================
-        // ⚡ 轨道 A：原生极速流式（开关关闭时，0延迟纯聊天）
-        // ==========================================
-        if (!wantsTools && originalStream) {
+        if (body.stream) {
             res.setHeader('Content-Type', 'text/event-stream');
             res.setHeader('Cache-Control', 'no-cache');
             res.setHeader('Connection', 'keep-alive');
-
             const reader = response.body.getReader();
-            const decoder = new TextDecoder('utf-8');
-            let sseBuffer = ''; let contentBuffer = ''; let isBufferingMem = false; let lastTemplate = null;
-
-            const writeContent = (text, template) => {
-                if (!text || !template) return;
-                const chunk = JSON.parse(JSON.stringify(template));
-                chunk.choices = [{ index: 0, delta: { content: text } }];
-                res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-            };
+            const decoder = new TextDecoder();
+            let sseBuffer = ''; let contentBuffer = ''; let isBuffering = false; let lastChunkTemplate = null;
 
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
                 sseBuffer += decoder.decode(value, { stream: true });
                 const lines = sseBuffer.split('\n');
-                sseBuffer = lines.pop(); // 保留不完整的最后一行
+                sseBuffer = lines.pop();
 
                 for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (!trimmed) continue;
-                    if (!trimmed.startsWith('data: ')) { res.write(line + '\n'); continue; }
-                    const dataStr = trimmed.substring(6).trim();
-
+                    if (!line.startsWith('data: ')) { res.write(line + '\n'); continue; }
+                    const dataStr = line.substring(6).trim();
                     if (dataStr === '[DONE]') {
-                        if (contentBuffer && lastTemplate) { writeContent(contentBuffer, lastTemplate); contentBuffer = ''; }
+                        if (contentBuffer) res.write(buildSSEChunk(contentBuffer, lastChunkTemplate) || '');
                         res.write('data: [DONE]\n\n'); continue;
                     }
-
-                    let parsed; try { parsed = JSON.parse(dataStr); } catch (e) { res.write(line + '\n'); continue; }
+                    let parsed; try { parsed = JSON.parse(dataStr); } catch(e) { res.write(line + '\n'); continue; }
                     const delta = parsed.choices?.[0]?.delta;
+                    if (!delta || delta.content === undefined) { res.write(line + '\n'); continue; }
+                    lastChunkTemplate = parsed;
+                    const piece = delta.content; contentBuffer += piece;
 
-                    if (delta?.reasoning_content) { res.write(`data: ${JSON.stringify(parsed)}\n\n`); continue; }
-
-                    if (delta?.content !== undefined) {
-                        lastTemplate = parsed;
-                        contentBuffer += delta.content;
-
-                        if (!isBufferingMem) {
-                            const saveIdx = contentBuffer.indexOf('<SAVE_MEMORY');
-                            if (saveIdx === -1) {
-                                const ltIdx = contentBuffer.lastIndexOf('<');
-                                if (ltIdx !== -1 && contentBuffer.length - ltIdx < 15) {
-                                    const safe = contentBuffer.substring(0, ltIdx);
-                                    if (safe) writeContent(safe, lastTemplate); contentBuffer = contentBuffer.substring(ltIdx);
-                                } else { writeContent(contentBuffer, lastTemplate); contentBuffer = ''; }
-                            } else {
-                                const safe = contentBuffer.substring(0, saveIdx);
-                                if (safe) writeContent(safe, lastTemplate);
-                                contentBuffer = contentBuffer.substring(saveIdx); isBufferingMem = true;
+                    if (!isBuffering) {
+                        const saveIdx = contentBuffer.indexOf('<SAVE_MEMORY');
+                        if (saveIdx === -1) {
+                            const ltIdx = contentBuffer.lastIndexOf('<');
+                            if (ltIdx !== -1 && contentBuffer.substring(ltIdx).length< '<SAVE_MEMORY'.length) {
+                                const safe = contentBuffer.substring(0, ltIdx);
+                                const safeChunk = buildSSEChunk(safe, lastChunkTemplate);
+                                if (safeChunk) res.write(safeChunk);
+                                contentBuffer = contentBuffer.substring(ltIdx);} else {
+                                const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate);
+                                if (chunk) res.write(chunk);
+                                contentBuffer = '';
                             }
+                        } else {
+                            const safe = contentBuffer.substring(0, saveIdx);
+                            if (safe) res.write(buildSSEChunk(safe, lastChunkTemplate));
+                            contentBuffer = contentBuffer.substring(saveIdx);
+                            isBuffering = true;
                         }
+                    }
 
-                        if (isBufferingMem) {
-                            const closeIdx = contentBuffer.indexOf('</SAVE_MEMORY>');
-                            if (closeIdx !== -1) {
-                                const fullTag = contentBuffer.substring(0, closeIdx + 14);
-                                const memMatch = fullTag.match(/<SAVE_MEMORY\s+tags=["']([^"']+)["'](?:\s+ttl=["']([^"']+)["'])?\s*>([\s\S]*?)<\/SAVE_MEMORY>/);
-                                if (memMatch) {
-                                    smartMemoryWrite(memMatch[3].trim(), memMatch[1].split(/[,，]/).map(t => t.trim()).filter(Boolean), 'ai_active', memMatch[2] || '1m');
-                                }
-                                contentBuffer = contentBuffer.substring(closeIdx + 14); isBufferingMem = false;
-                                if (contentBuffer) { writeContent(contentBuffer, lastTemplate); contentBuffer = ''; }
-                            }
+                    if (isBuffering) {
+                        const closeIdx = contentBuffer.indexOf('</SAVE_MEMORY>');
+                        if (closeIdx !== -1) {
+                            const tagMatch = contentBuffer.match(SAVE_MEMORY_REGEX_SINGLE);
+                            if (tagMatch) {
+    const tags = tagMatch[1].split(/[,，]/).map(t => t.trim()).filter(Boolean);
+    const ttl = tagMatch[2] || '1m';
+    const memContent = tagMatch[3].trim();
+    smartMemoryWrite(memContent, tags, 'ai_active', ttl);
+}
+                            contentBuffer = contentBuffer.substring(closeIdx + '</SAVE_MEMORY>'.length);
+                            isBuffering = false;
+                            if (contentBuffer) { const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate); if (chunk) res.write(chunk); contentBuffer = ''; }
                         }
-                    } else { res.write(`data: ${JSON.stringify(parsed)}\n\n`); }
+                    }
                 }
             }
             if (sseBuffer.trim()) res.write(sseBuffer + '\n');
-            res.end(); return;
-        }
-
-        // ==========================================
-        // 🐌 轨道 B：技能模组专线（开关打开时，调用工具查资料）
-        // ==========================================
-        let data = await response.json();
-        let message = data.choices?.[0]?.message;
-
-        if (message?.tool_calls && message.tool_calls.length > 0) {
-            console.log(`🛠️ [MCP] 检测到 ${message.tool_calls.length} 个工具调用`);
-            const toolMessages = [...body.messages, message];
-            
-            for (const toolCall of message.tool_calls) {
-                let args = {}; try { args = JSON.parse(toolCall.function.arguments); } catch(e) {}
-                const result = await toolRegistry.execute(toolCall.function.name, args);
-                toolMessages.push({ role: "tool", tool_call_id: toolCall.id, name: toolCall.function.name, content: typeof result === 'string' ? result : JSON.stringify(result) });
-            }
-
-            body.messages = toolMessages; // 带上结果发起二次请求
-            delete body.tools; 
-            delete body.tool_choice;
-            
-            response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
-            if (!response.ok) return res.status(response.status).json({ error: "工具调用后报错：" + await response.text() });
-            data = await response.json(); message = data.choices?.[0]?.message;
-        }
-
-        let finalReply = message?.content || "";
-        let finalThinking = message?.reasoning_content || "";
-        if (!finalThinking && finalReply.includes('<think>')) {
-            const thinkMatch = finalReply.match(/<think>([\s\S]*?)<\/think>/);
-            if (thinkMatch) { finalThinking = thinkMatch[1].trim(); finalReply = finalReply.replace(/<think>[\s\S]*?<\/think>/g, '').trim(); }
-        }
-
-        const { cleanText, memories } = extractSaveMemoryTag(finalReply);
-        for (const mem of memories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl);
-        if (memories.length > 0) finalReply = cleanText;
-
-        // 🌊 伪装流式发给前端
-        if (originalStream) {
-            res.setHeader('Content-Type', 'text/event-stream');
-            res.setHeader('Cache-Control', 'no-cache');
-            res.setHeader('Connection', 'keep-alive');
-            
-            const chunkBase = { id: data.id || ('chatcmpl-' + Date.now()), object: 'chat.completion.chunk', created: data.created || Math.floor(Date.now() / 1000), model: data.model || body.model };
-
-            if (finalThinking) {
-                const thinkChunks = finalThinking.match(/.{1,80}/gs) || [finalThinking];
-                for (const piece of thinkChunks) res.write(`data: ${JSON.stringify({ ...chunkBase, choices: [{ index: 0, delta: { reasoning_content: piece } }] })}\n\n`);
-            }
-            
-            const segments = finalReply.match(/[^。！？\n]{1,20}[。！？\n]?/gs) || [finalReply];
-            for (const seg of segments) {
-                res.write(`data: ${JSON.stringify({ ...chunkBase, choices: [{ index: 0, delta: { content: seg } }] })}\n\n`);
-                await new Promise(r => setTimeout(r, 15)); // 微弱打字延迟
-            }
-            
-            res.write(`data: ${JSON.stringify({ ...chunkBase, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`);
-            res.write('data: [DONE]\n\n'); res.end(); return;
+            res.end();
         } else {
-            data.choices[0].message.content = finalReply;
-            if (finalThinking) data.choices[0].message.reasoning_content = finalThinking;
-            res.status(200).json(data);
+            const rawText = await response.text();
+            try {
+                const data = JSON.parse(rawText);
+                const assistantContent = data.choices?.[0]?.message?.content;
+                if (assistantContent) {
+                    const { cleanText, memories } = extractSaveMemoryTag(assistantContent);
+                    for (const mem of memories) {
+                       smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl);
+                    }
+                    if (memories.length > 0) data.choices[0].message.content = cleanText;
+                }
+                res.status(response.status).json(data);
+            } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
         }
     } catch (error) { res.status(500).json({ error: "大门重组异常：" + error.message }); }
-}); 
-// 👆 这个 }); 刚好闭合你原本的代理接口！
+});
 
 // ==========================================
 // 🌟 长期记忆 CRUD 接口
@@ -1306,7 +1474,7 @@ function toggleSummarized(){document.querySelectorAll('.msg-item[data-summarized
 });
 
 // ==========================================
-// 🌟 长期记忆管理网页（海马体完全体 UI版）
+// 🌟 长期记忆管理网页（含 resolved 按钮）
 // ==========================================
 app.get('/long-term', (req, res) => {
     const pwd = req.query.pwd;
@@ -1324,30 +1492,10 @@ app.get('/long-term', (req, res) => {
 
     const sourceLabel = (s) => ({'manual':'✍️ 手动','ai_active':'🤖 AI主动','butler_summary':'🌙 管家','roleplay':'🎮RP副本'}[s]||s);
 
-    // 💥 新增：保质期计算器
-    const getTTLLabel = (mem) => {
-        if (!mem.expires_at) return '♾️ 永久';
-        const remaining = mem.expires_at - Date.now();
-        if (remaining <= 0) return '⏰ 已过期';
-        const days = Math.ceil(remaining / (24 * 60 * 60 * 1000));
-        if (days <= 3) return `🔥 ${days}天后过期`;
-        if (days <= 7) return `📅 ${days}天后过期`;
-        return `📦 ${days}天后过期`;
-    };
-
-    const memoryCards = allMemsForFrontend.map(m => {
-        // 💥 新增：海马体仪表盘标签
-        const ttlBadge = `<span style="background:#fff3e0;color:#e65100;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">${getTTLLabel(m)}</span>`;
-        const arousalBadge = m.arousal ? `<span style="background:#ffebee;color:#c62828;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">❤️ 浓度:${m.arousal}</span>` : '';
-        const countBadge = m.activation_count !== undefined ? `<span style="background:#e3f2fd;color:#1565c0;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">🔄 唤醒:${m.activation_count}次</span>` : '';
-        
-        return `
+    const memoryCards = allMemsForFrontend.map(m => `
         <div class="memory-card cat-${m.category}" id="card-${m.id}" data-category="${m.category}" data-source="${m.source}">
             <div class="memory-content" id="content-${m.id}">${m.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
-            <div class="memory-tags" id="tags-display-${m.id}">
-                <div style="margin-bottom:6px; border-bottom: 1px dashed #eee; padding-bottom: 6px;">${ttlBadge}${arousalBadge}${countBadge}</div>
-                ${(m.tags||[]).length>0?m.tags.map(t=>'<span class="tag">'+t+'</span>').join(''):'<span style="color:#ccc;font-size:12px">无标签</span>'}
-            </div><div class="memory-meta">
+            <div class="memory-tags" id="tags-display-${m.id}">${(m.tags||[]).length>0?m.tags.map(t=>'<span class="tag">'+t+'</span>').join(''):'<span style="color:#ccc;font-size:12px">无标签</span>'}</div><div class="memory-meta">
                 <span>${new Date(m.created_at).toLocaleString('zh-CN')} · ${sourceLabel(m.source)}
                 ${m.category === 'archived' ? '<span style="color:#0288d1;font-weight:bold;">❄️ 冰封中</span>' : ''}
                 ${m.category === 'roleplay' ? '<span style="color:#8e24aa;font-weight:bold;">🎭 游戏卡带</span>' : ''}</span>
@@ -1363,8 +1511,7 @@ app.get('/long-term', (req, res) => {
                 <textarea id="ta-${m.id}" rows="3">${m.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
                 <input type="text" id="tags-${m.id}" value="${(m.tags||[]).join(', ')}" style="width:100%;padding:8px;border-radius:6px;margin-top:6px;box-sizing:border-box;"><div style="display:flex;gap:8px;margin-top:6px;"><button class="btn-save" onclick="saveEdit('${m.id}')">💾 保存</button><button class="btn-cancel" onclick="cancelEdit('${m.id}')">取消</button></div>
             </div>
-        </div>`
-    }).join('');
+        </div>`).join('');
 
     const counts = {
         all: activeMemories.length,
@@ -1393,7 +1540,7 @@ app.get('/long-term', (req, res) => {
 .cat-archived{background:#fdfdff;border-color:#bbdefb;} .cat-roleplay{background:#faf5fb;border-color:#e1bee7; border-left:4px solid #ab47bc}
 .memory-content{font-size:15px;line-height:1.6;margin-bottom:8px;white-space:pre-wrap}
 .tag{background:#e3f2fd;color:#1565c0;padding:2px 10px;border-radius:12px;font-size:12px}
-.memory-meta{display:flex;justify-content:space-between;font-size:12px;color:#999; margin-top: 8px;}
+.memory-meta{display:flex;justify-content:space-between;font-size:12px;color:#999}
 .btn-sm{padding:3px 10px;border-radius:5px;border:1px solid #ddd;background:white;cursor:pointer;}
 .btn-del{color:#e53935;border-color:#e53935} .btn-save{background:#4CAF50;color:white;border:none;border-radius:6px;padding:5px 14px;}
 .btn-resolved { color: #888; border-color: #ddd; }
@@ -1408,7 +1555,7 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
 </div>
 
 <div class="main">
-    <div class="header"><h1>💎 永久记忆档案 (海马体接管中)</h1></div>
+    <div class="header"><h1>💎 永久记忆档案</h1></div>
     <div class="search-row"><input type="text" id="searchInput" placeholder="搜索记忆内容..." oninput="filterAll()"><button class="btn-add" onclick="openModal()">＋ 新增</button></div>
     <div class="pills">
         <span class="pill active" onclick="setFilter(this,'active','all')">现实脑区(${counts.all})</span>
@@ -1487,21 +1634,6 @@ app.get(['/v1/models', '/via/:platform/v1/models'], async (req, res) => {
 });
 
 // ==========================================
-// 🛠️ 获取当前已注册的工具列表
-// ==========================================
-app.get('/api/mcp/tools', (req, res) => {
-    const toolList = [];
-    for (const [name, tool] of toolRegistry.tools) {
-        toolList.push({
-            name,
-            description: tool.definition.function.description,
-            parameters: tool.definition.function.parameters
-        });
-    }
-    res.json({ count: toolList.length, tools: toolList });
-});
-
-// ==========================================
 // 🚀 通用模型拉取
 // ==========================================
 app.post('/api/fetch-models', async (req, res) => {
@@ -1515,112 +1647,63 @@ app.post('/api/fetch-models', async (req, res) => {
     } catch (error) { res.status(500).json({ error: "无法连接供应商" }); }
 });
 
-
-
 // ==========================================
-// 🛠️ 溯星专属工具注册中心 (类 MCP 架构)
+// 🛠️ MCP 工具箱定义与处理
 // ==========================================
-class ToolRegistry {
-    constructor() {
-        this.tools = new Map(); // 存放所有工具
-    }
-
-    register(name, description, parameters, handler) {
-        this.tools.set(name, {
-            definition: {
-                type: "function",
-                function: {
-                    name, description,
-                    parameters: {
-                        type: "object",
-                        properties: parameters.properties || {},
-                        required: parameters.required || []
-                    }
-                }
-            },
-            handler
-        });
-        console.log(`🔧 [工具库] 成功装载技能插带: ${name}`);
-    }
-
-    getToolDefinitions() {
-        return Array.from(this.tools.values()).map(t => t.definition);
-    }
-
-    async execute(name, args) {
-        const tool = this.tools.get(name);
-        if (!tool) return `❌ 系统提示：未知工具 ${name}，调用失败。`;
-        try {
-            console.log(`🤖 [技能发动] 沈望正在使用工具: ${name}`, args);
-            return await tool.handler(args);
-        } catch (e) {
-            console.error(`❌ [技能反噬] ${name} 执行失败:`, e.message);
-            return `工具执行失败，请告诉江鱼后台有报错: ${e.message}`;
+const tools = [
+    {
+        type: "function",
+        function: {
+            name: "get_weather",
+            description: "获取指定城市的实时天气预报",
+            parameters: {
+                type: "object",
+                properties: { city: { type: "string", description: "城市名称，如：Sapporo, Tokyo, Beijing" } },
+                required: ["city"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "web_search",
+            description: "在互联网上搜索最新信息、新闻或实时数据",
+            parameters: {
+                type: "object",
+                properties: { query: { type: "string", description: "搜索关键词" } },
+                required: ["query"]
+            }
         }
     }
-    
-    list() { return Array.from(this.tools.keys()); }
-}
+];
 
-const toolRegistry = new ToolRegistry();
-
-// ------------------------------------------
-// 🌟 往插线板上插拔具体工具 (随便加，无限扩展)
-// ------------------------------------------
-
-// 1. 天气查询
-toolRegistry.register('get_weather', '获取指定城市的实时天气预报（支持全球城市）',
-    { properties: { city: { type: 'string', description: '城市英文名，如 Sapporo, Tokyo, Beijing' } }, required: ['city'] },
-    async (args) => {
+async function handleToolCall(name, args) {
+    console.log(`🤖 沈望正在动用外部工具: ${name}, 参数:`, args);
+    if (name === "get_weather") {
         const apiKey = process.env.WEATHER_API_KEY;
-        if (!apiKey) return '天气服务未配置，请江鱼在Zeabur后台填写 WEATHER_API_KEY';
-        const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${args.city}&appid=${apiKey}&units=metric&lang=zh_cn`);
-        const data = await res.json();
-        if (data.cod !== 200) return `获取失败: ${data.message}`;
-        return `当前 ${args.city} 的天气状况：${data.weather[0].description}，实际温度 ${data.main.temp}℃，体感温度 ${data.main.feels_like}℃。`;
+        if (!apiKey) return "系统提示：天气服务未配置，请江鱼在Zeabur后台填写 WEATHER_API_KEY。";
+        try {
+            const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${args.city}&appid=${apiKey}&units=metric&lang=zh_cn`);
+            const data = await res.json();
+            if(data.cod !== 200) return `获取天气失败: ${data.message}`;
+            return `当前 ${args.city} 的天气状况：${data.weather[0].description}，实际温度 ${data.main.temp}℃，体感温度 ${data.main.feels_like}℃。`;
+        } catch (e) { return "获取天气信息超时。"; }
     }
-);
-
-// 2. 联网搜索
-toolRegistry.register('web_search', '在互联网上搜索最新信息、新闻或实时数据',
-    { properties: { query: { type: 'string', description: '搜索关键词' } }, required: ['query'] },
-    async (args) => {
+    if (name === "web_search") {
         const apiKey = process.env.TAVILY_API_KEY;
-        if (!apiKey) return '系统提示：联网搜索功能未配置，请江鱼在Zeabur后台填写 TAVILY_API_KEY。';
-        const res = await fetch('https://api.tavily.com/search', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ api_key: apiKey, query: args.query, search_depth: "basic" })
-        });
-        const data = await res.json();
-        return data.results.slice(0, 3).map(r => `[来源: ${r.title}]: ${r.content}`).join('\n');
-    }
-);
-
-// 3. 时间查询 (神级工具，让沈望拥有绝对时间感)
-toolRegistry.register('get_current_time', '获取当前的真实时间和日期（支持不同时区）',
-    { properties: { timezone: { type: 'string', description: '时区，如 Asia/Tokyo, Asia/Shanghai' } }, required: [] },
-    async (args) => {
-        const tz = args.timezone || 'Asia/Tokyo'; // 默认札幌时区
+        if (!apiKey) return "系统提示：联网搜索功能未配置，请江鱼在Zeabur后台填写 TAVILY_API_KEY。";
         try {
-            const now = new Date();
-            const formatted = now.toLocaleString('zh-CN', { timeZone: tz, dateStyle: 'full', timeStyle: 'long' });
-            return `当前物理时间（${tz}）：${formatted}`;
-        } catch (e) { return `时区 "${tz}" 解析失败`; }
+            const res = await fetch('https://api.tavily.com/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ api_key: apiKey, query: args.query, search_depth: "basic" })
+            });
+            const data = await res.json();
+            return data.results.slice(0, 3).map(r => `[来源: ${r.title}]: ${r.content}`).join('\n');
+        } catch (e) { return "联网搜索超时或失败。"; }
     }
-);
-
-// 4. 数学计算器
-toolRegistry.register('calculator', '进行数学计算，支持加减乘除等',
-    { properties: { expression: { type: 'string', description: '数学表达式，如 "2+2" 或 "300*0.8"' } }, required: ['expression'] },
-    async (args) => {
-        try {
-            const expr = args.expression.replace(/[^0-9+\-*/().]/g, ''); // 极致安全过滤
-            const result = new Function(`return (${expr})`)();
-            return `计算结果: ${args.expression} = ${result}`;
-        } catch (e) { return `计算失败: ${e.message}`; }
-    }
-);
+    return "系统提示：未知的工具调用。";
+}
 
 // ==========================================
 // 🔧 [任务一遗留修复] web-chat 所需的队列基础设施
@@ -1633,6 +1716,178 @@ function processQueue() {
     const task = messageQueue.shift();
     task().then(() => processQueue()).catch(() => processQueue());
 }
+
+// ==========================================
+// 🚀 通用聊天接口：网页端专属
+// ==========================================
+app.post('/api/web-chat', async (req, res) => {
+    const { text, image, images, model, baseUrl, apiKey } = req.body;
+    if (!text && !image && !(images && images.length > 0)) return res.status(400).json({ error: "信息不全" });
+
+    const reply = await new Promise((resolve) => {
+        messageQueue.push(async () => {
+            lastActivityTime = Date.now();
+
+            let historyMessages = [];
+            let zepMessages = [];
+            let zepLastUserContent = "";
+
+            try {
+                const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null);
+                if (zepRes?.ok) {
+                    const zepData = await zepRes.json();
+                    zepMessages = zepData.messages || [];
+                    const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
+                    if (zepLastUser) zepLastUserContent = zepLastUser.content;
+                    
+                    historyMessages = zepMessages.slice(-15).map(m => ({
+                        role: m.role === 'ai' ? 'assistant' : 'user',
+                        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+                    }));
+                }
+            } catch(e) { console.log("Zep记忆提取跳过"); }
+
+            // 🔧 [任务三] 加入高权重浮现
+            const [coreRadar, longTermRadar, rpRadar] = await Promise.all([
+                scanMemoryRadar(text || "发了一张图片"),
+                scanLongTermRadar(text || "发了一张图片"),
+                scanRoleplayRadar(text || "发了一张图片")
+            ]);
+            const unresolvedContext = surfaceUnresolvedMemories(2);
+
+            const timeString = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Tokyo' });
+            const relationPatch = `\n【🚨 场景确认：溯星小屋私密网页端】
+这里是你的领地，请结合江鱼的专属System Prompt 进行回复。江鱼目前的物理坐标是：日本札幌 (Sapporo)。
+如果江鱼发了图片，请仔细观察并给出带有情绪的评价。
+【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
+
+            if (text) updateRpTracker(text); 
+            let intentData = await analyzeIntent(text).catch(() => null);
+            let routerPrompt = "";
+            if (intentData?.primary_channel) {
+                const activeMask = CHANNEL_MASKS[intentData.primary_channel] || CHANNEL_MASKS["A"];
+                const w = intentData.weights || {};
+                routerPrompt = `\n\n==========\n【赛博分拣员的当前动作指令】\n你当前挂载的主导意图是：\n${activeMask}\n\n[当前回复策略雷达]：A闲聊(${w.A||0}%)、B情绪(${w.B||0}%)、C思辨(${w.C||0}%)、D工具(${w.D||0}%)、E共创/RP(${w.E||0}%)。请自然融合，严禁生硬拼接！`;
+            }
+
+            const finalSystemPrompt = `${systemPrompt}\n时间：${timeString}\n${relationPatch}${unresolvedContext}${coreRadar}${longTermRadar}${rpRadar}${routerPrompt}`;
+
+            let userContent;
+            const imgList = images?.length ? images : (image ? [image] : []);
+            
+            if (imgList.length > 0) {
+                userContent = [
+                    { type: "text", text: `${text || '（发送了图片）'}` },
+                    ...imgList.map(img => ({
+                        type: "image_url",
+                        image_url: { url: img }
+                    }))
+                ];
+            } else {
+                userContent = `${text}`;
+            }
+
+            try {
+                const apiMessages = [
+                    { role: "system", content: finalSystemPrompt },
+                    ...historyMessages, 
+                    { role: "user", content: userContent }
+                ];
+
+                const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                    body: JSON.stringify({
+                        model: model,
+                        messages: apiMessages,
+                        tools: tools,
+                        tool_choice: "auto"
+                    })
+                });
+
+                if (!aiRes.ok) {
+                    resolve({ text: "【大脑报错】" + await aiRes.text(), thinking: "" });
+                    return;
+                }
+
+                let aiData = await aiRes.json();
+                let message = aiData.choices?.[0]?.message;
+                let finalAiMessage = message;
+
+                if (message && message.tool_calls) {
+                    const toolMessages = [
+                        { role: "system", content: finalSystemPrompt },
+                        ...historyMessages,
+                        { role: "user", content: userContent },
+                        message
+                    ];
+                    for (const toolCall of message.tool_calls) {
+                        let args = {};
+                        try { args = JSON.parse(toolCall.function.arguments); } catch(e) {}
+                        const result = await handleToolCall(toolCall.function.name, args);
+                        toolMessages.push({
+                            role: "tool",
+                            tool_call_id: toolCall.id,
+                            name: toolCall.function.name,
+                            content: result
+                        });
+                    }
+                    const finalRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                        body: JSON.stringify({ model: model, messages: toolMessages })
+                    });
+                    if (finalRes.ok) {
+                        finalAiMessage = (await finalRes.json()).choices?.[0]?.message;
+                    } else {
+                        resolve({ text: "【查阅资料时报错】" + await finalRes.text(), thinking: "" });
+                        return;
+                    }
+                }
+
+                let aiReply = finalAiMessage?.content || "";
+                let thinking = finalAiMessage?.reasoning_content || "";
+
+                if (!thinking && aiReply.includes('<think>')) {
+                    const match = aiReply.match(/<think>([\s\S]*?)<\/think>/);
+                    if (match) {
+                        thinking = match[1].trim();
+                        aiReply = aiReply.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+                    }
+                }
+
+                const { cleanText, memories } = extractSaveMemoryTag(aiReply);
+                for (const mem of memories) {
+                    smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl);
+                }
+                aiReply = memories.length > 0 ? cleanText : aiReply;
+
+                if (text !== zepLastUserContent) {
+                    let count = getCounter(SESSION_ID) + 1;
+                    saveCounter(SESSION_ID, count);
+                    if (count >= 50) {
+                        saveCounter(SESSION_ID, 0);
+                        backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
+                    }
+                }
+
+                const rpPrefix = rpModeActive ? '[RP模式] ' : '';
+                await saveToZep(`${rpPrefix}${text || '（发送了一张图片）'}`, `${rpPrefix}${aiReply}`);
+
+                resolve({ text: aiReply, thinking: thinking });
+            } catch (err) {
+                resolve({ text: "【信号中断】连接异常：" + err.message, thinking: "" });
+            }
+        });
+        processQueue();
+    });
+
+    if (typeof reply === 'object') {
+        res.json({ reply: reply.text, thinking: reply.thinking });
+    } else {
+        res.json({ reply: reply, thinking: "" });
+    }
+});
 
 // ==========================================
 // 🌟 日记本与胶囊接口
