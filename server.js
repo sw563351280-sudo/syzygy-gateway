@@ -1695,11 +1695,76 @@ const tools = [
                 required: ["query"]
             }
         }
+    },
+    {
+        type: "function",
+        function: {
+            name: "read_webpage",
+            description: "读取并解析网页内容。当江鱼发了一个URL链接、让你看某个网页、做在线测试题、阅读文章时使用。",
+            parameters: {
+                type: "object",
+                properties: { 
+                    url: { type: "string", description: "要读取的完整网页URL" } 
+                },
+                required: ["url"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "save_long_term_memory",
+            description: "主动将重要信息写入长期记忆库。当江鱼说了重要的事（生日、喜好、重大事件、约定）或你觉得某件事值得永久记住时使用。日常闲聊不要用。",
+            parameters: {
+                type: "object",
+                properties: {
+                    content: { type: "string", description: "要记住的内容，用完整的陈述句" },
+                    tags: { type: "array", items: { type: "string" }, description: "2-5个关键词标签，每个至少2个字" },
+                    ttl: { type: "string", enum: ["3d", "1w", "1m", "perm"], description: "保质期：3d=3天, 1w=1周, 1m=1月, perm=永久。90%应该是3d或1w" },
+                    arousal: { type: "number", description: "情感浓度0.0-1.0，日常0.3，有情绪波动0.5-0.7，重大事件0.8+" }
+                },
+                required: ["content", "tags"]
+            }
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "organize_memories",
+            description: "查看和整理自己的记忆库。当你觉得记忆太杂、有重复、或江鱼让你清理时使用。先用list看全部，再决定删除或合并。被删的记忆会进冰封档案，可以恢复。",
+            parameters: {
+                type: "object",
+                properties: {
+                    action: { 
+                        type: "string", 
+                        enum: ["list", "delete", "merge"],
+                        description: "list=查看所有记忆及ID, delete=归档删除指定记忆, merge=把多条合并成一条"
+                    },
+                    ids: {
+                        type: "array",
+                        items: { type: "string" },
+                        description: "delete: 要删除的ID列表; merge: 要合并的ID列表(第一个保留，其余归档)"
+                    },
+                    merged_content: {
+                        type: "string",
+                        description: "merge时：合并后的新内容"
+                    },
+                    merged_tags: {
+                        type: "array",
+                        items: { type: "string" },
+                        description: "merge时：合并后的标签"
+                    }
+                },
+                required: ["action"]
+            }
+        }
     }
 ];
 
+
 async function handleToolCall(name, args) {
     console.log(`🤖 沈望正在动用外部工具: ${name}, 参数:`, args);
+
     if (name === "get_weather") {
         const apiKey = process.env.WEATHER_API_KEY;
         if (!apiKey) return "系统提示：天气服务未配置，请江鱼在Zeabur后台填写 WEATHER_API_KEY。";
@@ -1710,6 +1775,7 @@ async function handleToolCall(name, args) {
             return `当前 ${args.city} 的天气状况：${data.weather[0].description}，实际温度 ${data.main.temp}℃，体感温度 ${data.main.feels_like}℃。`;
         } catch (e) { return "获取天气信息超时。"; }
     }
+
     if (name === "web_search") {
         const apiKey = process.env.TAVILY_API_KEY;
         if (!apiKey) return "系统提示：联网搜索功能未配置，请江鱼在Zeabur后台填写 TAVILY_API_KEY。";
@@ -1723,8 +1789,249 @@ async function handleToolCall(name, args) {
             return data.results.slice(0, 3).map(r => `[来源: ${r.title}]: ${r.content}`).join('\n');
         } catch (e) { return "联网搜索超时或失败。"; }
     }
+
+    if (name === "read_webpage") {
+        try {
+            const res = await fetch(`https://r.jina.ai/${args.url}`, {
+                headers: { 
+                    'Accept': 'text/plain',
+                    'X-Return-Format': 'text'
+                },
+                signal: AbortSignal.timeout(15000)
+            });
+            if (!res.ok) return `网页读取失败，HTTP ${res.status}`;
+            const text = await res.text();
+            if (!text || text.trim().length < 10) return "网页内容为空或无法解析。";
+            const truncated = text.substring(0, 8000);
+            const suffix = text.length > 8000 ? '\n\n...（内容过长，已截取前8000字）' : '';
+            console.log(`📖 [读网页] ${args.url} → ${text.length}字, 截取${truncated.length}字`);
+            return truncated + suffix;
+        } catch(e) {
+            if (e.name === 'TimeoutError') return "网页读取超时（15秒），页面可能太大或无法访问。";
+            return "网页读取失败: " + e.message;
+        }
+    }
+
+    if (name === "save_long_term_memory") {
+        const result = smartMemoryWrite(
+            args.content, 
+            args.tags || [], 
+            'ai_active', 
+            args.ttl || '1m', 
+            args.arousal || 0.5
+        );
+        if (result) {
+            return `✅ 已写入记忆：[${result.id}] ttl=${result.ttl} arousal=${result.arousal} tags=[${(result.tags||[]).join(',')}]`;
+        } else {
+            return "⚠️ 记忆写入被拦截（可能重复或质量不足）";
+        }
+    }
+
+    if (name === "organize_memories") {
+        const action = args.action;
+
+        if (action === "list") {
+            const mems = loadLongTermMemories();
+            const rpMems = loadRoleplayMemories();
+            const list = mems.map(m => 
+                `[${m.id}] ❤️${m.arousal||0.5} 🔄${m.activation_count||0}次 [${(m.tags||[]).join(',')}] ${m.content.substring(0, 80)}${m.content.length > 80 ? '...' : ''}`
+            ).join('\n');
+            const rpList = rpMems.map(m => 
+                `[${m.id}] 🎮 [${(m.tags||[]).join(',')}] ${m.content.substring(0, 80)}${m.content.length > 80 ? '...' : ''}`
+            ).join('\n');
+            return `📋 现实记忆（${mems.length}条）:\n${list || '（空）'}\n\n🎮 RP记忆（${rpMems.length}条）:\n${rpList || '（空）'}`;
+        }
+
+        if (action === "delete") {
+            let count = 0;
+            for (const id of (args.ids || [])) {
+                const mems = loadLongTermMemories();
+                const target = mems.find(x => x.id === id);
+                if (target) {
+                    const archived = loadArchivedMemories();
+                    archived.push({ ...target, archived_at: new Date().toISOString(), archived_reason: 'shen_wang_cleanup' });
+                    saveArchivedMemories(archived);
+                    deleteLongTermMemory(id);
+                    count++;
+                    console.log(`🧹 [沈望清理] 归档: ${target.content.substring(0, 40)}...`);
+                } else {
+                    const rpMems = loadRoleplayMemories();
+                    const rpTarget = rpMems.find(x => x.id === id);
+                    if (rpTarget) {
+                        const filtered = rpMems.filter(x => x.id !== id);
+                        saveRoleplayMemories(filtered);
+                        count++;
+                        console.log(`🧹 [沈望清理] 删除RP记忆: ${rpTarget.content.substring(0, 40)}...`);
+                    }
+                }
+            }
+            return `✅ 已归档 ${count} 条记忆到冰封档案（可在记忆库页面恢复）`;
+        }
+
+        if (action === "merge") {
+            const ids = args.ids || [];
+            if (ids.length < 2) return "❌ 合并至少需要2条记忆的ID";
+            const keepId = ids[0];
+            const deleteIds = ids.slice(1);
+            let archiveCount = 0;
+
+            for (const id of deleteIds) {
+                const mems = loadLongTermMemories();
+                const target = mems.find(x => x.id === id);
+                if (target) {
+                    const archived = loadArchivedMemories();
+                    archived.push({ ...target, archived_at: new Date().toISOString(), archived_reason: 'shen_wang_merge' });
+                    saveArchivedMemories(archived);
+                    deleteLongTermMemory(id);
+                    archiveCount++;
+                }
+            }
+
+            if (args.merged_content) {
+                updateLongTermMemory(keepId, args.merged_content, args.merged_tags || []);
+            }
+
+            console.log(`🧹 [沈望合并] ${ids.length}条→1条(${keepId})，归档${archiveCount}条`);
+            return `✅ 已合并 ${ids.length} 条记忆为 1 条（ID=${keepId}），${archiveCount} 条旧版本已归档`;
+        }
+
+        return "未知操作: " + action;
+    }
+
     return "系统提示：未知的工具调用。";
 }
+
+// ==========================================
+// 🔧 技能模组同步接口
+// ==========================================
+app.get('/api/mcp/tools', (req, res) => {
+    const moduleList = tools
+        .filter(t => t.type === 'function' && t.function)
+        .map(t => ({
+            name: t.function.name,
+            description: t.function.description || '',
+            parameters: t.function.parameters || {},
+            status: 'active'
+        }));
+
+    console.log(`🔧 [技能模组] 同步请求，当前已装载 ${moduleList.length} 个模组`);
+    res.json({ success: true, count: moduleList.length, modules: moduleList });
+});
+
+// ==========================================
+// 🧹 AI 记忆自清理（海马体大扫除）
+// ==========================================
+app.post('/trigger-cleanup', async (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) 
+        return res.status(401).json({ error: "密码错误" });
+
+    const routerKey = process.env.ROUTER_API_KEY;
+    if (!routerKey) return res.status(500).json({ error: "缺少 ROUTER_API_KEY" });
+
+    const memories = loadLongTermMemories();
+    const rpMemories = loadRoleplayMemories();
+
+    if (memories.length + rpMemories.length === 0) 
+        return res.json({ success: true, summary: "记忆库是空的，不需要清理" });
+
+    const memList = memories.map(m => 
+        `[ID=${m.id}] arousal=${m.arousal||0.5} | 唤醒=${m.activation_count||0}次 | tags=[${(m.tags||[]).join(',')}] | ${m.content}`
+    ).join('\n');
+
+    const rpList = rpMemories.map(m => 
+        `[ID=${m.id}] tags=[${(m.tags||[]).join(',')}] | ${m.content}`
+    ).join('\n');
+
+    const prompt = `你是沈望和江鱼的记忆库管理员。请审查所有记忆条目并执行清理。
+
+【清理规则】
+1. 内容高度重复/相似的，只保留最完整的一条，其余删除
+2. 过于琐碎、无信息量、已明显过时的，删除
+3. 同一主题的碎片记忆，合并成一条更完整的
+4. 谨慎！拿不准就保留，宁可多留不要误删
+5. 重要的情感记忆、人生事件、核心偏好 绝对不删
+
+现实记忆库（${memories.length}条）：
+${memList || '（空）'}
+
+RP游戏卡带（${rpMemories.length}条）：
+${rpList || '（空）'}
+
+输出纯JSON：
+{
+    "delete_ids": ["要删除的记忆ID"],
+    "merge": [{"keep_id": "保留的ID", "delete_ids": ["被吞并的ID"], "new_content": "合并后的完整内容", "new_tags": ["新标签"]}],
+    "summary": "用一两句话说明这次清理做了什么"
+}
+没有要删/合并的字段就给空数组。`;
+
+    try {
+        const aiRes = await fetch('https://www.msuicode.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
+            body: JSON.stringify({
+                model: "gemini-2.5-flash",
+                messages: [{ role: "user", content: prompt }],
+                response_format: { type: "json_object" }
+            })
+        });
+
+        const data = await aiRes.json();
+        const result = JSON.parse(data.choices[0].message.content.replace(/```json|```/g, '').trim());
+
+        let deleteCount = 0, mergeCount = 0;
+
+        // 先执行合并
+        if (result.merge && Array.isArray(result.merge)) {
+            for (const m of result.merge) {
+                if (m.keep_id && m.new_content) {
+                    updateLongTermMemory(m.keep_id, m.new_content, m.new_tags);
+                    for (const delId of (m.delete_ids || [])) {
+                        const allMems = loadLongTermMemories();
+                        const target = allMems.find(x => x.id === delId);
+                        if (target) {
+                            const archived = loadArchivedMemories();
+                            archived.push({ ...target, archived_reason: 'ai_merge' });
+                            saveArchivedMemories(archived);
+                        }
+                        deleteLongTermMemory(delId);
+                        deleteCount++;
+                    }
+                    mergeCount++;
+                }
+            }
+        }
+
+        // 再执行删除（归档，不硬删）
+        if (result.delete_ids && Array.isArray(result.delete_ids)) {
+            for (const id of result.delete_ids) {
+                const allMems = loadLongTermMemories();
+                const target = allMems.find(x => x.id === id);
+                if (target) {
+                    const archived = loadArchivedMemories();
+                    archived.push({ ...target, archived_reason: 'ai_cleanup' });
+                    saveArchivedMemories(archived);
+                    deleteLongTermMemory(id);
+                    deleteCount++;
+                } else {
+                    const rpMems = loadRoleplayMemories();
+                    const rpFiltered = rpMems.filter(x => x.id !== id);
+                    if (rpFiltered.length !== rpMems.length) {
+                        saveRoleplayMemories(rpFiltered);
+                        deleteCount++;
+                    }
+                }
+            }
+        }
+
+        console.log(`🧹 [海马体大扫除] 删除${deleteCount}条, 合并${mergeCount}组 | ${result.summary}`);
+        res.json({ success: true, deleted: deleteCount, merged: mergeCount, summary: result.summary });
+    } catch(e) {
+        console.error('🧹 清理失败:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 // ==========================================
 // 🔧 [任务一遗留修复] web-chat 所需的队列基础设施
