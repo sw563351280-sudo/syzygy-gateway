@@ -1924,20 +1924,20 @@ async function handleToolCall(name, args) {
 
         console.log("🎮 [Interact] " + args.url + " → " + (args.actions||[]).length + "个操作");
 
-        var res = await fetch("https://chrome.browserless.io/function?token=" + browserlessKey, {
+        var resp = await fetch("https://chrome.browserless.io/function?token=" + browserlessKey, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ code: puppeteerCode, context: {} }),
             signal: AbortSignal.timeout(30000)
         });
 
-        if (!res.ok) {
-            var errText = await res.text();
-            console.log("❌ [Interact] HTTP " + res.status + ": " + errText.substring(0, 300));
-            return "操作失败 (HTTP " + res.status + "): " + errText.substring(0, 200);
+        if (!resp.ok) {
+            var errText = await resp.text();
+            console.log("❌ [Interact] HTTP " + resp.status + ": " + errText.substring(0, 300));
+            return "操作失败 (HTTP " + resp.status + "): " + errText.substring(0, 200);
         }
 
-        var result = await res.json();
+        var result = await resp.json();
 
         if (result.type === 'screenshot') {
             console.log("📸 [Interact] 截图成功");
