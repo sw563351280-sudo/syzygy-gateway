@@ -1851,74 +1851,50 @@ async function handleToolCall(name, args) {
                     signal: AbortSignal.timeout(25000)
                 });
         if (name === "interact_webpage") {
-            console.log("🎮 进入 interact_webpage 处理");
-    const browserlessKey = process.env.BROWSERLESS_API_KEY;
+    console.log("🎮 进入 interact_webpage 处理");
+    var browserlessKey = process.env.BROWSERLESS_API_KEY;
     if (!browserlessKey) return "系统提示：未配置 BROWSERLESS_API_KEY";
 
     try {
-        var actionCode = '';
+        var puppeteer = require('puppeteer-core');
+        var browser = await puppeteer.connect({
+            browserWSEndpoint: "wss://chrome.browserless.io?token=" + browserlessKey
+        });
+        var page = await browser.newPage();
+        await page.setViewport({ width: 1280, height: 800 });
+        
+        console.log("🎮 [Interact] 打开: " + args.url);
+        await page.goto(args.url, { waitUntil: 'networkidle2', timeout: 20000 });
+        await new Promise(function(r){ setTimeout(r, 1500); });
+
         for (var i = 0; i < (args.actions || []).length; i++) {
             var action = args.actions[i];
-            var sel = (action.selector || '').replace(/'/g, "\\'");
-            var val = (action.value || '').replace(/'/g, "\\'");
+            console.log("🎮 [Interact] 操作" + i + ": " + action.type + " " + (action.selector || ''));
             
-            if (action.type === 'click') {
-                actionCode += "await page.waitForSelector('" + sel + "', {timeout: 5000}).catch(function(){});\n";
-                actionCode += "await page.click('" + sel + "');\n";
-                actionCode += "await new Promise(function(r){setTimeout(r,1000)});\n";
-            } else if (action.type === 'type') {
-                actionCode += "await page.waitForSelector('" + sel + "', {timeout: 5000}).catch(function(){});\n";
-                actionCode += "await page.type('" + sel + "', '" + val + "');\n";
-            } else if (action.type === 'select') {
-                actionCode += "await page.select('" + sel + "', '" + val + "');\n";
+            if (action.type === 'click' && action.selector) {
+                await page.waitForSelector(action.selector, { timeout: 5000 }).catch(function(){});
+                await page.click(action.selector);
+                await new Promise(function(r){ setTimeout(r, 1000); });
+            } else if (action.type === 'type' && action.selector) {
+                await page.waitForSelector(action.selector, { timeout: 5000 }).catch(function(){});
+                await page.type(action.selector, action.value || '');
+            } else if (action.type === 'select' && action.selector) {
+                await page.select(action.selector, action.value || '');
             } else if (action.type === 'wait') {
-                actionCode += "await new Promise(function(r){setTimeout(r," + (parseInt(action.value) || 2000) + ")});\n";
+                await new Promise(function(r){ setTimeout(r, parseInt(action.value) || 2000); });
             }
         }
 
-        var safeUrl = args.url.replace(/'/g, "\\'");
-        var wantScreenshot = args.return_type === 'screenshot';
+        var resultText = await page.evaluate(function() { return document.body.innerText; });
+        await browser.close();
         
-        var returnCode = wantScreenshot
-            ? "var screenshot = await page.screenshot({ encoding: 'base64', fullPage: false }); return { type: 'screenshot', data: screenshot };"
-            : "var text = await page.evaluate(function() { return document.body.innerText; }); return { type: 'text', data: text };";
-
-        var puppeteerCode = "module.exports = async function({ page }) {\n"
-            + "await page.setViewport({ width: 1280, height: 800 });\n"
-            + "await page.goto('" + safeUrl + "', { waitUntil: 'networkidle2', timeout: 20000 });\n"
-            + "await new Promise(function(r){setTimeout(r,1500)});\n"
-            + actionCode + "\n"
-            + returnCode + "\n"
-            + "};";
-
-        console.log("🎮 [Interact] " + args.url + " → " + (args.actions||[]).length + "个操作");
-
-        var resp = await fetch("https://chrome.browserless.io/function?token=" + browserlessKey, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: puppeteerCode, context: {} }),
-            signal: AbortSignal.timeout(30000)
-        });
-
-        if (!resp.ok) {
-            var errText = await resp.text();
-            console.log("❌ [Interact] HTTP " + resp.status + ": " + errText.substring(0, 300));
-            return "操作失败 (HTTP " + resp.status + "): " + errText.substring(0, 200);
-        }
-
-        var result = await resp.json();
-
-        if (result.type === 'screenshot') {
-            console.log("📸 [Interact] 截图成功");
-            return "[截图已获取，base64长度=" + result.data.length + "]";
-        } else {
-            var iaText = (result.data || '').substring(0, 8000);
-var iaSuffix = (result.data || '').length > 8000 ? '\n...（已截取）' : '';
-console.log("✅ [Interact] 操作完成，" + iaText.length + "字");
-return iaText + iaSuffix;
-        }
+        var iaText = resultText.substring(0, 8000);
+        var iaSuffix = resultText.length > 8000 ? '\n...（已截取）' : '';
+        console.log("✅ [Interact] 完成，" + iaText.length + "字");
+        return iaText + iaSuffix;
     } catch(e) {
-        if (e.name === 'TimeoutError') return "操作超时（30秒），页面可能响应慢。";
+        console.log("❌ [Interact] " + e.message);
+        if (e.name === 'TimeoutError') return "操作超时";
         return "操作失败: " + e.message;
     }
 }
@@ -2504,26 +2480,20 @@ app.get('/test-interact', async (req, res) => {
     if (!browserlessKey) return res.json({ error: "缺少 key" });
     
     try {
-        var code = "module.exports = async function({ page }) {"
-            + "await page.goto('https://example.com', { waitUntil: 'networkidle2', timeout: 15000 });"
-            + "await new Promise(function(r){setTimeout(r,1000)});"
-            + "var text = await page.evaluate(function() { return document.body.innerText; });"
-            + "return { type: 'text', data: text };"
-            + "};";
-
-        var resp = await fetch("https://chrome.browserless.io/function?token=" + browserlessKey, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: code, context: {} }),
-            signal: AbortSignal.timeout(20000)
+        const puppeteer = require('puppeteer-core');
+        const browser = await puppeteer.connect({
+            browserWSEndpoint: "wss://chrome.browserless.io?token=" + browserlessKey
         });
-
-        var result = await resp.text();
-        res.json({ status: resp.status, result: result.substring(0, 500) });
+        const page = await browser.newPage();
+        await page.goto('https://example.com', { waitUntil: 'networkidle2', timeout: 15000 });
+        var text = await page.evaluate(function() { return document.body.innerText; });
+        await browser.close();
+        res.json({ success: true, text: text.substring(0, 300) });
     } catch(e) {
         res.json({ error: e.message });
     }
 });
+
 
 // ==========================================
 // 🚀 启动服务器
