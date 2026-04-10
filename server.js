@@ -792,36 +792,6 @@ roleplay_memories: 最多3条，无RP内容则为空数组 []。ttl 默认 "1w"�
 
 
 // ==========================================
-// 🧪 Chromium 测试接口（可删除）
-// ==========================================
-app.get('/test-interact', async (req, res) => {
-    const browserlessKey = process.env.BROWSERLESS_API_KEY;
-    if (!browserlessKey) return res.json({ error: "缺少 key" });
-    
-    try {
-        var code = "module.exports = async function({ page }) {"
-            + "await page.goto('https://example.com', { waitUntil: 'networkidle2', timeout: 15000 });"
-            + "await new Promise(function(r){setTimeout(r,1000)});"
-            + "var text = await page.evaluate(function() { return document.body.innerText; });"
-            + "return { type: 'text', data: text };"
-            + "};";
-
-        var resp = await fetch("https://chrome.browserless.io/function?token=" + browserlessKey, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: code, context: {} }),
-            signal: AbortSignal.timeout(20000)
-        });
-
-        var result = await resp.text();
-        res.json({ status: resp.status, result: result.substring(0, 500) });
-    } catch(e) {
-        res.json({ error: e.message });
-    }
-});
-
-
-// ==========================================
 // 🌟 赛博海关
 // ==========================================
 app.post('/proxy/v1/embeddings', async (req, res) => {
@@ -2527,6 +2497,32 @@ app.post('/api/sync-config', (req, res) => {
     };
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2));
     res.json({ success: true });
+});
+
+app.get('/test-interact', async (req, res) => {
+    const browserlessKey = process.env.BROWSERLESS_API_KEY;
+    if (!browserlessKey) return res.json({ error: "缺少 key" });
+    
+    try {
+        var code = "module.exports = async function({ page }) {"
+            + "await page.goto('https://example.com', { waitUntil: 'networkidle2', timeout: 15000 });"
+            + "await new Promise(function(r){setTimeout(r,1000)});"
+            + "var text = await page.evaluate(function() { return document.body.innerText; });"
+            + "return { type: 'text', data: text };"
+            + "};";
+
+        var resp = await fetch("https://chrome.browserless.io/function?token=" + browserlessKey, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: code, context: {} }),
+            signal: AbortSignal.timeout(20000)
+        });
+
+        var result = await resp.text();
+        res.json({ status: resp.status, result: result.substring(0, 500) });
+    } catch(e) {
+        res.json({ error: e.message });
+    }
 });
 
 // ==========================================
