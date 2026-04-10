@@ -1887,53 +1887,44 @@ async function handleToolCall(name, args) {
     if (!browserlessKey) return "系统提示：未配置 BROWSERLESS_API_KEY";
 
     try {
-        // 把 actions 转成 Puppeteer 代码
-        let actionCode = '';
-        for (const action of (args.actions || [])) {
-            const sel = (action.selector || '').replace(/'/g, "\\'");
-            const val = (action.value || '').replace(/'/g, "\\'");
+        var actionCode = '';
+        for (var i = 0; i < (args.actions || []).length; i++) {
+            var action = args.actions[i];
+            var sel = (action.selector || '').replace(/'/g, "\\'");
+            var val = (action.value || '').replace(/'/g, "\\'");
             
-            switch (action.type) {
-                case 'click':
-                    actionCode += `await page.waitForSelector('${sel}', {timeout: 5000}).catch(()=>{});\nawait page.click('${sel}');\nawait new Promise(r=>setTimeout(r,1000));\n`;
-                    break;
-                case 'type':
-                    actionCode += `await page.waitForSelector('${sel}', {timeout: 5000}).catch(()=>{});\nawait page.type('${sel}', '${val}');\n`;
-                    break;
-                case 'select':
-                    actionCode += `await page.select('${sel}', '${val}');\n`;
-                    break;
-                case 'wait':
-                    actionCode += `await new Promise(r=>setTimeout(r, ${parseInt(action.value) || 2000}));\n`;
-                    break;
-                case 'screenshot':
-                    actionCode += ``;  // 截图在最后处理
-                    break;
+            if (action.type === 'click') {
+                actionCode += "await page.waitForSelector('" + sel + "', {timeout: 5000}).catch(function(){});\n";
+                actionCode += "await page.click('" + sel + "');\n";
+                actionCode += "await new Promise(function(r){setTimeout(r,1000)});\n";
+            } else if (action.type === 'type') {
+                actionCode += "await page.waitForSelector('" + sel + "', {timeout: 5000}).catch(function(){});\n";
+                actionCode += "await page.type('" + sel + "', '" + val + "');\n";
+            } else if (action.type === 'select') {
+                actionCode += "await page.select('" + sel + "', '" + val + "');\n";
+            } else if (action.type === 'wait') {
+                actionCode += "await new Promise(function(r){setTimeout(r," + (parseInt(action.value) || 2000) + ")});\n";
             }
         }
 
-        const wantScreenshot = args.return_type === 'screenshot';
+        var safeUrl = args.url.replace(/'/g, "\\'");
+        var wantScreenshot = args.return_type === 'screenshot';
+        
+        var returnCode = wantScreenshot
+            ? "var screenshot = await page.screenshot({ encoding: 'base64', fullPage: false }); return { type: 'screenshot', data: screenshot };"
+            : "var text = await page.evaluate(function() { return document.body.innerText; }); return { type: 'text', data: text };";
 
-        const puppeteerCode = `
-module.exports = async ({ page }) => {
-    await page.setViewport({ width: 1280, height: 800 });
-    await page.goto('${args.url.replace(/'/g, "\\'")}', { waitUntil: 'networkidle2', timeout: 20000 });
-    await new Promise(r => setTimeout(r, 1500));
-    
-    ${actionCode}
-    
-    ${wantScreenshot ? `
-    const screenshot = await page.screenshot({ encoding: 'base64', fullPage: false });
-    return { type: 'screenshot', data: screenshot };
-    ` : `
-    const text = await page.evaluate(() => document.body.innerText);
-    return { type: 'text', data: text };
-    `}
-};`;
+        var puppeteerCode = "module.exports = async function({ page }) {\n"
+            + "await page.setViewport({ width: 1280, height: 800 });\n"
+            + "await page.goto('" + safeUrl + "', { waitUntil: 'networkidle2', timeout: 20000 });\n"
+            + "await new Promise(function(r){setTimeout(r,1500)});\n"
+            + actionCode + "\n"
+            + returnCode + "\n"
+            + "};";
 
-        console.log(`🎮 [Interact] ${args.url} → ${(args.actions||[]).length}个操作`);
+        console.log("🎮 [Interact] " + args.url + " → " + (args.actions||[]).length + "个操作");
 
-        const res = await fetch(`https://chrome.browserless.io/function?token=${browserlessKey}`, {
+        var res = await fetch("https://chrome.browserless.io/function?token=" + browserlessKey, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ code: puppeteerCode, context: {} }),
@@ -1941,27 +1932,28 @@ module.exports = async ({ page }) => {
         });
 
         if (!res.ok) {
-            const errText = await res.text();
-            console.log(`❌ [Interact] HTTP ${res.status}: ${errText.substring(0, 300)}`);
-            return `操作失败 (HTTP ${res.status}): ${errText.substring(0, 200)}`;
+            var errText = await res.text();
+            console.log("❌ [Interact] HTTP " + res.status + ": " + errText.substring(0, 300));
+            return "操作失败 (HTTP " + res.status + "): " + errText.substring(0, 200);
         }
 
-        const result = await res.json();
+        var result = await res.json();
 
         if (result.type === 'screenshot') {
-            console.log(`📸 [Interact] 截图成功`);
-            return `[截图已获取，base64长度=${result.data.length}]`;
+            console.log("📸 [Interact] 截图成功");
+            return "[截图已获取，base64长度=" + result.data.length + "]";
         } else {
-            const text = (result.data || '').substring(0, 8000);
-            const suffix = (result.data || '').length > 8000 ? '\n...（已截取）' : '';
-            console.log(`✅ [Interact] 操作完成，${text.length}字`);
-            return text + suffix;
+            var resultText = (result.data || '').substring(0, 8000);
+            var suffix = (result.data || '').length > 8000 ? '\n...（已截取）' : '';
+            console.log("✅ [Interact] 操作完成，" + resultText.length + "字");
+            return resultText + suffix;
         }
     } catch(e) {
         if (e.name === 'TimeoutError') return "操作超时（30秒），页面可能响应慢。";
         return "操作失败: " + e.message;
     }
-}               
+}
+             
                 if (res.ok) {
                     const html = await res.text();
                     const text = html
