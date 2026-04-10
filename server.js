@@ -804,7 +804,6 @@ app.get('/test-chrome', async (req, res) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 url: 'https://example.com',
-                waitForSelector: 'body',
                 gotoOptions: { waitUntil: 'networkidle2', timeout: 15000 }
             }),
             signal: AbortSignal.timeout(20000)
@@ -1843,7 +1842,6 @@ async function handleToolCall(name, args) {
     try {
         const browserlessKey = process.env.BROWSERLESS_API_KEY;
         
-        // 方案1：有 Browserless key → JS 渲染
         if (browserlessKey) {
             try {
                 console.log(`📖 [Browserless] 渲染中: ${args.url}`);
@@ -1852,7 +1850,6 @@ async function handleToolCall(name, args) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         url: args.url,
-                        waitForSelector: 'body',
                         gotoOptions: { waitUntil: 'networkidle2', timeout: 20000 }
                     }),
                     signal: AbortSignal.timeout(25000)
@@ -1860,7 +1857,6 @@ async function handleToolCall(name, args) {
                 
                 if (res.ok) {
                     const html = await res.text();
-                    // 提取纯文本
                     const text = html
                         .replace(/<script[\s\S]*?<\/script>/gi, '')
                         .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -1881,7 +1877,6 @@ async function handleToolCall(name, args) {
             }
         }
         
-        // 方案2：降级到 Jina Reader
         const res = await fetch(`https://r.jina.ai/${args.url}`, {
             headers: { 'Accept': 'text/plain', 'X-Return-Format': 'text' },
             signal: AbortSignal.timeout(15000)
@@ -1898,6 +1893,7 @@ async function handleToolCall(name, args) {
         return "网页读取失败: " + e.message;
     }
 }
+
 
     if (name === "save_long_term_memory") {
         const result = smartMemoryWrite(
