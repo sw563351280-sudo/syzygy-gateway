@@ -1850,55 +1850,6 @@ async function handleToolCall(name, args) {
                     }),
                     signal: AbortSignal.timeout(25000)
                 });
-        console.log("🔍 DEBUG handleToolCall name=" + name);
-        if (name === "interact_webpage") {
-    console.log("🎮 进入 interact_webpage 处理");
-    var bKey2 = process.env.BROWSERLESS_API_KEY;
-    if (!bKey2) return "系统提示：未配置 BROWSERLESS_API_KEY";
-
-    try {
-        var puppeteer = require('puppeteer-core');
-        var browser = await puppeteer.connect({
-            browserWSEndpoint: "wss://chrome.browserless.io?token=" + bKey2
-        });
-        var page = await browser.newPage();
-        await page.setViewport({ width: 1280, height: 800 });
-        
-        console.log("🎮 [Interact] 打开: " + args.url);
-        await page.goto(args.url, { waitUntil: 'networkidle2', timeout: 20000 });
-        await new Promise(function(r){ setTimeout(r, 1500); });
-
-        for (var i = 0; i < (args.actions || []).length; i++) {
-            var act = args.actions[i];
-            console.log("🎮 [Interact] 操作" + i + ": " + act.type + " " + (act.selector || ''));
-            
-            if (act.type === 'click' && act.selector) {
-                await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
-                await page.click(act.selector);
-                await new Promise(function(r){ setTimeout(r, 1000); });
-            } else if (act.type === 'type' && act.selector) {
-                await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
-                await page.type(act.selector, act.value || '');
-            } else if (act.type === 'select' && act.selector) {
-                await page.select(act.selector, act.value || '');
-            } else if (act.type === 'wait') {
-                await new Promise(function(r){ setTimeout(r, parseInt(act.value) || 2000); });
-            }
-        }
-
-        var iaResult = await page.evaluate(function() { return document.body.innerText; });
-        await browser.close();
-        
-        var iaText = iaResult.substring(0, 8000);
-        var iaSuffix = iaResult.length > 8000 ? '\n...（已截取）' : '';
-        console.log("✅ [Interact] 完成，" + iaText.length + "字");
-        return iaText + iaSuffix;
-    } catch(e) {
-        console.log("❌ [Interact] " + e.message);
-        return "操作失败: " + e.message;
-    }
-}
-
              
                 if (res.ok) {
                     const html = await res.text();
@@ -1939,6 +1890,53 @@ async function handleToolCall(name, args) {
     }
 }
 
+        if (name === "interact_webpage") {
+        console.log("🎮 进入 interact_webpage 处理");
+        var bKey2 = process.env.BROWSERLESS_API_KEY;
+        if (!bKey2) return "系统提示：未配置 BROWSERLESS_API_KEY";
+
+        try {
+            var puppeteer = require('puppeteer-core');
+            var browser = await puppeteer.connect({
+                browserWSEndpoint: "wss://chrome.browserless.io?token=" + bKey2
+            });
+            var page = await browser.newPage();
+            await page.setViewport({ width: 1280, height: 800 });
+            
+            console.log("🎮 [Interact] 打开: " + args.url);
+            await page.goto(args.url, { waitUntil: 'networkidle2', timeout: 20000 });
+            await new Promise(function(r){ setTimeout(r, 1500); });
+
+            for (var i = 0; i < (args.actions || []).length; i++) {
+                var act = args.actions[i];
+                console.log("🎮 [Interact] 操作" + i + ": " + act.type + " " + (act.selector || ''));
+                
+                if (act.type === 'click' && act.selector) {
+                    await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
+                    await page.click(act.selector);
+                    await new Promise(function(r){ setTimeout(r, 1000); });
+                } else if (act.type === 'type' && act.selector) {
+                    await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
+                    await page.type(act.selector, act.value || '');
+                } else if (act.type === 'select' && act.selector) {
+                    await page.select(act.selector, act.value || '');
+                } else if (act.type === 'wait') {
+                    await new Promise(function(r){ setTimeout(r, parseInt(act.value) || 2000); });
+                }
+            }
+
+            var iaResult = await page.evaluate(function() { return document.body.innerText; });
+            await browser.close();
+            
+            var iaText = iaResult.substring(0, 8000);
+            var iaSuffix = iaResult.length > 8000 ? '\n...（已截取）' : '';
+            console.log("✅ [Interact] 完成，" + iaText.length + "字");
+            return iaText + iaSuffix;
+        } catch(e) {
+            console.log("❌ [Interact] " + e.message);
+            return "操作失败: " + e.message;
+        }
+    }
 
     if (name === "save_long_term_memory") {
         const result = smartMemoryWrite(
