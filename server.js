@@ -1943,10 +1943,10 @@ async function handleToolCall(name, args) {
             console.log("📸 [Interact] 截图成功");
             return "[截图已获取，base64长度=" + result.data.length + "]";
         } else {
-            var resultText = (result.data || '').substring(0, 8000);
-            var suffix = (result.data || '').length > 8000 ? '\n...（已截取）' : '';
-            console.log("✅ [Interact] 操作完成，" + resultText.length + "字");
-            return resultText + suffix;
+            var iaText = (result.data || '').substring(0, 8000);
+var iaSuffix = (result.data || '').length > 8000 ? '\n...（已截取）' : '';
+console.log("✅ [Interact] 操作完成，" + iaText.length + "字");
+return iaText + iaSuffix;
         }
     } catch(e) {
         if (e.name === 'TimeoutError') return "操作超时（30秒），页面可能响应慢。";
