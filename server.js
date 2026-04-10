@@ -1852,13 +1852,13 @@ async function handleToolCall(name, args) {
                 });
         if (name === "interact_webpage") {
     console.log("🎮 进入 interact_webpage 处理");
-    var browserlessKey = process.env.BROWSERLESS_API_KEY;
-    if (!browserlessKey) return "系统提示：未配置 BROWSERLESS_API_KEY";
+    var bKey = process.env.BROWSERLESS_API_KEY;
+   if (!bKey) return "系统提示：未配置 BROWSERLESS_API_KEY";
 
     try {
         var puppeteer = require('puppeteer-core');
         var browser = await puppeteer.connect({
-            browserWSEndpoint: "wss://chrome.browserless.io?token=" + browserlessKey
+            browserWSEndpoint: "wss://chrome.browserless.io?token=" + bKey
         });
         var page = await browser.newPage();
         await page.setViewport({ width: 1280, height: 800 });
