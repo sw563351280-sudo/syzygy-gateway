@@ -1850,6 +1850,7 @@ async function handleToolCall(name, args) {
                     }),
                     signal: AbortSignal.timeout(25000)
                 });
+        console.log("🔍 DEBUG handleToolCall name=" + name);
         if (name === "interact_webpage") {
     console.log("🎮 进入 interact_webpage 处理");
     var bKey2 = process.env.BROWSERLESS_API_KEY;
