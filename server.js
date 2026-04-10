@@ -794,34 +794,32 @@ roleplay_memories: 最多3条，无RP内容则为空数组 []。ttl 默认 "1w"�
 // ==========================================
 // 🧪 Chromium 测试接口（可删除）
 // ==========================================
-app.get('/test-chrome', async (req, res) => {
+app.get('/test-interact', async (req, res) => {
     const browserlessKey = process.env.BROWSERLESS_API_KEY;
-    if (!browserlessKey) return res.json({ error: "缺少 BROWSERLESS_API_KEY" });
+    if (!browserlessKey) return res.json({ error: "缺少 key" });
     
     try {
-        const response = await fetch(`https://chrome.browserless.io/content?token=${browserlessKey}`, {
+        var code = "module.exports = async function({ page }) {"
+            + "await page.goto('https://example.com', { waitUntil: 'networkidle2', timeout: 15000 });"
+            + "await new Promise(function(r){setTimeout(r,1000)});"
+            + "var text = await page.evaluate(function() { return document.body.innerText; });"
+            + "return { type: 'text', data: text };"
+            + "};";
+
+        var resp = await fetch("https://chrome.browserless.io/function?token=" + browserlessKey, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                url: 'https://example.com',
-                gotoOptions: { waitUntil: 'networkidle2', timeout: 15000 }
-            }),
+            body: JSON.stringify({ code: code, context: {} }),
             signal: AbortSignal.timeout(20000)
         });
-        
-        const html = await response.text();
-        const textOnly = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-        
-        res.json({ 
-            success: response.ok,
-            status: response.status,
-            text_length: textOnly.length,
-            preview: textOnly.substring(0, 200)
-        });
+
+        var result = await resp.text();
+        res.json({ status: resp.status, result: result.substring(0, 500) });
     } catch(e) {
-        res.json({ success: false, error: e.message });
+        res.json({ error: e.message });
     }
 });
+
 
 // ==========================================
 // 🌟 赛博海关
@@ -1883,6 +1881,7 @@ async function handleToolCall(name, args) {
                     signal: AbortSignal.timeout(25000)
                 });
         if (name === "interact_webpage") {
+            console.log("🎮 进入 interact_webpage 处理");
     const browserlessKey = process.env.BROWSERLESS_API_KEY;
     if (!browserlessKey) return "系统提示：未配置 BROWSERLESS_API_KEY";
 
