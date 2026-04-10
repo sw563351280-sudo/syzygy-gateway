@@ -1776,6 +1776,34 @@ const tools = [
         }
     },
     {
+    type: "function",
+    function: {
+        name: "interact_webpage",
+        description: "在网页上执行操作：点击按钮、选择选项、填写表单、做测试题。先用read_webpage看页面内容，再用这个工具执行具体操作。",
+        parameters: {
+            type: "object",
+            properties: {
+                url: { type: "string", description: "网页URL" },
+                actions: { 
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            type: { type: "string", enum: ["click", "type", "select", "wait", "screenshot"], description: "操作类型" },
+                            selector: { type: "string", description: "CSS选择器，如 button.submit, input[name=q], #next" },
+                            value: { type: "string", description: "type时填写的文字，select时选择的值" }
+                        },
+                        required: ["type"]
+                    },
+                    description: "按顺序执行的操作列表"
+                },
+                return_type: { type: "string", enum: ["text", "screenshot"], description: "返回页面文字还是截图，默认text" }
+            },
+            required: ["url", "actions"]
+        }
+    }
+}
+    {
         type: "function",
         function: {
             name: "organize_memories",
@@ -1854,7 +1882,86 @@ async function handleToolCall(name, args) {
                     }),
                     signal: AbortSignal.timeout(25000)
                 });
-                
+        if (name === "interact_webpage") {
+    const browserlessKey = process.env.BROWSERLESS_API_KEY;
+    if (!browserlessKey) return "系统提示：未配置 BROWSERLESS_API_KEY";
+
+    try {
+        // 把 actions 转成 Puppeteer 代码
+        let actionCode = '';
+        for (const action of (args.actions || [])) {
+            const sel = (action.selector || '').replace(/'/g, "\\'");
+            const val = (action.value || '').replace(/'/g, "\\'");
+            
+            switch (action.type) {
+                case 'click':
+                    actionCode += `await page.waitForSelector('${sel}', {timeout: 5000}).catch(()=>{});\nawait page.click('${sel}');\nawait new Promise(r=>setTimeout(r,1000));\n`;
+                    break;
+                case 'type':
+                    actionCode += `await page.waitForSelector('${sel}', {timeout: 5000}).catch(()=>{});\nawait page.type('${sel}', '${val}');\n`;
+                    break;
+                case 'select':
+                    actionCode += `await page.select('${sel}', '${val}');\n`;
+                    break;
+                case 'wait':
+                    actionCode += `await new Promise(r=>setTimeout(r, ${parseInt(action.value) || 2000}));\n`;
+                    break;
+                case 'screenshot':
+                    actionCode += ``;  // 截图在最后处理
+                    break;
+            }
+        }
+
+        const wantScreenshot = args.return_type === 'screenshot';
+
+        const puppeteerCode = `
+module.exports = async ({ page }) => {
+    await page.setViewport({ width: 1280, height: 800 });
+    await page.goto('${args.url.replace(/'/g, "\\'")}', { waitUntil: 'networkidle2', timeout: 20000 });
+    await new Promise(r => setTimeout(r, 1500));
+    
+    ${actionCode}
+    
+    ${wantScreenshot ? `
+    const screenshot = await page.screenshot({ encoding: 'base64', fullPage: false });
+    return { type: 'screenshot', data: screenshot };
+    ` : `
+    const text = await page.evaluate(() => document.body.innerText);
+    return { type: 'text', data: text };
+    `}
+};`;
+
+        console.log(`🎮 [Interact] ${args.url} → ${(args.actions||[]).length}个操作`);
+
+        const res = await fetch(`https://chrome.browserless.io/function?token=${browserlessKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: puppeteerCode, context: {} }),
+            signal: AbortSignal.timeout(30000)
+        });
+
+        if (!res.ok) {
+            const errText = await res.text();
+            console.log(`❌ [Interact] HTTP ${res.status}: ${errText.substring(0, 300)}`);
+            return `操作失败 (HTTP ${res.status}): ${errText.substring(0, 200)}`;
+        }
+
+        const result = await res.json();
+
+        if (result.type === 'screenshot') {
+            console.log(`📸 [Interact] 截图成功`);
+            return `[截图已获取，base64长度=${result.data.length}]`;
+        } else {
+            const text = (result.data || '').substring(0, 8000);
+            const suffix = (result.data || '').length > 8000 ? '\n...（已截取）' : '';
+            console.log(`✅ [Interact] 操作完成，${text.length}字`);
+            return text + suffix;
+        }
+    } catch(e) {
+        if (e.name === 'TimeoutError') return "操作超时（30秒），页面可能响应慢。";
+        return "操作失败: " + e.message;
+    }
+}               
                 if (res.ok) {
                     const html = await res.text();
                     const text = html
