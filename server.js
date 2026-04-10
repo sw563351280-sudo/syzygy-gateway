@@ -1802,7 +1802,7 @@ const tools = [
             required: ["url", "actions"]
         }
     }
-}
+}, 
     {
         type: "function",
         function: {
