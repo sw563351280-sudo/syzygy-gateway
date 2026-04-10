@@ -1828,48 +1828,63 @@ async function handleToolCall(name, args) {
 
    if (name === "read_webpage") {
     try {
-        // 先尝试 Puppeteer（能渲染 JS 动态页面）
-        const puppeteer = require('puppeteer-core');
-        let browser;
-        try {
-            browser = await puppeteer.launch({
-                executablePath: '/usr/bin/chromium-browser',
-                headless: 'new',
-                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
-            });
-            const page = await browser.newPage();
-            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-            await page.goto(args.url, { waitUntil: 'networkidle2', timeout: 20000 });
-            const text = await page.evaluate(() => document.body.innerText);
-            await browser.close();
-
-            if (!text || text.trim().length < 10) return "网页内容为空或无法解析。";
-            const truncated = text.substring(0, 8000);
-            const suffix = text.length > 8000 ? '\n\n...（内容过长，已截取前8000字）' : '';
-            console.log(`📖 [Puppeteer] ${args.url} → ${text.length}字`);
-            return truncated + suffix;
-        } catch(puppeteerErr) {
-            if (browser) await browser.close().catch(() => {});
-            console.log(`⚠️ [Puppeteer失败] ${puppeteerErr.message}，降级到 Jina Reader`);
-
-            // 降级：用 Jina Reader
-            const res = await fetch(`https://r.jina.ai/${args.url}`, {
-                headers: { 'Accept': 'text/plain', 'X-Return-Format': 'text' },
-                signal: AbortSignal.timeout(15000)
-            });
-            if (!res.ok) return `网页读取失败，HTTP ${res.status}`;
-            const fallbackText = await res.text();
-            if (!fallbackText || fallbackText.trim().length < 10) return "网页内容为空或无法解析。";
-            const truncated = fallbackText.substring(0, 8000);
-            const suffix = fallbackText.length > 8000 ? '\n\n...（内容过长，已截取前8000字）' : '';
-            console.log(`📖 [Jina降级] ${args.url} → ${fallbackText.length}字`);
-            return truncated + suffix;
+        const browserlessKey = process.env.BROWSERLESS_API_KEY;
+        
+        // 方案1：有 Browserless key → JS 渲染
+        if (browserlessKey) {
+            try {
+                console.log(`📖 [Browserless] 渲染中: ${args.url}`);
+                const res = await fetch(`https://chrome.browserless.io/content?token=${browserlessKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        url: args.url,
+                        waitForSelector: 'body',
+                        gotoOptions: { waitUntil: 'networkidle2', timeout: 20000 }
+                    }),
+                    signal: AbortSignal.timeout(25000)
+                });
+                
+                if (res.ok) {
+                    const html = await res.text();
+                    // 提取纯文本
+                    const text = html
+                        .replace(/<script[\s\S]*?<\/script>/gi, '')
+                        .replace(/<style[\s\S]*?<\/style>/gi, '')
+                        .replace(/<[^>]+>/g, ' ')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                    
+                    if (text.length > 10) {
+                        const truncated = text.substring(0, 8000);
+                        const suffix = text.length > 8000 ? '\n\n...（内容过长，已截取前8000字）' : '';
+                        console.log(`✅ [Browserless] ${args.url} → ${text.length}字`);
+                        return truncated + suffix;
+                    }
+                }
+                console.log(`⚠️ [Browserless] 失败，降级到 Jina`);
+            } catch(e) {
+                console.log(`⚠️ [Browserless] ${e.message}，降级到 Jina`);
+            }
         }
+        
+        // 方案2：降级到 Jina Reader
+        const res = await fetch(`https://r.jina.ai/${args.url}`, {
+            headers: { 'Accept': 'text/plain', 'X-Return-Format': 'text' },
+            signal: AbortSignal.timeout(15000)
+        });
+        if (!res.ok) return `网页读取失败，HTTP ${res.status}`;
+        const text = await res.text();
+        if (!text || text.trim().length < 10) return "网页内容为空或无法解析。";
+        const truncated = text.substring(0, 8000);
+        const suffix = text.length > 8000 ? '\n\n...（内容过长，已截取前8000字）' : '';
+        console.log(`📖 [Jina] ${args.url} → ${text.length}字`);
+        return truncated + suffix;
     } catch(e) {
+        if (e.name === 'TimeoutError') return "网页读取超时，页面可能太大或无法访问。";
         return "网页读取失败: " + e.message;
     }
 }
-
 
     if (name === "save_long_term_memory") {
         const result = smartMemoryWrite(
