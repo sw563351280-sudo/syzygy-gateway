@@ -1577,7 +1577,7 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
 
 <div class="main">
     <div class="header"><h1>💎 永久记忆档案 (海马体接管中)</h1></div>
-    <div class="search-row"><input type="text" id="searchInput" placeholder="搜索记忆内容..." oninput="filterAll()"><button class="btn-add" onclick="openModal()">＋ 新增</button></div>
+   <div class="search-row"><input type="text" id="searchInput" placeholder="搜索记忆内容..." oninput="filterAll()"><button class="btn-add" onclick="openModal()">＋ 新增</button><button style="padding:10px 18px;background:#ff9800;color:white;border:none;border-radius:8px;cursor:pointer;margin-left:8px;" onclick="triggerCleanup()">🧹 AI清理</button></div>
     <div class="pills">
         <span class="pill active" onclick="setFilter(this,'active','all')">现实脑区(${counts.all})</span>
         <span class="pill" onclick="setFilter(this,'active','manual')">✍️ 手动 (${counts.manual})</span>
@@ -1647,6 +1647,21 @@ function filterAll(){
     });
 }
 filterAll();
+async function triggerCleanup() {
+    if (!confirm('让AI审查记忆库，清理重复和不重要的条目？\\n（被清理的会移入冰封档案，不会彻底删除）')) return;
+    const pwd = new URLSearchParams(window.location.search).get('pwd');
+    try {
+        const r = await fetch('/trigger-cleanup?pwd=' + encodeURIComponent(pwd), { method: 'POST' });
+        const d = await r.json();
+        if (d.success) {
+            alert('✅ 清理完成！\\n删除: ' + d.deleted + '条\\n合并: ' + d.merged + '组\\n' + d.summary);
+            location.reload();
+        } else {
+            alert('❌ ' + (d.error || '未知错误'));
+        }
+    } catch(e) { alert('❌ ' + e.message); }
+}
+
 </script></body></html>`);
 });
 
