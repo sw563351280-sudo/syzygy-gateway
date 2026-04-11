@@ -2142,8 +2142,7 @@ if (name === "read_webpage") {
                             }
                         } catch(e3) {}
                     }
-                }
- else if (act.type === 'type' && act.selector) {
+                }else if (act.type === 'type' && act.selector) {
                 await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
                 await page.type(act.selector, act.value || '');
             } else if (act.type === 'select' && act.selector) {
