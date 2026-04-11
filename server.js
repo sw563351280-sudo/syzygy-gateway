@@ -2009,9 +2009,14 @@ if (name === "read_webpage") {
                     return { text: bodyText, elements: elements.slice(0, 1500) };
                 });
                 
-                await br.close();
+                                // 不关浏览器，存起来给 interact_webpage 复用
+                var sessionKey;
+                try { var u = new URL(args.url); sessionKey = u.origin + u.pathname; } catch(e) { sessionKey = args.url; }
+                browserSessions.set(sessionKey, { browser: br, page: pg, created: Date.now() });
+                console.log("💾 [read_webpage] 浏览器会话已保存: " + sessionKey);
                 
                 var result = pageData.text;
+
                 if (pageData.elements.length > 0) {
                     result += '\n\n=== 页面可交互元素（用这些选择器配合 interact_webpage 操作）===\n' + pageData.elements.join('\n');
                 }
