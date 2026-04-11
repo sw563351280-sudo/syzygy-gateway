@@ -2142,9 +2142,8 @@ if (name === "read_webpage") {
                             }
                         } catch(e3) {}
                     }
-                    }
                 }
-                 } else if (act.type === 'type' && act.selector) {
+            } else if (act.type === 'type' && act.selector) {
                 await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
                 await page.type(act.selector, act.value || '');
             } else if (act.type === 'select' && act.selector) {
@@ -2153,8 +2152,6 @@ if (name === "read_webpage") {
                 await new Promise(function(r){ setTimeout(r, parseInt(act.value) || 1000); });
             }
         }
-        }
-
         // ===== 等页面更新 =====
         await new Promise(function(r){ setTimeout(r, 800); });
 
