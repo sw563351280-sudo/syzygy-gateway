@@ -1907,23 +1907,103 @@ async function handleToolCall(name, args) {
             await page.goto(args.url, { waitUntil: 'networkidle2', timeout: 20000 });
             await new Promise(function(r){ setTimeout(r, 1500); });
 
-            for (var i = 0; i < (args.actions || []).length; i++) {
-                var act = args.actions[i];
-                console.log("🎮 [Interact] 操作" + i + ": " + act.type + " " + (act.selector || ''));
+                    for (var i = 0; i < (args.actions || []).length; i++) {
+            var act = args.actions[i];
+            console.log("🎮 [Interact] 操作" + i + ": " + act.type + " " + (act.selector || act.value || ''));
+            
+            if (act.type === 'click') {
+                var clicked = false;
                 
-                if (act.type === 'click' && act.selector) {
-                    await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
-                    await page.click(act.selector);
-                    await new Promise(function(r){ setTimeout(r, 1000); });
-                } else if (act.type === 'type' && act.selector) {
-                    await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
-                    await page.type(act.selector, act.value || '');
-                } else if (act.type === 'select' && act.selector) {
-                    await page.select(act.selector, act.value || '');
-                } else if (act.type === 'wait') {
-                    await new Promise(function(r){ setTimeout(r, parseInt(act.value) || 2000); });
+                // 策略1：直接用选择器
+                if (act.selector) {
+                    try {
+                        await page.waitForSelector(act.selector, { timeout: 3000 });
+                        await page.click(act.selector);
+                        clicked = true;
+                        console.log("✅ 选择器命中: " + act.selector);
+                    } catch(e) {
+                        console.log("⚠️ 选择器未命中: " + act.selector);
+                    }
                 }
+                
+                // 策略2：按文字内容点击
+                if (!clicked && (act.value || act.selector)) {
+                    var searchText = act.value || act.selector.replace(/[^\u4e00-\u9fff\w\s]/g, '').trim();
+                    try {
+                        clicked = await page.evaluate(function(text) {
+                            var candidates = Array.from(document.querySelectorAll('button, a, input[type="submit"], input[type="button"], label, [role="button"], .btn, [onclick]'));
+                            // 也搜索所有可点击的元素
+                            document.querySelectorAll('*').forEach(function(el) {
+                                var style = window.getComputedStyle(el);
+                                if (style.cursor === 'pointer') candidates.push(el);
+                            });
+                            for (var i = 0; i < candidates.length; i++) {
+                                var el = candidates[i];
+                                var elText = (el.textContent || el.value || el.getAttribute('aria-label') || '').trim();
+                                if (elText.includes(text) || text.includes(elText)) {
+                                    el.click();
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }, searchText);
+                        if (clicked) console.log("✅ 文字匹配点击: " + searchText);
+                    } catch(e) {}
+                }
+                
+                // 策略3：radio/checkbox 特殊处理
+                if (!clicked && act.selector) {
+                    try {
+                        clicked = await page.evaluate(function(sel) {
+                            // 尝试找 radio/checkbox 然后点它的 label
+                            var inputs = document.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+                            for (var i = 0; i < inputs.length; i++) {
+                                var inp = inputs[i];
+                                var label = inp.closest('label') || document.querySelector('label[for="' + inp.id + '"]');
+                                var text = label ? label.textContent : inp.value;
+                                if (sel.includes(inp.value) || sel.includes(inp.name)) {
+                                    inp.click();
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }, act.selector);
+                        if (clicked) console.log("✅ radio/checkbox 匹配");
+                    } catch(e) {}
+                }
+                
+                if (!clicked) {
+                    // 返回页面上有哪些可点击元素，帮AI下次用对
+                    var available = await page.evaluate(function() {
+                        var items = [];
+                        document.querySelectorAll('button, a, input, select, label, [role="button"]').forEach(function(el) {
+                            var desc = el.tagName.toLowerCase();
+                            if (el.id) desc += '#' + el.id;
+                            if (el.name) desc += '[name=' + el.name + ']';
+                            if (el.type) desc += '[type=' + el.type + ']';
+                            if (el.value) desc += '[value=' + el.value + ']';
+                            var text = (el.textContent || '').trim().substring(0, 30);
+                            if (text) desc += ' "' + text + '"';
+                            items.push(desc);
+                        });
+                        return items.slice(0, 20).join('\n');
+                    });
+                    console.log("❌ 所有策略均未命中，可用元素:\n" + available);
+                    await browser.close();
+                    return "点击失败，未找到匹配元素。页面上可操作的元素有：\n" + available + "\n\n请根据以上信息重新选择正确的选择器。";
+                }
+                
+                await new Promise(function(r){ setTimeout(r, 1000); });
+                
+            } else if (act.type === 'type' && act.selector) {
+                await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
+                await page.type(act.selector, act.value || '');
+            } else if (act.type === 'select' && act.selector) {
+                await page.select(act.selector, act.value || '');
+            } else if (act.type === 'wait') {
+                await new Promise(function(r){ setTimeout(r, parseInt(act.value) || 2000); });
             }
+        }
 
             var iaResult = await page.evaluate(function() { return document.body.innerText; });
             await browser.close();
