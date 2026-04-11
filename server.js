@@ -701,6 +701,13 @@ function updateRpTracker(userText) {
 }
 
 // ==========================================
+// 🌟 赛博分拣员 (已退休，直接放行)
+// ==========================================
+async function analyzeIntent(userText) {
+    return null;
+}
+
+// ==========================================
 // 🔧 [任务二] 后台管家（升级 arousal 字段）
 // ==========================================
 async function backgroundMemoryDream(sessionId, zepMessages) {
