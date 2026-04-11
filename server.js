@@ -2013,8 +2013,32 @@ if (name === "read_webpage") {
             }
         }
 
-            var iaResult = await page.evaluate(function() { return document.body.innerText; });
-            await browser.close();
+           var iaData = await page.evaluate(function() {
+    var bodyText = document.body.innerText;
+    var elements = [];
+    document.querySelectorAll('button, a, input, select, label, textarea, [role="button"], [onclick]').forEach(function(el) {
+        var desc = el.tagName.toLowerCase();
+        if (el.id) desc += '#' + el.id;
+        if (el.className && typeof el.className === 'string') {
+            var cls = el.className.split(' ').filter(Boolean).slice(0, 2).join('.');
+            if (cls) desc += '.' + cls;
+        }
+        if (el.name) desc += '[name="' + el.name + '"]';
+        if (el.type) desc += '[type="' + el.type + '"]';
+        if (el.value && el.value.length < 30) desc += '[value="' + el.value + '"]';
+        var text = (el.textContent || '').trim().substring(0, 40);
+        if (text) desc += ' → "' + text + '"';
+        elements.push(desc);
+    });
+    return { text: bodyText, elements: elements.slice(0, 40) };
+});
+await browser.close();
+
+var iaResult = iaData.text;
+if (iaData.elements.length > 0) {
+    iaResult += '\n\n=== 操作后页面可交互元素 ===\n' + iaData.elements.join('\n');
+}
+
             
             var iaText = iaResult.substring(0, 8000);
             var iaSuffix = iaResult.length > 8000 ? '\n...（已截取）' : '';
