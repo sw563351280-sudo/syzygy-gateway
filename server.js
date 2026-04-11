@@ -1785,10 +1785,10 @@ const tools = [
         }
     },
     {
-        type: "function",
-        function: {
-            name: "read_webpage",
-            description: "读取并解析网页内容。当江鱼发了一个URL链接、让你看某个网页、做在线测试题、阅读文章时使用。",
+         type: "function",
+    function: {
+        name: "read_webpage",
+        description: "读取网页内容。读取后如果需要点击按钮或填写内容，请紧接着调用interact_webpage执行操作，不要停下来只描述。",
             parameters: {
                 type: "object",
                 properties: { 
@@ -1819,8 +1819,7 @@ const tools = [
     type: "function",
     function: {
         name: "interact_webpage",
-        description: "在网页上执行操作：点击按钮、选择选项、填写表单。【重要】默认每次调用是全新浏览器。如果需要多页操作（如每页一题的测试），第一次调用后会返回 session_id，后续调用传入这个 session_id 就能继续在同一个浏览器里操作，不会回到第一页。",
-        parameters: {
+        description: "与网页进行交互操作（点击按钮、填写表单、选择选项等）。当你用read_webpage看到页面内容后，如果需要点击或操作，必须立即调用此工具执行，不要只用文字描述你的操作。",
             type: "object",
             properties: {
                 url: { type: "string", description: "网页URL（有session_id时可省略）" },
