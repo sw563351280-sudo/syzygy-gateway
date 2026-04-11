@@ -1851,7 +1851,7 @@ if (name === "read_webpage") {
                 var pageData = await pg.evaluate(function() {
                     var bodyText = document.body.innerText;
                     var elements = [];
-                    document.querySelectorAll('button, a, input, select, label, textarea, [role="button"], [onclick]').forEach(function(el) {
+                    document.querySelectorAll('input, button, select, textarea').forEach(function(el) {
                         var desc = el.tagName.toLowerCase();
                         if (el.id) desc += '#' + el.id;
                         if (el.className && typeof el.className === 'string') desc += '.' + el.className.split(' ').filter(Boolean).slice(0, 2).join('.');
@@ -1862,7 +1862,7 @@ if (name === "read_webpage") {
                         if (text) desc += ' → "' + text + '"';
                         elements.push(desc);
                     });
-                    return { text: bodyText, elements: elements.slice(0, 30) };
+                    return { text: bodyText, elements: elements.slice(0, 1500) };
                 });
                 
                 await br.close();
@@ -2013,9 +2013,27 @@ if (name === "read_webpage") {
         }
 
            var iaData = await page.evaluate(function() {
-    var bodyText = document.body.innerText;
+    var bodyText = document.body.innerText.substring(0, 6000);
     var elements = [];
-    document.querySelectorAll('button, a, input, select, label, textarea, [role="button"], [onclick]').forEach(function(el) {
+    // 只抓 input 和 button，跳过无用的 a/label
+    document.querySelectorAll('input, button, select, textarea').forEach(function(el) {
+        var desc = el.tagName.toLowerCase();
+        if (el.id) desc += '#' + el.id;
+        if (el.name) desc += '[name="' + el.name + '"]';
+        if (el.type) desc += '[type="' + el.type + '"]';
+        if (el.value && el.value.length < 30) desc += '[value="' + el.value + '"]';
+        // radio/checkbox 额外显示关联 label 文字
+        if (el.type === 'radio' || el.type === 'checkbox') {
+            var label = el.closest('label') || document.querySelector('label[for="' + el.id + '"]');
+            if (label) desc += ' → "' + label.textContent.trim().substring(0, 50) + '"';
+        } else {
+            var text = (el.textContent || '').trim().substring(0, 30);
+            if (text) desc += ' → "' + text + '"';
+        }
+        elements.push(desc);
+    });
+    return { text: bodyText, elements: elements };
+
         var desc = el.tagName.toLowerCase();
         if (el.id) desc += '#' + el.id;
         if (el.className && typeof el.className === 'string') {
@@ -2029,7 +2047,7 @@ if (name === "read_webpage") {
         if (text) desc += ' → "' + text + '"';
         elements.push(desc);
     });
-    return { text: bodyText, elements: elements.slice(0, 40) };
+    return { text: bodyText, elements: elements.slice(0, 1500) };
 });
 await browser.close();
 
