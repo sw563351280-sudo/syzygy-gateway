@@ -1040,17 +1040,18 @@ newMessages.forEach((m, i) => {
                 console.log(`🔧 [MCP] 第${rounds}轮工具调用，${message.tool_calls.length}个工具`);
 
                 const toolMessages = [...body.messages, message];
-                for (const tc of message.tool_calls) {
-                    let args = {};
-                    try { args = JSON.parse(tc.function.arguments); } catch(e) {}
-                    const result = await handleToolCall(tc.function.name, args);
-                    toolMessages.push({
-    role: "tool",
-    tool_call_id: toolCall.id,
-    name: toolCall.function.name,   // ← 加这行！
-    content: result
-});
-                }
+               // ✅ 全部统一用 tc
+for (const tc of message.tool_calls) {
+    let args = {};
+    try { args = JSON.parse(tc.function.arguments); } catch(e) {}
+    const result = await handleToolCall(tc.function.name, args);
+    toolMessages.push({
+        role: "tool",
+        tool_call_id: tc.id,
+        name: tc.function.name,
+        content: result
+    });
+}
 
                 const nextBody = { ...body, messages: toolMessages };
                 delete nextBody.tools;
