@@ -1872,7 +1872,7 @@ if (name === "read_webpage") {
                     result += '\n\n=== 页面可交互元素（用这些选择器配合 interact_webpage 操作）===\n' + pageData.elements.join('\n');
                 }
                 
-                var truncated = result.substring(0, 8000);
+                var truncated = result.substring(0, 18000);
                 var suffix = result.length > 8000 ? '\n...（已截取）' : '';
                 console.log("✅ [Puppeteer] " + args.url + " → " + pageData.text.length + "字 + " + pageData.elements.length + "个元素");
                 return truncated + suffix;
@@ -1888,7 +1888,7 @@ if (name === "read_webpage") {
         if (!res2.ok) return "网页读取失败，HTTP " + res2.status;
         var jinaText = await res2.text();
         if (!jinaText || jinaText.trim().length < 10) return "网页内容为空或无法解析。";
-        var jTrunc = jinaText.substring(0, 8000);
+        var jTrunc = jinaText.substring(0, 18000);
         var jSuffix = jinaText.length > 8000 ? '\n...（已截取）' : '';
         return jTrunc + jSuffix;
     } catch(e) {
@@ -2039,7 +2039,7 @@ if (iaData.elements.length > 0) {
 }
 
             
-            var iaText = iaResult.substring(0, 8000);
+            var iaText = iaResult.substring(0, 18000);
             var iaSuffix = iaResult.length > 8000 ? '\n...（已截取）' : '';
             console.log("✅ [Interact] 完成，" + iaText.length + "字");
             return iaText + iaSuffix;
