@@ -2455,6 +2455,8 @@ app.post('/api/web-chat', async (req, res) => {
                     }
 
                     // 带完整历史发给 AI
+                    console.log(`📤 [Web-MCP] 第${toolRounds}轮回传，共${accumulatedMessages.length}条消息`);
+                    
                     const nextRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -2465,6 +2467,8 @@ app.post('/api/web-chat', async (req, res) => {
                             tool_choice: "auto"
                         })
                     });
+                    
+                    console.log(`📥 [Web-MCP] 第${toolRounds}轮回传状态: ${nextRes.status}`);
 
                     if (!nextRes.ok) {
                         const errText = await nextRes.text();
@@ -2475,6 +2479,7 @@ app.post('/api/web-chat', async (req, res) => {
 
                     const nextData = await nextRes.json();
                     message = nextData.choices?.[0]?.message;
+                 console.log(`📋 [Web-MCP] 第${toolRounds}轮返回: content=${(message?.content||'').length}字, tool_calls=${message?.tool_calls?.length || 0}个`);
 
                     // 收集这一轮的思考
                     if (message?.reasoning_content) {
