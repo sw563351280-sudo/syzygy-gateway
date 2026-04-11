@@ -1915,21 +1915,26 @@ if (name === "read_webpage") {
             await new Promise(function(r){ setTimeout(r, 1500); });
 
                     // 批量处理：把所有 click radio 的操作一次性执行
+                var beforeRadio = [];
         var radioClicks = [];
-        var otherActions = [];
+        var afterRadio = [];
+        var foundRadio = false;
         for (var j = 0; j < (args.actions || []).length; j++) {
             var a = args.actions[j];
             if (a.type === 'click' && a.selector && a.selector.includes('input[name=')) {
                 radioClicks.push(a.selector);
+                foundRadio = true;
+            } else if (!foundRadio) {
+                beforeRadio.push(a);
             } else {
-                otherActions.push(a);
+                afterRadio.push(a);
             }
         }
         
         if (radioClicks.length > 0) {
             // 先执行非radio操作（点开始、wait等）
-            for (var k = 0; k < otherActions.length; k++) {
-                var oa = otherActions[k];
+                        for (var k = 0; k < beforeRadio.length; k++) {
+                var oa = beforeRadio[k];
                 if (oa.type === 'click') {
                     try {
                         var clicked = false;
@@ -1969,15 +1974,43 @@ if (name === "read_webpage") {
                 return { success: success, fail: fail };
             }, radioClicks);
             
-            console.log("✅ 批量选择完成: " + radioResult.success + "/" + radioClicks.length + " 成功");
+                        console.log("✅ 批量选择完成: " + radioResult.success + "/" + radioClicks.length + " 成功");
             if (radioResult.fail.length > 0) {
                 console.log("❌ 未命中: " + radioResult.fail.join(', '));
             }
             
             await new Promise(function(r){ setTimeout(r, 500); });
             
-            // 跳过原来的 for 循环
+            // 执行 radio 之后的操作（提交按钮等）
+            for (var m = 0; m < afterRadio.length; m++) {
+                var ar = afterRadio[m];
+                if (ar.type === 'click') {
+                    try {
+                        if (ar.selector) {
+                            await page.waitForSelector(ar.selector, { timeout: 3000 });
+                            await page.click(ar.selector);
+                            console.log("✅ 后续操作: " + ar.selector);
+                        } else if (ar.value) {
+                            await page.evaluate(function(text) {
+                                var els = document.querySelectorAll('button, a, [role="button"]');
+                                for (var i = 0; i < els.length; i++) {
+                                    if (els[i].textContent.includes(text)) { els[i].click(); return true; }
+                                }
+                                return false;
+                            }, ar.value);
+                            console.log("✅ 后续操作: " + ar.value);
+                        }
+                    } catch(e) { console.log("⚠️ 后续操作失败: " + e.message); }
+                } else if (ar.type === 'wait') {
+                    await new Promise(function(r){ setTimeout(r, parseInt(ar.value) || 2000); });
+                    console.log("⏳ 等待: " + ar.value + "ms");
+                }
+            }
+            
+            await new Promise(function(r){ setTimeout(r, 1000); });
+            
             var iaData = await page.evaluate(function() {
+
                 var bodyText = document.body.innerText.substring(0, 6000);
                 var elements = [];
                 document.querySelectorAll('input, button, select, textarea').forEach(function(el) {
