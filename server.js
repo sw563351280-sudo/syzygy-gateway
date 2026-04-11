@@ -2070,14 +2070,28 @@ if (name === "read_webpage") {
             session.created = Date.now(); // 续命
             console.log("🔄 [Interact] 复用浏览器: " + sessionKey);
 
-                // 等待页面稳定（防止上一轮操作引起的导航还没完成）
-            try { 
-                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 8000 }); 
-                console.log("⏳ [Interact] 等到了页面导航完成");
-            } catch(e) { 
-                // 没有导航也没关系，说明页面已经稳定
+                            // 等待页面稳定
+            try {
+                await new Promise(function(r){ setTimeout(r, 2000); });
+                // 检查页面是否可用
+                await page.evaluate(function(){ return document.readyState; });
+                console.log("✅ [Interact] 页面可用");
+            } catch(stableErr) {
+                console.log("⏳ [Interact] 页面不可用，等待恢复...");
+                await new Promise(function(r){ setTimeout(r, 5000); });
+                // 尝试获取新的page引用
+                try {
+                    var pages = await browser.pages();
+                    if (pages.length > 0) {
+                        page = pages[pages.length - 1];
+                        browserSessions.get(sessionKey).page = page;
+                        await page.waitForSelector('body', { timeout: 10000 });
+                        console.log("✅ [Interact] 页面恢复了: " + page.url());
+                    }
+                } catch(e2) {
+                    console.log("❌ [Interact] 页面无法恢复");
+                }
             }
-            await new Promise(function(r){ setTimeout(r, 1000); });
 
         } else {
             browser = await puppeteer.connect({
@@ -2107,9 +2121,20 @@ if (name === "read_webpage") {
             var act = actionList[i];
             console.log("🎮 [Interact] 操作" + i + ": " + act.type + " " + (act.selector || act.value || ''));
 
-            if (act.type === 'click') {
+                        if (act.type === 'click') {
+                // 先设置导航监听，再点击，这样不会错过导航事件
+                var navPromise = page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(function(){ return null; });
                 await smartClick(page, act);
-                await new Promise(function(r){ setTimeout(r, 3000); });
+                var navResult = await navPromise;
+                if (navResult) {
+                    console.log("🔄 [Interact] 检测到页面跳转: " + page.url());
+                    // 更新session里的page引用
+                    var pages = await browser.pages();
+                    if (pages.length > 0) page = pages[pages.length - 1];
+                    if (browserSessions.has(sessionKey)) browserSessions.get(sessionKey).page = page;
+                }
+                await new Promise(function(r){ setTimeout(r, 2000); });
+
             } else if (act.type === 'type' && act.selector) {
                 await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
                 await page.type(act.selector, act.value || '');
