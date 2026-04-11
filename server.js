@@ -1744,10 +1744,11 @@ const tools = [
         }
     },
     {
+   {
     type: "function",
     function: {
         name: "interact_webpage",
-        description: "在网页上执行操作：点击按钮、选择选项、填写表单、做测试题。先用read_webpage看页面内容，再用这个工具执行具体操作。",
+        description: "在网页上执行操作：点击按钮、选择选项、填写表单。【重要】每次调用都是全新的浏览器会话，不会保留上次的状态。所以如果需要先点'开始'再答题，必须在同一次调用的actions数组里按顺序写完所有步骤（包括重新点开始按钮）。建议流程：第1次调用只点'开始'+等待，看返回的页面元素；第2次调用把'点开始+等待+所有答题操作+提交'全部写在一个actions数组里。",
         parameters: {
             type: "object",
             properties: {
@@ -1757,15 +1758,14 @@ const tools = [
                     items: {
                         type: "object",
                         properties: {
-                            type: { type: "string", enum: ["click", "type", "select", "wait", "screenshot"], description: "操作类型" },
-                            selector: { type: "string", description: "CSS选择器，如 button.submit, input[name=q], #next" },
-                            value: { type: "string", description: "type时填写的文字，select时选择的值" }
+                            type: { type: "string", enum: ["click", "type", "select", "wait"], description: "操作类型" },
+                            selector: { type: "string", description: "CSS选择器" },
+                            value: { type: "string", description: "type时填写的文字，select时选择的值，click时可作为按钮文字匹配，wait时为毫秒数" }
                         },
                         required: ["type"]
                     },
-                    description: "按顺序执行的操作列表"
-                },
-                return_type: { type: "string", enum: ["text", "screenshot"], description: "返回页面文字还是截图，默认text" }
+                    description: "按顺序执行的操作列表。每次调用是全新会话，需要从头开始操作。"
+                }
             },
             required: ["url", "actions"]
         }
