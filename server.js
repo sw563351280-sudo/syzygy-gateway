@@ -1091,15 +1091,28 @@ newMessages.forEach((m, i) => {
                         });
                     }
 
+                 // 强制提醒AI要真的调用工具
+                    var hasReadPage = false;
+                    for (const tc of message.tool_calls) {
+                        if (tc.function.name === 'read_webpage') hasReadPage = true;
+                    }
+                    if (hasReadPage) {
+                        accumulatedMessages.push({
+                            role: "system",
+                            content: "【强制指令】你刚才读取了网页内容。如果页面上有按钮需要点击、有表单需要填写，你必须立刻调用interact_webpage工具来执行操作。严禁只用文字描述'我点击了按钮'——那不会产生任何实际效果。你必须通过工具调用来真正操作页面。"
+                        });
+                    }
+
                     // 3. 带完整历史回传（保留 tools 支持多轮）
                     console.log(`📤 [MCP] 第${rounds}轮回传，${accumulatedMessages.length}条消息`);
-                    const nextBody = {
+                 const nextBody = {
                         ...body,
                         messages: accumulatedMessages,
                         tools: tools,
-                        tool_choice: "auto",
+                        tool_choice: hasReadPage ? "required" : "auto",
                         stream: false
                     };
+
 
                     const nextRes = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(nextBody) });
                     console.log(`📥 [MCP] 第${rounds}轮状态: ${nextRes.status}`);
