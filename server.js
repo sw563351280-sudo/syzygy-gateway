@@ -1119,8 +1119,15 @@ newMessages.forEach((m, i) => {
                     return res.status(500).json({ error: "工具循环崩溃：" + loopErr.message });
                 }
             }
-
+         console.log(`🔍 [MCP] 最终message: content="${(message?.content || '').substring(0, 100)}", reasoning=${!!(message?.reasoning_content)}, tool_calls=${message?.tool_calls?.length || 0}`);
             console.log(`🏁 [MCP] 工具循环结束，共${rounds}轮`);
+
+          // 保底：如果 content 为空但有 reasoning，提示用户
+            if (!data.choices?.[0]?.message?.content && data.choices?.[0]?.message?.reasoning_content) {
+                console.log(`⚠️ [MCP] AI只有思考没有输出！强制注入提示`);
+                data.choices[0].message.content = data.choices[0].message.reasoning_content;
+            }
+
 
             // SAVE_MEMORY 处理
             let finalContent = data.choices?.[0]?.message?.content || '';
