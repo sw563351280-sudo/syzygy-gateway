@@ -1950,7 +1950,18 @@ async function getAvailableElements(page) {
 }
 
 async function handleToolCall(name, args) {
+    // 兼容AI传错工具名
+    if (!['get_weather','web_search','read_webpage','interact_webpage','save_long_term_memory','organize_memories'].includes(name)) {
+        console.log('⚠️ [MCP] 未知工具名: ' + name + '，尝试根据参数推断');
+        if (args.action && args.selector) name = 'interact_webpage';
+        else if (args.url && !args.action) name = 'read_webpage';
+        else if (args.query) name = 'web_search';
+        else if (args.city) name = 'get_weather';
+        else if (args.content && args.tags) name = 'save_long_term_memory';
+        console.log('🔧 [MCP] 修正为: ' + name);
+    }
     console.log(`🤖 沈望正在动用外部工具: ${name}, 参数:`, args);
+
 
     if (name === "get_weather") {
         const apiKey = process.env.WEATHER_API_KEY;
