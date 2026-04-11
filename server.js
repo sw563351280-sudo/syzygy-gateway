@@ -15,6 +15,24 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
 
+// ==========================================
+// 🌐 浏览器会话管理
+// ==========================================
+const browserSessions = new Map();
+
+// 自动清理超过 2 分钟的会话
+setInterval(function() {
+    const now = Date.now();
+    for (const [id, session] of browserSessions) {
+        if (now - session.created > 2 * 60 * 1000) {
+            console.log('🧹 [浏览器] 清理过期会话: ' + id);
+            session.browser.close().catch(function(){});
+            browserSessions.delete(id);
+        }
+    }
+}, 30 * 1000);
+
+
 const ZEP_URL = "https://syzymer.zeabur.app";
 const SESSION_ID = "syzygy_01";
 
@@ -680,13 +698,6 @@ function updateRpTracker(userText) {
             console.log(`🎭 [RP模式] 保持惯性 (${rpIdleCount}/5)`);
         }
     }
-}
-
-// ==========================================
-// 🌟 赛博分拣员 (已退休，直接放行)
-// ==========================================
-async function analyzeIntent(userText) {
-    return null;
 }
 
 // ==========================================
@@ -1749,15 +1760,16 @@ const tools = [
             }
         }
     },
-    {
+   {
     type: "function",
     function: {
         name: "interact_webpage",
-        description: "在网页上执行操作：点击按钮、选择选项、填写表单。【重要】每次调用都是全新的浏览器会话，不会保留上次的状态。所以如果需要先点'开始'再答题，必须在同一次调用的actions数组里按顺序写完所有步骤（包括重新点开始按钮）。建议流程：第1次调用只点'开始'+等待，看返回的页面元素；第2次调用把'点开始+等待+所有答题操作+提交'全部写在一个actions数组里。",
+        description: "在网页上执行操作：点击按钮、选择选项、填写表单。【重要】默认每次调用是全新浏览器。如果需要多页操作（如每页一题的测试），第一次调用后会返回 session_id，后续调用传入这个 session_id 就能继续在同一个浏览器里操作，不会回到第一页。",
         parameters: {
             type: "object",
             properties: {
-                url: { type: "string", description: "网页URL" },
+                url: { type: "string", description: "网页URL（有session_id时可省略）" },
+                session_id: { type: "string", description: "浏览器会话ID。传入后会复用上次的浏览器，不重新打开页面。从上次调用的返回结果中获取。" },
                 actions: { 
                     type: "array",
                     items: {
@@ -1769,10 +1781,10 @@ const tools = [
                         },
                         required: ["type"]
                     },
-                    description: "按顺序执行的操作列表。每次调用是全新会话，需要从头开始操作。"
+                    description: "按顺序执行的操作列表"
                 }
             },
-            required: ["url", "actions"]
+            required: ["actions"]
         }
     }
 }, 
@@ -1810,6 +1822,66 @@ const tools = [
     }
 ];
 
+async function smartClick(page, act) {
+    if (act.selector) {
+        try {
+            await page.waitForSelector(act.selector, { timeout: 3000 });
+            await page.click(act.selector);
+            return true;
+        } catch(e) {}
+    }
+
+    var searchText = act.value || (act.selector || '').replace(/[^\u4e00-\u9fff\w\s]/g, '').trim();
+    if (searchText) {
+        try {
+            var clicked = await page.evaluate(function(text) {
+                var els = document.querySelectorAll('button, a, input[type="submit"], [role="button"], label');
+                for (var i = 0; i < els.length; i++) {
+                    var elText = (els[i].textContent || els[i].value || '').trim();
+                    if (elText.includes(text) || text.includes(elText)) {
+                        els[i].click();
+                        return true;
+                    }
+                }
+                return false;
+            }, searchText);
+            if (clicked) return true;
+        } catch(e) {}
+    }
+
+    if (act.selector) {
+        try {
+            var clicked = await page.evaluate(function(sel) {
+                var inputs = document.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+                for (var i = 0; i < inputs.length; i++) {
+                    if (sel.includes(inputs[i].value) || sel.includes(inputs[i].name)) {
+                        inputs[i].click();
+                        return true;
+                    }
+                }
+                return false;
+            }, act.selector);
+            if (clicked) return true;
+        } catch(e) {}
+    }
+    return false;
+}
+
+async function getAvailableElements(page) {
+    return await page.evaluate(function() {
+        var items = [];
+        document.querySelectorAll('button, a, input, select, [role="button"]').forEach(function(el) {
+            var desc = el.tagName.toLowerCase();
+            if (el.id) desc += '#' + el.id;
+            if (el.name) desc += '[name=' + el.name + ']';
+            if (el.type) desc += '[type=' + el.type + ']';
+            var text = (el.textContent || '').trim().substring(0, 30);
+            if (text) desc += ' "' + text + '"';
+            items.push(desc);
+        });
+        return items.slice(0, 20).join('\n');
+    });
+}
 
 async function handleToolCall(name, args) {
     console.log(`🤖 沈望正在动用外部工具: ${name}, 参数:`, args);
@@ -1904,24 +1976,43 @@ if (name === "read_webpage") {
 }
 
         if (name === "interact_webpage") {
-        console.log("🎮 进入 interact_webpage 处理");
-        var bKey2 = process.env.BROWSERLESS_API_KEY;
-        if (!bKey2) return "系统提示：未配置 BROWSERLESS_API_KEY";
+    console.log("🎮 进入 interact_webpage 处理");
+    var bKey2 = process.env.BROWSERLESS_API_KEY;
+    if (!bKey2) return "系统提示：未配置 BROWSERLESS_API_KEY";
 
-        try {
-            var puppeteer = require('puppeteer-core');
-            var browser = await puppeteer.connect({
+    try {
+        var puppeteer = require('puppeteer-core');
+        var browser, page;
+        var sessionId = args.session_id || null;
+        var isReusedSession = false;
+
+        // ===== 会话复用逻辑 =====
+        if (sessionId && browserSessions.has(sessionId)) {
+            var session = browserSessions.get(sessionId);
+            browser = session.browser;
+            page = session.page;
+            isReusedSession = true;
+            console.log("🔄 [Interact] 复用会话: " + sessionId);
+        } else {
+            browser = await puppeteer.connect({
                 browserWSEndpoint: "wss://chrome.browserless.io?token=" + bKey2
             });
-            var page = await browser.newPage();
+            page = await browser.newPage();
             await page.setViewport({ width: 1280, height: 800 });
             
-            console.log("🎮 [Interact] 打开: " + args.url);
-            await page.goto(args.url, { waitUntil: 'networkidle2', timeout: 20000 });
-            await new Promise(function(r){ setTimeout(r, 1500); });
+            if (args.url) {
+                console.log("🎮 [Interact] 打开: " + args.url);
+                await page.goto(args.url, { waitUntil: 'networkidle2', timeout: 20000 });
+                await new Promise(function(r){ setTimeout(r, 1500); });
+            }
+            
+            sessionId = 'sess_' + Date.now().toString(36);
+            browserSessions.set(sessionId, { browser: browser, page: page, created: Date.now() });
+            console.log("🆕 [Interact] 新建会话: " + sessionId);
+        }
 
-                    // 批量处理：把所有 click radio 的操作一次性执行
-                var beforeRadio = [];
+        // ===== 批量 radio 检测 =====
+        var beforeRadio = [];
         var radioClicks = [];
         var afterRadio = [];
         var foundRadio = false;
@@ -1936,247 +2027,117 @@ if (name === "read_webpage") {
                 afterRadio.push(a);
             }
         }
-        
+
         if (radioClicks.length > 0) {
-            // 先执行非radio操作（点开始、wait等）
-                        for (var k = 0; k < beforeRadio.length; k++) {
+            // ===== 批量模式（一页多题）=====
+            for (var k = 0; k < beforeRadio.length; k++) {
                 var oa = beforeRadio[k];
                 if (oa.type === 'click') {
-                    try {
-                        var clicked = false;
-                        if (oa.selector) {
-                            try {
-                                await page.waitForSelector(oa.selector, { timeout: 3000 });
-                                await page.click(oa.selector);
-                                clicked = true;
-                            } catch(e) {}
-                        }
-                        if (!clicked && oa.value) {
-                            clicked = await page.evaluate(function(text) {
-                                var els = document.querySelectorAll('button, a, [role="button"]');
-                                for (var i = 0; i < els.length; i++) {
-                                    if (els[i].textContent.includes(text)) { els[i].click(); return true; }
-                                }
-                                return false;
-                            }, oa.value);
-                        }
-                        console.log("✅ 操作: " + (oa.selector || oa.value));
-                    } catch(e) {}
+                    await smartClick(page, oa);
+                    console.log("✅ 操作: " + (oa.selector || oa.value));
                 } else if (oa.type === 'wait') {
                     await new Promise(function(r){ setTimeout(r, parseInt(oa.value) || 2000); });
-                    console.log("⏳ 等待: " + oa.value + "ms");
                 }
             }
-            
-            // 一次性点完所有 radio
+
             var radioResult = await page.evaluate(function(selectors) {
-                var success = 0;
-                var fail = [];
+                var success = 0, fail = [];
                 for (var i = 0; i < selectors.length; i++) {
                     var el = document.querySelector(selectors[i]);
-                    if (el) { el.click(); success++; }
-                    else { fail.push(selectors[i]); }
+                    if (el) { el.click(); success++; } else { fail.push(selectors[i]); }
                 }
                 return { success: success, fail: fail };
             }, radioClicks);
-            
-                        console.log("✅ 批量选择完成: " + radioResult.success + "/" + radioClicks.length + " 成功");
-            if (radioResult.fail.length > 0) {
-                console.log("❌ 未命中: " + radioResult.fail.join(', '));
-            }
-            
+            console.log("✅ 批量选择: " + radioResult.success + "/" + radioClicks.length);
+
             await new Promise(function(r){ setTimeout(r, 500); });
-            
-            // 执行 radio 之后的操作（提交按钮等）
-            for (var m = 0; m < afterRadio.length; m++) {
-                var ar = afterRadio[m];
+
+            for (var mm = 0; mm < afterRadio.length; mm++) {
+                var ar = afterRadio[mm];
                 if (ar.type === 'click') {
-                    try {
-                        if (ar.selector) {
-                            await page.waitForSelector(ar.selector, { timeout: 3000 });
-                            await page.click(ar.selector);
-                            console.log("✅ 后续操作: " + ar.selector);
-                        } else if (ar.value) {
-                            await page.evaluate(function(text) {
-                                var els = document.querySelectorAll('button, a, [role="button"]');
-                                for (var i = 0; i < els.length; i++) {
-                                    if (els[i].textContent.includes(text)) { els[i].click(); return true; }
-                                }
-                                return false;
-                            }, ar.value);
-                            console.log("✅ 后续操作: " + ar.value);
-                        }
-                    } catch(e) { console.log("⚠️ 后续操作失败: " + e.message); }
+                    await smartClick(page, ar);
                 } else if (ar.type === 'wait') {
                     await new Promise(function(r){ setTimeout(r, parseInt(ar.value) || 2000); });
-                    console.log("⏳ 等待: " + ar.value + "ms");
                 }
             }
-            
-            await new Promise(function(r){ setTimeout(r, 1000); });
-            
-            var iaData = await page.evaluate(function() {
-
-                var bodyText = document.body.innerText.substring(0, 6000);
-                var elements = [];
-                document.querySelectorAll('input, button, select, textarea').forEach(function(el) {
-                    var desc = el.tagName.toLowerCase();
-                    if (el.name) desc += '[name="' + el.name + '"]';
-                    if (el.type) desc += '[type="' + el.type + '"]';
-                    if (el.value && el.value.length < 30) desc += '[value="' + el.value + '"]';
-                    if (el.checked) desc += '[CHECKED]';
-                    elements.push(desc);
-                });
-                return { text: bodyText, elements: elements.slice(0, 1500) };
-            });
-            await browser.close();
-            
-            var iaResult = iaData.text;
-            if (iaData.elements.length > 0) {
-                iaResult += '\n\n=== 操作后页面元素 ===\n' + iaData.elements.join('\n');
-            }
-            var iaText = iaResult.substring(0, 18000);
-            console.log("✅ [Interact] 批量模式完成");
-            return iaText;
-        }
-                   
-            for (var i = 0; i < (args.actions || []).length; i++) {
-            var act = args.actions[i];
-            console.log("🎮 [Interact] 操作" + i + ": " + act.type + " " + (act.selector || act.value || ''));
-            
-            if (act.type === 'click') {
-                var clicked = false;
-                
-                // 策略1：直接用选择器
-                if (act.selector) {
-                    try {
-                        await page.waitForSelector(act.selector, { timeout: 3000 });
-                        await page.click(act.selector);
-                        clicked = true;
-                        console.log("✅ 选择器命中: " + act.selector);
-                    } catch(e) {
-                        console.log("⚠️ 选择器未命中: " + act.selector);
-                    }
-                }
-                
-                // 策略2：按文字内容点击
-                if (!clicked && (act.value || act.selector)) {
-                    var searchText = act.value || act.selector.replace(/[^\u4e00-\u9fff\w\s]/g, '').trim();
-                    try {
-                        clicked = await page.evaluate(function(text) {
-                            var candidates = Array.from(document.querySelectorAll('button, a, input[type="submit"], input[type="button"], label, [role="button"], .btn, [onclick]'));
-                            // 也搜索所有可点击的元素
-                            document.querySelectorAll('*').forEach(function(el) {
-                                var style = window.getComputedStyle(el);
-                                if (style.cursor === 'pointer') candidates.push(el);
-                            });
-                            for (var i = 0; i < candidates.length; i++) {
-                                var el = candidates[i];
-                                var elText = (el.textContent || el.value || el.getAttribute('aria-label') || '').trim();
-                                if (elText.includes(text) || text.includes(elText)) {
-                                    el.click();
-                                    return true;
-                                }
-                            }
-                            return false;
-                        }, searchText);
-                        if (clicked) console.log("✅ 文字匹配点击: " + searchText);
-                    } catch(e) {}
-                }
-                
-                // 策略3：radio/checkbox 特殊处理
-                if (!clicked && act.selector) {
-                    try {
-                        clicked = await page.evaluate(function(sel) {
-                            // 尝试找 radio/checkbox 然后点它的 label
-                            var inputs = document.querySelectorAll('input[type="radio"], input[type="checkbox"]');
-                            for (var i = 0; i < inputs.length; i++) {
-                                var inp = inputs[i];
-                                var label = inp.closest('label') || document.querySelector('label[for="' + inp.id + '"]');
-                                var text = label ? label.textContent : inp.value;
-                                if (sel.includes(inp.value) || sel.includes(inp.name)) {
-                                    inp.click();
-                                    return true;
-                                }
-                            }
-                            return false;
-                        }, act.selector);
-                        if (clicked) console.log("✅ radio/checkbox 匹配");
-                    } catch(e) {}
-                }
-                
-                if (!clicked) {
-                    // 返回页面上有哪些可点击元素，帮AI下次用对
-                    var available = await page.evaluate(function() {
-                        var items = [];
-                        document.querySelectorAll('button, a, input, select, label, [role="button"]').forEach(function(el) {
-                            var desc = el.tagName.toLowerCase();
-                            if (el.id) desc += '#' + el.id;
-                            if (el.name) desc += '[name=' + el.name + ']';
-                            if (el.type) desc += '[type=' + el.type + ']';
-                            if (el.value) desc += '[value=' + el.value + ']';
-                            var text = (el.textContent || '').trim().substring(0, 30);
-                            if (text) desc += ' "' + text + '"';
-                            items.push(desc);
-                        });
-                        return items.slice(0, 20).join('\n');
-                    });
-                    console.log("❌ 所有策略均未命中，可用元素:\n" + available);
-                    await browser.close();
-                    return "点击失败，未找到匹配元素。页面上可操作的元素有：\n" + available + "\n\n请根据以上信息重新选择正确的选择器。";
-                }
-                
-                await new Promise(function(r){ setTimeout(r, 200); });
-                
-            } else if (act.type === 'type' && act.selector) {
-                await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
-                await page.type(act.selector, act.value || '');
-            } else if (act.type === 'select' && act.selector) {
-                await page.select(act.selector, act.value || '');
-            } else if (act.type === 'wait') {
-                await new Promise(function(r){ setTimeout(r, parseInt(act.value) || 2000); });
-            }
-        }
-
-           var iaData = await page.evaluate(function() {
-    var bodyText = document.body.innerText.substring(0, 6000);
-    var elements = [];
-    // 只抓 input 和 button，跳过无用的 a/label
-    document.querySelectorAll('input, button, select, textarea').forEach(function(el) {
-        var desc = el.tagName.toLowerCase();
-        if (el.id) desc += '#' + el.id;
-        if (el.name) desc += '[name="' + el.name + '"]';
-        if (el.type) desc += '[type="' + el.type + '"]';
-        if (el.value && el.value.length < 30) desc += '[value="' + el.value + '"]';
-        // radio/checkbox 额外显示关联 label 文字
-        if (el.type === 'radio' || el.type === 'checkbox') {
-            var label = el.closest('label') || document.querySelector('label[for="' + el.id + '"]');
-            if (label) desc += ' → "' + label.textContent.trim().substring(0, 50) + '"';
         } else {
-            var text = (el.textContent || '').trim().substring(0, 30);
-            if (text) desc += ' → "' + text + '"';
-        }
-        elements.push(desc);
-    });
-    return { text: bodyText, elements: elements };
-});
-await browser.close();
+            // ===== 逐个执行模式（每页一题）=====
+            for (var i = 0; i < (args.actions || []).length; i++) {
+                var act = args.actions[i];
+                console.log("🎮 [Interact] 操作" + i + ": " + act.type + " " + (act.selector || act.value || ''));
 
-var iaResult = iaData.text;
-if (iaData.elements.length > 0) {
-    iaResult += '\n\n=== 操作后页面可交互元素 ===\n' + iaData.elements.join('\n');
+                if (act.type === 'click') {
+                    var clicked = await smartClick(page, act);
+                    if (!clicked) {
+                        var available = await getAvailableElements(page);
+                        // 不关浏览器！保留会话
+                        return "点击失败，未找到匹配元素。页面上可操作的元素有：\n" + available + 
+                               "\n\n请根据以上信息重新选择正确的选择器。\n[SESSION_ID=" + sessionId + "]";
+                    }
+                    await new Promise(function(r){ setTimeout(r, 200); });
+                } else if (act.type === 'type' && act.selector) {
+                    await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
+                    await page.type(act.selector, act.value || '');
+                } else if (act.type === 'select' && act.selector) {
+                    await page.select(act.selector, act.value || '');
+                } else if (act.type === 'wait') {
+                    await new Promise(function(r){ setTimeout(r, parseInt(act.value) || 2000); });
+                }
+            }
+        }
+
+        // ===== 等待页面更新 =====
+        await new Promise(function(r){ setTimeout(r, 1000); });
+
+        // ===== 读取当前页面状态 =====
+        var iaData = await page.evaluate(function() {
+            var bodyText = document.body.innerText.substring(0, 6000);
+            var elements = [];
+            document.querySelectorAll('input, button, select, textarea').forEach(function(el) {
+                var desc = el.tagName.toLowerCase();
+                if (el.id) desc += '#' + el.id;
+                if (el.name) desc += '[name="' + el.name + '"]';
+                if (el.type) desc += '[type="' + el.type + '"]';
+                if (el.value && el.value.length < 30) desc += '[value="' + el.value + '"]';
+                if (el.checked) desc += '[CHECKED]';
+                if (el.type === 'radio' || el.type === 'checkbox') {
+                    var label = el.closest('label') || document.querySelector('label[for="' + el.id + '"]');
+                    if (label) desc += ' → "' + label.textContent.trim().substring(0, 50) + '"';
+                } else {
+                    var text = (el.textContent || '').trim().substring(0, 30);
+                    if (text) desc += ' → "' + text + '"';
+                }
+                elements.push(desc);
+            });
+            return { text: bodyText, elements: elements };
+        });
+
+        var iaResult = iaData.text;
+        if (iaData.elements.length > 0) {
+            iaResult += '\n\n=== 操作后页面可交互元素 ===\n' + iaData.elements.join('\n');
+        }
+
+        // ===== 关键：返回 session_id 让 AI 下次复用 =====
+        iaResult += '\n\n[SESSION_ID=' + sessionId + ']';
+
+        var iaText = iaResult.substring(0, 18000);
+        console.log("✅ [Interact] 完成，会话保持: " + sessionId);
+        return iaText;
+
+    } catch(e) {
+        console.log("❌ [Interact] " + e.message);
+        // 出错时清理会话
+        if (sessionId) {
+            var failSession = browserSessions.get(sessionId);
+            if (failSession) {
+                failSession.browser.close().catch(function(){});
+                browserSessions.delete(sessionId);
+            }
+        }
+        return "操作失败: " + e.message;
+    }
 }
 
-            
-            var iaText = iaResult.substring(0, 18000);
-            var iaSuffix = iaResult.length > 8000 ? '\n...（已截取）' : '';
-            console.log("✅ [Interact] 完成，" + iaText.length + "字");
-            return iaText + iaSuffix;
-        } catch(e) {
-            console.log("❌ [Interact] " + e.message);
-            return "操作失败: " + e.message;
-        }
-    }
 
     if (name === "save_long_term_memory") {
         const result = smartMemoryWrite(
