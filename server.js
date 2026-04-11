@@ -1834,58 +1834,66 @@ async function handleToolCall(name, args) {
         } catch (e) { return "联网搜索超时或失败。"; }
     }
 
-   if (name === "read_webpage") {
+if (name === "read_webpage") {
     try {
-        const browserlessKey = process.env.BROWSERLESS_API_KEY;
+        var bKeyRead = process.env.BROWSERLESS_API_KEY;
         
-        if (browserlessKey) {
+        if (bKeyRead) {
             try {
-                console.log(`📖 [Browserless] 渲染中: ${args.url}`);
-                const res = await fetch(`https://chrome.browserless.io/content?token=${browserlessKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        url: args.url,
-                        gotoOptions: { waitUntil: 'networkidle2', timeout: 20000 }
-                    }),
-                    signal: AbortSignal.timeout(25000)
+                console.log("📖 [Puppeteer] 渲染中: " + args.url);
+                var puppeteer = require('puppeteer-core');
+                var br = await puppeteer.connect({
+                    browserWSEndpoint: "wss://chrome.browserless.io?token=" + bKeyRead
                 });
-             
-                if (res.ok) {
-                    const html = await res.text();
-                    const text = html
-                        .replace(/<script[\s\S]*?<\/script>/gi, '')
-                        .replace(/<style[\s\S]*?<\/style>/gi, '')
-                        .replace(/<[^>]+>/g, ' ')
-                        .replace(/\s+/g, ' ')
-                        .trim();
-                    
-                    if (text.length > 10) {
-                        const truncated = text.substring(0, 8000);
-                        const suffix = text.length > 8000 ? '\n\n...（内容过长，已截取前8000字）' : '';
-                        console.log(`✅ [Browserless] ${args.url} → ${text.length}字`);
-                        return truncated + suffix;
-                    }
+                var pg = await br.newPage();
+                await pg.goto(args.url, { waitUntil: 'networkidle2', timeout: 20000 });
+                await new Promise(function(r){ setTimeout(r, 2000); });
+                
+                var pageData = await pg.evaluate(function() {
+                    var bodyText = document.body.innerText;
+                    var elements = [];
+                    document.querySelectorAll('button, a, input, select, label, textarea, [role="button"], [onclick]').forEach(function(el) {
+                        var desc = el.tagName.toLowerCase();
+                        if (el.id) desc += '#' + el.id;
+                        if (el.className && typeof el.className === 'string') desc += '.' + el.className.split(' ').filter(Boolean).slice(0, 2).join('.');
+                        if (el.name) desc += '[name="' + el.name + '"]';
+                        if (el.type) desc += '[type="' + el.type + '"]';
+                        if (el.value && el.value.length < 30) desc += '[value="' + el.value + '"]';
+                        var text = (el.textContent || '').trim().substring(0, 40);
+                        if (text) desc += ' → "' + text + '"';
+                        elements.push(desc);
+                    });
+                    return { text: bodyText, elements: elements.slice(0, 30) };
+                });
+                
+                await br.close();
+                
+                var result = pageData.text;
+                if (pageData.elements.length > 0) {
+                    result += '\n\n=== 页面可交互元素（用这些选择器配合 interact_webpage 操作）===\n' + pageData.elements.join('\n');
                 }
-                console.log(`⚠️ [Browserless] 失败，降级到 Jina`);
+                
+                var truncated = result.substring(0, 8000);
+                var suffix = result.length > 8000 ? '\n...（已截取）' : '';
+                console.log("✅ [Puppeteer] " + args.url + " → " + pageData.text.length + "字 + " + pageData.elements.length + "个元素");
+                return truncated + suffix;
             } catch(e) {
-                console.log(`⚠️ [Browserless] ${e.message}，降级到 Jina`);
+                console.log("⚠️ [Puppeteer] " + e.message + "，降级到 Jina");
             }
         }
         
-        const res = await fetch(`https://r.jina.ai/${args.url}`, {
+        var res2 = await fetch("https://r.jina.ai/" + args.url, {
             headers: { 'Accept': 'text/plain', 'X-Return-Format': 'text' },
             signal: AbortSignal.timeout(15000)
         });
-        if (!res.ok) return `网页读取失败，HTTP ${res.status}`;
-        const text = await res.text();
-        if (!text || text.trim().length < 10) return "网页内容为空或无法解析。";
-        const truncated = text.substring(0, 8000);
-        const suffix = text.length > 8000 ? '\n\n...（内容过长，已截取前8000字）' : '';
-        console.log(`📖 [Jina] ${args.url} → ${text.length}字`);
-        return truncated + suffix;
+        if (!res2.ok) return "网页读取失败，HTTP " + res2.status;
+        var jinaText = await res2.text();
+        if (!jinaText || jinaText.trim().length < 10) return "网页内容为空或无法解析。";
+        var jTrunc = jinaText.substring(0, 8000);
+        var jSuffix = jinaText.length > 8000 ? '\n...（已截取）' : '';
+        return jTrunc + jSuffix;
     } catch(e) {
-        if (e.name === 'TimeoutError') return "网页读取超时，页面可能太大或无法访问。";
+        if (e.name === 'TimeoutError') return "网页读取超时";
         return "网页读取失败: " + e.message;
     }
 }
