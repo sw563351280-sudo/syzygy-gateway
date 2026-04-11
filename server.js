@@ -1744,7 +1744,6 @@ const tools = [
         }
     },
     {
-   {
     type: "function",
     function: {
         name: "interact_webpage",
