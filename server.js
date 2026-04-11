@@ -2086,14 +2086,21 @@ if (name === "read_webpage") {
             console.log("🆕 [Interact] 新建会话: " + sessionKey);
         }
 
+                // ===== 兼容两种参数格式 =====
+        var actionList = args.actions || [];
+        if (actionList.length === 0 && args.action) {
+            actionList = [{ type: args.action, selector: args.selector, value: args.value }];
+        }
+
         // ===== 执行操作 =====
-        for (var i = 0; i < (args.actions || []).length; i++) {
+        for (var i = 0; i < actionList.length; i++) {
+            var act = actionList[i];
             var act = args.actions[i];
             console.log("🎮 [Interact] 操作" + i + ": " + act.type + " " + (act.selector || act.value || ''));
 
             if (act.type === 'click') {
                 await smartClick(page, act);
-                await new Promise(function(r){ setTimeout(r, 300); });
+                await new Promise(function(r){ setTimeout(r, 3000); });
             } else if (act.type === 'type' && act.selector) {
                 await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
                 await page.type(act.selector, act.value || '');
