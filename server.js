@@ -2438,12 +2438,24 @@ app.post('/api/web-chat', async (req, res) => {
                     console.log(`🔧 [Web-MCP] 第${toolRounds}轮工具调用，${message.tool_calls.length}个工具`);
                     
                     try {
-                        // 1. 把AI的回复加入历史
+                                               // 1. 清洗AI的回复再加入历史
+                        var cleanToolCalls = message.tool_calls.map(function(tc) {
+                            return {
+                                id: tc.id,
+                                type: "function",
+                                function: {
+                                    name: tc.function.name,
+                                    arguments: tc.function.arguments
+                                }
+                            };
+                        });
                         var assistantMsg = {
                             role: "assistant",
-                            content: message.content || null,
-                            tool_calls: message.tool_calls
+                            content: message.content || "",
+                            tool_calls: cleanToolCalls
                         };
+                        console.log(`📌 [Web-MCP] assistant消息清洗完成，tool_calls: ${cleanToolCalls.map(t=>t.function.name).join(',')}`);
+
                         accumulatedMessages.push(assistantMsg);
                         console.log(`📌 [Web-MCP] assistant消息已加入，当前${accumulatedMessages.length}条`);
 
