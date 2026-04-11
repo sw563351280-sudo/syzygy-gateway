@@ -1048,39 +1048,79 @@ newMessages.forEach((m, i) => {
         if (!response.ok) return res.status(response.status).json({ error: "模型报错：" + await response.text() });
 
                 // ===== 🔧 MCP 工具处理轨道（有工具调用时走这里，然后 return）=====
-        if (wantsTools) {
+               if (wantsTools) {
             let data = await response.json();
             let message = data.choices?.[0]?.message;
 
             let rounds = 0;
-            while (message?.tool_calls && rounds < 3) {
+            let accumulatedMessages = [...body.messages];
+
+            while (message?.tool_calls && message.tool_calls.length > 0 && rounds < 3) {
                 rounds++;
                 console.log(`🔧 [MCP] 第${rounds}轮工具调用，${message.tool_calls.length}个工具`);
 
-                const toolMessages = [...body.messages, message];
-               // ✅ 全部统一用 tc
-for (const tc of message.tool_calls) {
-    let args = {};
-    try { args = JSON.parse(tc.function.arguments); } catch(e) {}
-    const result = await handleToolCall(tc.function.name, args);
-    toolMessages.push({
-        role: "tool",
-        tool_call_id: tc.id,
-        name: tc.function.name,
-        content: result
-    });
-}
+                try {
+                    // 1. 清洗 assistant 消息再加入（去掉 reasoning_content 等多余字段）
+                    accumulatedMessages.push({
+                        role: "assistant",
+                        content: message.content || "",
+                        tool_calls: message.tool_calls.map(function(tc) {
+                            return {
+                                id: tc.id,
+                                type: "function",
+                                function: {
+                                    name: tc.function.name,
+                                    arguments: tc.function.arguments
+                                }
+                            };
+                        })
+                    });
 
-                const nextBody = { ...body, messages: toolMessages };
-                delete nextBody.tools;
-                delete nextBody.tool_choice;
+                    // 2. 执行每个工具
+                    for (const tc of message.tool_calls) {
+                        let args = {};
+                        try { args = JSON.parse(tc.function.arguments); } catch(e) {}
+                        console.log(`🔨 [MCP] 执行: ${tc.function.name}`);
+                        const result = await handleToolCall(tc.function.name, args);
+                        console.log(`✅ [MCP] 返回: ${(result || '').length}字`);
+                        accumulatedMessages.push({
+                            role: "tool",
+                            tool_call_id: tc.id,
+                            name: tc.function.name,
+                            content: typeof result === 'string' ? result : JSON.stringify(result || "无结果")
+                        });
+                    }
 
-                const nextRes = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(nextBody) });
-                if (!nextRes.ok) return res.status(nextRes.status).json({ error: "工具回传失败：" + await nextRes.text() });
+                    // 3. 带完整历史回传（保留 tools 支持多轮）
+                    console.log(`📤 [MCP] 第${rounds}轮回传，${accumulatedMessages.length}条消息`);
+                    const nextBody = {
+                        ...body,
+                        messages: accumulatedMessages,
+                        tools: tools,
+                        tool_choice: "auto",
+                        stream: false
+                    };
 
-                data = await nextRes.json();
-                message = data.choices?.[0]?.message;
+                    const nextRes = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(nextBody) });
+                    console.log(`📥 [MCP] 第${rounds}轮状态: ${nextRes.status}`);
+
+                    if (!nextRes.ok) {
+                        const errText = await nextRes.text();
+                        console.log(`❌ [MCP] 回传错误:`, errText.substring(0, 500));
+                        return res.status(nextRes.status).json({ error: "工具回传失败：" + errText });
+                    }
+
+                    data = await nextRes.json();
+                    message = data.choices?.[0]?.message;
+                    console.log(`📋 [MCP] 第${rounds}轮返回: content=${(message?.content || '').length}字, tools=${message?.tool_calls?.length || 0}个`);
+
+                } catch(loopErr) {
+                    console.log(`💥 [MCP] 工具循环崩溃:`, loopErr.message, loopErr.stack);
+                    return res.status(500).json({ error: "工具循环崩溃：" + loopErr.message });
+                }
             }
+
+            console.log(`🏁 [MCP] 工具循环结束，共${rounds}轮`);
 
             // SAVE_MEMORY 处理
             let finalContent = data.choices?.[0]?.message?.content || '';
@@ -1097,7 +1137,8 @@ for (const tc of message.tool_calls) {
                 res.write(`data: ${JSON.stringify(chunk)}\n\n`);
                 res.write('data: [DONE]\n\n');
                 return res.end();
-            }return res.status(200).json(data);
+            }
+            return res.status(200).json(data);
         }
 
         //==========================================
