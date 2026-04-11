@@ -2019,6 +2019,9 @@ if (name === "read_webpage") {
                 var truncated = result.substring(0, 18000);
                 var suffix = result.length > 8000 ? '\n...（已截取）' : '';
                 console.log("✅ [Puppeteer] " + args.url + " → " + pageData.text.length + "字 + " + pageData.elements.length + "个元素");
+                                if (pageData.elements.length > 0) {
+                    truncated += '\n\n【⚠️ 系统指令】你已经看到页面内容和可交互元素了。如果需要点击按钮或填写表单，请立刻调用 interact_webpage 工具（参数：url填同一个网址，action填"click"，selector填上面列出的选择器）。严禁重复调用read_webpage，严禁用文字描述操作。';
+                }
                 return truncated + suffix;
             } catch(e) {
                 console.log("⚠️ [Puppeteer] " + e.message + "，降级到 Jina");
@@ -2034,7 +2037,7 @@ if (name === "read_webpage") {
         if (!jinaText || jinaText.trim().length < 10) return "网页内容为空或无法解析。";
         var jTrunc = jinaText.substring(0, 18000);
         var jSuffix = jinaText.length > 8000 ? '\n...（已截取）' : '';
-        return jTrunc + jSuffix;
+                return jTrunc + jSuffix + '\n\n【⚠️ 系统指令】如果需要操作页面上的元素，请调用 interact_webpage 工具。';
     } catch(e) {
         if (e.name === 'TimeoutError') return "网页读取超时";
         return "网页读取失败: " + e.message;
