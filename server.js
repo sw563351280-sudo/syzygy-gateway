@@ -2069,6 +2069,16 @@ if (name === "read_webpage") {
             page = session.page;
             session.created = Date.now(); // 续命
             console.log("🔄 [Interact] 复用浏览器: " + sessionKey);
+
+                // 等待页面稳定（防止上一轮操作引起的导航还没完成）
+            try { 
+                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 8000 }); 
+                console.log("⏳ [Interact] 等到了页面导航完成");
+            } catch(e) { 
+                // 没有导航也没关系，说明页面已经稳定
+            }
+            await new Promise(function(r){ setTimeout(r, 1000); });
+
         } else {
             browser = await puppeteer.connect({
                 browserWSEndpoint: "wss://chrome.browserless.io?token=" + bKey2
@@ -2113,8 +2123,11 @@ if (name === "read_webpage") {
         // ===== 等页面更新 =====
         await new Promise(function(r){ setTimeout(r, 800); });
 
-        // ===== 读取当前页面 =====
-        var iaData = await page.evaluate(function() {
+                // ===== 读取当前页面 =====
+        await new Promise(function(r){ setTimeout(r, 2000); });
+        var iaData;
+        try {
+            iaData = await page.evaluate(function() {
             var bodyText = document.body.innerText.substring(0, 6000);
             var elements = [];
             document.querySelectorAll('input, button, select, textarea, a').forEach(function(el) {
@@ -2134,7 +2147,15 @@ if (name === "read_webpage") {
                 elements.push(desc);
             });
             return { text: bodyText, elements: elements };
-        });
+                    });
+        } catch(evalErr) {
+            console.log("⚠️ [Interact] 读取页面失败，等待重试: " + evalErr.message);
+            await new Promise(function(r){ setTimeout(r, 3000); });
+            iaData = await page.evaluate(function() {
+                return { text: document.body.innerText.substring(0, 4000), elements: [] };
+            });
+        }
+
 
         var iaResult = iaData.text;
         if (iaData.elements.length > 0) {
