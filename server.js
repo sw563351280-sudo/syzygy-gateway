@@ -1055,7 +1055,7 @@ newMessages.forEach((m, i) => {
             let rounds = 0;
             let accumulatedMessages = [...body.messages];
 
-            while (message?.tool_calls && message.tool_calls.length > 0 && rounds < 3) {
+            while (message?.tool_calls && message.tool_calls.length > 0 && rounds < 6) {
                 rounds++;
                 console.log(`🔧 [MCP] 第${rounds}轮工具调用，${message.tool_calls.length}个工具`);
 
