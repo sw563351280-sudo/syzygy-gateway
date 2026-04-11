@@ -2145,14 +2145,24 @@ if (name === "read_webpage") {
         console.log("✅ [Interact] 完成，" + iaResult.length + "字");
         return iaResult.substring(0, 18000);
 
-    } catch(e) {
+       } catch(e) {
         console.log("❌ [Interact] " + e.message);
-        // 出错清理
-        if (browserSessions.has(sessionKey)) {
-            browserSessions.get(sessionKey).browser.close().catch(function(){});
-            browserSessions.delete(sessionKey);
+        // 只在连接断开时才清理，其他错误保留会话
+        if (e.message.includes('disconnected') || e.message.includes('closed') || e.message.includes('Target closed')) {
+            if (browserSessions.has(sessionKey)) {
+                browserSessions.get(sessionKey).browser.close().catch(function(){});
+                browserSessions.delete(sessionKey);
+            }
+            return "浏览器连接断开，请重新调用: " + e.message;
         }
-        return "操作失败: " + e.message;
+        // 可恢复错误：等一下再读取页面内容返回
+        try {
+            await new Promise(function(r){ setTimeout(r, 3000); });
+            var recoveryText = await page.evaluate(function() { return document.body.innerText.substring(0, 4000); });
+            return "操作可能部分完成，当前页面内容：\n" + recoveryText;
+        } catch(e2) {
+            return "操作失败: " + e.message;
+        }
     }
 }
 
