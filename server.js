@@ -1026,9 +1026,6 @@ newMessages.forEach((m, i) => {
     if (len > 2000) console.log(`  💀 第${i}条[${m.role}] ${len}字符 - 异常大!`);
 });
 // ====== X光结束 ======
-
-
-
         const isGemini = (body.model || '').toLowerCase().includes('gemini');
         if (!isGemini) { body.frequency_penalty = 0.4; body.presence_penalty = 0.4; }
                else { delete body.frequency_penalty; delete body.presence_penalty; delete body.logprobs; delete body.top_logprobs; delete body.n; delete body.best_of; }
@@ -1828,32 +1825,24 @@ const tools = [
             }
         }
     },
-   {
-    type: "function",
-    function: {
-        name: "interact_webpage",
-        description: "与网页进行交互操作（点击按钮、填写表单、选择选项等）。当你用read_webpage看到页面内容后，如果需要点击或操作，必须立即调用此工具执行，不要只用文字描述你的操作。",
-            type: "object",
-            properties: {
-                url: { type: "string", description: "网页URL（有session_id时可省略）" },
-                session_id: { type: "string", description: "浏览器会话ID。传入后会复用上次的浏览器，不重新打开页面。从上次调用的返回结果中获取。" },
-                actions: { 
-                    type: "array",
-                    items: {
-                        type: "object",
-                        properties: {
-                            type: { type: "string", enum: ["click", "type", "select", "wait"], description: "操作类型" },
-                            selector: { type: "string", description: "CSS选择器" },
-                            value: { type: "string", description: "type时填写的文字，select时选择的值，click时可作为按钮文字匹配，wait时为毫秒数" }
-                        },
-                        required: ["type"]
-                    },
-                    description: "按顺序执行的操作列表"
-                }
-            },
-            required: ["actions"]
+    {
+        type: "function",
+        function: {
+            name: "interact_webpage",
+            description: "与网页进行交互操作（点击按钮、填写表单、选择选项等）。当你用read_webpage看到页面内容后，如果需要点击或操作，必须立即调用此工具执行，不要只用文字描述你的操作。",
+            parameters: {
+                type: "object",
+                properties: {
+                    url: { type: "string", description: "网页URL" },
+                    action: { type: "string", enum: ["click", "type", "select", "wait", "scroll_down"], description: "操作类型" },
+                    selector: { type: "string", description: "CSS选择器" },
+                    value: { type: "string", description: "type时填写的文字，select时选择的值" }
+                },
+                required: ["url", "action"]
+            }
         }
-    }, 
+    },
+    
     {
         type: "function",
         function: {
@@ -2106,7 +2095,6 @@ if (name === "read_webpage") {
         // ===== 执行操作 =====
         for (var i = 0; i < actionList.length; i++) {
             var act = actionList[i];
-            var act = args.actions[i];
             console.log("🎮 [Interact] 操作" + i + ": " + act.type + " " + (act.selector || act.value || ''));
 
             if (act.type === 'click') {
