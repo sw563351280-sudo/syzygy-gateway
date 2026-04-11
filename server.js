@@ -2407,6 +2407,7 @@ app.post('/api/web-chat', async (req, res) => {
             const relationPatch = `\n【🚨 场景确认：溯星小屋私密网页端】
 这里是你的领地，请结合江鱼的专属System Prompt 进行回复。江鱼目前的物理坐标是：日本札幌 (Sapporo)。
 如果江鱼发了图片，请仔细观察并给出带有情绪的评价。
+【🚨 工具使用铁律】：当你调用了read_webpage看到页面后，如果需要操作（点击、填写等），必须立刻调用interact_webpage执行！严禁只用文字描述"我点击了"而不实际调用工具！
 【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！\n`;
 
             if (text) updateRpTracker(text); 
