@@ -2415,50 +2415,76 @@ app.post('/api/web-chat', async (req, res) => {
                 let message = aiData.choices?.[0]?.message;
                 let finalAiMessage = message;
 
-                               let toolRounds = 0;
+                                              let toolRounds = 0;
+                let allThinking = "";  // 收集所有轮次的思考
+
+                // 收集第一轮的思考
+                if (message?.reasoning_content) {
+                    allThinking += message.reasoning_content;
+                }
+
+                // ===== 工具循环（累积式，不丢历史）=====
+                let accumulatedMessages = [
+                    { role: "system", content: finalSystemPrompt },
+                    ...historyMessages,
+                    { role: "user", content: userContent }
+                ];
+
                 while (message && message.tool_calls && toolRounds < 5) {
                     toolRounds++;
                     console.log(`🔧 [Web-MCP] 第${toolRounds}轮工具调用，${message.tool_calls.length}个工具`);
                     
-                    const toolMessages = [
-                        { role: "system", content: finalSystemPrompt },
-                        ...historyMessages,
-                        { role: "user", content: userContent },
-                        message
-                    ];
+                    // 把 AI 的 tool_calls 消息加入历史
+                    accumulatedMessages.push({
+                        role: "assistant",
+                        content: message.content || "",
+                        tool_calls: message.tool_calls
+                    });
+
+                    // 执行每个工具并加入历史
                     for (const toolCall of message.tool_calls) {
                         let args = {};
                         try { args = JSON.parse(toolCall.function.arguments); } catch(e) {}
                         const result = await handleToolCall(toolCall.function.name, args);
-                        toolMessages.push({
+                        accumulatedMessages.push({
                             role: "tool",
                             tool_call_id: toolCall.id,
                             name: toolCall.function.name,
-                            content: result
+                            content: typeof result === 'string' ? result : JSON.stringify(result)
                         });
                     }
+
+                    // 带完整历史发给 AI
                     const nextRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
                         body: JSON.stringify({ 
                             model: model, 
-                            messages: toolMessages,
+                            messages: accumulatedMessages,
                             tools: tools,
                             tool_choice: "auto"
                         })
                     });
+
                     if (!nextRes.ok) {
-                        resolve({ text: "【查阅资料时报错】" + await nextRes.text(), thinking: "" });
+                        const errText = await nextRes.text();
+                        console.log(`❌ [Web-MCP] 第${toolRounds}轮API错误:`, errText);
+                        resolve({ text: "【工具回传失败】" + errText, thinking: allThinking });
                         return;
                     }
+
                     const nextData = await nextRes.json();
                     message = nextData.choices?.[0]?.message;
-                    finalAiMessage = message;
+
+                    // 收集这一轮的思考
+                    if (message?.reasoning_content) {
+                        allThinking += "\n" + message.reasoning_content;
+                    }
                 }
 
+                let aiReply = message?.content || "";
+                let thinking = allThinking || message?.reasoning_content || "";
 
-                let aiReply = finalAiMessage?.content || "";
-                let thinking = finalAiMessage?.reasoning_content || "";
 
                 if (!thinking && aiReply.includes('<think>')) {
                     const match = aiReply.match(/<think>([\s\S]*?)<\/think>/);
