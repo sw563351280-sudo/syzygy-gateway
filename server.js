@@ -2121,21 +2121,29 @@ if (name === "read_webpage") {
             var act = actionList[i];
             console.log("🎮 [Interact] 操作" + i + ": " + act.type + " " + (act.selector || act.value || ''));
 
-                        if (act.type === 'click') {
-                // 先设置导航监听，再点击，这样不会错过导航事件
-                var navPromise = page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 15000 }).catch(function(){ return null; });
+                   if (act.type === 'click') {
                 await smartClick(page, act);
-                var navResult = await navPromise;
-                if (navResult) {
-                    console.log("🔄 [Interact] 检测到页面跳转: " + page.url());
-                    // 更新session里的page引用
-                    var pages = await browser.pages();
-                    if (pages.length > 0) page = pages[pages.length - 1];
-                    if (browserSessions.has(sessionKey)) browserSessions.get(sessionKey).page = page;
+                // 暴力等待页面恢复，最多重试5次
+                for (var retry = 0; retry < 5; retry++) {
+                    await new Promise(function(r){ setTimeout(r, 3000); });
+                    try {
+                        await page.evaluate(function(){ return document.readyState; });
+                        console.log("✅ [Interact] 点击后页面已就绪");
+                        break;
+                    } catch(retryErr) {
+                        console.log("⏳ [Interact] 页面未就绪，重试" + (retry+1) + "/5");
+                        try {
+                            var allPages = await browser.pages();
+                            if (allPages.length > 0) {
+                                page = allPages[allPages.length - 1];
+                                if (browserSessions.has(sessionKey)) {
+                                    browserSessions.get(sessionKey).page = page;
+                                }
+                            }
+                        } catch(e3) {}
+                    }
                 }
-                await new Promise(function(r){ setTimeout(r, 2000); });
-
-            } else if (act.type === 'type' && act.selector) {
+ else if (act.type === 'type' && act.selector) {
                 await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
                 await page.type(act.selector, act.value || '');
             } else if (act.type === 'select' && act.selector) {
@@ -2144,10 +2152,32 @@ if (name === "read_webpage") {
                 await new Promise(function(r){ setTimeout(r, parseInt(act.value) || 1000); });
             }
         }
+        }
 
         // ===== 等页面更新 =====
         await new Promise(function(r){ setTimeout(r, 800); });
 
+        // ===== 检查页面是否可用 =====
+        var pageReady = false;
+        try {
+            await page.evaluate(function(){ return true; });
+            pageReady = true;
+        } catch(e) {}
+        
+        if (!pageReady) {
+            console.log("🔄 [Interact] 页面不可用，重新打开");
+            try {
+                page = await browser.newPage();
+                await page.goto(args.url, { waitUntil: 'networkidle2', timeout: 15000 });
+                await new Promise(function(r){ setTimeout(r, 2000); });
+                if (browserSessions.has(sessionKey)) {
+                    browserSessions.get(sessionKey).page = page;
+                }
+                console.log("✅ [Interact] 重新打开成功: " + page.url());
+            } catch(reopenErr) {
+                return "页面跳转后无法恢复，请重新调用 read_webpage 打开页面";
+            }
+        }
                 // ===== 读取当前页面 =====
         await new Promise(function(r){ setTimeout(r, 2000); });
         var iaData;
