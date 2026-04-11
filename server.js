@@ -1840,8 +1840,7 @@ const tools = [
             },
             required: ["actions"]
         }
-    }
-}, 
+    }, 
     {
         type: "function",
         function: {
