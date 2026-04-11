@@ -1044,7 +1044,7 @@ newMessages.forEach((m, i) => {
                     let args = {};
                     try { args = JSON.parse(tc.function.arguments); } catch(e) {}
                     const result = await handleToolCall(tc.function.name, args);
-                    toolmessages.push({
+                    toolMessages.push({
     role: "tool",
     tool_call_id: toolCall.id,
     name: toolCall.function.name,   // ← 加这行！
