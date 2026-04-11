@@ -1990,16 +1990,18 @@ if (name === "read_webpage") {
     try {
         var puppeteer = require('puppeteer-core');
         var browser, page;
-        var sessionId = args.session_id || null;
-        var isReusedSession = false;
-
-        // ===== 会话复用逻辑 =====
-        if (sessionId && browserSessions.has(sessionId)) {
-            var session = browserSessions.get(sessionId);
+        
+        // ===== 用 URL 自动复用浏览器 =====
+        var sessionKey = args.url || 'default';
+        // 去掉 URL 参数，只看基础地址
+        try { sessionKey = new URL(sessionKey).origin + new URL(sessionKey).pathname; } catch(e) {}
+        
+        if (browserSessions.has(sessionKey)) {
+            var session = browserSessions.get(sessionKey);
             browser = session.browser;
             page = session.page;
-            isReusedSession = true;
-            console.log("🔄 [Interact] 复用会话: " + sessionId);
+            session.created = Date.now(); // 续命
+            console.log("🔄 [Interact] 复用浏览器: " + sessionKey);
         } else {
             browser = await puppeteer.connect({
                 browserWSEndpoint: "wss://chrome.browserless.io?token=" + bKey2
@@ -2009,98 +2011,40 @@ if (name === "read_webpage") {
             
             if (args.url) {
                 console.log("🎮 [Interact] 打开: " + args.url);
-                await page.goto(args.url, { waitUntil: 'networkidle2', timeout: 20000 });
-                await new Promise(function(r){ setTimeout(r, 1500); });
+                await page.goto(args.url, { waitUntil: 'networkidle2', timeout: 15000 });
+                await new Promise(function(r){ setTimeout(r, 1000); });
             }
             
-            sessionId = 'sess_' + Date.now().toString(36);
-            browserSessions.set(sessionId, { browser: browser, page: page, created: Date.now() });
-            console.log("🆕 [Interact] 新建会话: " + sessionId);
+            browserSessions.set(sessionKey, { browser: browser, page: page, created: Date.now() });
+            console.log("🆕 [Interact] 新建会话: " + sessionKey);
         }
 
-        // ===== 批量 radio 检测 =====
-        var beforeRadio = [];
-        var radioClicks = [];
-        var afterRadio = [];
-        var foundRadio = false;
-        for (var j = 0; j < (args.actions || []).length; j++) {
-            var a = args.actions[j];
-            if (a.type === 'click' && a.selector && a.selector.includes('input[name=')) {
-                radioClicks.push(a.selector);
-                foundRadio = true;
-            } else if (!foundRadio) {
-                beforeRadio.push(a);
-            } else {
-                afterRadio.push(a);
-            }
-        }
+        // ===== 执行操作 =====
+        for (var i = 0; i < (args.actions || []).length; i++) {
+            var act = args.actions[i];
+            console.log("🎮 [Interact] 操作" + i + ": " + act.type + " " + (act.selector || act.value || ''));
 
-        if (radioClicks.length > 0) {
-            // ===== 批量模式（一页多题）=====
-            for (var k = 0; k < beforeRadio.length; k++) {
-                var oa = beforeRadio[k];
-                if (oa.type === 'click') {
-                    await smartClick(page, oa);
-                    console.log("✅ 操作: " + (oa.selector || oa.value));
-                } else if (oa.type === 'wait') {
-                    await new Promise(function(r){ setTimeout(r, parseInt(oa.value) || 2000); });
-                }
-            }
-
-            var radioResult = await page.evaluate(function(selectors) {
-                var success = 0, fail = [];
-                for (var i = 0; i < selectors.length; i++) {
-                    var el = document.querySelector(selectors[i]);
-                    if (el) { el.click(); success++; } else { fail.push(selectors[i]); }
-                }
-                return { success: success, fail: fail };
-            }, radioClicks);
-            console.log("✅ 批量选择: " + radioResult.success + "/" + radioClicks.length);
-
-            await new Promise(function(r){ setTimeout(r, 500); });
-
-            for (var mm = 0; mm < afterRadio.length; mm++) {
-                var ar = afterRadio[mm];
-                if (ar.type === 'click') {
-                    await smartClick(page, ar);
-                } else if (ar.type === 'wait') {
-                    await new Promise(function(r){ setTimeout(r, parseInt(ar.value) || 2000); });
-                }
-            }
-        } else {
-            // ===== 逐个执行模式（每页一题）=====
-            for (var i = 0; i < (args.actions || []).length; i++) {
-                var act = args.actions[i];
-                console.log("🎮 [Interact] 操作" + i + ": " + act.type + " " + (act.selector || act.value || ''));
-
-                if (act.type === 'click') {
-                    var clicked = await smartClick(page, act);
-                    if (!clicked) {
-                        var available = await getAvailableElements(page);
-                        // 不关浏览器！保留会话
-                        return "点击失败，未找到匹配元素。页面上可操作的元素有：\n" + available + 
-                               "\n\n请根据以上信息重新选择正确的选择器。\n[SESSION_ID=" + sessionId + "]";
-                    }
-                    await new Promise(function(r){ setTimeout(r, 200); });
-                } else if (act.type === 'type' && act.selector) {
-                    await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
-                    await page.type(act.selector, act.value || '');
-                } else if (act.type === 'select' && act.selector) {
-                    await page.select(act.selector, act.value || '');
-                } else if (act.type === 'wait') {
-                    await new Promise(function(r){ setTimeout(r, parseInt(act.value) || 2000); });
-                }
+            if (act.type === 'click') {
+                await smartClick(page, act);
+                await new Promise(function(r){ setTimeout(r, 300); });
+            } else if (act.type === 'type' && act.selector) {
+                await page.waitForSelector(act.selector, { timeout: 5000 }).catch(function(){});
+                await page.type(act.selector, act.value || '');
+            } else if (act.type === 'select' && act.selector) {
+                await page.select(act.selector, act.value || '');
+            } else if (act.type === 'wait') {
+                await new Promise(function(r){ setTimeout(r, parseInt(act.value) || 1000); });
             }
         }
 
-        // ===== 等待页面更新 =====
-        await new Promise(function(r){ setTimeout(r, 1000); });
+        // ===== 等页面更新 =====
+        await new Promise(function(r){ setTimeout(r, 800); });
 
-        // ===== 读取当前页面状态 =====
+        // ===== 读取当前页面 =====
         var iaData = await page.evaluate(function() {
             var bodyText = document.body.innerText.substring(0, 6000);
             var elements = [];
-            document.querySelectorAll('input, button, select, textarea').forEach(function(el) {
+            document.querySelectorAll('input, button, select, textarea, a').forEach(function(el) {
                 var desc = el.tagName.toLowerCase();
                 if (el.id) desc += '#' + el.id;
                 if (el.name) desc += '[name="' + el.name + '"]';
@@ -2121,29 +2065,24 @@ if (name === "read_webpage") {
 
         var iaResult = iaData.text;
         if (iaData.elements.length > 0) {
-            iaResult += '\n\n=== 操作后页面可交互元素 ===\n' + iaData.elements.join('\n');
+            iaResult += '\n\n=== 页面可交互元素 ===\n' + iaData.elements.join('\n');
         }
+        iaResult += '\n\n[提示：浏览器会话已保持，下次调用同一URL会自动复用，无需重新打开页面]';
 
-        // ===== 关键：返回 session_id 让 AI 下次复用 =====
-        iaResult += '\n\n[SESSION_ID=' + sessionId + ']';
-
-        var iaText = iaResult.substring(0, 18000);
-        console.log("✅ [Interact] 完成，会话保持: " + sessionId);
-        return iaText;
+        console.log("✅ [Interact] 完成，" + iaResult.length + "字");
+        return iaResult.substring(0, 18000);
 
     } catch(e) {
         console.log("❌ [Interact] " + e.message);
-        // 出错时清理会话
-        if (sessionId) {
-            var failSession = browserSessions.get(sessionId);
-            if (failSession) {
-                failSession.browser.close().catch(function(){});
-                browserSessions.delete(sessionId);
-            }
+        // 出错清理
+        if (browserSessions.has(sessionKey)) {
+            browserSessions.get(sessionKey).browser.close().catch(function(){});
+            browserSessions.delete(sessionKey);
         }
         return "操作失败: " + e.message;
     }
 }
+
 
 
     if (name === "save_long_term_memory") {
