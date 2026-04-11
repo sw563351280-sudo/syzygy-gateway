@@ -2033,21 +2033,6 @@ if (name === "read_webpage") {
         elements.push(desc);
     });
     return { text: bodyText, elements: elements };
-
-        var desc = el.tagName.toLowerCase();
-        if (el.id) desc += '#' + el.id;
-        if (el.className && typeof el.className === 'string') {
-            var cls = el.className.split(' ').filter(Boolean).slice(0, 2).join('.');
-            if (cls) desc += '.' + cls;
-        }
-        if (el.name) desc += '[name="' + el.name + '"]';
-        if (el.type) desc += '[type="' + el.type + '"]';
-        if (el.value && el.value.length < 30) desc += '[value="' + el.value + '"]';
-        var text = (el.textContent || '').trim().substring(0, 40);
-        if (text) desc += ' → "' + text + '"';
-        elements.push(desc);
-    });
-    return { text: bodyText, elements: elements.slice(0, 1500) };
 });
 await browser.close();
 
