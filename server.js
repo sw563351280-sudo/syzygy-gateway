@@ -2395,6 +2395,8 @@ app.post('/api/web-chat', async (req, res) => {
                     { role: "user", content: userContent }
                 ];
 
+        console.log(`🔍 [调试] tools数量: ${Array.isArray(tools) ? tools.length : 'undefined!'}, model: ${model}`);
+
                 const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -2414,6 +2416,8 @@ app.post('/api/web-chat', async (req, res) => {
                 let aiData = await aiRes.json();
                 let message = aiData.choices?.[0]?.message;
                 let finalAiMessage = message;
+     console.log(`🔍 [调试] AI首次返回: content=${(message?.content||'').length}字, tool_calls=${JSON.stringify(message?.tool_calls?.map(t=>t.function.name) || '无')}`);
+
 
                                 // ===== 工具循环 =====
                 let toolRounds = 0;
