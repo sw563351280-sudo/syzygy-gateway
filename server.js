@@ -2268,7 +2268,11 @@ app.post('/api/web-chat', async (req, res) => {
                 let message = aiData.choices?.[0]?.message;
                 let finalAiMessage = message;
 
-                if (message && message.tool_calls) {
+                               let toolRounds = 0;
+                while (message && message.tool_calls && toolRounds < 5) {
+                    toolRounds++;
+                    console.log(`🔧 [Web-MCP] 第${toolRounds}轮工具调用，${message.tool_calls.length}个工具`);
+                    
                     const toolMessages = [
                         { role: "system", content: finalSystemPrompt },
                         ...historyMessages,
@@ -2286,18 +2290,25 @@ app.post('/api/web-chat', async (req, res) => {
                             content: result
                         });
                     }
-                    const finalRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+                    const nextRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                        body: JSON.stringify({ model: model, messages: toolMessages })
+                        body: JSON.stringify({ 
+                            model: model, 
+                            messages: toolMessages,
+                            tools: tools,
+                            tool_choice: "auto"
+                        })
                     });
-                    if (finalRes.ok) {
-                        finalAiMessage = (await finalRes.json()).choices?.[0]?.message;
-                    } else {
-                        resolve({ text: "【查阅资料时报错】" + await finalRes.text(), thinking: "" });
+                    if (!nextRes.ok) {
+                        resolve({ text: "【查阅资料时报错】" + await nextRes.text(), thinking: "" });
                         return;
                     }
+                    const nextData = await nextRes.json();
+                    message = nextData.choices?.[0]?.message;
+                    finalAiMessage = message;
                 }
+
 
                 let aiReply = finalAiMessage?.content || "";
                 let thinking = finalAiMessage?.reasoning_content || "";
