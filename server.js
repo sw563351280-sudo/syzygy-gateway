@@ -2415,80 +2415,96 @@ app.post('/api/web-chat', async (req, res) => {
                 let message = aiData.choices?.[0]?.message;
                 let finalAiMessage = message;
 
-                                              let toolRounds = 0;
-                let allThinking = "";  // 收集所有轮次的思考
-
-                // 收集第一轮的思考
+                                // ===== 工具循环 =====
+                let toolRounds = 0;
+                let allThinking = "";
+                
                 if (message?.reasoning_content) {
                     allThinking += message.reasoning_content;
                 }
 
-                // ===== 工具循环（累积式，不丢历史）=====
                 let accumulatedMessages = [
                     { role: "system", content: finalSystemPrompt },
                     ...historyMessages,
                     { role: "user", content: userContent }
                 ];
 
-                while (message && message.tool_calls && toolRounds < 5) {
+                while (message && message.tool_calls && message.tool_calls.length > 0 && toolRounds < 5) {
                     toolRounds++;
                     console.log(`🔧 [Web-MCP] 第${toolRounds}轮工具调用，${message.tool_calls.length}个工具`);
                     
-                    // 把 AI 的 tool_calls 消息加入历史
-                    accumulatedMessages.push({
-                        role: "assistant",
-                        content: message.content || "",
-                        tool_calls: message.tool_calls
-                    });
+                    try {
+                        // 1. 把AI的回复加入历史
+                        var assistantMsg = {
+                            role: "assistant",
+                            content: message.content || null,
+                            tool_calls: message.tool_calls
+                        };
+                        accumulatedMessages.push(assistantMsg);
+                        console.log(`📌 [Web-MCP] assistant消息已加入，当前${accumulatedMessages.length}条`);
 
-                    // 执行每个工具并加入历史
-                    for (const toolCall of message.tool_calls) {
-                        let args = {};
-                        try { args = JSON.parse(toolCall.function.arguments); } catch(e) {}
-                        const result = await handleToolCall(toolCall.function.name, args);
-                        accumulatedMessages.push({
-                            role: "tool",
-                            tool_call_id: toolCall.id,
-                            name: toolCall.function.name,
-                            content: typeof result === 'string' ? result : JSON.stringify(result)
-                        });
-                    }
+                        // 2. 执行每个工具
+                        for (const toolCall of message.tool_calls) {
+                            let toolArgs = {};
+                            try { toolArgs = JSON.parse(toolCall.function.arguments); } catch(e) {}
+                            
+                            console.log(`🔨 [Web-MCP] 执行工具: ${toolCall.function.name}`);
+                            const toolResult = await handleToolCall(toolCall.function.name, toolArgs);
+                            console.log(`✅ [Web-MCP] 工具返回: ${(toolResult||'').length}字`);
+                            
+                            accumulatedMessages.push({
+                                role: "tool",
+                                tool_call_id: toolCall.id,
+                                name: toolCall.function.name,
+                                content: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult || "无结果")
+                            });
+                        }
 
-                    // 带完整历史发给 AI
-                    console.log(`📤 [Web-MCP] 第${toolRounds}轮回传，共${accumulatedMessages.length}条消息`);
-                    
-                    const nextRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                        body: JSON.stringify({ 
+                        // 3. 回传给AI
+                        console.log(`📤 [Web-MCP] 回传API，共${accumulatedMessages.length}条消息`);
+                        
+                        var nextBody = JSON.stringify({ 
                             model: model, 
                             messages: accumulatedMessages,
                             tools: tools,
                             tool_choice: "auto"
-                        })
-                    });
-                    
-                    console.log(`📥 [Web-MCP] 第${toolRounds}轮回传状态: ${nextRes.status}`);
+                        });
+                        console.log(`📤 [Web-MCP] 请求体大小: ${nextBody.length}字`);
 
-                    if (!nextRes.ok) {
-                        const errText = await nextRes.text();
-                        console.log(`❌ [Web-MCP] 第${toolRounds}轮API错误:`, errText);
-                        resolve({ text: "【工具回传失败】" + errText, thinking: allThinking });
+                        const nextRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                            body: nextBody
+                        });
+
+                        console.log(`📥 [Web-MCP] API返回状态: ${nextRes.status}`);
+
+                        if (!nextRes.ok) {
+                            const errText = await nextRes.text();
+                            console.log(`❌ [Web-MCP] API错误:`, errText.substring(0, 500));
+                            resolve({ text: "【工具回传失败】" + errText, thinking: allThinking });
+                            return;
+                        }
+
+                        const nextData = await nextRes.json();
+                        message = nextData.choices?.[0]?.message;
+                        console.log(`📋 [Web-MCP] AI返回: content=${(message?.content||'').length}字, tools=${message?.tool_calls?.length || 0}个`);
+
+                        if (message?.reasoning_content) {
+                            allThinking += "\n" + message.reasoning_content;
+                        }
+
+                    } catch(loopErr) {
+                        console.log(`💥 [Web-MCP] 工具循环内部崩溃:`, loopErr.message, loopErr.stack);
+                        resolve({ text: "【工具循环崩溃】" + loopErr.message, thinking: allThinking });
                         return;
-                    }
-
-                    const nextData = await nextRes.json();
-                    message = nextData.choices?.[0]?.message;
-                 console.log(`📋 [Web-MCP] 第${toolRounds}轮返回: content=${(message?.content||'').length}字, tool_calls=${message?.tool_calls?.length || 0}个`);
-
-                    // 收集这一轮的思考
-                    if (message?.reasoning_content) {
-                        allThinking += "\n" + message.reasoning_content;
                     }
                 }
 
+                console.log(`🏁 [Web-MCP] 工具循环结束，共${toolRounds}轮`);
                 let aiReply = message?.content || "";
-                let thinking = allThinking || message?.reasoning_content || "";
+                let thinking = allThinking || "";
+
 
 
                 if (!thinking && aiReply.includes('<think>')) {
