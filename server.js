@@ -897,8 +897,24 @@ let intentData = await analyzeIntent(currentUserMsgText).catch(() => null);
             const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
             if (zepLastUser) zepLastUserContent = zepLastUser.content;
           
-if (zepMessages.length > 0) {
-    console.log(`📦 [去重保护] 跳过Zep历史注入，客户端已携带${cleanMessages.length}条上下文`);
+// ==========================================
+// 🔄 跨平台连续对话：强制从记忆库注入上下文
+// ==========================================
+const useCrossplatform = body.useCrossplatform !== false; // 默认启用
+
+if (useCrossplatform && zepMessages.length > 0) {
+    const contextCount = body.contextCount || 50; // 可自定义条数
+    const contextFromZep = zepMessages.slice(-contextCount).map(m => ({
+        role: m.role === 'ai' ? 'assistant' : 'user',
+        content: m.content
+    }));
+    
+    const latestUserMsg = cleanMessages[cleanMessages.length - 1];
+    cleanMessages = [...contextFromZep, latestUserMsg];
+    
+    console.log(`🌐 [跨平台模式] 注入${contextCount}条记忆库上下文`);
+} else {
+    console.log(`📱 [单端模式] 使用客户端${cleanMessages.length}条上下文`);
 }
 
         }
