@@ -909,15 +909,23 @@ let intentData = await analyzeIntent(currentUserMsgText).catch(() => null);
 // ==========================================
 // 🔄 跨平台连续对话：强制从记忆库注入上下文
 // ==========================================
-const useCrossplatform = body.useCrossplatform !== false; // 默认启用
-
+const useCrossplatform = body.useCrossplatform !== false;
 if (useCrossplatform && zepMessages.length > 0) {
-    const contextCount = body.contextCount || 50; // 可自定义条数
-    const contextFromZep = zepMessages.slice(-contextCount).map(m => ({
-        role: m.role === 'ai' ? 'assistant' : 'user',
-        content: m.content
-    }));
-    
+    const contextCount = body.contextCount || 50;
+    // 🔧 只注入纯文本的用户/助手对话，跳过工具调用相关消息
+    const contextFromZep = zepMessages
+        .slice(-contextCount)
+        .filter(m => {
+            // 过滤掉包含工具调用标记的消息
+            const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+            return !content.includes('tool_use_id') && 
+                   !content.includes('tool_call_id') &&
+                   !content.includes('toolu_');
+        })
+        .map(m => ({
+            role: m.role === 'ai' ? 'assistant' : 'user',
+            content: typeof m.content === 'string' ? m.content : m.content
+        }));
     const latestUserMsg = cleanMessages[cleanMessages.length - 1];
     cleanMessages = [...contextFromZep, latestUserMsg];
     
