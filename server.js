@@ -852,7 +852,16 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         let currentUserMsgText = "";
 
         if (body.messages) {
-            cleanMessages = body.messages.filter(msg => msg.role !== 'system');
+    cleanMessages = body.messages
+        .filter(msg => msg.role !== 'system' && msg.role !== 'tool')
+        .map(msg => {
+            // 清除 assistant 消息里残留的 tool_calls
+            if (msg.role === 'assistant' && msg.tool_calls) {
+                const { tool_calls, ...clean } = msg;
+                return clean;
+            }
+            return msg;
+        });
             const lastUserMsg = [...cleanMessages].reverse().find(m => m.role === 'user');
             if (lastUserMsg) currentUserMsgText = extractText(lastUserMsg.content);
         }
