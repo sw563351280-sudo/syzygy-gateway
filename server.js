@@ -1501,12 +1501,18 @@ app.get('/long-term', (req, res) => {
         const ttlBadge = `<span style="background:#fff3e0;color:#e65100;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">${getTTLLabel(m)}</span>`;
         const arousalBadge = m.arousal ? `<span style="background:#ffebee;color:#c62828;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">❤️ 浓度:${m.arousal}</span>` : '';
         const countBadge = m.activation_count !== undefined ? `<span style="background:#e3f2fd;color:#1565c0;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">🔄 唤醒:${m.activation_count}次</span>` : '';
+        const rawHeat = m.heat !== undefined ? m.heat : 0.5;
+        let heatEmoji, heatColor, heatBg;
+        if (rawHeat > 0.7) { heatEmoji = "🔥"; heatColor = "#e65100"; heatBg = "#fff3e0"; }
+        else if (rawHeat >= 0.3) { heatEmoji = "🌡️"; heatColor = "#f57f17"; heatBg = "#fffde7"; }
+        else { heatEmoji = "🧊"; heatColor = "#546e7a"; heatBg = "#eceff1"; }
+        const heatBadge = `<span style="background:${heatBg};color:${heatColor};padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">${heatEmoji} ${rawHeat.toFixed(2)}</span>`;
         
         return `
-        <div class="memory-card cat-${m.category}" id="card-${m.id}" data-category="${m.category}" data-source="${m.source}">
+        <div class="memory-card cat-${m.category}" id="card-${m.id}" data-category="${m.category}" data-source="${m.source}" data-heat="${rawHeat.toFixed(4)}">
             <div class="memory-content" id="content-${m.id}">${m.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
             <div class="memory-tags" id="tags-display-${m.id}">
-                <div style="margin-bottom:6px; border-bottom: 1px dashed #eee; padding-bottom: 6px;">${ttlBadge}${arousalBadge}${countBadge}</div>
+                <div style="margin-bottom:6px; border-bottom: 1px dashed #eee; padding-bottom: 6px;">${ttlBadge}${arousalBadge}${countBadge}${heatBadge}</div>
                 ${(m.tags||[]).length>0?m.tags.map(t=>'<span class="tag">'+t+'</span>').join(''):'<span style="color:#ccc;font-size:12px">无标签</span>'}
             </div><div class="memory-meta">
                 <span>${new Date(m.created_at).toLocaleString('zh-CN')} · ${sourceLabel(m.source)}
@@ -1535,6 +1541,13 @@ app.get('/long-term', (req, res) => {
         archived: archivedMemories.length,
         roleplay: rpMemories.length
     };
+    let heatHigh = 0, heatMid = 0, heatLow = 0;
+    for (const m of activeMemories) {
+        const h = m.heat !== undefined ? m.heat : 0.5;
+        if (h > 0.7) heatHigh++;
+        else if (h >= 0.3) heatMid++;
+        else heatLow++;
+    }
 
     res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>💎 长期记忆</title>
 <style>
@@ -1580,6 +1593,13 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
         <span class="pill rp-pill" onclick="setFilter(this,'roleplay','all')">🎮 游戏卡带 (${counts.roleplay})</span>
         <span class="pill archive-pill" onclick="setFilter(this,'archived','all')">🥶 冰封档案 (${counts.archived})</span>
     </div>
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;font-size:13px;flex-wrap:wrap;">
+        <span style="color:#e65100;">🔥 高热度 ${heatHigh}条</span>
+        <span style="color:#f57f17;">🌡️ 中热度 ${heatMid}条</span>
+        <span style="color:#546e7a;">🧊 低热度 ${heatLow}条</span>
+        <button class="normal" onclick="sortByHeat()" style="font-size:12px;padding:4px 12px;margin-left:auto;">📊 按热度排序</button>
+        <button class="normal" onclick="sortByTime()" style="font-size:12px;padding:4px 12px;">🕐 按时间排序</button>
+    </div>
     <div id="memoryList">${memoryCards}</div>
 </div>
 
@@ -1623,6 +1643,22 @@ async function toggleResolved(id, resolved) {
     if ((await r.json()).success) location.reload();
 }
 
+function sortByHeat(){
+    const list=document.getElementById('memoryList');
+    const cards=[...list.children];
+    cards.sort((a,b)=>parseFloat(b.dataset.heat||0)-parseFloat(a.dataset.heat||0));
+    cards.forEach(c=>list.appendChild(c));
+}
+function sortByTime(){
+    const list=document.getElementById('memoryList');
+    const cards=[...list.children];
+    cards.sort((a,b)=>{
+        const ta=a.querySelector('.memory-meta span')?.textContent||'';
+        const tb=b.querySelector('.memory-meta span')?.textContent||'';
+        return tb.localeCompare(ta);
+    });
+    cards.forEach(c=>list.appendChild(c));
+}
 function setFilter(pill,cat,source){
     document.querySelectorAll('.pill').forEach(p=>p.classList.remove('active')); 
     pill.classList.add('active'); 
