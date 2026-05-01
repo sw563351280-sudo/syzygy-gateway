@@ -699,6 +699,17 @@ async function scanMemoryRadar(userText) {
 }
 
 
+function formatProfileForPrompt(profile) {
+    const p = profile || loadUserProfile();
+    const parts = [];
+    if (p.basic_info?.content) parts.push(`📌 基本信息：${p.basic_info.content}`);
+    if (p.communication_style?.content) parts.push(`🔍 沟通偏好：${p.communication_style.content}`);
+    if (p.recent_focus?.content) parts.push(`🔥 近期关注：${p.recent_focus.content}`);
+    if (p.long_term_values?.content) parts.push(`💡 长期偏好：${p.long_term_values.content}`);
+    if (parts.length === 0) return '';
+    return `\n【江鱼档案（每日更新）】\n${parts.join('\n')}\n`;
+}
+
 function getBeijingTime() {
     return new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 }
@@ -1118,6 +1129,7 @@ if (useCrossplatform && zepMessages.length > 0) {
 
         const finalSystemPrompt = buildFinalSystemPrompt([
             { label: '环境参数', content: envContext },
+            { label: '用户画像', content: formatProfileForPrompt() },
             { label: '高权重浮现', content: unresolvedContext },
             { label: '长期记忆雷达', content: longTermContext },
             { label: '核心雷达', content: coreRadarContext },
@@ -1583,7 +1595,24 @@ app.get('/long-term', (req, res) => {
     const activeMemories = loadLongTermMemories();
     const archivedMemories = loadArchivedMemories();
     const rpMemories = loadRoleplayMemories();
+    const profile = loadUserProfile();
     const pwd_param = encodeURIComponent(pwd);
+
+    const profileUpdatedAt = profile.last_full_update ? new Date(profile.last_full_update).toLocaleString('zh-CN') : '尚未更新';
+    const profileCard = `
+    <div class="memory-card" style="background:#f0f8ff;border-left:4px solid #1a73e8;margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <b style="font-size:16px;">📋 江鱼画像</b>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <span style="font-size:11px;color:#888;">最后更新: ${profileUpdatedAt}</span>
+                <button class="normal" onclick="updateProfile()" style="font-size:11px;padding:3px 10px;">🔄 手动更新</button>
+            </div>
+        </div>
+        ${profile.basic_info?.content ? `<details open><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">📌 基本信息</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">${profile.basic_info.content.replace(/</g,'&lt;')}</p></details>` : ''}
+        ${profile.communication_style?.content ? `<details><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">🔍 沟通偏好</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">${profile.communication_style.content.replace(/</g,'&lt;')}</p></details>` : ''}
+        ${profile.recent_focus?.content ? `<details open><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">🔥 近期关注</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">${profile.recent_focus.content.replace(/</g,'&lt;')}</p></details>` : ''}
+        ${profile.long_term_values?.content ? `<details><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">💡 长期偏好</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">${profile.long_term_values.content.replace(/</g,'&lt;')}</p></details>` : ''}
+    </div>`;
 
     const allMemsForFrontend = [
         ...activeMemories.map(m => ({ ...m, category: 'active' })),
@@ -1700,6 +1729,7 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
         <span class="pill rp-pill" onclick="setFilter(this,'roleplay','all')">🎮 游戏卡带 (${counts.roleplay})</span>
         <span class="pill archive-pill" onclick="setFilter(this,'archived','all')">🥶 冰封档案 (${counts.archived})</span>
     </div>
+    ${profileCard}
     <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;font-size:13px;flex-wrap:wrap;">
         <span style="color:#e65100;">🔥 高热度 ${heatHigh}条</span>
         <span style="color:#f57f17;">🌡️ 中热度 ${heatMid}条</span>
@@ -1721,6 +1751,7 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
 let currentCat='active';
 let currentSource='all';
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2000);}
+async function updateProfile(){const p=new URLSearchParams(window.location.search).get('pwd');if(!p)return alert('缺少密码');const r=await fetch('/trigger-profile-update?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅ 更新成功':'❌ '+(d.error||d.message));if(d.success)location.reload();}
 function openModal(){document.getElementById('addModal').classList.add('show');}
 function closeModal(){document.getElementById('addModal').classList.remove('show');}
 
@@ -2066,6 +2097,7 @@ app.post('/api/web-chat', async (req, res) => {
 
             const finalSystemPrompt = buildFinalSystemPrompt([
                 { label: '环境参数', content: envContext },
+                { label: '用户画像', content: formatProfileForPrompt() },
                 { label: '深层闪回', content: vectorSearchContext },
                 { label: '高权重浮现', content: unresolvedContext },
                 { label: '长期记忆雷达', content: longTermRadar },
