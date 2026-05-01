@@ -1744,6 +1744,10 @@ app.get('/long-term', (req, res) => {
         ...archivedMemories.map(m => ({ ...m, category: 'archived' })),
         ...rpMemories.map(m => ({ ...m, category: 'roleplay' }))].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
+    for (const m of allMemsForFrontend) {
+        m.liveHeat = (m.category !== 'roleplay') ? calculateHeat(m) : (m.heat || 0.5);
+    }
+
     const sourceLabel = (s) => ({'manual':'✍️ 手动','ai_active':'🤖 AI主动','butler_summary':'🌙 管家','roleplay':'🎮RP副本'}[s]||s);
 
     // 保质期计算器
@@ -1762,12 +1766,12 @@ app.get('/long-term', (req, res) => {
         const ttlBadge = `<span style="background:#fff3e0;color:#e65100;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">${getTTLLabel(m)}</span>`;
         const arousalBadge = m.arousal ? `<span style="background:#ffebee;color:#c62828;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">❤️ 浓度:${m.arousal}</span>` : '';
         const countBadge = m.activation_count !== undefined ? `<span style="background:#e3f2fd;color:#1565c0;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">🔄 唤醒:${m.activation_count}次</span>` : '';
-        const rawHeat = m.heat !== undefined ? m.heat : 0.5;
+        const rawHeat = m.liveHeat !== undefined ? m.liveHeat : (m.heat !== undefined ? m.heat : 0.5);
         let heatEmoji, heatColor, heatBg;
         if (rawHeat > 0.7) { heatEmoji = "🔥"; heatColor = "#e65100"; heatBg = "#fff3e0"; }
         else if (rawHeat >= 0.3) { heatEmoji = "🌡️"; heatColor = "#f57f17"; heatBg = "#fffde7"; }
         else { heatEmoji = "🧊"; heatColor = "#546e7a"; heatBg = "#eceff1"; }
-        const heatBadge = `<span style="background:${heatBg};color:${heatColor};padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">${heatEmoji} ${rawHeat.toFixed(2)}</span>`;
+        const heatBadge = `<span style="background:${heatBg};color:${heatColor};padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;" title="实时热度">${heatEmoji} ${rawHeat.toFixed(2)}</span>`;
         
         return `
         <div class="memory-card cat-${m.category}" id="card-${m.id}" data-category="${m.category}" data-source="${m.source}" data-heat="${rawHeat.toFixed(4)}">
@@ -1777,7 +1781,7 @@ app.get('/long-term', (req, res) => {
                 ${(m.tags||[]).length>0?m.tags.map(t=>'<span class="tag">'+t+'</span>').join(''):'<span style="color:#ccc;font-size:12px">无标签</span>'}
             </div><div class="memory-meta">
                 <span>${new Date(m.created_at).toLocaleString('zh-CN')} · ${sourceLabel(m.source)}
-                ${m.category === 'archived' ? '<span style="color:#0288d1;font-weight:bold;">❄️ 冰封中</span>' : ''}
+                ${m.category === 'archived' ? (m.archived_reason === 'contradiction' ? '<span style="color:#e65100;font-weight:bold;">⚡ 已被新记忆替代</span>' : '<span style="color:#0288d1;font-weight:bold;">❄️ 冰封中</span>') : ''}
                 ${m.category === 'roleplay' ? '<span style="color:#8e24aa;font-weight:bold;">🎭 游戏卡带</span>' : ''}</span>
                 <span>
                     ${m.category === 'archived' 
@@ -1803,8 +1807,9 @@ app.get('/long-term', (req, res) => {
         roleplay: rpMemories.length
     };
     let heatHigh = 0, heatMid = 0, heatLow = 0;
-    for (const m of activeMemories) {
-        const h = m.heat !== undefined ? m.heat : 0.5;
+    for (const m of allMemsForFrontend) {
+        if (m.category !== 'active') continue;
+        const h = m.liveHeat !== undefined ? m.liveHeat : 0.5;
         if (h > 0.7) heatHigh++;
         else if (h >= 0.3) heatMid++;
         else heatLow++;
@@ -1844,7 +1849,7 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
 
 <div class="main">
     <div class="header"><h1>💎 永久记忆档案 (海马体接管中)</h1></div>
-   <div class="search-row"><input type="text" id="searchInput" placeholder="搜索记忆内容..." oninput="filterAll()"><button class="btn-add" onclick="openModal()">＋ 新增</button><button style="padding:10px 18px;background:#ff9800;color:white;border:none;border-radius:8px;cursor:pointer;margin-left:8px;" onclick="triggerCleanup()">🧹 AI清理</button></div>
+   <div class="search-row"><input type="text" id="searchInput" placeholder="搜索记忆内容..." oninput="filterAll()"><button class="btn-add" onclick="openModal()">＋ 新增</button><button class="normal" onclick="smartSearch()" style="background:#7c4dff;color:white;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;margin-left:4px;">🧠 智能搜索</button><button class="normal" onclick="clearSearch()" id="clearSearchBtn" style="display:none;padding:10px 14px;border-radius:8px;cursor:pointer;">✕ 清除</button><button style="padding:10px 18px;background:#ff9800;color:white;border:none;border-radius:8px;cursor:pointer;margin-left:8px;" onclick="triggerCleanup()">🧹 AI清理</button></div>
     <div class="pills">
         <span class="pill active" onclick="setFilter(this,'active','all')">现实脑区(${counts.all})</span>
         <span class="pill" onclick="setFilter(this,'active','manual')">✍️ 手动 (${counts.manual})</span>
@@ -1921,6 +1926,39 @@ function sortByTime(){
         return tb.localeCompare(ta);
     });
     cards.forEach(c=>list.appendChild(c));
+}
+async function smartSearch(){
+    const q=document.getElementById('searchInput').value.trim();
+    if(!q)return;
+    const p=new URLSearchParams(window.location.search).get('pwd');
+    const r=await fetch('/api/debug-search?pwd='+encodeURIComponent(p),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q})});
+    const d=await r.json();
+    const matchIds=new Set(d.matches.map(m=>m.id));
+    document.querySelectorAll('.memory-card').forEach(card=>{
+        const id=card.id.replace('card-','');
+        if(matchIds.has(id)){
+            card.style.opacity='1';
+            card.style.border='2px solid #7c4dff';
+            const match=d.matches.find(m=>m.id===id);
+            if(match){
+                let info=card.querySelector('.match-info');
+                if(!info){info=document.createElement('div');info.className='match-info';card.appendChild(info);}
+                info.innerHTML='<div style="margin-top:6px;font-size:11px;color:#7c4dff;">向量:'+(match.vector_score||'N/A')+' | 标签:'+(match.tag_hits||[]).join(',')+' | 综合:'+(match.would_match?'✓':'—')+'</div>';
+            }
+        }else{
+            card.style.opacity='0.3';
+            card.style.border='1px solid #e8e8e8';
+            const info=card.querySelector('.match-info');
+            if(info)info.remove();
+        }
+    });
+    document.getElementById('clearSearchBtn').style.display='inline-block';
+}
+function clearSearch(){
+    document.querySelectorAll('.memory-card').forEach(card=>{card.style.opacity='1';card.style.border='1px solid #e8e8e8';const info=card.querySelector('.match-info');if(info)info.remove();});
+    document.getElementById('clearSearchBtn').style.display='none';
+    document.getElementById('searchInput').value='';
+    filterAll();
 }
 function setFilter(pill,cat,source){
     document.querySelectorAll('.pill').forEach(p=>p.classList.remove('active')); 
