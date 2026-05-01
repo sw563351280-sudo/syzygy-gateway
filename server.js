@@ -188,6 +188,84 @@ async function reindexAllEmbeddings() {
     return { indexed, skipped, failed, total: allMemories.length };
 }
 
+// RRF 向量排名（纯向量余弦相似度，不看标签）
+function _vectorRankSearch(queryEmbedding, memories, topK = 10) {
+    const cache = loadEmbeddingsCache();
+    const results = [];
+    for (const m of memories) {
+        if (m.expires_at && Date.now() > m.expires_at) continue;
+        if (!queryEmbedding || !cache[m.id]) continue;
+        const score = cosineSimilarity(queryEmbedding, cache[m.id]);
+        if (score > 0.3) results.push({ memory: m, score });
+    }
+    results.sort((a, b) => b.score - a.score);
+    return results.slice(0, topK);
+}
+
+// RRF 关键词排名（标签匹配 1.5x + 内容子串匹配 1.0x）
+function _keywordRankSearch(queryText, memories, topK = 10) {
+    const results = [];
+    const subwords = [];
+    for (let i = 0; i < queryText.length; i++) {
+        for (let len = 2; len <= 4 && i + len <= queryText.length; len++) {
+            subwords.push(queryText.substring(i, i + len));
+        }
+    }
+    for (const m of memories) {
+        if (m.expires_at && Date.now() > m.expires_at) continue;
+        let score = 0;
+        if (m.tags && m.tags.length > 0) {
+            const hits = m.tags.filter(tag => isTagMatch(tag, queryText));
+            score += hits.length * 1.5;
+        }
+        const contentLower = (m.content || '').toLowerCase();
+        for (const sw of subwords) {
+            if (contentLower.includes(sw.toLowerCase())) score += 1.0;
+        }
+        if (score > 0) results.push({ memory: m, score });
+    }
+    results.sort((a, b) => b.score - a.score);
+    return results.slice(0, topK);
+}
+
+// RRF 双路融合搜索
+async function rrfMergeSearch(queryText, memories, topK = 5) {
+    const queryEmbedding = await getEmbedding(queryText);
+    const [vecResults, kwResults] = await Promise.all([
+        Promise.resolve(_vectorRankSearch(queryEmbedding, memories, 10)),
+        Promise.resolve(_keywordRankSearch(queryText, memories, 10))
+    ]);
+    const k = 60;
+    const scoreMap = new Map();
+    vecResults.forEach((item, rank) => {
+        const id = item.memory.id;
+        const entry = scoreMap.get(id) || { memory: item.memory, score: 0, matchType: '' };
+        entry.score += 1 / (k + rank);
+        entry.matchType = '🧲向量';
+        scoreMap.set(id, entry);
+    });
+    kwResults.forEach((item, rank) => {
+        const id = item.memory.id;
+        const entry = scoreMap.get(id) || { memory: item.memory, score: 0, matchType: '' };
+        entry.score += 1 / (k + rank);
+        entry.matchType += (entry.matchType ? '+' : '') + '🔤关键词';
+        scoreMap.set(id, entry);
+    });
+    for (const [, entry] of scoreMap) {
+        const m = entry.memory;
+        const heat = m.heat !== undefined ? m.heat : 0.5;
+        const arousal = m.arousal || 0.5;
+        entry.score *= (1 + 0.25 * heat + 0.15 * arousal);
+    }
+    const merged = [...scoreMap.values()].sort((a, b) => b.score - a.score);
+    const top = merged.slice(0, topK);
+    if (top.length > 0) {
+        top.forEach(r => console.log(`🎯 [RRF] ${r.matchType} score=${r.score.toFixed(4)} heat=${(r.memory.heat||0.5).toFixed(2)} | ${r.memory.content.substring(0,40)}...`));
+    }
+    console.log(`🔍 [RRF搜索] 向量命中${vecResults.length}条 | 关键词命中${kwResults.length}条 | 融合后${top.length}条 | 最高分: ${top[0]?.score.toFixed(4) || 'N/A'}`);
+    return top;
+}
+
 async function vectorSearch(queryText, memories, topK = 3, threshold = 0.45) {
     const cache = loadEmbeddingsCache();
     const queryEmbedding = await getEmbedding(queryText);
@@ -397,7 +475,7 @@ async function scanLongTermRadar(userText) {
     const memories = loadLongTermMemories();
     console.log(`🔎 [长期记忆雷达·向量版] 扫描中... 库存${memories.length}条, 用户说: "${userText.substring(0, 30)}"`);
 
-    const results = await vectorSearch(userText, memories, 3, 0.45);
+    const results = await rrfMergeSearch(userText, memories, 3);
     if (results.length === 0) return "";
 
     const memMap = new Map(memories.map(m => [m.id, m]));
@@ -442,7 +520,7 @@ async function scanLongTermRadar(userText) {
 async function scanRoleplayRadar(userText) {
     if (!userText) return "";
     const memories = loadRoleplayMemories();
-    const results = await vectorSearch(userText, memories, 3, 0.45);
+    const results = await rrfMergeSearch(userText, memories, 3);
     if (results.length === 0) return "";
 
     return `\n\n==========\n【🎮 游戏卡带已插入：检测到江鱼想玩/继续以下设定的Roleplay】\n${results.map(r => `• 🎭 [设定/进度: ${(r.memory.tags||[]).join(',')}] ${r.memory.content}`).join('\n')}\n👉 【最高指令】：请沈望立刻抛弃现实包袱，无缝接入该游戏设定，陪她沉浸式演绎！\n==========\n`;
@@ -684,7 +762,7 @@ async function scanMemoryRadar(userText) {
         expires_at: null
     }));
 
-    const results = await vectorSearch(userText, blocksWithId, 3, 0.45);
+    const results = await rrfMergeSearch(userText, blocksWithId, 3);
     if (results.length === 0) return "";
 
     const lines = results.map(r => {
