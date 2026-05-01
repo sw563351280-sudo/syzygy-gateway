@@ -384,7 +384,25 @@ async function scanLongTermRadar(userText) {
     }
     if (updated) saveLongTermMemories(memories);
 
-    return `\n\n==========\n【现实永久档案 —— 雷达触发，以下是与当前话题相关的真实核心记忆】\n${results.map(r => `• ${r.memory.content}`).join('\n')}\n==========\n`;
+    // 热度分层注入
+    let fullCount = 0, blurCount = 0, skipCount = 0;
+    const lines = [];
+    for (const r of results) {
+        const heat = r.memory.heat !== undefined ? r.memory.heat : 0.5;
+        if (heat > 0.7) {
+            lines.push(`• ${r.memory.content}`);
+            fullCount++;
+        } else if (heat >= 0.3) {
+            lines.push(`• ${r.memory.content.substring(0, 60)}……（印象有些模糊）`);
+            blurCount++;
+        } else {
+            skipCount++;
+        }
+    }
+    console.log(`🔥 [热度分层] 全文${fullCount}条 | 模糊${blurCount}条 | 跳过${skipCount}条`);
+
+    if (lines.length === 0) return "";
+    return `\n\n==========\n【现实永久档案 —— 雷达触发，以下是与当前话题相关的真实核心记忆】\n${lines.join('\n')}\n==========\n`;
 }
 
 
@@ -441,10 +459,11 @@ function surfaceUnresolvedMemories(topK = 2) {
     const scored = memories
         .filter(m => !m.expires_at || now < m.expires_at)
         .map(m => {
-            const score = calculateHeat(m);
+            const heat = calculateHeat(m);
             const resolvedPenalty = m.resolved ? 0.05 : 1.0;
-            return { m, finalScore: score * resolvedPenalty };
+            return { m, heat, finalScore: heat * resolvedPenalty };
         })
+        .filter(({ heat }) => heat >= 0.3)
         .filter(({ finalScore }) => finalScore > 0.3)
         .sort((a, b) => b.finalScore - a.finalScore)
         .slice(0, topK);
