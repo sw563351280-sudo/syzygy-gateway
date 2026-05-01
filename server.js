@@ -228,7 +228,18 @@ async function vectorSearch(queryText, memories, topK = 3, threshold = 0.45) {
     return top;
 }
 
-function loadLongTermMemories() { try { return JSON.parse(fs.readFileSync(LONG_TERM_FILE, 'utf8')); } catch(e) { return []; } }
+function loadLongTermMemories() {
+    try {
+        const raw = JSON.parse(fs.readFileSync(LONG_TERM_FILE, 'utf8'));
+        for (const m of raw) {
+            if (m.heat === undefined) m.heat = 0.5;
+            if (m.emotional_weight === undefined) m.emotional_weight = 0;
+            if (m.last_recalled_at === undefined) m.last_recalled_at = null;
+            if (m.query_hashes === undefined) m.query_hashes = [];
+        }
+        return raw;
+    } catch(e) { return []; }
+}
 function saveLongTermMemories(memories) { fs.writeFileSync(LONG_TERM_FILE, JSON.stringify(memories, null, 2), 'utf8'); }
 function loadArchivedMemories() { try { return JSON.parse(fs.readFileSync(ARCHIVE_FILE, 'utf8')); } catch(e) { return []; } }
 function saveArchivedMemories(memories) { fs.writeFileSync(ARCHIVE_FILE, JSON.stringify(memories, null, 2), 'utf8'); }
@@ -314,7 +325,11 @@ function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', 
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         arousal: arousal || 0.5,
-        activation_count: 0
+        activation_count: 0,
+        heat: arousal || 0.5,
+        emotional_weight: 0,
+        last_recalled_at: null,
+        query_hashes: []
     };
     memories.push(entry); saveLongTermMemories(memories);
     ensureEmbedding(entry.id, entry.content).catch(e => console.log(`⚠️ [向量] 异步失败: ${e.message}`));
@@ -360,6 +375,10 @@ async function scanLongTermRadar(userText) {
             const m = memMap.get(r.memory.id);
             m.last_accessed = Date.now();
             m.activation_count = (m.activation_count || 0) + 1;
+            m.last_recalled_at = Date.now();
+            const hash = simpleHash(userText);
+            if (!m.query_hashes) m.query_hashes = [];
+            if (!m.query_hashes.includes(hash)) m.query_hashes.push(hash);
             updated = true;
         }
     }
@@ -380,32 +399,36 @@ async function scanRoleplayRadar(userText) {
 }
 
 
-// ==========================================
-//arousal 衰减评分函数
-// ==========================================
-function calculateDecayScore(m) {
-    const now = Date.now();
-    const daysSinceAccess = (now - (m.last_accessed || now)) / (24 * 60 * 60 * 1000);
-    const importance = 5;
-    const arousal = m.arousal || 0.5;
-    const activation = m.activation_count || 0;
-
-    let timeWeight;
-    if (daysSinceAccess <= 1) {
-        timeWeight = 1.0;
-    } else if (daysSinceAccess <= 2) {
-        timeWeight = 0.9;
-    } else {
-        timeWeight = Math.max(0.3, 0.9 * Math.exp(-0.2197 * (daysSinceAccess - 2)));
+function simpleHash(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) {
+        h = ((h << 5) - h) + str.charCodeAt(i);
+        h |= 0;
     }
+    return h.toString(36);
+}
 
-    const lambda = 0.05;
-    const baseScore = importance
-        * Math.pow(activation + 1, 0.3)
-        * Math.exp(-lambda * daysSinceAccess)
-        * (0.5 + arousal * 0.5);
+// 半衰期热度计算
+function calculateHeat(m) {
+    const now = Date.now();
+    const activation = m.activation_count || 0;
+    const arousal = m.arousal || 0.5;
+    const emotional = m.emotional_weight || 0;
+    const hashes = m.query_hashes || [];
 
-    return timeWeight * baseScore;
+    const rawInit = 0.3 + 0.7 * Math.max(arousal, emotional / 10);
+
+    const highEmotion = arousal >= 0.7 || emotional >= 5;
+    const baseHalfLife = highEmotion ? 7 : 3;
+    const halfLife = baseHalfLife * (1 + activation * 0.5);
+
+    const daysSinceAccess = (now - (m.last_recalled_at || m.last_accessed || now)) / 86400000;
+    const decay = Math.pow(2, -daysSinceAccess / halfLife);
+
+    const diversity = new Set(hashes).size;
+    const bonus = Math.min(0.2, activation * 0.02 + diversity * 0.03);
+
+    return Math.max(0, Math.min(1.0, rawInit * decay + bonus));
 }
 
 // ==========================================
@@ -418,7 +441,7 @@ function surfaceUnresolvedMemories(topK = 2) {
     const scored = memories
         .filter(m => !m.expires_at || now < m.expires_at)
         .map(m => {
-            const score = calculateDecayScore(m);
+            const score = calculateHeat(m);
             const resolvedPenalty = m.resolved ? 0.05 : 1.0;
             return { m, finalScore: score * resolvedPenalty };
         })
@@ -451,8 +474,8 @@ function cleanAndArchiveMemories() {
             }
             // 永久记忆：基于 arousal 的艾宾浩斯衰减
             else if (!m.expires_at) {
-                const score = calculateDecayScore(m);
-                const ARCHIVE_THRESHOLD = 0.3;
+                const score = calculateHeat(m);
+                const ARCHIVE_THRESHOLD = 0.15;
                 if (score < ARCHIVE_THRESHOLD) {
                     archived.push({ ...m, archived_reason: 'decay', decay_score: score });
                     decayCount++;
@@ -562,7 +585,8 @@ function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5) {
     if (validTags.some(t => ['roleplay','rp','副本','游戏','设定','语c','卡带'].includes(t.toLowerCase()))) {
         return addRoleplayMemory(content, validTags, ttl);
     }
-    return addLongTermMemory(content, source, validTags, ttl, arousal);
+    const effectiveArousal = source === 'ai_active' ? Math.max(arousal, 0.8) : arousal;
+    return addLongTermMemory(content, source, validTags, ttl, effectiveArousal);
 }
 
 // ==========================================
@@ -667,10 +691,18 @@ async function saveToZep(userMsg, aiMsg) {
     } catch(e) { console.log("写入金库遇到波动: ", e.message); }
 }
 
+let lastSaveTimestamp = 0;
+
 async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages) {
-    if (userMsg && userMsg !== lastUserContent) {
+    if (!userMsg) return;
+    const now = Date.now();
+    const isSameText = userMsg === lastUserContent;
+    const isRegeneration = isSameText && (now - lastSaveTimestamp) > 30000;
+
+    if (!isSameText || isRegeneration) {
         const rpPrefix = rpModeActive ? '[RP模式] ' : '';
         await saveToZep(rpPrefix + userMsg, rpPrefix + aiMsg);
+        lastSaveTimestamp = now;
         const count = getCounter(SESSION_ID) + 1;
         saveCounter(SESSION_ID, count);
         if (count >= 50) {
@@ -913,13 +945,11 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 useCrossplatform = body.useCrossplatform !== false;
 if (useCrossplatform && zepMessages.length > 0) {
     const contextCount = body.contextCount || 50;
-    // 🔧 只注入纯文本的用户/助手对话，跳过工具调用相关消息
-    const contextFromZep = zepMessages
+    let contextFromZep = zepMessages
         .slice(-contextCount)
         .filter(m => {
-            // 过滤掉包含工具调用标记的消息
             const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-            return !content.includes('tool_use_id') && 
+            return !content.includes('tool_use_id') &&
                    !content.includes('tool_call_id') &&
                    !content.includes('toolu_');
         })
@@ -927,10 +957,23 @@ if (useCrossplatform && zepMessages.length > 0) {
             role: m.role === 'ai' ? 'assistant' : 'user',
             content: typeof m.content === 'string' ? m.content : m.content
         }));
+
+    // 回溯检测：找到当前用户消息在Zep历史中的最后匹配位置，裁剪掉之后的"未来消息"
+    if (currentUserMsgText) {
+        const totalBefore = contextFromZep.length;
+        for (let i = contextFromZep.length - 1; i >= 0; i--) {
+            if (contextFromZep[i].role === 'user' && contextFromZep[i].content === currentUserMsgText) {
+                contextFromZep = contextFromZep.slice(0, i);
+                console.log(`🔙 [回溯检测] 裁剪掉${totalBefore - contextFromZep.length}条未来消息，保留${contextFromZep.length}条`);
+                break;
+            }
+        }
+    }
+
     const latestUserMsg = cleanMessages[cleanMessages.length - 1];
     cleanMessages = [...contextFromZep, latestUserMsg];
-    
-    console.log(`🌐 [跨平台模式] 注入${contextCount}条记忆库上下文`);
+
+    console.log(`🌐 [跨平台模式] 注入${contextFromZep.length}条记忆库上下文`);
 } else {
     console.log(`📱 [单端模式] 使用客户端${cleanMessages.length}条上下文`);
 }
