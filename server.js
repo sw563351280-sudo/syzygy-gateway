@@ -15,6 +15,7 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
 
+const CONTRADICTION_DETECTION_ENABLED = true;
 const ZEP_URL = "https://syzymer.zeabur.app";
 const SESSION_ID = "syzygy_01";
 
@@ -388,6 +389,36 @@ function isSemanticDuplicate(newContent, existingMemories) {
     return false;
 }
 
+function detectContradictions(newContent, newTags, existingMemories) {
+    if (!CONTRADICTION_DETECTION_ENABLED) return [];
+    const obsoleteIds = [];
+    for (const m of existingMemories) {
+        if (m.source === 'manual' && m.ttl === 'perm') continue;
+        if (m.pinned) continue;
+        const mTags = m.tags || [];
+        const nTags = newTags || [];
+        if (mTags.length === 0 || nTags.length === 0) continue;
+        const tagOverlap = mTags.filter(t =>
+            nTags.some(nt => nt === t || nt.includes(t) || t.includes(nt))
+        ).length;
+        const tagSimilarity = tagOverlap / Math.max(mTags.length, nTags.length);
+        if (tagSimilarity < 0.5) continue;
+        const newChars = new Set(newContent.match(/[一-鿿]{2,}/g) || []);
+        const oldChars = new Set(m.content.match(/[一-鿿]{2,}/g) || []);
+        if (newChars.size < 3 || oldChars.size < 3) continue;
+        let overlap = 0;
+        for (const c of newChars) { if (oldChars.has(c)) overlap++; }
+        const contentSimilarity = overlap / Math.max(newChars.size, oldChars.size);
+        if (contentSimilarity >= 0.3 && contentSimilarity <= 0.8) {
+            console.log(`⚡ [矛盾检测] 与[${m.id}]冲突 | 标签相似=${tagSimilarity.toFixed(2)} 内容相似=${contentSimilarity.toFixed(2)}`);
+            console.log(`  旧: ${m.content.substring(0, 40)}...`);
+            console.log(`  新: ${newContent.substring(0, 40)}...`);
+            obsoleteIds.push(m.id);
+        }
+    }
+    return obsoleteIds;
+}
+
 // RP 游戏卡带新增
 function addRoleplayMemory(content, tags = [], ttl = '1w') {
     const memories = loadRoleplayMemories();
@@ -443,6 +474,22 @@ function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', 
     };
     memories.push(entry); saveLongTermMemories(memories);
     ensureEmbedding(entry.id, entry.content).catch(e => console.log(`⚠️ [向量] 异步失败: ${e.message}`));
+
+    const obsoleteIds = detectContradictions(content, tags, memories);
+    if (obsoleteIds.length > 0) {
+        const archived = loadArchivedMemories();
+        const remaining = memories.filter(m => {
+            if (obsoleteIds.includes(m.id)) {
+                archived.push({ ...m, archived_reason: 'contradiction' });
+                console.log(`⚡ [矛盾归档] 旧记忆[${m.id}]因信息更新被新记忆替代`);
+                return false;
+            }
+            return true;
+        });
+        saveLongTermMemories(remaining);
+        saveArchivedMemories(archived);
+        console.log(`⚡ [矛盾归档] 共归档${obsoleteIds.length}条过时记忆`);
+    }
 
     const ttlLabel = expiresAt ? `保质期=${ttl}` : '永久保存';
     console.log(`💎 长期记忆已刻入：[${source}] [${ttlLabel}] arousal=${arousal} tags=[${tags.join(',')}] | ${content.substring(0, 60)}...`);
