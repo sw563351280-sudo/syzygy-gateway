@@ -1097,25 +1097,14 @@ async function saveToZep(userMsg, aiMsg) {
     } catch(e) { console.log("写入金库遇到波动: ", e.message); }
 }
 
-let lastSaveTimestamp = 0;
-
 async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages) {
     if (!userMsg) return;
-    const now = Date.now();
-    const isSameText = userMsg === lastUserContent;
-    const isRegeneration = isSameText && (now - lastSaveTimestamp) > 30000;
-
-    if (!isSameText || isRegeneration) {
-        const rpPrefix = rpModeActive ? '[RP模式] ' : '';
-        await saveToZep(rpPrefix + userMsg, rpPrefix + aiMsg);
-        lastSaveTimestamp = now;
-        const count = getCounter(SESSION_ID) + 1;
-        saveCounter(SESSION_ID, count);
-        if (count >= 50) {
-            saveCounter(SESSION_ID, 0);
-            backgroundMemoryDream(SESSION_ID, messages.slice(-30));
-        }
+    if (userMsg === lastUserContent) {
+        console.log('🔄 [防重复] 检测到重复用户消息，跳过保存');
+        return;
     }
+    const rpPrefix = rpModeActive ? '[RP模式] ' : '';
+    await saveToZep(rpPrefix + userMsg, rpPrefix + aiMsg);
 }
 
 // ==========================================
@@ -1342,7 +1331,7 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
             console.log(`🔮 [Dream·生长层] AI前瞻洞察: ${summaryJson.foresight.map(f => f.substring(0,30)).join(' | ')}`);
         }
 
-        const summaryMeta = { current_state: summaryJson, last_summarized_at: new Date().toISOString() };
+        const summaryMeta = { current_state: summaryJson };
         await fetch(`${ZEP_URL}/api/v1/sessions/${sessionId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -1486,10 +1475,19 @@ if (useCrossplatform && zepMessages.length > 0) {
         }
     }
 
-    const latestUserMsg = cleanMessages[cleanMessages.length - 1];
-    cleanMessages = [...contextFromZep, latestUserMsg];
+    const zepContents = new Set(contextFromZep.map(m => m.content));
+    let cutoff = cleanMessages.length;
+    for (let i = cleanMessages.length - 1; i >= 0; i--) {
+        if (zepContents.has(cleanMessages[i].content)) {
+            cutoff = i + 1;
+            break;
+        }
+    }
+    let newMessages = cleanMessages.slice(cutoff);
+    if (newMessages.length === 0) newMessages = [cleanMessages[cleanMessages.length - 1]];
+    cleanMessages = [...contextFromZep, ...newMessages];
 
-    console.log(`🌐 [跨平台模式] 注入${contextFromZep.length}条记忆库上下文`);
+    console.log(`🌐 [跨平台模式] 注入${contextFromZep.length}条历史 + ${newMessages.length}条新消息`);
 } else {
     console.log(`📱 [单端模式] 使用客户端${cleanMessages.length}条上下文`);
 }
@@ -1901,6 +1899,24 @@ app.post('/delete-selected', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+app.post('/api/restore-all-messages', async (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD)
+        return res.status(401).json({ error: "密码错误" });
+    try {
+        const sessionRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`);
+        const sessionData = await sessionRes.json();
+        const metadata = sessionData.metadata || {};
+        delete metadata.last_summarized_at;
+        await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ metadata })
+        });
+        console.log('✅ [恢复] 已清除 last_summarized_at，所有历史消息已恢复可见');
+        res.json({ success: true, message: "所有历史消息已恢复可见" });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.delete('/delete-memory/:uuid', async (req, res) => {
     try {
         await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory/messages/${req.params.uuid}`, { method: 'DELETE' });
@@ -1929,21 +1945,16 @@ app.get('/memory-manager', async (req, res) => {
         const messages = memoryData.messages || [];
         const summary = memoryData.summary?.content || '';
         const currentState = sessionData.metadata?.current_state || null;
-        const currentCount = getCounter(SESSION_ID);
-        const lastSummarizedAt = sessionData.metadata?.last_summarized_at || null;
         const messagesForScript = JSON.stringify(messages.map(m => ({ role: m.role, content: m.content })));
         const ltMemCount = loadLongTermMemories().length + loadArchivedMemories().length + loadRoleplayMemories().length;
+        const dreamLogs = loadDreamLogs();
+        const lastDreamTime = dreamLogs.length > 0 ? new Date(dreamLogs[dreamLogs.length - 1].triggered_at).toLocaleString('zh-CN') : '从未';
 
         const messageList = messages.map((m, i) => {
-            const isSummarized = lastSummarizedAt && new Date(m.created_at) < new Date(lastSummarizedAt);
             const isRP = m.content.startsWith('[RP模式]');
             const rpBadge = isRP ? '<span style="background:#e1bee7;color:#6a1b9a;padding:1px 6px;border-radius:4px;font-size:11px;margin-left:4px;">🎭 RP</span>' : '';
-            return `<div class="msg-item" style="background:${m.role==='user'?'#e3f2fd':'#f3e5f5'};padding:10px;margin:5px 0;border-radius:8px;display:${isSummarized?'none':'flex'};gap:10px;align-items:flex-start;${isRP?'border-left:3px solid #ab47bc;':''}" data-summarized="${isSummarized}"><input type="checkbox" class="msg-checkbox" data-index="${i}" style="margin-top:4px;flex-shrink:0;width:16px;height:16px;cursor:pointer;"><div style="flex:1"><small style="color:#888">${m.role==='user'?'江鱼':'沈望'} | ${new Date(m.created_at).toLocaleString()}${isSummarized?' 📦 已总结':''}${rpBadge}</small><p style="margin:5px 0;white-space:pre-wrap">${m.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p></div></div>`;
+            return `<div class="msg-item" style="background:${m.role==='user'?'#e3f2fd':'#f3e5f5'};padding:10px;margin:5px 0;border-radius:8px;display:flex;gap:10px;align-items:flex-start;${isRP?'border-left:3px solid #ab47bc;':''}"><input type="checkbox" class="msg-checkbox" data-index="${i}" style="margin-top:4px;flex-shrink:0;width:16px;height:16px;cursor:pointer;"><div style="flex:1"><small style="color:#888">${m.role==='user'?'江鱼':'沈望'} | ${new Date(m.created_at).toLocaleString()}${rpBadge}</small><p style="margin:5px 0;white-space:pre-wrap">${m.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p></div></div>`;
         }).join('');
-
-        const totalCount = messages.length;
-        const summarizedCount = lastSummarizedAt ? messages.filter(m => new Date(m.created_at) < new Date(lastSummarizedAt)).length : 0;
-        const unsummarizedCount = totalCount - summarizedCount;
 
         const safeStrHtml = (val) => typeof val === 'object' ? JSON.stringify(val) : (val || '无');
         const stateHtml = currentState ? `<div style="background:#fff9c4;padding:12px;border-radius:8px;margin:5px 0"><b>当前偏好：</b><p>${safeStrHtml(currentState.new_preferences)}</p><b>近期情感：</b><p>${safeStrHtml(currentState.relationship_turning_points)}</p><b>未完成约定：</b><p>${safeStrHtml(currentState.pending_promises)}</p></div>` : '<p style="color:#888">还没有总结～</p>';
@@ -1960,7 +1971,7 @@ app.get('/memory-manager', async (req, res) => {
 ${stateHtml}
 </div><div class="card">
 <h2>💬 原始记录</h2>
-<div style="background:#e8f5e9;padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:13px;">📊 自动总结进度：<b>${currentCount}/50轮</b>${currentCount>=40?' ⚡即将触发！':''} |📬未总结：<b>${unsummarizedCount}</b>条${summarizedCount>0?` | 📦已总结：<b>${summarizedCount}</b>条 <button class="normal" onclick="toggleSummarized()" style="font-size:11px;padding:2px 8px;margin-left:4px;">显示/隐藏</button>`:''}</div>
+<div style="background:#e8f5e9;padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:13px;">🌙 上次Dream: <b>${lastDreamTime}</b><button class="normal" onclick="restoreAll()" style="font-size:11px;padding:2px 8px;margin-left:8px;">🔓 全部恢复</button></div>
 <div class="toolbar"><button class="normal" onclick="location.reload()">🔄 刷新</button><button class="normal" onclick="toggleSelectAll()">☑️ 全选/取消</button><button class="danger" onclick="deleteSelected()">🗑️ 删除选中</button><span class="select-hint" id="select-count">未选中</span></div>
 <div style="max-height:600px;overflow-y:auto" id="msg-list">${messageList||'<p style="color:#888">暂无记录</p>'}</div>
 </div></div>
@@ -1974,7 +1985,7 @@ function toggleSelectAll(){allSelected=!allSelected;document.querySelectorAll('.
 async function deleteSelected(){const s=new Set();document.querySelectorAll('.msg-checkbox').forEach(cb=>{if(cb.checked)s.add(parseInt(cb.dataset.index));});if(s.size===0){alert('请先勾选！');return;}if(!confirm('确定删除'+s.size+'条？'))return;const keep=ALL_MESSAGES.filter((_,i)=>!s.has(i));document.getElementById('status').innerText='⏳处理中...';try{const r=await fetch('/delete-selected',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keepMessages:keep})});const d=await r.json();if(d.success){alert('✅删除成功！');location.reload();}else{alert('❌'+d.error);}}catch(e){alert('❌'+e.message);}document.getElementById('status').innerText='';}
 async function addMemory(){const c=document.getElementById('content').value;const r=document.getElementById('role').value;if(!c){alert('不能为空！');return;}document.getElementById('status').innerText='⏳写入中...';try{const res=await fetch('/add-memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:c,role:r})});const d=await res.json();if(d.success){document.getElementById('status').innerText='✅成功！';document.getElementById('content').value='';setTimeout(()=>location.reload(),1000);}else{document.getElementById('status').innerText='❌'+d.error;}}catch(e){document.getElementById('status').innerText='❌'+e.message;}}
 async function triggerDream(){const p=prompt('请输入管理员密码：');if(!p)return;try{const r=await fetch('/trigger-dream?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅'+d.message:'❌'+(d.error||d.message));}catch(e){alert('❌'+e.message);}}
-function toggleSummarized(){document.querySelectorAll('.msg-item[data-summarized="true"]').forEach(item=>{item.style.display=item.style.display==='none'?'flex':'none';if(item.style.display==='flex')item.style.opacity='0.5';});}
+async function restoreAll(){const p=prompt('请输入管理员密码：');if(!p)return;try{const r=await fetch('/api/restore-all-messages?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅ 已恢复':'❌ '+(d.error||d.message));if(d.success)location.reload();}catch(e){alert('❌'+e.message);}}
 </script></body></html>`);
     } catch(e) {
         res.status(500).send(`<h1>加载失败</h1><p>${e.message}</p><a href="/memory-manager?pwd=${pwd}">重试</a>`);
