@@ -59,6 +59,9 @@ const ARCHIVE_FILE = path.join(DATA_DIR, 'deep_archive.json');
 const ROLEPLAY_FILE = path.join(DATA_DIR, 'roleplay_archives.json');
 const USER_PROFILE_FILE = path.join(DATA_DIR, 'user_profile.json');
 const DREAM_LOGS_FILE = path.join(DATA_DIR, 'dream_logs.json');
+const DAILY_PAGES_FILE = path.join(DATA_DIR, 'daily_pages.json');
+const WEEKLY_SUMMARIES_FILE = path.join(DATA_DIR, 'weekly_summaries.json');
+const MONTHLY_SUMMARIES_FILE = path.join(DATA_DIR, 'monthly_summaries.json');
 
 // ==========================================
 // 🧲 向量记忆引擎
@@ -370,6 +373,143 @@ function getLastDreamTime() {
     const logs = loadDreamLogs();
     if (logs.length === 0) return null;
     return new Date(logs[logs.length - 1].triggered_at).getTime();
+}
+
+function loadDailyPages() { try { return JSON.parse(fs.readFileSync(DAILY_PAGES_FILE, 'utf8')); } catch(e) { return []; } }
+function saveDailyPages(pages) { fs.writeFileSync(DAILY_PAGES_FILE, JSON.stringify(pages, null, 2), 'utf8'); }
+function loadWeeklySummaries() { try { return JSON.parse(fs.readFileSync(WEEKLY_SUMMARIES_FILE, 'utf8')); } catch(e) { return []; } }
+function saveWeeklySummaries(summaries) { fs.writeFileSync(WEEKLY_SUMMARIES_FILE, JSON.stringify(summaries, null, 2), 'utf8'); }
+function loadMonthlySummaries() { try { return JSON.parse(fs.readFileSync(MONTHLY_SUMMARIES_FILE, 'utf8')); } catch(e) { return []; } }
+function saveMonthlySummaries(summaries) { fs.writeFileSync(MONTHLY_SUMMARIES_FILE, JSON.stringify(summaries, null, 2), 'utf8'); }
+
+function getDateKey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function getWeekKey(d) { const start = new Date(d); start.setDate(d.getDate()-d.getDay()); return getDateKey(start); }
+function getMonthKey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+
+async function generateDailyPage(script) {
+    const routerKey = process.env.ROUTER_API_KEY;
+    if (!routerKey) return null;
+    const todayKey = getDateKey(new Date());
+    const pages = loadDailyPages();
+    if (pages.some(p => p.date === todayKey)) return null;
+
+    try {
+        const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
+            body: JSON.stringify({
+                model: "gemini-2.5-flash",
+                messages: [{ role: "user", content: `根据以下聊天记录生成今日摘要（100-200字）、关键事件（1-5条）、情绪基调。输出纯JSON：{"summary":"","key_events":[],"emotional_tone":""}\n\n${script}` }],
+                response_format: { type: "json_object" }
+            })
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const result = JSON.parse(data.choices[0].message.content.replace(/```json|```/g, '').trim());
+        const page = { date: todayKey, summary: result.summary || '', key_events: result.key_events || [], emotional_tone: result.emotional_tone || '', created_at: new Date().toISOString() };
+        pages.push(page);
+        saveDailyPages(pages);
+        console.log(`📅 [日页面] ${todayKey} 已生成 | ${page.key_events.length}个事件 | ${page.emotional_tone}`);
+        return page;
+    } catch(e) { console.log('📅 [日页面] 生成失败:', e.message); return null; }
+}
+
+async function generateWeeklySummary() {
+    const routerKey = process.env.ROUTER_API_KEY;
+    if (!routerKey) return null;
+    const today = new Date();
+    const weekKey = getWeekKey(today);
+    const weeklies = loadWeeklySummaries();
+    if (weeklies.some(w => w.week === weekKey)) return null;
+    const pages = loadDailyPages().filter(p => {
+        const d = new Date(p.date); const wk = getWeekKey(d);
+        return wk === weekKey;
+    });
+    if (pages.length < 3) return null;
+
+    try {
+        const input = pages.map(p => `[${p.date}] ${p.summary} | 情绪:${p.emotional_tone}`).join('\n');
+        const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
+            body: JSON.stringify({
+                model: "gemini-2.5-flash",
+                messages: [{ role: "user", content: `基于以下日页面生成周总结（200-300字）：\n${input}\n输出纯JSON：{"summary":"","key_themes":[],"overall_tone":""}` }],
+                response_format: { type: "json_object" }
+            })
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const result = JSON.parse(data.choices[0].message.content.replace(/```json|```/g, '').trim());
+        const summary = { week: weekKey, summary: result.summary || '', key_themes: result.key_themes || [], overall_tone: result.overall_tone || '', created_at: new Date().toISOString() };
+        weeklies.push(summary);
+        saveWeeklySummaries(weeklies);
+        console.log(`📋 [周总结] ${weekKey} 已生成`);
+        return summary;
+    } catch(e) { console.log('📋 [周总结] 失败:', e.message); return null; }
+}
+
+async function generateMonthlySummary() {
+    const routerKey = process.env.ROUTER_API_KEY;
+    if (!routerKey) return null;
+    const today = new Date();
+    const monthKey = getMonthKey(today);
+    const monthlies = loadMonthlySummaries();
+    if (monthlies.some(m => m.month === monthKey)) return null;
+    const weeklies = loadWeeklySummaries().filter(w => w.week.startsWith(monthKey));
+    if (weeklies.length < 2) return null;
+
+    try {
+        const input = weeklies.map(w => `[${w.week}] ${w.summary} | 主题:${(w.key_themes||[]).join(',')}`).join('\n');
+        const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
+            body: JSON.stringify({
+                model: "gemini-2.5-flash",
+                messages: [{ role: "user", content: `基于以下周总结生成月总结（300-500字）：\n${input}\n输出纯JSON：{"summary":"","key_themes":[],"highlights":[],"overall_tone":""}` }],
+                response_format: { type: "json_object" }
+            })
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        const result = JSON.parse(data.choices[0].message.content.replace(/```json|```/g, '').trim());
+        const summary = { month: monthKey, summary: result.summary || '', key_themes: result.key_themes || [], highlights: result.highlights || [], overall_tone: result.overall_tone || '', created_at: new Date().toISOString() };
+        monthlies.push(summary);
+        saveMonthlySummaries(monthlies);
+        console.log(`📦 [月总结] ${monthKey} 已生成`);
+        return summary;
+    } catch(e) { console.log('📦 [月总结] 失败:', e.message); return null; }
+}
+
+function formatTimeContext() {
+    const now = new Date();
+    const todayKey = getDateKey(now);
+    const pages = loadDailyPages();
+    const weeklies = loadWeeklySummaries();
+    const monthlies = loadMonthlySummaries();
+    const parts = [];
+
+    for (let i = 0; i < 3; i++) {
+        const d = new Date(now); d.setDate(d.getDate() - i);
+        const key = getDateKey(d);
+        const page = pages.find(p => p.date === key);
+        const label = i === 0 ? '今天' : i === 1 ? '昨天' : '前天';
+        if (page) parts.push(`📅 ${label}(${key.slice(5)})：${page.summary.substring(0, 120)}`);
+    }
+
+    const weekliesSorted = weeklies.sort((a, b) => b.week.localeCompare(a.week));
+    for (let i = 0; i < 2 && i < weekliesSorted.length; i++) {
+        parts.push(`📋 周总结(${weekliesSorted[i].week})：${weekliesSorted[i].summary.substring(0, 100)}`);
+    }
+
+    const monthliesSorted = monthlies.sort((a, b) => b.month.localeCompare(a.month));
+    for (let i = 0; i < 2 && i < monthliesSorted.length; i++) {
+        parts.push(`📦 月总结(${monthliesSorted[i].month})：${monthliesSorted[i].summary.substring(0, 120)}`);
+    }
+
+    if (parts.length === 0) return '';
+    const joined = parts.join('\n');
+    return `\n【时间线回忆】\n${joined.substring(0, 1500)}\n`;
 }
 
 // ==========================================
@@ -1187,6 +1327,12 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
     } catch (e) { console.error("🌙 [Dream·固化层] 失败:", e.message); }
 
     dreamLog.duration_ms = Date.now() - startedAt;
+    generateDailyPage(script).then(page => {
+        if (page) {
+            generateWeeklySummary().catch(() => {});
+            generateMonthlySummary().catch(() => {});
+        }
+    }).catch(() => {});
     addDreamLog(dreamLog);
 }
 
@@ -1345,6 +1491,7 @@ if (useCrossplatform && zepMessages.length > 0) {
 
         const finalSystemPrompt = buildFinalSystemPrompt([
             { label: '环境参数', content: envContext },
+            { label: '时间线', content: formatTimeContext() },
             { label: '用户画像', content: formatProfileForPrompt() },
             { label: '高权重浮现', content: unresolvedContext },
             { label: '长期记忆雷达', content: longTermContext },
@@ -2376,6 +2523,7 @@ app.post('/api/web-chat', async (req, res) => {
 
             const finalSystemPrompt = buildFinalSystemPrompt([
                 { label: '环境参数', content: envContext },
+                { label: '时间线', content: formatTimeContext() },
                 { label: '用户画像', content: formatProfileForPrompt() },
                 { label: '深层闪回', content: vectorSearchContext },
                 { label: '高权重浮现', content: unresolvedContext },
