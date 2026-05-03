@@ -2050,7 +2050,7 @@ async function smartSearch(){
     const r=await fetch('/api/debug-search?pwd='+encodeURIComponent(p),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q})});
     const d=await r.json();
     const matchIds=new Set(d.matches.map(m=>m.id));
-    document.querySelectorAll('.memory-card').forEach(card=>{
+    document.querySelectorAll('#memoryList .memory-card').forEach(card=>{
         const id=card.id.replace('card-','');
         if(matchIds.has(id)){
             card.style.opacity='1';
@@ -2071,7 +2071,7 @@ async function smartSearch(){
     document.getElementById('clearSearchBtn').style.display='inline-block';
 }
 function clearSearch(){
-    document.querySelectorAll('.memory-card').forEach(card=>{card.style.opacity='1';card.style.border='1px solid #e8e8e8';const info=card.querySelector('.match-info');if(info)info.remove();});
+    document.querySelectorAll('#memoryList .memory-card').forEach(card=>{card.style.opacity='1';card.style.border='1px solid #e8e8e8';const info=card.querySelector('.match-info');if(info)info.remove();});
     document.getElementById('clearSearchBtn').style.display='none';
     document.getElementById('searchInput').value='';
     filterAll();
@@ -2085,7 +2085,7 @@ function setFilter(pill,cat,source){
 }
 function filterAll(){
     const kw=document.getElementById('searchInput').value.toLowerCase();
-    document.querySelectorAll('.memory-card').forEach(c=>{
+    document.querySelectorAll('#memoryList .memory-card').forEach(c=>{
         const matchK = c.textContent.toLowerCase().includes(kw);
         const matchC = c.dataset.category === currentCat;
         const matchS = currentSource === 'all' || c.dataset.source === currentSource;
