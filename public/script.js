@@ -41,6 +41,16 @@
     draw();
 })();
 
+// ==================== Markdown 渲染 ====================
+if (typeof marked !== 'undefined') { marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false }); }
+function renderMarkdown(text) { if (!text) return ''; if (typeof marked !== 'undefined') { try { return marked.parse(text); } catch(e) { return text; } } return text.replace(/\n/g, '<br>'); }
+
+// ==================== 版本化消息辅助函数 ====================
+function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; return msg.versions[idx] || msg.versions[0]; } return msg; }
+function getVersionCount(msg) { return (msg.versions && msg.versions.length) ? msg.versions.length : 1; }
+function getActiveVersionIndex(msg) { if (msg.versions && msg.versions.length > 0) return msg.activeVersion || 0; return 0; }
+function ensureVersioned(msg) { if (msg.versions) return; const { role, ...rest } = msg; msg.versions = [rest]; msg.activeVersion = 0; delete msg.content; delete msg.thinking; delete msg.time; delete msg.model; delete msg.fullTime; delete msg.image; }
+
 // ==================== 核心数据 ====================
 const START_DATE = '2025-04-20';
 let allDiaryEntries = [];
@@ -306,39 +316,57 @@ function renderChatMessages(){
     const session = getActiveSession();
     if(!session || !session.messages) return;
 
-session.messages.forEach((m, index) => {
-        // 1. 创建包裹层大盒子
+    session.messages.forEach((m, index) => {
+        const v = getActiveVersion(m);
+        const vCount = getVersionCount(m);
+        const vIdx = getActiveVersionIndex(m);
+
         const rowDiv = document.createElement('div');
         rowDiv.className = 'msg-row ' + (m.role === 'user' ? 'user' : 'sys');
-     rowDiv.setAttribute('data-msg-index', index); // 👈 加这一行
+        rowDiv.setAttribute('data-msg-index', index);
 
-        // 2. 创建原来的聊天气泡
         const div = document.createElement('div');
         div.className = 'msg ' + (m.role === 'user' ? 'user' : 'sys');
 
         let htmlContent = '';
-        if(m.image) htmlContent += `<img src="${m.image}" style="max-width:200px;border-radius:8px;margin-bottom:5px;box-shadow:0 2px 10px rgba(0,0,0,0.3);display:block;">`;
-        if(m.thinking) htmlContent += `<div class="think-box"><div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">${m.thinking.replace(/\n/g, '<br>')}</div></div>`;
-        htmlContent += `<div>${m.content || ''}</div>`;
+        if(v.image) htmlContent += '<img src="' + v.image + '" style="max-width:200px;border-radius:8px;margin-bottom:5px;box-shadow:0 2px 10px rgba(0,0,0,0.3);display:block;">';
+        if(v.thinking) htmlContent += '<div class="think-box"><div class="think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display==="none"?"block":"none";">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">' + v.thinking.replace(/\n/g,'<br>') + '</div></div>';
+        if (m.role === 'user') {
+            htmlContent += '<div>' + (v.content || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
+        } else {
+            htmlContent += '<div class="md-content">' + renderMarkdown(v.content || '') + '</div>';
+        }
+
+        const timeStr = v.fullTime ? new Date(v.fullTime).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) : (v.time || '');
+        const modelStr = v.model || '';
+        if(timeStr) htmlContent += '<div class="msg-meta">' + timeStr + (modelStr ? ' · ' + modelStr : '') + '</div>';
+
+        let actionsHtml = '<div class="msg-actions">';
+        if(vCount > 1) {
+            actionsHtml += '<div class="version-nav"><button class="ver-btn" onclick="switchVersion(' + index + ',-1)"' + (vIdx===0?' disabled':'') + '>‹</button><span class="ver-label">' + (vIdx+1) + ' / ' + vCount + '</span><button class="ver-btn" onclick="switchVersion(' + index + ',1)"' + (vIdx===vCount-1?' disabled':'') + '>›</button></div>';
+        }
+        if(m.role === 'user') actionsHtml += '<button class="msg-inline-btn" onclick="editUserMessage(' + index + ')" title="编辑">✎</button>';
+        if(m.role === 'assistant') actionsHtml += '<button class="msg-inline-btn" onclick="regenerateAt(' + index + ')" title="重新生成">↻</button>';
+        actionsHtml += '</div>';
+        htmlContent += actionsHtml;
+
         div.innerHTML = htmlContent;
-        
         rowDiv.appendChild(div);
 
-        // 3. 💥 如果是沈望发的消息，在旁边加上小按键
         if(m.role !== 'user'){
             const btn = document.createElement('button');
             btn.className = 'msg-action-btn';
             btn.innerHTML = '⋮';
-            // 点击直接在鼠标位置呼出菜单！
-            btn.onclick = (e) => showContextMenu(e.clientX, e.clientY, m);
+            btn.onclick = (e) => showContextMenu(e.clientX, e.clientY, v);
             rowDiv.appendChild(btn);
         }
 
         win.appendChild(rowDiv);
     });
-    
-// 💥 消息渲染完毕，召唤终极置底魔法
     forceScrollToChatBottom();
+}
+
+
 }
 
 function newChatWindow(){
@@ -382,6 +410,8 @@ async function sendChat() {
     const session = getActiveSession();
     const win = document.getElementById('chatWindow');
 
+    await flushDirtyToZep(session);
+
     // --- 1. 把你的消息展示到屏幕上 ---
    const uRow = document.createElement('div'); uRow.className = 'msg-row user';
     const uDiv = document.createElement('div'); uDiv.className = 'msg user';
@@ -400,14 +430,15 @@ async function sendChat() {
     win.appendChild(uRow); win.scrollTop = win.scrollHeight;
 
    // 💥 铁律执行：历史记录里绝对只存文本和时间，图片滚蛋！省下巨量 Token！
-    session.messages.push({ role: 'user', content: val, fullTime: new Date().toISOString() });
+    session.messages.push({ role: 'user', versions: [{ content: val, fullTime: new Date().toISOString() }], activeVersion: 0 });
     saveToCloud();
 
    // --- 2. 准备好沈望回复的空白气泡 ---
     const sRow = document.createElement('div'); sRow.className = 'msg-row sys';
     const sDiv = document.createElement('div'); sDiv.className = 'msg sys';
     
-    sDiv.innerHTML = '<span class="typing-cursor"></span>';
+    sDiv.innerHTML = '<span class="loading-indicator">⟡ 信号传输中…</span>';
+    sDiv.classList.add('msg-loading');
     sRow.appendChild(sDiv);
     
     // 准备好小按键，打字时先隐身
@@ -459,13 +490,13 @@ async function sendChat() {
 // .slice(-21, -1) 的意思是从最后数第 31 条开始，取到倒数第 2 条
 // 这样沈望既能记得刚刚聊了什么，又不会因为看太多废话而烧掉你的 Token
 var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
-    // 🛡️ 防爆盾：如果 content 是数组（旧的图片消息），只取文字
-    var safeContent = m.content;
-    if (Array.isArray(m.content)) {
+    var v = getActiveVersion(m);
+    var safeContent = v.content;
+    if (Array.isArray(v.content)) {
         var textParts = [];
-        for (var j = 0; j < m.content.length; j++) {
-            if (m.content[j].type === 'text') {
-                textParts.push(m.content[j].text || '');
+        for (var j = 0; j < v.content.length; j++) {
+            if (v.content[j].type === 'text') {
+                textParts.push(v.content[j].text || '');
             }
         }
         safeContent = textParts.join(' ') || '（发送了图片）';
@@ -623,7 +654,7 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
 
         // --- 5. 存入云端记忆和按钮绑定 ---
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-       const assistantMsg = { role: 'assistant', content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() };
+       const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() }], activeVersion: 0, _zepDirty: true };
         session.messages.push(assistantMsg);
         saveToCloud();
 
@@ -631,7 +662,8 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
         actionBtn.onclick = (e) => showContextMenu(e.clientX, e.clientY, assistantMsg);
 
     } catch (err) {
-        sDiv.innerHTML = `【网络崩溃】请检查代理或服务是否启动: ${err.message}`;
+        sDiv.innerHTML = '<div class="msg-error"><div>【网络崩溃】</div><div class="msg-error-detail">'+err.message+'</div><button class="msg-retry-btn" onclick="retryLastMessage(this)">↻ 重新发送</button></div>';
+        sDiv.classList.add('msg-failed');
     }
 }
 
@@ -1380,7 +1412,8 @@ function buildChatIndex() {
         .filter(m => m.content && m.content.trim().length > 0);
 
     list.innerHTML = indexable.map(m => {
-        const preview = (m.content || '').replace(/\n/g, ' ').substring(0, 60);
+        const v = getActiveVersion(m);
+        const preview = (v.content || '').replace(/\n/g, ' ').substring(0, 60);
         const roleLabel = m.role === 'user' ? '江鱼' : '沈望';
         const roleClass = m.role === 'user' ? 'idx-role-user' : 'idx-role-sys';
         const timeStr = m.time || '';
@@ -1515,3 +1548,114 @@ async function toggleToolUI(name) { await fetch('/api/tools-toggle?tool=' + name
 async function toggleAllToolsUI() { await fetch('/api/tools-toggle', { method: 'POST' }); syncMcpTools(); }
 
 syncMcpTools();
+
+// ═══ 版本翻页 + 编辑 + 重新生成 + 延迟Zep ═══
+function switchVersion(msgIndex, direction) {
+    const session = getActiveSession();
+    const msg = session.messages[msgIndex];
+    if (!msg || !msg.versions || msg.versions.length <= 1) return;
+    let newIdx = (msg.activeVersion || 0) + direction;
+    if (newIdx < 0) newIdx = 0;
+    if (newIdx >= msg.versions.length) newIdx = msg.versions.length - 1;
+    msg.activeVersion = newIdx;
+    if (msg.role === 'assistant') msg._zepDirty = true;
+    saveToCloud(); renderChatMessages();
+}
+
+function editUserMessage(msgIndex) {
+    const session = getActiveSession();
+    const msg = session.messages[msgIndex];
+    if (!msg || msg.role !== 'user') return;
+    const v = getActiveVersion(msg);
+    const newContent = prompt('编辑消息：', v.content || '');
+    if (newContent === null || newContent.trim() === '' || newContent.trim() === (v.content||'').trim()) return;
+    ensureVersioned(msg);
+    msg.versions.push({ content: newContent.trim(), fullTime: new Date().toISOString() });
+    msg.activeVersion = msg.versions.length - 1;
+    session.messages.splice(msgIndex + 1);
+    saveToCloud(); renderChatMessages();
+    sendChat();
+}
+
+function regenerateAt(msgIndex) {
+    const session = getActiveSession();
+    const msg = session.messages[msgIndex];
+    if (!msg || msg.role !== 'assistant') return;
+    ensureVersioned(msg);
+    session.messages.splice(msgIndex + 1);
+    window._regenerateTargetIndex = msgIndex;
+    saveToCloud(); renderChatMessages();
+    regenerateSend(msgIndex);
+}
+
+async function regenerateSend(aiMsgIndex) {
+    const session = getActiveSession();
+    const aiMsg = session.messages[aiMsgIndex];
+    const win = document.getElementById('chatWindow');
+    let userText = '';
+    for (let i = aiMsgIndex - 1; i >= 0; i--) { if (session.messages[i].role === 'user') { userText = getActiveVersion(session.messages[i]).content || ''; break; } }
+    const rows = win.querySelectorAll('.msg-row');
+    const targetRow = rows[aiMsgIndex];
+    if (!targetRow) return;
+    const sDiv = targetRow.querySelector('.msg.sys');
+    if (!sDiv) return;
+    sDiv.innerHTML = '<span class="loading-indicator">⟡ 信号传输中…</span>';
+    sDiv.classList.add('msg-loading');
+    const currentSup = suppliers[activeSupIndex];
+    if (!currentSup) { sDiv.innerHTML = '<div class="msg-error"><div>【未配置供应商】</div></div>'; return; }
+    const modelEl = document.getElementById('modelSelect');
+    const selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
+    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; return {role:m.role,content:c}; });
+    if (historyMsgs.length > 50) historyMsgs = historyMsgs.slice(-50);
+    try {
+        let apiUrl = '/v1/chat/completions'; const supUrl = currentSup.url.toLowerCase();
+        if(supUrl.includes('dzzi')) apiUrl='/via/dzzi/v1/chat/completions'; else if(supUrl.includes('api521')) apiUrl='/via/api521/v1/chat/completions'; else if(supUrl.includes('ekan')) apiUrl='/via/ekan/v1/chat/completions'; else if(supUrl.includes('orange')) apiUrl='/via/orange/v1/chat/completions';
+        const streamToggle = document.getElementById('streamToggle');
+        const isStream = streamToggle ? streamToggle.checked : true;
+        const response = await fetch(apiUrl, { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true'}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream}) });
+        if (!response.ok) { const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
+        let fullReply='', thinkContent='';
+        if(isStream) {
+            const reader = response.body.getReader(); const decoder = new TextDecoder('utf-8'); let buffer='', inThinking=false;
+            sDiv.innerHTML=''; const thinkBox=document.createElement('div'); thinkBox.className='think-box'; thinkBox.style.display='none'; thinkBox.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content"></div>'; const thinkTextDiv=thinkBox.querySelector('.think-content'); sDiv.appendChild(thinkBox);
+            const mainTextDiv=document.createElement('div'); mainTextDiv.classList.add('md-content'); sDiv.appendChild(mainTextDiv);
+            while(true){const{done,value}=await reader.read(); if(done)break; buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); const d=p.choices[0].delta; if(d.reasoning_content){thinkContent+=d.reasoning_content; thinkBox.style.display='block'; thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');} if(d.content){const ck=d.content; if(ck.includes('<think>')){inThinking=true;thinkBox.style.display='block';continue;} if(ck.includes('</think>')){inThinking=false;continue;} if(inThinking){thinkContent+=ck;thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');}else{fullReply+=ck;mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';}} win.scrollTop=win.scrollHeight;}catch(e){}}}
+            mainTextDiv.innerHTML=renderMarkdown(fullReply);
+        } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; if(fullReply.includes('<think>')){const m=fullReply.match(/<think>([\s\S]*?)<\/think>/);if(m)thinkContent=m[1].trim();fullReply=fullReply.replace(/<think>[\s\S]*?<\/think>/g,'').trim();} sDiv.innerHTML=''; if(thinkContent){const tb=document.createElement('div');tb.className='think-box';tb.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content">'+thinkContent.replace(/\n/g,'<br>')+'</div>';sDiv.appendChild(tb);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
+        sDiv.classList.remove('msg-loading');
+        const timeStr=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
+        ensureVersioned(aiMsg); aiMsg.versions.push({content:fullReply,thinking:thinkContent,time:timeStr,model:selectedModel,fullTime:new Date().toISOString()}); aiMsg.activeVersion=aiMsg.versions.length-1; aiMsg._zepDirty=true;
+        saveToCloud(); renderChatMessages();
+    } catch(err) { sDiv.innerHTML='<div class="msg-error"><div>【网络崩溃】</div><div class="msg-error-detail">'+err.message+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); }
+}
+
+async function flushDirtyToZep(session) {
+    if (!session || !session.messages) return;
+    for (let i = 0; i < session.messages.length; i++) {
+        const msg = session.messages[i];
+        if (msg.role !== 'assistant' || !msg._zepDirty) continue;
+        const v = getActiveVersion(msg);
+        let userContent = '';
+        for (let j = i - 1; j >= 0; j--) { if (session.messages[j].role === 'user') { userContent = getActiveVersion(session.messages[j]).content || ''; if (Array.isArray(userContent)) userContent = userContent.filter(c => c.type === 'text').map(c => c.text).join(' ') || '（发送了图片）'; break; } }
+        try {
+            await fetch('/api/flush-zep', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userContent:userContent,aiContent:v.content||''}) });
+            console.log('✅ [延迟Zep] 已冲刷第'+i+'条消息');
+        } catch(e) { console.log('❌ [延迟Zep] 冲刷失败: '+e.message); }
+        delete msg._zepDirty;
+    }
+}
+
+function retryLastMessage(btn) {
+    const session = getActiveSession();
+    if (!session.messages.length) return;
+    const last = session.messages[session.messages.length - 1];
+    if (last.role === 'assistant' && last._failed) session.messages.pop();
+    const lastUser = [...session.messages].reverse().find(m => m.role === 'user');
+    if (!lastUser) return;
+    const userIdx = session.messages.lastIndexOf(lastUser);
+    session.messages.splice(userIdx);
+    const v = getActiveVersion(lastUser);
+    const input = document.getElementById('chatInput');
+    if (input) input.value = v.content || '';
+    saveToCloud(); renderChatMessages(); sendChat();
+}

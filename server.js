@@ -1985,6 +1985,17 @@ app.get('/api/tools-status', (req, res) => {
     res.json({ tools: TOOLS_ENABLED, names: BUILTIN_TOOLS.map(t => t.function.name) });
 });
 
+app.post('/api/flush-zep', async (req, res) => {
+    try {
+        const { userContent, aiContent } = req.body;
+        if (!userContent && !aiContent) return res.json({ ok: true });
+        const rpPrefix = rpModeActive ? '[RP模式] ' : '';
+        await saveToZep(rpPrefix + (userContent || ''), rpPrefix + (aiContent || ''));
+        console.log('📤 [延迟Zep] 已冲刷确认版本');
+        res.json({ ok: true });
+    } catch(e) { console.log('❌ [flush-zep]', e.message); res.json({ ok: false, error: e.message }); }
+});
+
 app.post('/api/tools-toggle', (req, res) => {
     const toolName = req.query.tool;
     if (toolName && TOOLS_ENABLED.hasOwnProperty(toolName)) {

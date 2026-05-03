@@ -2872,3 +2872,59 @@ body.light-mode .chat-sidebar {
 .loading-dots { animation: loadingPulse 1.5s ease-in-out infinite; letter-spacing: 1px; }
 @keyframes spin { 100% { transform: rotate(360deg); } }
 .spin-icon { animation: spin 1.2s linear infinite; }
+
+/* ═══ Markdown 渲染样式 ═══ */
+.md-content h1, .md-content h2, .md-content h3 { margin: 12px 0 6px; font-size: 1em; color: var(--gold); }
+.md-content h1 { font-size: 1.1em; }
+.md-content h2 { font-size: 1.05em; }
+.md-content p { margin: 4px 0; }
+.md-content ul, .md-content ol { padding-left: 20px; margin: 6px 0; }
+.md-content li { margin: 2px 0; }
+.md-content code { background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; font-family: 'Consolas','Monaco',monospace; font-size: 0.88em; color: var(--gold); }
+.md-content pre { background: rgba(0,0,0,0.4); border: 1px solid rgba(201,169,97,0.15); border-radius: 8px; padding: 12px; margin: 8px 0; overflow-x: auto; }
+.md-content pre code { background: transparent; padding: 0; color: var(--cream); font-size: 0.85em; line-height: 1.5; }
+.md-content blockquote { border-left: 2px solid var(--gold); padding-left: 12px; margin: 8px 0; color: var(--dim); font-style: italic; }
+.md-content strong { color: var(--gold); }
+.md-content a { color: var(--gold); text-decoration: underline; text-decoration-color: rgba(201,169,97,0.3); }
+.md-content table { border-collapse: collapse; margin: 8px 0; width: 100%; font-size: 0.9em; }
+.md-content th, .md-content td { border: 1px solid rgba(201,169,97,0.2); padding: 6px 10px; text-align: left; }
+.md-content th { background: rgba(201,169,97,0.08); color: var(--gold); }
+
+body.light-mode .md-content code { background: rgba(0,0,0,0.05) !important; color: #8B6914 !important; }
+body.light-mode .md-content pre { background: rgba(0,0,0,0.03) !important; border-color: rgba(196,165,123,0.2) !important; }
+body.light-mode .md-content pre code { color: #5C4033 !important; }
+body.light-mode .md-content strong { color: #5C4033 !important; }
+body.light-mode .md-content blockquote { border-left-color: #C4A57B !important; color: #8B7355 !important; }
+body.light-mode .md-content th { background: rgba(196,165,123,0.08) !important; color: #5C4033 !important; }
+body.light-mode .md-content th, body.light-mode .md-content td { border-color: rgba(196,165,123,0.2) !important; }
+
+/* ═══ 消息元信息（时间戳） ═══ */
+.msg-meta { font-size: 0.68em; color: var(--dim); opacity: 0.5; margin-top: 8px; text-align: right; font-family: monospace; transition: opacity 0.2s; }
+.msg:hover .msg-meta { opacity: 0.8; }
+body.light-mode .msg-meta { color: #B5A48C !important; }
+
+/* ═══ 加载与错误状态 ═══ */
+.loading-indicator { color: var(--dim); font-style: italic; font-size: 0.85em; animation: loadingPulse 1.5s ease-in-out infinite; }
+.msg-error { text-align: center; }
+.msg-error-detail { font-size: 0.75em; color: var(--dim); margin: 4px 0 10px; }
+.msg-retry-btn { padding: 6px 18px; background: rgba(196,83,74,0.1); border: 1px solid rgba(196,83,74,0.3); color: var(--warm-red); border-radius: 20px; cursor: pointer; font-family: inherit; font-size: 0.82em; transition: 0.2s; }
+.msg-retry-btn:hover { background: rgba(196,83,74,0.2); border-color: var(--warm-red); }
+body.light-mode .msg-retry-btn { background: rgba(196,83,74,0.06) !important; border-color: rgba(196,83,74,0.2) !important; }
+
+/* ═══ 气泡底部操作栏 + 翻页导航 ═══ */
+.msg-actions { display: flex; align-items: center; gap: 6px; margin-top: 6px; min-height: 24px; opacity: 0; transition: opacity 0.2s; }
+.msg:hover .msg-actions { opacity: 1; }
+.msg-actions:has(.version-nav) { opacity: 1; }
+.version-nav { display: flex; align-items: center; gap: 4px; }
+.ver-btn { width: 22px; height: 22px; border-radius: 50%; border: 1px solid rgba(201,169,97,0.25); background: transparent; color: var(--dim); cursor: pointer; font-size: 0.9em; display: flex; align-items: center; justify-content: center; transition: 0.2s; padding: 0; line-height: 1; }
+.ver-btn:hover:not(:disabled) { color: var(--gold); border-color: var(--gold); background: rgba(201,169,97,0.08); }
+.ver-btn:disabled { opacity: 0.25; cursor: default; }
+.ver-label { font-size: 0.7em; color: var(--dim); font-family: monospace; min-width: 28px; text-align: center; }
+.msg-inline-btn { width: 24px; height: 24px; border-radius: 50%; border: 1px solid rgba(201,169,97,0.2); background: transparent; color: var(--dim); cursor: pointer; font-size: 0.82em; display: flex; align-items: center; justify-content: center; transition: 0.2s; padding: 0; }
+.msg-inline-btn:hover { color: var(--gold); border-color: var(--gold); background: rgba(201,169,97,0.06); }
+
+body.light-mode .ver-btn { border-color: rgba(196,165,123,0.25) !important; color: #B5A48C !important; }
+body.light-mode .ver-btn:hover:not(:disabled) { color: #5C4033 !important; border-color: #C4A57B !important; background: rgba(255,249,230,0.5) !important; }
+body.light-mode .ver-label { color: #8B7355 !important; }
+body.light-mode .msg-inline-btn { border-color: rgba(196,165,123,0.2) !important; color: #B5A48C !important; }
+body.light-mode .msg-inline-btn:hover { color: #5C4033 !important; border-color: #C4A57B !important; background: rgba(255,249,230,0.4) !important; }
