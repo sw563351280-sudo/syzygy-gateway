@@ -1450,6 +1450,7 @@ app.post('/proxy/v1/chat/completions', async (req, res) => {
 app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (req, res) => {
     try {
                 let body = req.body;
+        const noMemory = req.headers['x-no-memory'] === 'true';
 
         let cleanMessages = [];
         let currentUserMsgText = "";
@@ -1673,18 +1674,24 @@ newMessages.forEach((m, i) => {
                         res.write(`data: ${JSON.stringify(chunk)}\n\n`);
                         res.write('data: [DONE]\n\n');
                         res.end();
-                        const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(aiContent);
-                        for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
-                        await saveToZepWithCounter(currentUserMsgText, ntClean, zepLastUserContent, zepMessages);
-                        tryAutoDream(currentUserMsgText);
+                        if (!noMemory) {
+                            const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(aiContent);
+                            for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+                            await saveToZepWithCounter(currentUserMsgText, ntClean, zepLastUserContent, zepMessages);
+                            tryAutoDream(currentUserMsgText);
+                        }
                         return;
                     } else {
                         const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(aiContent);
-                        for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+                        if (!noMemory) {
+                            for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+                        }
                         if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
                         const finalContent = ntMems.length > 0 ? ntClean : aiContent;
-                        await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages);
-                        tryAutoDream(currentUserMsgText);
+                        if (!noMemory) {
+                            await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages);
+                            tryAutoDream(currentUserMsgText);
+                        }
                         return res.status(200).json(toolData);
                     }
                 }
@@ -1757,12 +1764,14 @@ newMessages.forEach((m, i) => {
             if (sseBuffer.trim()) res.write(sseBuffer + '\n');
             res.end();
 
-            const { cleanText: streamCleanText, memories: streamMemories } = extractSaveMemoryTag(fullAiResponse);
-            for (const mem of streamMemories) {
-                smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+            if (!noMemory) {
+                const { cleanText: streamCleanText, memories: streamMemories } = extractSaveMemoryTag(fullAiResponse);
+                for (const mem of streamMemories) {
+                    smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+                }
+                await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages);
+                tryAutoDream(currentUserMsgText);
             }
-            await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages);
-            tryAutoDream(currentUserMsgText);
         } else {
             const rawText = await response.text();
             try {
@@ -1771,16 +1780,20 @@ newMessages.forEach((m, i) => {
                 let finalContent = assistantContent || "";
                 if (assistantContent) {
                     const { cleanText, memories } = extractSaveMemoryTag(assistantContent);
-                    for (const mem of memories) {
-                       smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+                    if (!noMemory) {
+                        for (const mem of memories) {
+                           smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+                        }
                     }
                     if (memories.length > 0) {
                         data.choices[0].message.content = cleanText;
                         finalContent = cleanText;
                     }
                 }
-                await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages);
-                tryAutoDream(currentUserMsgText);
+                if (!noMemory) {
+                    await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages);
+                    tryAutoDream(currentUserMsgText);
+                }
                 res.status(response.status).json(data);
             } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
         }

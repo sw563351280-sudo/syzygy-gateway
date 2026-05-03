@@ -654,7 +654,7 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
 
         // --- 5. 存入云端记忆和按钮绑定 ---
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-       const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() }], activeVersion: 0, _zepDirty: true };
+       const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() }], activeVersion: 0 };
         session.messages.push(assistantMsg);
         saveToCloud();
 
