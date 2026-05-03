@@ -330,7 +330,7 @@ function renderChatMessages(){
 
         let htmlContent = '';
         if(v.image) htmlContent += '<img src="' + v.image + '" style="max-width:200px;border-radius:8px;margin-bottom:5px;box-shadow:0 2px 10px rgba(0,0,0,0.3);display:block;">';
-        if(v.thinking) htmlContent += '<div class="think-box"><div class="think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">' + v.thinking.replace(/\n/g,'<br>') + '</div></div>';
+        if(v.thinking) htmlContent += '<div class="think-box"><div class="think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">' + v.thinking.replace(/\n/g,'<br>') + '</div></div>';
         if (m.role === 'user') {
             htmlContent += '<div>' + (v.content || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
         } else {
