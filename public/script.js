@@ -366,9 +366,6 @@ function renderChatMessages(){
     forceScrollToChatBottom();
 }
 
-
-}
-
 function newChatWindow(){
     const id = 'chat_' + Date.now().toString(36);
     chatSessions.push({ id, name: '频道 ' + (chatSessions.length + 1), messages: [] });
@@ -1409,14 +1406,14 @@ function buildChatIndex() {
     // 只索引有实质内容的消息（过滤掉占位符）
     const indexable = session.messages
         .map((m, i) => ({ ...m, originalIndex: i }))
-        .filter(m => m.content && m.content.trim().length > 0);
+        .filter(m => { const v = getActiveVersion(m); return v.content && v.content.trim().length > 0; });
 
     list.innerHTML = indexable.map(m => {
         const v = getActiveVersion(m);
         const preview = (v.content || '').replace(/\n/g, ' ').substring(0, 60);
         const roleLabel = m.role === 'user' ? '江鱼' : '沈望';
         const roleClass = m.role === 'user' ? 'idx-role-user' : 'idx-role-sys';
-        const timeStr = m.time || '';
+        const timeStr = v.time || '';
         return `
             <div class="chat-index-item" onclick="jumpToMessage(${m.originalIndex})">
                 <div class="idx-time">
