@@ -58,6 +58,7 @@ const LONG_TERM_FILE = path.join(DATA_DIR, 'long_term_memories.json');
 const ARCHIVE_FILE = path.join(DATA_DIR, 'deep_archive.json');
 const ROLEPLAY_FILE = path.join(DATA_DIR, 'roleplay_archives.json');
 const USER_PROFILE_FILE = path.join(DATA_DIR, 'user_profile.json');
+const DREAM_LOGS_FILE = path.join(DATA_DIR, 'dream_logs.json');
 
 // ==========================================
 // 🧲 向量记忆引擎
@@ -357,6 +358,20 @@ function initUserProfile() {
     console.log('🖼️ [用户画像] 已初始化');
 }
 
+function loadDreamLogs() { try { return JSON.parse(fs.readFileSync(DREAM_LOGS_FILE, 'utf8')); } catch(e) { return []; } }
+function saveDreamLogs(logs) { fs.writeFileSync(DREAM_LOGS_FILE, JSON.stringify(logs, null, 2), 'utf8'); }
+function addDreamLog(log) {
+    const logs = loadDreamLogs();
+    logs.push(log);
+    saveDreamLogs(logs);
+    console.log(`🌙 [Dream日志] 已记录 dream_${log.id} | 耗时${log.duration_ms}ms | 清理${log.results.cleaned.expired+log.results.cleaned.decayed}条 | 固化${log.results.consolidated.new_memories+log.results.consolidated.new_rp}条`);
+}
+function getLastDreamTime() {
+    const logs = loadDreamLogs();
+    if (logs.length === 0) return null;
+    return new Date(logs[logs.length - 1].triggered_at).getTime();
+}
+
 // ==========================================
 // 🔧 标签匹配函数
 // ==========================================
@@ -632,7 +647,7 @@ function surfaceUnresolvedMemories(topK = 2) {
 }
 
 //自动清洗管家（基于 arousal 衰减）
-function cleanAndArchiveMemories() {
+async function cleanAndArchiveMemories() {
     console.log('🧠 [沈望的意识后台] 正在巡检记忆保质期...');
     try {
         const memories = loadLongTermMemories();
@@ -688,6 +703,22 @@ function cleanAndArchiveMemories() {
             saveRoleplayMemories(rpActive);
             saveArchivedMemories(archived);
             console.log(`🎮 [卡带清扫] ${rpExpired}条过期RP记忆已归档`);
+        }
+
+        // 自动 Dream 触发：活跃记忆≥30条 且 距上次Dream超过7天
+        if (activeMemories.length >= 30) {
+            const lastDream = getLastDreamTime();
+            if (!lastDream || (Date.now() - lastDream) > 7 * 24 * 60 * 60 * 1000) {
+                console.log(`🌙 [自动Dream] 活跃记忆${activeMemories.length}条，触发定期整理...`);
+                const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=50`).catch(() => null);
+                if (zepRes?.ok) {
+                    const zepData = await zepRes.json();
+                    const zepMsgs = zepData.messages || [];
+                    if (zepMsgs.length >= 8) {
+                        backgroundMemoryDream(SESSION_ID, zepMsgs.slice(-50));
+                    }
+                }
+            }
         }
     } catch (e) {
         console.error('❌ [归档失败] 潜意识整理受阻:', e.message);
@@ -966,7 +997,8 @@ permanent_memories 只允许记录以下类型：
     "relationship_turning_points": "现实关系进展（字符串，严禁混入RP，无变化写'无更新'）",
     "pending_promises": "现实约定（字符串，无变化写'无更新'）",
    "permanent_memories": [{"content": "记忆内容", "tags": ["关键词1","关键词2"], "ttl": "保质期", "arousal": 0.0到1.0的浮点数}],
-"roleplay_memories": [{"content": "RP设定与进度", "tags": ["副本名", "角色"], "ttl": "保质期"}]
+"roleplay_memories": [{"content": "RP设定与进度", "tags": ["副本名", "角色"], "ttl": "保质期"}],
+"foresight": ["基于近期对话发现的隐含关联或前瞻推断，1-3条"]
 }
 permanent_memories: 最多2条，无重要事件则为空数组 []。每条必须包含 ttl 字段：
   - "3d"：临时琐事（今天想吃什么、临时安排）
@@ -1049,11 +1081,31 @@ ${chat}
 }
 
 async function backgroundMemoryDream(sessionId, zepMessages) {
-    console.log(`🌙 触发梦境机制！大管家开始为Session ${sessionId} 提纯记忆...`);
+    const startedAt = Date.now();
     const routerKey = process.env.ROUTER_API_KEY;
     if (!routerKey) return;
     const script = zepMessages.map(m => `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}`).join('\n');
 
+    const dreamLog = {
+        id: 'dream_' + Date.now().toString(36),
+        triggered_at: new Date().toISOString(),
+        trigger_type: 'auto',
+        input_count: zepMessages.length,
+        results: { cleaned: { expired: 0, decayed: 0 }, consolidated: { new_memories: 0, new_rp: 0 }, foresight: [] },
+        duration_ms: 0
+    };
+
+    // 🧹 整理层
+    console.log('🌙 [Dream·整理层] 巡检记忆...');
+    try {
+        const memBefore = loadLongTermMemories().length;
+        cleanAndArchiveMemories();
+        const memAfter = loadLongTermMemories().length;
+        dreamLog.results.cleaned.expired = memBefore - memAfter;
+    } catch(e) { console.log('🌙 [Dream·整理层] 跳过:', e.message); }
+
+    // 🧩 固化层
+    console.log('🌙 [Dream·固化层] AI提取记忆碎片...');
     try {
         const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
             method: 'POST',
@@ -1069,24 +1121,29 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
         const summaryJson = JSON.parse(summaryJsonStr);
         console.log("✅ 潜意识便利贴已成功更新（含次元壁分类）！");
 
-        //现实记忆入库（透传 arousal）
         if (summaryJson.permanent_memories && Array.isArray(summaryJson.permanent_memories)) {
             const capped = summaryJson.permanent_memories.slice(0, 2);
             for (const mem of capped) {
                 if (typeof mem === 'object' && mem.content && mem.content.trim()) {
                     smartMemoryWrite(mem.content, mem.tags, 'butler_summary', mem.ttl || '1m', mem.arousal || 0.5);
+                    dreamLog.results.consolidated.new_memories++;
                 }
             }
         }
-
-        // RP 游戏档案入库
         if (summaryJson.roleplay_memories && Array.isArray(summaryJson.roleplay_memories)) {
             const cappedRP = summaryJson.roleplay_memories.slice(0, 3);
             for (const mem of cappedRP) {
                 if (typeof mem === 'object' && mem.content && mem.content.trim()) {
                     addRoleplayMemory(mem.content, mem.tags || [], mem.ttl || '1w');
+                    dreamLog.results.consolidated.new_rp++;
                 }
-            }if (cappedRP.length > 0) console.log(`🎮 管家提取了${cappedRP.length} 条 RP 游戏设定！已放入专属卡带箱。`);
+            }
+        }
+
+        // 🔮 生长层
+        if (summaryJson.foresight && Array.isArray(summaryJson.foresight) && summaryJson.foresight.length > 0) {
+            dreamLog.results.foresight = summaryJson.foresight;
+            console.log(`🔮 [Dream·生长层] AI前瞻洞察: ${summaryJson.foresight.map(f => f.substring(0,30)).join(' | ')}`);
         }
 
         const summaryMeta = { current_state: summaryJson, last_summarized_at: new Date().toISOString() };
@@ -1096,7 +1153,10 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
             body: JSON.stringify({ metadata: summaryMeta })
         });
         updateUserProfile().catch(e => console.log('🖼️ [用户画像] 后台更新异常:', e.message));
-    } catch (e) { console.error("⚠️ 大管家做梦失败，静默跳过：", e.message); }
+    } catch (e) { console.error("🌙 [Dream·固化层] 失败:", e.message); }
+
+    dreamLog.duration_ms = Date.now() - startedAt;
+    addDreamLog(dreamLog);
 }
 
 
