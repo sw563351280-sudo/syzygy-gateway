@@ -899,6 +899,29 @@ function extractText(content) {
     return "[未知格式消息]";
 }
 
+const SLEEP_KEYWORDS = ['去睡吧', '晚安', '睡觉去', '休息吧', '早点睡', '快去睡', '睡了', '困了睡觉'];
+let lastAutoDreamTime = 0;
+
+async function tryAutoDream(userText) {
+    if (!userText) return;
+    const triggered = SLEEP_KEYWORDS.some(kw => userText.includes(kw));
+    if (!triggered) return;
+    if (Date.now() - lastAutoDreamTime < 3600000) {
+        console.log('🌙 [自动Dream] 1小时内已触发过，跳过');
+        return;
+    }
+    lastAutoDreamTime = Date.now();
+    console.log('🌙 [自动Dream] 检测到睡眠关键词，触发Dream...');
+    try {
+        const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=50`).catch(() => null);
+        if (zepRes?.ok) {
+            const zepData = await zepRes.json();
+            const msgs = zepData.messages || [];
+            if (msgs.length >= 4) backgroundMemoryDream(SESSION_ID, msgs.slice(-50), 'auto');
+        }
+    } catch(e) { console.log('🌙 [自动Dream] 失败:', e.message); }
+}
+
 async function saveToZep(userMsg, aiMsg) {
     try {
         await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`, {
@@ -1441,6 +1464,7 @@ newMessages.forEach((m, i) => {
                 smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl);
             }
             await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages);
+            tryAutoDream(currentUserMsgText);
         } else {
             const rawText = await response.text();
             try {
@@ -1458,6 +1482,7 @@ newMessages.forEach((m, i) => {
                     }
                 }
                 await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages);
+                tryAutoDream(currentUserMsgText);
                 res.status(response.status).json(data);
             } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
         }
@@ -1671,6 +1696,12 @@ app.post('/trigger-dream', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/dream-logs', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
+    const logs = loadDreamLogs();
+    res.json(logs.slice(-20).reverse());
+});
+
 app.post('/trigger-profile-update', async (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     try {
@@ -1789,7 +1820,22 @@ app.get('/long-term', (req, res) => {
     const archivedMemories = loadArchivedMemories();
     const rpMemories = loadRoleplayMemories();
     const profile = loadUserProfile();
+    const dreamLogs = loadDreamLogs().slice(-3).reverse();
     const pwd_param = encodeURIComponent(pwd);
+
+    const dreamCard = `
+    <div class="memory-card" style="background:#f3e5f5;border-left:4px solid #7c4dff;margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <b style="font-size:16px;">🌙 Dream 日志</b>
+            <button class="normal" onclick="triggerDreamManual()" style="font-size:11px;padding:3px 10px;background:#7c4dff;color:white;border:none;">🌙 手动触发 Dream</button>
+        </div>
+        ${dreamLogs.length === 0 ? '<p style="color:#999;font-size:13px;">暂无 Dream 记录</p>' : dreamLogs.map(log => `
+        <div style="margin-bottom:8px;padding:8px;background:white;border-radius:6px;font-size:12px;">
+            <div>🌙 ${new Date(log.triggered_at).toLocaleString('zh-CN')} | ${log.trigger_type === 'manual' ? '🖐 手动' : '🤖 自动'} | 清理${log.results.cleaned.expired + log.results.cleaned.decayed}条 | 固化${log.results.consolidated.new_memories + log.results.consolidated.new_rp}条 | ${(log.duration_ms / 1000).toFixed(1)}s</div>
+            ${log.results.foresight?.length > 0 ? `<details style="margin-top:4px;"><summary style="cursor:pointer;color:#7c4dff;font-size:11px;">🔮 前瞻推断 (${log.results.foresight.length}条)</summary>${log.results.foresight.map(f => `<div style="margin:2px 0 2px 12px;color:#555;">• ${f}</div>`).join('')}</details>` : ''}
+        </div>
+        `).join('')}
+    </div>`;
 
     const profileUpdatedAt = profile.last_full_update ? new Date(profile.last_full_update).toLocaleString('zh-CN') : '尚未更新';
     const profileCard = `
@@ -1928,6 +1974,7 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
         <span class="pill archive-pill" onclick="setFilter(this,'archived','all')">🥶 冰封档案 (${counts.archived})</span>
     </div>
     ${profileCard}
+    ${dreamCard}
     <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;font-size:13px;flex-wrap:wrap;">
         <span style="color:#e65100;">🔥 高热度 ${heatHigh}条</span>
         <span style="color:#f57f17;">🌡️ 中热度 ${heatMid}条</span>
@@ -1950,6 +1997,7 @@ let currentCat='active';
 let currentSource='all';
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2000);}
 async function updateProfile(){const p=new URLSearchParams(window.location.search).get('pwd');if(!p)return alert('缺少密码');const r=await fetch('/trigger-profile-update?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅ 更新成功':'❌ '+(d.error||d.message));if(d.success)location.reload();}
+async function triggerDreamManual(){const p=new URLSearchParams(window.location.search).get('pwd');if(!p)return alert('缺少密码');const r=await fetch('/trigger-dream?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅ Dream已触发':'❌ '+(d.error||d.message));if(d.success)location.reload();}
 function openModal(){document.getElementById('addModal').classList.add('show');}
 function closeModal(){document.getElementById('addModal').classList.remove('show');}
 
@@ -2399,6 +2447,7 @@ app.post('/api/web-chat', async (req, res) => {
                 aiReply = memories.length > 0 ? cleanText : aiReply;
 
                 await saveToZepWithCounter(text || '（发送了一张图片）', aiReply, zepLastUserContent, zepMessages);
+                tryAutoDream(text);
 
                 resolve({ text: aiReply, thinking: thinking });
             } catch (err) {
