@@ -600,7 +600,7 @@ function addRoleplayMemory(content, tags = [], ttl = '1w') {
 }
 
 //现实记忆新增（加入 arousal + activation_count）
-function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', arousal = 0.5) {
+function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', arousal = 0.5, emotionalWeight = 0) {
     const memories = loadLongTermMemories();
     if (memories.some(m => m.content === content.trim())) {
         console.log(`🛡️ [防抽风拦截] 阻止了一条重复的现实记忆: ${content.substring(0, 15)}...`);
@@ -623,7 +623,7 @@ function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', 
         arousal: arousal || 0.5,
         activation_count: 0,
         heat: arousal || 0.5,
-        emotional_weight: 0,
+        emotional_weight: emotionalWeight || 0,
         last_recalled_at: null,
         query_hashes: []
     };
@@ -691,6 +691,16 @@ async function scanLongTermRadar(userText) {
             const hash = simpleHash(userText);
             if (!m.query_hashes) m.query_hashes = [];
             if (!m.query_hashes.includes(hash)) m.query_hashes.push(hash);
+            const uniqueQueries = new Set(m.query_hashes).size;
+            const isHighEmotion = (m.arousal >= 0.7 || (m.emotional_weight || 0) >= 5);
+            const actThreshold = isHighEmotion ? 6 : 10;
+            const divThreshold = isHighEmotion ? 3 : 5;
+            if (m.expires_at !== null && m.activation_count >= actThreshold && uniqueQueries >= divThreshold) {
+                m.expires_at = null;
+                m.ttl = 'perm';
+                m.pinned = true;
+                console.log(`🔒 [自动锁定] 记忆[${m.id}]因频繁跨话题召回(激活${m.activation_count}次/话题${uniqueQueries}个)，升级为永久记忆`);
+            }
             updated = true;
         }
     }
@@ -728,6 +738,20 @@ async function scanRoleplayRadar(userText) {
     return `\n\n==========\n【🎮 游戏卡带已插入：检测到江鱼想玩/继续以下设定的Roleplay】\n${results.map(r => `• 🎭 [设定/进度: ${(r.memory.tags||[]).join(',')}] ${r.memory.content}`).join('\n')}\n👉 【最高指令】：请沈望立刻抛弃现实包袱，无缝接入该游戏设定，陪她沉浸式演绎！\n==========\n`;
 }
 
+
+const EMOTION_KEYWORDS = {
+    high: ['哭', '崩溃', '好难过', '太开心了', '气死', '想死', '害怕', '恐惧', '绝望', '狂喜', '感动哭'],
+    medium: ['难过', '开心', '生气', '焦虑', '担心', '紧张', '兴奋', '委屈', '心疼', '想你'],
+    low: ['累', '困', '烦', '无聊', '还好', '一般']
+};
+
+function detectEmotion(text) {
+    if (!text) return 0;
+    if (EMOTION_KEYWORDS.high.some(kw => text.includes(kw))) return 8;
+    if (EMOTION_KEYWORDS.medium.some(kw => text.includes(kw))) return 5;
+    if (EMOTION_KEYWORDS.low.some(kw => text.includes(kw))) return 2;
+    return 0;
+}
 
 function simpleHash(str) {
     let h = 0;
@@ -923,7 +947,7 @@ function getTTLLabel(mem) {
 // ==========================================
 //记忆写入统一入口（透传 arousal）
 // ==========================================
-function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5) {
+function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5, userMsg = null) {
     const validTags = (tags || []).filter(t => t.length >= 2);
     if (!content || content.trim().length < 10 || validTags.length === 0) {
         console.log(`🛡️ [统一守门] 拦截低质量记忆: ${(content || '').substring(0, 30)}`);
@@ -933,7 +957,8 @@ function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5) {
         return addRoleplayMemory(content, validTags, ttl);
     }
     const effectiveArousal = source === 'ai_active' ? Math.max(arousal, 0.8) : arousal;
-    return addLongTermMemory(content, source, validTags, ttl, effectiveArousal);
+    const emoWeight = (userMsg && source === 'ai_active') ? detectEmotion(userMsg) : 0;
+    return addLongTermMemory(content, source, validTags, ttl, effectiveArousal, emoWeight);
 }
 
 // ==========================================
@@ -1608,7 +1633,7 @@ newMessages.forEach((m, i) => {
 
             const { cleanText: streamCleanText, memories: streamMemories } = extractSaveMemoryTag(fullAiResponse);
             for (const mem of streamMemories) {
-                smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl);
+                smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
             }
             await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages);
             tryAutoDream(currentUserMsgText);
@@ -1621,7 +1646,7 @@ newMessages.forEach((m, i) => {
                 if (assistantContent) {
                     const { cleanText, memories } = extractSaveMemoryTag(assistantContent);
                     for (const mem of memories) {
-                       smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl);
+                       smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
                     }
                     if (memories.length > 0) {
                         data.choices[0].message.content = cleanText;
@@ -2590,7 +2615,7 @@ app.post('/api/web-chat', async (req, res) => {
 
                 const { cleanText, memories } = extractSaveMemoryTag(aiReply);
                 for (const mem of memories) {
-                    smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl);
+                    smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text);
                 }
                 aiReply = memories.length > 0 ? cleanText : aiReply;
 
