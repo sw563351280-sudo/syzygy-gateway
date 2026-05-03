@@ -2165,23 +2165,6 @@ app.get('/long-term', (req, res) => {
         `).join('')}
     </div>`;
 
-    const toolsCard = `
-    <div class="memory-card" style="background:#f8f9fa;border-left:4px solid #4fc3f7;margin-bottom:16px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <b style="font-size:16px;">🔧 AI 工具</b>
-            <button class="normal" onclick="toggleAllTools()" style="font-size:11px;padding:3px 10px;">切换全部</button>
-        </div>
-        ${BUILTIN_TOOLS.map(t => {
-            const name = t.function.name;
-            const on = TOOLS_ENABLED[name];
-            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px;margin:2px 0;background:white;border-radius:6px;font-size:12px;">
-                <span>${on ? '☑' : '☐'} <b>${name}</b> <span style="color:#888;">${t.function.description.substring(0,30)}...</span></span>
-                <button class="normal" onclick="toggleTool('${name}')" style="font-size:10px;padding:2px 8px;background:${on ? '#e8f5e9' : '#ffebee'};color:${on ? '#2e7d32' : '#c62828'};">${on ? '✅' : '❌'}</button>
-            </div>`;
-        }).join('')}
-        <div style="margin-top:6px;font-size:11px;color:#888;">关闭所有工具 = 无 Function Calling，回复速度最快</div>
-    </div>`;
-
     const profileUpdatedAt = profile.last_full_update ? new Date(profile.last_full_update).toLocaleString('zh-CN') : '尚未更新';
     const profileCard = `
     <div class="memory-card" style="background:#f0f8ff;border-left:4px solid #1a73e8;margin-bottom:16px;">
@@ -2320,7 +2303,6 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
     </div>
     ${profileCard}
     ${dreamCard}
-    ${toolsCard}
     <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;font-size:13px;flex-wrap:wrap;">
         <span style="color:#e65100;">🔥 高热度 ${heatHigh}条</span>
         <span style="color:#f57f17;">🌡️ 中热度 ${heatMid}条</span>
@@ -2344,8 +2326,6 @@ let currentSource='all';
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2000);}
 async function updateProfile(){const p=new URLSearchParams(window.location.search).get('pwd');if(!p)return alert('缺少密码');const r=await fetch('/trigger-profile-update?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅ 更新成功':'❌ '+(d.error||d.message));if(d.success)location.reload();}
 async function triggerDreamManual(){const p=new URLSearchParams(window.location.search).get('pwd');if(!p)return alert('缺少密码');const r=await fetch('/trigger-dream?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅ Dream已触发':'❌ '+(d.error||d.message));if(d.success)location.reload();}
-async function toggleTool(name){await fetch('/api/tools-toggle?tool='+name,{method:'POST'});location.reload();}
-async function toggleAllTools(){await fetch('/api/tools-toggle',{method:'POST'});location.reload();}
 function openModal(){document.getElementById('addModal').classList.add('show');}
 function closeModal(){document.getElementById('addModal').classList.remove('show');}
 
