@@ -1499,11 +1499,14 @@ async function syncMcpTools() {
         }
         listEl.innerHTML = Object.entries(tools).map(([name, enabled]) => {
             const desc = { fetch_txt: '读取网页纯文本', fetch_html: '读取网页原始HTML', fetch_json: '读取JSON接口', fetch_github: '读取GitHub仓库' }[name] || '';
-            return `<div style=”display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:8px;border:1px solid rgba(79,195,247,0.2);”>
-                <div><span style=”color:#4fc3f7;”>${enabled ? '☑' : '☐'}</span> <span style=”color:white;font-size:0.85em;”>${name}</span> <span style=”color:#888;font-size:0.7em;”>${desc}</span></div>
-                <button onclick=”toggleToolUI('${name}')” style=”padding:3px 10px;border-radius:6px;border:none;cursor:pointer;font-size:0.75em;background:${enabled ? '#e8f5e9' : '#ffebee'};color:${enabled ? '#2e7d32' : '#c62828'};”>${enabled ? '✅' : '❌'}</button>
-            </div>`;
+            return '<div style=”display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:8px;border:1px solid rgba(79,195,247,0.2);”>' +
+                '<div><span style=”color:#4fc3f7;”>' + (enabled ? '☑' : '☐') + '</span> <span style=”color:white;font-size:0.85em;”>' + name + '</span> <span style=”color:#888;font-size:0.7em;”>' + desc + '</span></div>' +
+                '<button onclick=”toggleToolUI(\'' + name + '\')” style=”padding:3px 10px;border-radius:6px;border:none;cursor:pointer;font-size:0.75em;background:' + (enabled ? '#e8f5e9' : '#ffebee') + ';color:' + (enabled ? '#2e7d32' : '#c62828') + ';”>' + (enabled ? '✅' : '❌') + '</button>' +
+            '</div>';
         }).join('');
+        const allOn = Object.values(tools).every(v => v);
+        const toggle = document.getElementById('toolsMasterToggle');
+        if (toggle) toggle.checked = allOn;
     } catch (e) {
         listEl.innerHTML = '<div style=”color:#ff5252;”>模组同步失败</div>';
     }

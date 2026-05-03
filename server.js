@@ -1986,7 +1986,6 @@ app.get('/api/tools-status', (req, res) => {
 });
 
 app.post('/api/tools-toggle', (req, res) => {
-    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     const toolName = req.query.tool;
     if (toolName && TOOLS_ENABLED.hasOwnProperty(toolName)) {
         TOOLS_ENABLED[toolName] = !TOOLS_ENABLED[toolName];
@@ -2345,8 +2344,8 @@ let currentSource='all';
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2000);}
 async function updateProfile(){const p=new URLSearchParams(window.location.search).get('pwd');if(!p)return alert('缺少密码');const r=await fetch('/trigger-profile-update?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅ 更新成功':'❌ '+(d.error||d.message));if(d.success)location.reload();}
 async function triggerDreamManual(){const p=new URLSearchParams(window.location.search).get('pwd');if(!p)return alert('缺少密码');const r=await fetch('/trigger-dream?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅ Dream已触发':'❌ '+(d.error||d.message));if(d.success)location.reload();}
-async function toggleTool(name){const p=new URLSearchParams(window.location.search).get('pwd');await fetch('/api/tools-toggle?pwd='+encodeURIComponent(p)+'&tool='+name,{method:'POST'});location.reload();}
-async function toggleAllTools(){const p=new URLSearchParams(window.location.search).get('pwd');await fetch('/api/tools-toggle?pwd='+encodeURIComponent(p),{method:'POST'});location.reload();}
+async function toggleTool(name){await fetch('/api/tools-toggle?tool='+name,{method:'POST'});location.reload();}
+async function toggleAllTools(){await fetch('/api/tools-toggle',{method:'POST'});location.reload();}
 function openModal(){document.getElementById('addModal').classList.add('show');}
 function closeModal(){document.getElementById('addModal').classList.remove('show');}
 
