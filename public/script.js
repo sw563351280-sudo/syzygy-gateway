@@ -407,20 +407,7 @@ async function sendChat() {
     const sRow = document.createElement('div'); sRow.className = 'msg-row sys';
     const sDiv = document.createElement('div'); sDiv.className = 'msg sys';
     
-    // 💥 关键改动：在这里获取开关状态
-    const useToolsToggle = document.getElementById('useToolsToggle');
-    const useTools = useToolsToggle ? useToolsToggle.checked : false;
-
-    // 💥 关键改动：根据状态决定用哪个 HTML
-    if (useTools) {
-        sDiv.innerHTML = `
-            <div class="loading-dots" style="color: #4fc3f7; font-size: 0.9em; font-style: italic; display: flex; align-items: center; gap: 8px;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="spin-icon"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
-                沈望正在思考及检索模组...
-            </div>`;
-    } else {
-        sDiv.innerHTML = '<span class="typing-cursor"></span>';
-    }
+    sDiv.innerHTML = '<span class="typing-cursor"></span>';
     sRow.appendChild(sDiv);
     
     // 准备好小按键，打字时先隐身
@@ -513,8 +500,7 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
             body: JSON.stringify({
                 model: selectedModel,
                 messages: historyMsgs,
-                stream: isStream,
-                useTools: useTools // 💥 关键改动：把刚才拿到的状态塞进去发给后端
+                stream: isStream
             })
         });
 
@@ -1504,18 +1490,25 @@ async function syncMcpTools() {
     const listEl = document.getElementById('mcp-tools-list');
     if (!listEl) return;
     try {
-        const res = await fetch('/api/mcp/tools');
+        const res = await fetch('/api/tools-status');
         const data = await res.json();
-        listEl.innerHTML = data.tools.map(t => `
-            <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; border: 1px solid rgba(79,195,247,0.2);">
-                <div style="color: #4fc3f7; font-size: 0.85em; font-weight: bold; margin-bottom: 4px;">📂 ${t.name}</div>
-                <div style="color: #bbb; font-size: 0.7em; line-height: 1.3;">${t.description}</div>
-            </div>
-        `).join('');
+        const tools = data.tools || {};
+        if (Object.keys(tools).length === 0) {
+            listEl.innerHTML = '<div style=”color:#888;text-align:center;padding:10px;font-size:0.8em;”>暂无可用技能</div>';
+            return;
+        }
+        listEl.innerHTML = Object.entries(tools).map(([name, enabled]) => {
+            const desc = { fetch_txt: '读取网页纯文本', fetch_html: '读取网页原始HTML', fetch_json: '读取JSON接口', fetch_github: '读取GitHub仓库' }[name] || '';
+            return `<div style=”display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:8px;border:1px solid rgba(79,195,247,0.2);”>
+                <div><span style=”color:#4fc3f7;”>${enabled ? '☑' : '☐'}</span> <span style=”color:white;font-size:0.85em;”>${name}</span> <span style=”color:#888;font-size:0.7em;”>${desc}</span></div>
+                <button onclick=”toggleToolUI('${name}')” style=”padding:3px 10px;border-radius:6px;border:none;cursor:pointer;font-size:0.75em;background:${enabled ? '#e8f5e9' : '#ffebee'};color:${enabled ? '#2e7d32' : '#c62828'};”>${enabled ? '✅' : '❌'}</button>
+            </div>`;
+        }).join('');
     } catch (e) {
-        listEl.innerHTML = `<div style="grid-column: span 2; color:#ff5252;">模组同步失败</div>`;
+        listEl.innerHTML = '<div style=”color:#ff5252;”>模组同步失败</div>';
     }
 }
+async function toggleToolUI(name) { await fetch('/api/tools-toggle?tool=' + name, { method: 'POST' }); syncMcpTools(); }
+async function toggleAllToolsUI() { await fetch('/api/tools-toggle', { method: 'POST' }); syncMcpTools(); }
 
-// 记得在切换到“中枢”页面时调用它，或者初始化时调用一次
 syncMcpTools();

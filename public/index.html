@@ -121,10 +121,6 @@
         <input type="checkbox" id="streamToggle" checked>
         <span>打字机效果</span>
     </label>
-    <label class="chat-tool-item">
-        <input type="checkbox" id="useToolsToggle">
-        <span>⚙️ 启用技能 (慢速)</span>
-    </label>
     <label for="imgUpload" class="chat-tool-item">
         <span>◇</span>
         <span>发送图片</span>
@@ -228,9 +224,12 @@
         </div>
 
         <div class="glass" id="mcp-tools-card">
-    <p style="color:#4fc3f7; font-size:0.85em; margin-bottom:16px; border-left:2px solid #4fc3f7; padding-left:10px; letter-spacing:1px;">沈望 · 已载入技能模组</p>
-    <div id="mcp-tools-list" style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
-        <div style="grid-column: span 2; color:#888; text-align:center; padding:10px; font-size:0.8em;">正在同步模组状态...</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+        <p style="color:#4fc3f7; font-size:0.85em; margin:0; border-left:2px solid #4fc3f7; padding-left:10px; letter-spacing:1px;">沈望 · 已载入技能模组</p>
+        <button onclick="toggleAllToolsUI()" style="padding:4px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.05);color:white;cursor:pointer;font-size:0.75em;">切换全部</button>
+    </div>
+    <div id="mcp-tools-list" style="display:flex;flex-direction:column;gap:6px;margin-top:12px;">
+        <div style="color:#888;text-align:center;padding:10px;font-size:0.8em;">正在同步模组状态...</div>
     </div>
 </div>
 

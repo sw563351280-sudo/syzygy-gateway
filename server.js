@@ -1087,6 +1087,63 @@ async function tryAutoDream(userText) {
     } catch(e) { console.log('🌙 [自动Dream] 失败:', e.message); }
 }
 
+async function executeToolCall(name, args) {
+    const timeout = 15000;
+    try {
+        console.log(`🔧 [工具执行] ${name}(${JSON.stringify(args).substring(0, 100)})`);
+        switch (name) {
+            case 'fetch_txt': {
+                const res = await fetch(args.url, { signal: AbortSignal.timeout(timeout), headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
+                if (!res.ok) return `[HTTP ${res.status}]`;
+                const html = await res.text();
+                const text = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<nav[\s\S]*?<\/nav>/gi, '').replace(/<footer[\s\S]*?<\/footer>/gi, '').replace(/<header[\s\S]*?<\/header>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+                console.log(`✅ [工具] fetch_txt 返回${text.length}字符`);
+                return text.substring(0, 8000);
+            }
+            case 'fetch_html': {
+                const res = await fetch(args.url, { signal: AbortSignal.timeout(timeout), headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
+                if (!res.ok) return `[HTTP ${res.status}]`;
+                const html = await res.text();
+                console.log(`✅ [工具] fetch_html 返回${html.length}字符`);
+                return html.substring(0, 8000);
+            }
+            case 'fetch_json': {
+                const res = await fetch(args.url, { signal: AbortSignal.timeout(timeout), headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
+                if (!res.ok) return `[HTTP ${res.status}]`;
+                const data = await res.json();
+                const jsonStr = JSON.stringify(data, null, 2);
+                console.log(`✅ [工具] fetch_json 返回${jsonStr.length}字符`);
+                return jsonStr.substring(0, 8000);
+            }
+            case 'fetch_github': {
+                const githubMatch = args.url.match(/github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?(?:\/(?:blob|tree)\/[^\/]+\/(.+))?(?:\?.*)?$/);
+                if (!githubMatch) return '[无法解析GitHub URL]';
+                const [, owner, repo, filePath] = githubMatch;
+                const headers = { 'User-Agent': 'Mozilla/5.0' };
+                if (process.env.GITHUB_TOKEN) headers['Authorization'] = `token ${process.env.GITHUB_TOKEN}`;
+                if (filePath) {
+                    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${decodeURIComponent(filePath)}`;
+                    const res = await fetch(apiUrl, { headers, signal: AbortSignal.timeout(timeout) });
+                    if (!res.ok) return `[GitHub API ${res.status}]`;
+                    const data = await res.json();
+                    const content = Buffer.from(data.content, 'base64').toString('utf8');
+                    console.log(`✅ [工具] fetch_github 返回${content.length}字符`);
+                    return content.substring(0, 10000);
+                } else {
+                    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/main?recursive=1`;
+                    const res = await fetch(apiUrl, { headers, signal: AbortSignal.timeout(timeout) });
+                    if (!res.ok) return `[GitHub API ${res.status}]`;
+                    const data = await res.json();
+                    const tree = (data.tree || []).filter(f => f.type === 'blob').map(f => `${f.path} (${f.size}B)`).join('\n');
+                    console.log(`✅ [工具] fetch_github 仓库${owner}/${repo}文件树已获取`);
+                    return `仓库 ${owner}/${repo} 文件列表：\n${tree}`.substring(0, 8000);
+                }
+            }
+            default: return `[未知工具: ${name}]`;
+        }
+    } catch(e) { console.log(`❌ [工具] ${name} 失败: ${e.message}`); return `[工具执行失败: ${e.message}]`; }
+}
+
 async function saveToZep(userMsg, aiMsg) {
     try {
         await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`, {
@@ -1110,6 +1167,15 @@ async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages) {
 // ==========================================
 // 🌟 独立 RP 模式雷达
 // ==========================================
+const BUILTIN_TOOLS = [
+    { type: "function", function: { name: "fetch_txt", description: "读取一个网页，返回纯文本内容（去掉HTML标签）", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" } }, required: ["url"] } } },
+    { type: "function", function: { name: "fetch_html", description: "读取一个网页，返回原始HTML", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" } }, required: ["url"] } } },
+    { type: "function", function: { name: "fetch_json", description: "读取一个JSON接口，返回JSON数据", parameters: { type: "object", properties: { url: { type: "string", description: "JSON接口的URL" } }, required: ["url"] } } },
+    { type: "function", function: { name: "fetch_github", description: "读取GitHub仓库的文件列表或具体文件内容", parameters: { type: "object", properties: { url: { type: "string", description: "GitHub URL" } }, required: ["url"] } } }
+];
+
+let TOOLS_ENABLED = { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true };
+
 let rpModeActive = false;
 let rpIdleCount = 0;
 
@@ -1563,6 +1629,68 @@ newMessages.forEach((m, i) => {
 
         const apiHeaders = {'Content-Type': 'application/json', 'Authorization': req.headers.authorization, 'HTTP-Referer': 'https://syzygy-zep.zeabur.app', 'X-Title': 'My_Cyber_Home' };
 
+        const enabledTools = BUILTIN_TOOLS.filter(t => TOOLS_ENABLED[t.function.name]);
+        if (enabledTools.length > 0) {
+            const toolBody = JSON.parse(JSON.stringify(body));
+            toolBody.stream = false;
+            toolBody.tools = enabledTools;
+            const isGeminiModel = (body.model || '').toLowerCase().includes('gemini');
+            if (isGeminiModel) delete toolBody.tool_choice; else toolBody.tool_choice = "auto";
+
+            console.log(`🔧 [工具] 第一轮请求（${enabledTools.length}个工具）...`);
+            const toolResponse = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(toolBody) });
+
+            if (!toolResponse.ok) {
+                const errStatus = toolResponse.status;
+                if (errStatus === 400 || errStatus === 422) {
+                    console.log(`🔧 [工具] 模型不支持Function Calling(${errStatus})，降级到无工具模式`);
+                } else {
+                    return res.status(errStatus).json({ error: "模型报错：" + await toolResponse.text() });
+                }
+            } else {
+                const toolData = await toolResponse.json();
+                const firstMessage = toolData.choices?.[0]?.message;
+
+                if (firstMessage?.tool_calls && firstMessage.tool_calls.length > 0) {
+                    console.log(`🔧 [工具] AI请求调用${firstMessage.tool_calls.length}个工具`);
+                    body.messages.push({ role: 'assistant', content: firstMessage.content || null, tool_calls: firstMessage.tool_calls });
+                    for (const tc of firstMessage.tool_calls) {
+                        let fnArgs = {};
+                        try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
+                        const result = await executeToolCall(tc.function.name, fnArgs);
+                        body.messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
+                    }
+                    delete body.tools; delete body.tool_choice;
+                    console.log(`🔧 [工具] 第二轮请求（带工具结果，${body.stream ? '流式' : '非流式'}）...`);
+                } else {
+                    console.log(`🔧 [工具] AI不需要工具，直接返回第一轮结果`);
+                    const aiContent = firstMessage?.content || '';
+                    if (body.stream) {
+                        res.setHeader('Content-Type', 'text/event-stream');
+                        res.setHeader('Cache-Control', 'no-cache');
+                        res.setHeader('Connection', 'keep-alive');
+                        const chunk = { id: toolData.id || 'chatcmpl-tool', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { content: aiContent }, finish_reason: 'stop' }] };
+                        res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                        res.write('data: [DONE]\n\n');
+                        res.end();
+                        const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(aiContent);
+                        for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+                        await saveToZepWithCounter(currentUserMsgText, ntClean, zepLastUserContent, zepMessages);
+                        tryAutoDream(currentUserMsgText);
+                        return;
+                    } else {
+                        const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(aiContent);
+                        for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+                        if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
+                        const finalContent = ntMems.length > 0 ? ntClean : aiContent;
+                        await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages);
+                        tryAutoDream(currentUserMsgText);
+                        return res.status(200).json(toolData);
+                    }
+                }
+            }
+        }
+
         const response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
         if (!response.ok) return res.status(response.status).json({ error: "模型报错：" + await response.text() });
 
@@ -1853,6 +1981,24 @@ app.post('/add-memory', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/tools-status', (req, res) => {
+    res.json({ tools: TOOLS_ENABLED, names: BUILTIN_TOOLS.map(t => t.function.name) });
+});
+
+app.post('/api/tools-toggle', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
+    const toolName = req.query.tool;
+    if (toolName && TOOLS_ENABLED.hasOwnProperty(toolName)) {
+        TOOLS_ENABLED[toolName] = !TOOLS_ENABLED[toolName];
+        console.log(`🔧 [工具] ${toolName} ${TOOLS_ENABLED[toolName] ? '✅ 开启' : '❌ 关闭'}`);
+    } else if (!toolName) {
+        const allOn = Object.values(TOOLS_ENABLED).every(v => v);
+        for (const k of Object.keys(TOOLS_ENABLED)) TOOLS_ENABLED[k] = !allOn;
+        console.log(`🔧 [工具] 全部${allOn ? '❌ 关闭' : '✅ 开启'}`);
+    }
+    res.json({ tools: TOOLS_ENABLED });
+});
+
 app.post('/trigger-dream', async (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     try {
@@ -2020,6 +2166,23 @@ app.get('/long-term', (req, res) => {
         `).join('')}
     </div>`;
 
+    const toolsCard = `
+    <div class="memory-card" style="background:#f8f9fa;border-left:4px solid #4fc3f7;margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <b style="font-size:16px;">🔧 AI 工具</b>
+            <button class="normal" onclick="toggleAllTools()" style="font-size:11px;padding:3px 10px;">切换全部</button>
+        </div>
+        ${BUILTIN_TOOLS.map(t => {
+            const name = t.function.name;
+            const on = TOOLS_ENABLED[name];
+            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 8px;margin:2px 0;background:white;border-radius:6px;font-size:12px;">
+                <span>${on ? '☑' : '☐'} <b>${name}</b> <span style="color:#888;">${t.function.description.substring(0,30)}...</span></span>
+                <button class="normal" onclick="toggleTool('${name}')" style="font-size:10px;padding:2px 8px;background:${on ? '#e8f5e9' : '#ffebee'};color:${on ? '#2e7d32' : '#c62828'};">${on ? '✅' : '❌'}</button>
+            </div>`;
+        }).join('')}
+        <div style="margin-top:6px;font-size:11px;color:#888;">关闭所有工具 = 无 Function Calling，回复速度最快</div>
+    </div>`;
+
     const profileUpdatedAt = profile.last_full_update ? new Date(profile.last_full_update).toLocaleString('zh-CN') : '尚未更新';
     const profileCard = `
     <div class="memory-card" style="background:#f0f8ff;border-left:4px solid #1a73e8;margin-bottom:16px;">
@@ -2158,6 +2321,7 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
     </div>
     ${profileCard}
     ${dreamCard}
+    ${toolsCard}
     <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;font-size:13px;flex-wrap:wrap;">
         <span style="color:#e65100;">🔥 高热度 ${heatHigh}条</span>
         <span style="color:#f57f17;">🌡️ 中热度 ${heatMid}条</span>
@@ -2181,6 +2345,8 @@ let currentSource='all';
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2000);}
 async function updateProfile(){const p=new URLSearchParams(window.location.search).get('pwd');if(!p)return alert('缺少密码');const r=await fetch('/trigger-profile-update?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅ 更新成功':'❌ '+(d.error||d.message));if(d.success)location.reload();}
 async function triggerDreamManual(){const p=new URLSearchParams(window.location.search).get('pwd');if(!p)return alert('缺少密码');const r=await fetch('/trigger-dream?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅ Dream已触发':'❌ '+(d.error||d.message));if(d.success)location.reload();}
+async function toggleTool(name){const p=new URLSearchParams(window.location.search).get('pwd');await fetch('/api/tools-toggle?pwd='+encodeURIComponent(p)+'&tool='+name,{method:'POST'});location.reload();}
+async function toggleAllTools(){const p=new URLSearchParams(window.location.search).get('pwd');await fetch('/api/tools-toggle?pwd='+encodeURIComponent(p),{method:'POST'});location.reload();}
 function openModal(){document.getElementById('addModal').classList.add('show');}
 function closeModal(){document.getElementById('addModal').classList.remove('show');}
 
@@ -2596,6 +2762,57 @@ app.post('/api/web-chat', async (req, res) => {
                 if (!isGemini) {
                     fetchBody.frequency_penalty = 0.4;
                     fetchBody.presence_penalty = 0.4;
+                }
+
+                const enabledTools = BUILTIN_TOOLS.filter(t => TOOLS_ENABLED[t.function.name]);
+                if (enabledTools.length > 0) {
+                    const toolFetchBody = { ...fetchBody, tools: enabledTools };
+                    const isGeminiModel = (model || '').toLowerCase().includes('gemini');
+                    if (isGeminiModel) delete toolFetchBody.tool_choice; else toolFetchBody.tool_choice = "auto";
+
+                    console.log(`🔧 [web-chat工具] 第一轮请求...`);
+                    const toolRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                        body: JSON.stringify(toolFetchBody)
+                    });
+
+                    if (toolRes.ok) {
+                        const toolData = await toolRes.json();
+                        const firstMsg = toolData.choices?.[0]?.message;
+
+                        if (firstMsg?.tool_calls && firstMsg.tool_calls.length > 0) {
+                            console.log(`🔧 [web-chat工具] AI请求调用${firstMsg.tool_calls.length}个工具`);
+                            apiMessages.push({ role: 'assistant', content: firstMsg.content || null, tool_calls: firstMsg.tool_calls });
+                            for (const tc of firstMsg.tool_calls) {
+                                let fnArgs = {};
+                                try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
+                                const result = await executeToolCall(tc.function.name, fnArgs);
+                                apiMessages.push({ role: 'tool', tool_call_id: tc.id, content: result });
+                            }
+                            fetchBody.messages = apiMessages;
+                            delete fetchBody.tools; delete fetchBody.tool_choice;
+                            console.log(`🔧 [web-chat工具] 第二轮请求（带工具结果）...`);
+                        } else {
+                            console.log(`🔧 [web-chat工具] AI不需要工具，直接返回`);
+                            const aiContent = firstMsg?.content || '';
+                            let thinking = '';
+                            if (aiContent.includes('<think>')) {
+                                const match = aiContent.match(/<think>([\s\S]*?)<\/think>/);
+                                if (match) thinking = match[1].trim();
+                            }
+                            const cleanAiContent = aiContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+                            const { cleanText, memories } = extractSaveMemoryTag(cleanAiContent);
+                            for (const mem of memories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text);
+                            const finalReply = memories.length > 0 ? cleanText : cleanAiContent;
+                            await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages);
+                            tryAutoDream(text);
+                            resolve({ text: finalReply, thinking });
+                            return;
+                        }
+                    } else if (toolRes.status === 400 || toolRes.status === 422) {
+                        console.log(`🔧 [web-chat工具] 模型不支持FC(${toolRes.status})，降级`);
+                    }
                 }
 
                 const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
