@@ -1080,7 +1080,7 @@ ${chat}
     } catch(e) { console.error('🖼️ [用户画像] 更新失败:', e.message); }
 }
 
-async function backgroundMemoryDream(sessionId, zepMessages) {
+async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto') {
     const startedAt = Date.now();
     const routerKey = process.env.ROUTER_API_KEY;
     if (!routerKey) return;
@@ -1089,7 +1089,7 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
     const dreamLog = {
         id: 'dream_' + Date.now().toString(36),
         triggered_at: new Date().toISOString(),
-        trigger_type: 'auto',
+        trigger_type: triggerType,
         input_count: zepMessages.length,
         results: { cleaned: { expired: 0, decayed: 0 }, consolidated: { new_memories: 0, new_rp: 0 }, foresight: [] },
         duration_ms: 0
@@ -1116,7 +1116,15 @@ async function backgroundMemoryDream(sessionId, zepMessages) {
                 response_format: { type: "json_object" }
             })
         });
+        if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            throw new Error(`AI API ${res.status}: ${errText.substring(0, 200)}`);
+        }
         const data = await res.json();
+        if (!data?.choices?.[0]?.message?.content) {
+            console.log('🌙 [Dream·固化层] API返回异常:', JSON.stringify(data).substring(0, 300));
+            throw new Error('API返回无choices');
+        }
         let summaryJsonStr = data.choices[0].message.content.replace(/```json|```/g, '').trim();
         const summaryJson = JSON.parse(summaryJsonStr);
         console.log("✅ 潜意识便利贴已成功更新（含次元壁分类）！");
@@ -1658,7 +1666,7 @@ app.post('/trigger-dream', async (req, res) => {
         const zepMessages = zepData.messages || [];
         if (zepMessages.length === 0) return res.json({ success: false, message: "没有记忆可以总结" });
         saveCounter(SESSION_ID, 0);
-        backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30));
+        backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30), 'manual');
         res.json({ success: true, message: `已触发总结，正在处理 ${Math.min(zepMessages.length, 30)} 条记忆。计数器已重置。` });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
