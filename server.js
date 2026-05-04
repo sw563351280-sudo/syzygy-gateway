@@ -1187,14 +1187,13 @@ let TOOLS_ENABLED = { fetch_txt: true, fetch_html: true, fetch_json: true, fetch
 
 // MCP Server 配置：{ name, command, args[], env? }
 const MCP_SERVERS = [
-    { name: 'filesystem',  command: 'npx', args: ['-y', '@anthropic/mcp-server-filesystem', '/app/data'] },
-    { name: 'git',         command: 'npx', args: ['-y', '@anthropic/mcp-server-git', '--repository', '/app'] },
-    { name: 'memory',      command: 'npx', args: ['-y', '@anthropic/mcp-server-memory'] },
-    { name: 'seq-thinking',command: 'npx', args: ['-y', '@anthropic/mcp-server-sequential-thinking'] },
-    { name: 'time',        command: 'npx', args: ['-y', '@anthropic/mcp-server-time'] },
-    { name: 'github',      command: 'npx', args: ['-y', '@anthropic/mcp-server-github'], env: { GITHUB_TOKEN: process.env.GITHUB_TOKEN || '' } },
-    { name: 'brave-search',command: 'npx', args: ['-y', '@anthropic/mcp-server-brave-search'], env: { BRAVE_API_KEY: process.env.BRAVE_API_KEY || '' } },
-    { name: 'puppeteer',   command: 'npx', args: ['-y', '@anthropic/mcp-server-puppeteer'] }
+    { name: 'filesystem',  command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/app/data'] },
+    { name: 'memory',      command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'] },
+    { name: 'seq-thinking',command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] },
+    { name: 'fetch-mcp',   command: 'npx', args: ['-y', '@modelcontextprotocol/server-fetch'] },
+    { name: 'github',      command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_TOKEN: process.env.GITHUB_TOKEN || '' } },
+    { name: 'brave-search',command: 'npx', args: ['-y', '@modelcontextprotocol/server-brave-search'], env: { BRAVE_API_KEY: process.env.BRAVE_API_KEY || '' } },
+    { name: 'puppeteer',   command: 'npx', args: ['-y', '@modelcontextprotocol/server-puppeteer'] }
 ];
 const mcpConnections = new Map(); // name → { process, tools, buffer }
 
@@ -1229,7 +1228,7 @@ function startMCPServer(config) {
                 const id = ++conn.reqId;
                 conn.pending.set(id, { resolve: res, reject: rej });
                 child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
-                setTimeout(() => { if (conn.pending.has(id)) { conn.pending.delete(id); rej(new Error('timeout')); } }, 30000);
+                setTimeout(() => { if (conn.pending.has(id)) { conn.pending.delete(id); rej(new Error('timeout')); } }, 60000);
             });
             conn.send('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'syzygy-gateway', version: '1.0' } })
                 .then(() => conn.send('tools/list', {}))
