@@ -46,7 +46,7 @@ if (typeof marked !== 'undefined') { marked.setOptions({ breaks: true, gfm: true
 function renderMarkdown(text) { if (!text) return ''; if (typeof marked !== 'undefined') { try { return marked.parse(text); } catch(e) { return text; } } return text.replace(/\n/g, '<br>'); }
 
 // ==================== 版本化消息辅助函数 ====================
-function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; return msg.versions[idx] || msg.versions[0]; } return msg; }
+function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; return v; } return msg; }
 function getVersionCount(msg) { return (msg.versions && msg.versions.length) ? msg.versions.length : 1; }
 function getActiveVersionIndex(msg) { if (msg.versions && msg.versions.length > 0) return msg.activeVersion || 0; return 0; }
 function ensureVersioned(msg) { if (msg.versions) return; const { role, ...rest } = msg; msg.versions = [rest]; msg.activeVersion = 0; delete msg.content; delete msg.thinking; delete msg.time; delete msg.model; delete msg.fullTime; delete msg.image; }
@@ -345,7 +345,7 @@ function renderChatMessages(){
         if(vCount > 1) {
             actionsHtml += '<div class="version-nav"><button class="ver-btn" onclick="switchVersion(' + index + ',-1)"' + (vIdx===0?' disabled':'') + '>‹</button><span class="ver-label">' + (vIdx+1) + ' / ' + vCount + '</span><button class="ver-btn" onclick="switchVersion(' + index + ',1)"' + (vIdx===vCount-1?' disabled':'') + '>›</button></div>';
         }
-        if(m.role === 'user') actionsHtml += '<button class="msg-inline-btn" onclick="editUserMessage(' + index + ')" title="编辑">✎</button>';
+        if(m.role === 'user'){ actionsHtml += '<button class="msg-inline-btn" onclick="editUserMessage(' + index + ')" title="编辑">✎</button>'; actionsHtml += '<button class="msg-inline-btn" onclick="resendUserMessage(' + index + ')" title="重新发送">↻</button>'; }
         if(m.role === 'assistant') actionsHtml += '<button class="msg-inline-btn" onclick="regenerateAt(' + index + ')" title="重新生成">↻</button>';
         actionsHtml += '</div>';
         htmlContent += actionsHtml;
@@ -1570,6 +1570,20 @@ function editUserMessage(msgIndex) {
     msg.versions.push({ content: newContent.trim(), fullTime: new Date().toISOString() });
     msg.activeVersion = msg.versions.length - 1;
     session.messages.splice(msgIndex + 1);
+    saveToCloud(); renderChatMessages();
+    const input = document.getElementById('chatInput');
+    if (input) input.value = newContent.trim();
+    sendChat();
+}
+
+function resendUserMessage(msgIndex) {
+    const session = getActiveSession();
+    const msg = session.messages[msgIndex];
+    if (!msg || msg.role !== 'user') return;
+    const v = getActiveVersion(msg);
+    session.messages.splice(msgIndex + 1);
+    const input = document.getElementById('chatInput');
+    if (input) input.value = v.content || '';
     saveToCloud(); renderChatMessages();
     sendChat();
 }
