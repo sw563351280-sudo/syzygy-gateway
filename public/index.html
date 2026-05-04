@@ -30,7 +30,6 @@
         <button class="active" onclick="go('home',this)"><span class="ico">✦</span>溯星</button>
         <button onclick="go('chat',this)"><span class="ico">⊹</span>通讯</button>
         <button onclick="go('diary',this)"><span class="ico">◇</span>私语</button>
-        <button onclick="go('capsule',this)"><span class="ico">⟡</span>胶囊</button>
         <button onclick="go('data',this)"><span class="ico">✿</span>中枢</button>
     </nav>
 
@@ -188,26 +187,6 @@
             </div>
             <div id="diaryMonthList">
                 <div style="color:#555;text-align:center;padding:20px">档案解密中...</div>
-            </div>
-        </div>
-    </div>
-
-    <div class="section" id="sec-capsule">
-        <div class="totem">
-            <h1>─ 时间胶囊 ─</h1>
-            <div class="sub">来自过去或未来的沈望</div>
-        </div>
-        <div class="glass">
-            <button class="capsule-btn" onclick="openCapsule()" style="width: 100%; padding: 15px; border-radius: 8px; background: rgba(255,255,255,0.1); border: 1px solid var(--glass-border); color: white;">
-                ⟡ 解锁一颗时间胶囊
-            </button>
-            <div class="capsule-result" id="capsuleResult" style="margin-top: 15px; min-height: 50px; text-align: center;"></div>
-        </div>
-        <div class="glass">
-            <p style="color:#aaa; font-size:0.82em; text-align:center; margin-bottom:12px; font-style:italic">录入新的时间胶囊</p>
-            <div class="input-row" style="display: flex; gap: 10px;">
-                <input type="text" id="capsuleInput" placeholder="写下想对未来说的话…" style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid var(--glass-border); background: rgba(0,0,0,0.2); color: white;">
-                <button onclick="addCapsule()" style="padding: 10px 20px; border-radius: 8px; background: var(--blue); color: white; border: none;">封存</button>
             </div>
         </div>
     </div>
