@@ -1632,72 +1632,76 @@ newMessages.forEach((m, i) => {
         const apiHeaders = {'Content-Type': 'application/json', 'Authorization': req.headers.authorization, 'HTTP-Referer': 'https://syzygy-zep.zeabur.app', 'X-Title': 'My_Cyber_Home' };
 
         const enabledTools = BUILTIN_TOOLS.filter(t => TOOLS_ENABLED[t.function.name]);
-        if (enabledTools.length > 0) {
+        let maxToolRounds = 5;
+        while (maxToolRounds-- > 0 && enabledTools.length > 0) {
             const toolBody = JSON.parse(JSON.stringify(body));
             toolBody.stream = false;
             toolBody.tools = enabledTools;
             const isGeminiModel = (body.model || '').toLowerCase().includes('gemini');
             if (isGeminiModel) delete toolBody.tool_choice; else toolBody.tool_choice = "auto";
 
-            console.log(`🔧 [工具] 第一轮请求（${enabledTools.length}个工具）...`);
+            const roundLabel = maxToolRounds === 4 ? '第一轮' : maxToolRounds === 3 ? '第二轮' : maxToolRounds === 2 ? '第三轮' : maxToolRounds === 1 ? '第四轮' : '第五轮';
+            console.log(`🔧 [工具] ${roundLabel}请求（${enabledTools.length}个工具）...`);
             const toolResponse = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(toolBody) });
 
             if (!toolResponse.ok) {
                 const errStatus = toolResponse.status;
                 if (errStatus === 400 || errStatus === 422) {
-                    console.log(`🔧 [工具] 模型不支持Function Calling(${errStatus})，降级到无工具模式`);
-                } else {
-                    return res.status(errStatus).json({ error: "模型报错：" + await toolResponse.text() });
+                    console.log(`🔧 [工具] 模型不支持FC(${errStatus})，降级`);
+                    break;
                 }
-            } else {
-                const toolData = await toolResponse.json();
-                const firstMessage = toolData.choices?.[0]?.message;
+                return res.status(errStatus).json({ error: "模型报错：" + await toolResponse.text() });
+            }
 
-                if (firstMessage?.tool_calls && firstMessage.tool_calls.length > 0) {
-                    console.log(`🔧 [工具] AI请求调用${firstMessage.tool_calls.length}个工具`);
-                    body.messages.push({ role: 'assistant', content: firstMessage.content || null, tool_calls: firstMessage.tool_calls });
-                    for (const tc of firstMessage.tool_calls) {
-                        let fnArgs = {};
-                        try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
-                        const result = await executeToolCall(tc.function.name, fnArgs);
-                        body.messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
-                    }
-                    delete body.tools; delete body.tool_choice;
-                    console.log(`🔧 [工具] 第二轮请求（带工具结果，${body.stream ? '流式' : '非流式'}）...`);
-                } else {
-                    console.log(`🔧 [工具] AI不需要工具，直接返回第一轮结果`);
-                    const aiContent = firstMessage?.content || '';
-                    if (body.stream) {
-                        res.setHeader('Content-Type', 'text/event-stream');
-                        res.setHeader('Cache-Control', 'no-cache');
-                        res.setHeader('Connection', 'keep-alive');
-                        const chunk = { id: toolData.id || 'chatcmpl-tool', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { content: aiContent }, finish_reason: 'stop' }] };
-                        res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-                        res.write('data: [DONE]\n\n');
-                        res.end();
-                        if (!noMemory) {
-                            const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(aiContent);
-                            for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
-                            await saveToZepWithCounter(currentUserMsgText, ntClean, zepLastUserContent, zepMessages);
-                            tryAutoDream(currentUserMsgText);
-                        }
-                        return;
-                    } else {
-                        const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(aiContent);
-                        if (!noMemory) {
-                            for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
-                        }
-                        if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
-                        const finalContent = ntMems.length > 0 ? ntClean : aiContent;
-                        if (!noMemory) {
-                            await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages);
-                            tryAutoDream(currentUserMsgText);
-                        }
-                        return res.status(200).json(toolData);
-                    }
+            const toolData = await toolResponse.json();
+            const curMessage = toolData.choices?.[0]?.message;
+
+            if (curMessage?.tool_calls && curMessage.tool_calls.length > 0) {
+                console.log(`🔧 [工具] AI请求调用${curMessage.tool_calls.length}个工具`);
+                body.messages.push({ role: 'assistant', content: curMessage.content || null, tool_calls: curMessage.tool_calls });
+                for (const tc of curMessage.tool_calls) {
+                    let fnArgs = {};
+                    try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
+                    const result = await executeToolCall(tc.function.name, fnArgs);
+                    body.messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
                 }
+                continue;
+            }
+
+            // 没有 tool_calls → 这是最终回复
+            console.log(`🔧 [工具] ${roundLabel}AI返回最终回复`);
+            const aiContent = curMessage?.content || '';
+            if (body.stream) {
+                res.setHeader('Content-Type', 'text/event-stream');
+                res.setHeader('Cache-Control', 'no-cache');
+                res.setHeader('Connection', 'keep-alive');
+                const chunk = { id: toolData.id || 'chatcmpl-tool', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { content: aiContent }, finish_reason: 'stop' }] };
+                res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                res.write('data: [DONE]\n\n');
+                res.end();
+                if (!noMemory) {
+                    const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(aiContent);
+                    for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+                    await saveToZepWithCounter(currentUserMsgText, ntClean, zepLastUserContent, zepMessages);
+                    tryAutoDream(currentUserMsgText);
+                }
+                return;
+            } else {
+                const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(aiContent);
+                if (!noMemory) {
+                    for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+                }
+                if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
+                const finalContent = ntMems.length > 0 ? ntClean : aiContent;
+                if (!noMemory) {
+                    await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages);
+                    tryAutoDream(currentUserMsgText);
+                }
+                return res.status(200).json(toolData);
             }
         }
+        // 多轮工具调用后仍无最终回复→继续走原来的fetch逻辑
+        if (maxToolRounds <= 0) console.log(`🔧 [工具] 已达最大轮次，继续走非工具流式输出`);
 
         const response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
         if (!response.ok) return res.status(response.status).json({ error: "模型报错：" + await response.text() });
@@ -2769,54 +2773,59 @@ app.post('/api/web-chat', async (req, res) => {
                 }
 
                 const enabledTools = BUILTIN_TOOLS.filter(t => TOOLS_ENABLED[t.function.name]);
-                if (enabledTools.length > 0) {
+                let webMaxRounds = 5;
+                while (webMaxRounds-- > 0 && enabledTools.length > 0) {
                     const toolFetchBody = { ...fetchBody, tools: enabledTools };
                     const isGeminiModel = (model || '').toLowerCase().includes('gemini');
                     if (isGeminiModel) delete toolFetchBody.tool_choice; else toolFetchBody.tool_choice = "auto";
 
-                    console.log(`🔧 [web-chat工具] 第一轮请求...`);
+                    const roundLabel = webMaxRounds === 4 ? '第一轮' : webMaxRounds === 3 ? '第二轮' : webMaxRounds === 2 ? '第三轮' : webMaxRounds === 1 ? '第四轮' : '第五轮';
+                    console.log(`🔧 [web-chat工具] ${roundLabel}请求...`);
                     const toolRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
                         body: JSON.stringify(toolFetchBody)
                     });
 
-                    if (toolRes.ok) {
-                        const toolData = await toolRes.json();
-                        const firstMsg = toolData.choices?.[0]?.message;
-
-                        if (firstMsg?.tool_calls && firstMsg.tool_calls.length > 0) {
-                            console.log(`🔧 [web-chat工具] AI请求调用${firstMsg.tool_calls.length}个工具`);
-                            apiMessages.push({ role: 'assistant', content: firstMsg.content || null, tool_calls: firstMsg.tool_calls });
-                            for (const tc of firstMsg.tool_calls) {
-                                let fnArgs = {};
-                                try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
-                                const result = await executeToolCall(tc.function.name, fnArgs);
-                                apiMessages.push({ role: 'tool', tool_call_id: tc.id, content: result });
-                            }
-                            fetchBody.messages = apiMessages;
-                            delete fetchBody.tools; delete fetchBody.tool_choice;
-                            console.log(`🔧 [web-chat工具] 第二轮请求（带工具结果）...`);
-                        } else {
-                            console.log(`🔧 [web-chat工具] AI不需要工具，直接返回`);
-                            const aiContent = firstMsg?.content || '';
-                            let thinking = '';
-                            if (aiContent.includes('<think>')) {
-                                const match = aiContent.match(/<think>([\s\S]*?)<\/think>/);
-                                if (match) thinking = match[1].trim();
-                            }
-                            const cleanAiContent = aiContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-                            const { cleanText, memories } = extractSaveMemoryTag(cleanAiContent);
-                            for (const mem of memories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text);
-                            const finalReply = memories.length > 0 ? cleanText : cleanAiContent;
-                            await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages);
-                            tryAutoDream(text);
-                            resolve({ text: finalReply, thinking });
-                            return;
+                    if (!toolRes.ok) {
+                        if (toolRes.status === 400 || toolRes.status === 422) {
+                            console.log(`🔧 [web-chat工具] 模型不支持FC(${toolRes.status})，降级`);
+                            break;
                         }
-                    } else if (toolRes.status === 400 || toolRes.status === 422) {
-                        console.log(`🔧 [web-chat工具] 模型不支持FC(${toolRes.status})，降级`);
+                        break;
                     }
+
+                    const toolData = await toolRes.json();
+                    const curMsg = toolData.choices?.[0]?.message;
+
+                    if (curMsg?.tool_calls && curMsg.tool_calls.length > 0) {
+                        console.log(`🔧 [web-chat工具] AI请求调用${curMsg.tool_calls.length}个工具`);
+                        apiMessages.push({ role: 'assistant', content: curMsg.content || null, tool_calls: curMsg.tool_calls });
+                        for (const tc of curMsg.tool_calls) {
+                            let fnArgs = {};
+                            try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
+                            const result = await executeToolCall(tc.function.name, fnArgs);
+                            apiMessages.push({ role: 'tool', tool_call_id: tc.id, content: result });
+                        }
+                        fetchBody.messages = apiMessages;
+                        continue;
+                    }
+
+                    console.log(`🔧 [web-chat工具] ${roundLabel}AI返回最终回复`);
+                    const aiContent = curMsg?.content || '';
+                    let thinking = '';
+                    if (aiContent.includes('<think>')) {
+                        const match = aiContent.match(/<think>([\s\S]*?)<\/think>/);
+                        if (match) thinking = match[1].trim();
+                    }
+                    const cleanAiContent = aiContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+                    const { cleanText, memories } = extractSaveMemoryTag(cleanAiContent);
+                    for (const mem of memories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text);
+                    const finalReply = memories.length > 0 ? cleanText : cleanAiContent;
+                    await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages);
+                    tryAutoDream(text);
+                    resolve({ text: finalReply, thinking });
+                    return;
                 }
 
                 const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
