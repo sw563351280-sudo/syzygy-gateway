@@ -512,7 +512,10 @@ function formatTimeContext() {
     return `\n【时间线回忆】\n${joined.substring(0, 1500)}\n`;
 }
 
-function formatDiaryContext() {
+function formatDiaryContext(userText) {
+    if (!userText) return '';
+    const triggers = ['日记', '私语', '手记', '手账', '之前写了', '记了什么', '我的记录'];
+    if (!triggers.some(t => userText.includes(t))) return '';
     try {
         const diaries = loadDiaries();
         const recent = diaries.slice(-5).reverse();
@@ -521,6 +524,7 @@ function formatDiaryContext() {
             const who = d.type === 'syzygy_note' || d.author === 'system' ? '沈望' : '江鱼';
             return `[${d.date}] ${who}：${(d.text || '').substring(0, 80)}`;
         });
+        console.log('📖 [私语手账] 用户提到日记，注入最近' + recent.length + '条');
         return `\n【私语手账（最近记录）】\n${lines.join('\n')}\n`;
     } catch(e) { return ''; }
 }
@@ -1746,7 +1750,6 @@ if (useCrossplatform && zepMessages.length > 0) {
         const finalSystemPrompt = buildFinalSystemPrompt([
             { label: '环境参数', content: envContext },
             { label: '时间线', content: formatTimeContext() },
-            { label: '私语手账', content: formatDiaryContext() },
             { label: '用户画像', content: formatProfileForPrompt() },
             { label: '高权重浮现', content: unresolvedContext },
             { label: '长期记忆雷达', content: longTermContext },
@@ -2889,7 +2892,6 @@ app.post('/api/web-chat', async (req, res) => {
             const finalSystemPrompt = buildFinalSystemPrompt([
                 { label: '环境参数', content: envContext },
                 { label: '时间线', content: formatTimeContext() },
-                { label: '私语手账', content: formatDiaryContext() },
                 { label: '用户画像', content: formatProfileForPrompt() },
                 { label: '深层闪回', content: vectorSearchContext },
                 { label: '高权重浮现', content: unresolvedContext },
