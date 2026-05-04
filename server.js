@@ -1207,6 +1207,34 @@ const BUILTIN_TOOLS = [
 
 let TOOLS_ENABLED = { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true };
 
+function filterRelevantTools(allTools, userText, forceToolChoice) {
+    const builtinNames = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github']);
+    const builtins = allTools.filter(t => builtinNames.has(t.function?.name));
+    const mcpTools = allTools.filter(t => !builtinNames.has(t.function?.name));
+    if (mcpTools.length === 0) return builtins;
+    if (forceToolChoice) { console.log(`🔧 [工具筛选] 强制模式→${builtins.length}个内置工具`); return builtins; }
+    const textLower = (userText || '').toLowerCase();
+    const scoredMcp = mcpTools.map(t => {
+        const name = (t.function?.name || '').toLowerCase();
+        const desc = (t.function?.description || '').toLowerCase();
+        let score = 0;
+        const words = textLower.split(/[\s,，。！？、]+/).filter(w => w.length >= 2);
+        for (const w of words) { if (name.includes(w)) score += 3; if (desc.includes(w)) score += 1; }
+        if (textLower.includes('搜索') || textLower.includes('search')) { if (name.includes('search')) score += 5; }
+        if (textLower.includes('文件') || textLower.includes('file')) { if (name.includes('file') || name.includes('read') || name.includes('write')) score += 5; }
+        return { tool: t, score };
+    });
+    const MAX_MCP = 8;
+    const relevant = scoredMcp.filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, MAX_MCP).map(s => s.tool);
+    if (relevant.length === 0) {
+        const looksCommand = /帮我|请你|能不能|查一下|搜一下|找一下|用.+工具|调用/.test(textLower);
+        if (looksCommand && mcpTools.length > 0) { const fb = mcpTools.slice(0, 6); console.log(`🔧 [工具筛选] 命令式→${builtins.length}+${fb.length}=${builtins.length+fb.length}个`); return [...builtins, ...fb]; }
+        console.log(`🔧 [工具筛选] 日常对话→${builtins.length}个内置`); return builtins;
+    }
+    console.log(`🔧 [工具筛选] 匹配${relevant.length}个MCP: ${relevant.map(t => t.function?.name).join(',')}`);
+    return [...builtins, ...relevant];
+}
+
 // MCP Server 配置：{ name, command, args[], env? }
 const MCP_SERVERS = [
     { name: 'filesystem',     command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/app/data'] },
@@ -1756,11 +1784,13 @@ newMessages.forEach((m, i) => {
             if (hasGitHub) { forceToolChoice = { type: "function", function: { name: "fetch_github" } }; console.log('🎯 [工具强制] GitHub URL → 强制 fetch_github'); }
             else if (hasUrl) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
         }
+        const filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
+        console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
         let maxToolRounds = 5, lastToolSig = '';
-        while (maxToolRounds-- > 0 && enabledTools.length > 0) {
+        while (maxToolRounds-- > 0 && filteredTools.length > 0) {
             const toolBody = JSON.parse(JSON.stringify(body));
             toolBody.stream = false;
-            toolBody.tools = enabledTools.map(t => { const { _mcp, ...clean } = t; return clean; });
+            toolBody.tools = filteredTools.map(t => { const { _mcp, ...clean } = t; return clean; });
             const isGeminiModel = (body.model || '').toLowerCase().includes('gemini');
             if (forceToolChoice && maxToolRounds === 4) {
                 toolBody.tool_choice = isGeminiModel ? "required" : forceToolChoice;
@@ -2954,11 +2984,13 @@ app.post('/api/web-chat', async (req, res) => {
                     if (hasGitHub) webForceToolChoice = { type: "function", function: { name: "fetch_github" } };
                     else if (hasUrl) webForceToolChoice = { type: "function", function: { name: "fetch_txt" } };
                 }
+                const filteredTools = filterRelevantTools(enabledTools, text, webForceToolChoice);
+                console.log(`🔧 [web-chat工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
                 let webMaxRounds = 5, webLastSig = '';
-                while (webMaxRounds-- > 0 && enabledTools.length > 0) {
-                    const toolFetchBody = { ...fetchBody, tools: enabledTools.map(t => { const { _mcp, ...clean } = t; return clean; }) };
+                while (webMaxRounds-- > 0 && filteredTools.length > 0) {
+                    const toolFetchBody = { ...fetchBody, tools: filteredTools.map(t => { const { _mcp, ...clean } = t; return clean; }) };
                     const isGeminiModel = (model || '').toLowerCase().includes('gemini');
-                    if (webForceToolChoice && webMaxRounds === 4) { toolFetchBody.tool_choice = isGeminiModel ? "any" : webForceToolChoice; } else if (isGeminiModel) delete toolFetchBody.tool_choice; else toolFetchBody.tool_choice = "auto";
+                    if (webForceToolChoice && webMaxRounds === 4) { toolFetchBody.tool_choice = isGeminiModel ? "required" : webForceToolChoice; } else if (isGeminiModel) delete toolFetchBody.tool_choice; else toolFetchBody.tool_choice = "auto";
 
                     const roundLabel = webMaxRounds === 4 ? '第一轮' : webMaxRounds === 3 ? '第二轮' : webMaxRounds === 2 ? '第三轮' : webMaxRounds === 1 ? '第四轮' : '第五轮';
                     console.log(`🔧 [web-chat工具] ${roundLabel}请求...`);
