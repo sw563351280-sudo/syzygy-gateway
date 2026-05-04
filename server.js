@@ -1190,7 +1190,6 @@ const MCP_SERVERS = [
     { name: 'filesystem',  command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/app/data'] },
     { name: 'memory',      command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'] },
     { name: 'seq-thinking',command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] },
-    { name: 'fetch-mcp',   command: 'npx', args: ['-y', '@modelcontextprotocol/server-fetch'] },
     { name: 'github',      command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_TOKEN: process.env.GITHUB_TOKEN || '' } },
     { name: 'brave-search',command: 'npx', args: ['-y', '@modelcontextprotocol/server-brave-search'], env: { BRAVE_API_KEY: process.env.BRAVE_API_KEY || '' } },
     { name: 'puppeteer',   command: 'npx', args: ['-y', '@modelcontextprotocol/server-puppeteer'] }
