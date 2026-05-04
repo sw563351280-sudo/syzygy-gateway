@@ -1136,7 +1136,7 @@ async function executeToolCall(name, args) {
                     const data = await res.json();
                     const tree = (data.tree || []).filter(f => f.type === 'blob').map(f => `${f.path} (${f.size}B)`).join('\n');
                     console.log(`✅ [工具] fetch_github 仓库${owner}/${repo}文件树已获取`);
-                    const hint = '\n\n[重要] 以上只是文件列表，你无法看到文件内容。不要编造代码或假装读过文件。如果需要查看具体文件，请让用户指定文件路径，如 https://github.com/' + owner + '/' + repo + '/blob/main/README.md';
+                    const hint = '\n\n[重要] 以上只是文件名列表。你现在应该使用 fetch_github 逐个读取你关心的文件。例如立即调用：\nfetch_github("https://github.com/' + owner + '/' + repo + '/blob/main/README.md")\nfetch_github("https://github.com/' + owner + '/' + repo + '/blob/main/package.json")\n等。选择你认为最重要的几个文件来读。不要重复请求文件树。';
                     return (`仓库 ${owner}/${repo} 文件列表：\n${tree}${hint}`).substring(0, 8000);
                 }
             }
@@ -1632,7 +1632,7 @@ newMessages.forEach((m, i) => {
         const apiHeaders = {'Content-Type': 'application/json', 'Authorization': req.headers.authorization, 'HTTP-Referer': 'https://syzygy-zep.zeabur.app', 'X-Title': 'My_Cyber_Home' };
 
         const enabledTools = BUILTIN_TOOLS.filter(t => TOOLS_ENABLED[t.function.name]);
-        let maxToolRounds = 5;
+        let maxToolRounds = 5, lastToolSig = '';
         while (maxToolRounds-- > 0 && enabledTools.length > 0) {
             const toolBody = JSON.parse(JSON.stringify(body));
             toolBody.stream = false;
@@ -1657,6 +1657,13 @@ newMessages.forEach((m, i) => {
             const curMessage = toolData.choices?.[0]?.message;
 
             if (curMessage?.tool_calls && curMessage.tool_calls.length > 0) {
+                const thisSig = curMessage.tool_calls.map(t => t.function.name + ':' + (t.function.arguments || '')).join('|');
+                if (thisSig === lastToolSig) {
+                    console.log(`🔧 [工具] 检测到重复调用，中断循环`);
+                    body.messages.push({ role: 'assistant', content: '（已获取足够信息）' });
+                    break;
+                }
+                lastToolSig = thisSig;
                 console.log(`🔧 [工具] AI请求调用${curMessage.tool_calls.length}个工具`);
                 body.messages.push({ role: 'assistant', content: curMessage.content || null, tool_calls: curMessage.tool_calls });
                 for (const tc of curMessage.tool_calls) {
@@ -2773,7 +2780,7 @@ app.post('/api/web-chat', async (req, res) => {
                 }
 
                 const enabledTools = BUILTIN_TOOLS.filter(t => TOOLS_ENABLED[t.function.name]);
-                let webMaxRounds = 5;
+                let webMaxRounds = 5, webLastSig = '';
                 while (webMaxRounds-- > 0 && enabledTools.length > 0) {
                     const toolFetchBody = { ...fetchBody, tools: enabledTools };
                     const isGeminiModel = (model || '').toLowerCase().includes('gemini');
@@ -2799,6 +2806,9 @@ app.post('/api/web-chat', async (req, res) => {
                     const curMsg = toolData.choices?.[0]?.message;
 
                     if (curMsg?.tool_calls && curMsg.tool_calls.length > 0) {
+                        const thisSig = curMsg.tool_calls.map(t => t.function.name + ':' + (t.function.arguments || '')).join('|');
+                        if (thisSig === webLastSig) { console.log(`🔧 [web-chat工具] 检测到重复调用，中断`); apiMessages.push({ role: 'assistant', content: '（已获取足够信息）' }); break; }
+                        webLastSig = thisSig;
                         console.log(`🔧 [web-chat工具] AI请求调用${curMsg.tool_calls.length}个工具`);
                         apiMessages.push({ role: 'assistant', content: curMsg.content || null, tool_calls: curMsg.tool_calls });
                         for (const tc of curMsg.tool_calls) {
