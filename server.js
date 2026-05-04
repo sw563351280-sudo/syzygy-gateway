@@ -1177,10 +1177,10 @@ async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages) {
 // 🌟 独立 RP 模式雷达
 // ==========================================
 const BUILTIN_TOOLS = [
-    { type: "function", function: { name: "fetch_txt", description: "读取一个网页，返回纯文本内容（去掉HTML标签）", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" } }, required: ["url"] } } },
-    { type: "function", function: { name: "fetch_html", description: "读取一个网页，返回原始HTML", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" } }, required: ["url"] } } },
-    { type: "function", function: { name: "fetch_json", description: "读取一个JSON接口，返回JSON数据", parameters: { type: "object", properties: { url: { type: "string", description: "JSON接口的URL" } }, required: ["url"] } } },
-    { type: "function", function: { name: "fetch_github", description: "读取GitHub仓库的文件列表或具体文件内容", parameters: { type: "object", properties: { url: { type: "string", description: "GitHub URL" } }, required: ["url"] } } }
+    { type: "function", function: { name: "fetch_txt", description: "【仅在用户明确要求查看某个网页、或需要获取网络信息时使用】读取网页URL返回纯文本。日常闲聊、情感对话、RP时严禁调用。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" } }, required: ["url"] } } },
+    { type: "function", function: { name: "fetch_html", description: "【仅在需要分析网页HTML结构、调试前端代码时使用】读取网页返回原始HTML。大多数情况应该用 fetch_txt。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" } }, required: ["url"] } } },
+    { type: "function", function: { name: "fetch_json", description: "【仅在需要调用API接口获取JSON数据时使用】读取JSON接口URL，返回格式化JSON。", parameters: { type: "object", properties: { url: { type: "string", description: "JSON接口的URL" } }, required: ["url"] } } },
+    { type: "function", function: { name: "fetch_github", description: "【仅在用户明确要求查看GitHub仓库或代码文件时使用】读取GitHub仓库文件列表或具体文件内容。支持仓库根目录（返回文件树）和具体文件路径（返回内容）。", parameters: { type: "object", properties: { url: { type: "string", description: "GitHub URL" } }, required: ["url"] } } }
 ];
 
 let TOOLS_ENABLED = { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true };
@@ -1666,7 +1666,7 @@ if (useCrossplatform && zepMessages.length > 0) {
         const { coreRadar: coreRadarContext, longTermRadar: longTermContext, rpRadar: rpRadarContext, unresolved: unresolvedContext } = await scanAllRadars(currentUserMsgText);
 
 
-        const envContext = buildEnvContext(`【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！`);
+        const envContext = buildEnvContext(`【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n【🚨 工具反幻觉铁律】：当需要查看网页、GitHub仓库、API数据时，必须通过 function calling 调用工具（fetch_txt/fetch_html/fetch_json/fetch_github），基于工具返回的真实内容回答。严禁自己编写代码来"模拟"访问网页！严禁假装已经看过！如果工具失败，直接说"我没能读到"，不要编造！`);
 
         const finalSystemPrompt = buildFinalSystemPrompt([
             { label: '环境参数', content: envContext },
@@ -1720,13 +1720,21 @@ newMessages.forEach((m, i) => {
         const apiHeaders = {'Content-Type': 'application/json', 'Authorization': req.headers.authorization, 'HTTP-Referer': 'https://syzygy-zep.zeabur.app', 'X-Title': 'My_Cyber_Home' };
 
         const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return true; return TOOLS_ENABLED[name]; });
+        let forceToolChoice = null;
+        if (currentUserMsgText) {
+            const hasGitHub = /github\.com/i.test(currentUserMsgText);
+            const hasUrl = /(https?:\/\/[^\s]+)/i.test(currentUserMsgText);
+            if (hasGitHub) { forceToolChoice = { type: "function", function: { name: "fetch_github" } }; console.log('🎯 [工具强制] GitHub URL → 强制 fetch_github'); }
+            else if (hasUrl) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
+        }
         let maxToolRounds = 5, lastToolSig = '';
         while (maxToolRounds-- > 0 && enabledTools.length > 0) {
             const toolBody = JSON.parse(JSON.stringify(body));
             toolBody.stream = false;
             toolBody.tools = enabledTools.map(t => { const { _mcp, ...clean } = t; return clean; });
             const isGeminiModel = (body.model || '').toLowerCase().includes('gemini');
-            if (isGeminiModel) delete toolBody.tool_choice; else toolBody.tool_choice = "auto";
+            if (forceToolChoice && maxToolRounds === 4) { toolBody.tool_choice = forceToolChoice; console.log(`🎯 [工具强制] 第一轮 → ${forceToolChoice.function.name}`); }
+            else if (isGeminiModel) delete toolBody.tool_choice; else toolBody.tool_choice = "auto";
 
             const roundLabel = maxToolRounds === 4 ? '第一轮' : maxToolRounds === 3 ? '第二轮' : maxToolRounds === 2 ? '第三轮' : maxToolRounds === 1 ? '第四轮' : '第五轮';
             console.log(`🔧 [工具] ${roundLabel}请求（${enabledTools.length}个工具）...`);
@@ -2907,11 +2915,18 @@ app.post('/api/web-chat', async (req, res) => {
                 }
 
                 const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return true; return TOOLS_ENABLED[name]; });
+                let webForceToolChoice = null;
+                if (text) {
+                    const hasGitHub = /github\.com/i.test(text);
+                    const hasUrl = /(https?:\/\/[^\s]+)/i.test(text);
+                    if (hasGitHub) webForceToolChoice = { type: "function", function: { name: "fetch_github" } };
+                    else if (hasUrl) webForceToolChoice = { type: "function", function: { name: "fetch_txt" } };
+                }
                 let webMaxRounds = 5, webLastSig = '';
                 while (webMaxRounds-- > 0 && enabledTools.length > 0) {
                     const toolFetchBody = { ...fetchBody, tools: enabledTools.map(t => { const { _mcp, ...clean } = t; return clean; }) };
                     const isGeminiModel = (model || '').toLowerCase().includes('gemini');
-                    if (isGeminiModel) delete toolFetchBody.tool_choice; else toolFetchBody.tool_choice = "auto";
+                    if (webForceToolChoice && webMaxRounds === 4) { toolFetchBody.tool_choice = webForceToolChoice; } else if (isGeminiModel) delete toolFetchBody.tool_choice; else toolFetchBody.tool_choice = "auto";
 
                     const roundLabel = webMaxRounds === 4 ? '第一轮' : webMaxRounds === 3 ? '第二轮' : webMaxRounds === 2 ? '第三轮' : webMaxRounds === 1 ? '第四轮' : '第五轮';
                     console.log(`🔧 [web-chat工具] ${roundLabel}请求...`);
