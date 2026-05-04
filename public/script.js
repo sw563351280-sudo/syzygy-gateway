@@ -437,6 +437,9 @@ async function sendChat() {
     sDiv.innerHTML = '<span class="loading-indicator">⟡ 信号传输中…</span>';
     sDiv.classList.add('msg-loading');
     sRow.appendChild(sDiv);
+    let firstChunkReceived = false;
+    const toolHintTimer = setTimeout(() => { if (!firstChunkReceived) { const el = sDiv.querySelector('.loading-indicator'); if (el) el.innerHTML = '🔧 沈望正在使用工具获取信息…<br><span style="font-size:0.75em;opacity:0.6;">（读取网页可能需要几秒钟）</span>'; } }, 3000);
+    const toolHintTimer2 = setTimeout(() => { if (!firstChunkReceived) { const el = sDiv.querySelector('.loading-indicator'); if (el) el.innerHTML = '🔧 多轮工具调用中，请稍候…'; } }, 8000);
     
     // 准备好小按键，打字时先隐身
     const actionBtn = document.createElement('button');
@@ -590,8 +593,14 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
 
                         // 2. 处理正文内容 (content)
                         if (delta.content) {
+                            if (!firstChunkReceived) {
+                                firstChunkReceived = true;
+                                clearTimeout(toolHintTimer);
+                                clearTimeout(toolHintTimer2);
+                                sDiv.classList.remove('msg-loading');
+                            }
                             const chunk = delta.content;
-                            
+
                             // 暴力判断深思标签，做打字机切换
                             if (chunk.includes('<think>')) {
                                 inThinking = true;
