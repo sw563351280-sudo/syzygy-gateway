@@ -1104,24 +1104,40 @@ async function executeToolCall(name, args, mcpServer) {
                 const res = await fetch(args.url, { signal: AbortSignal.timeout(timeout), headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
                 if (!res.ok) return `[HTTP ${res.status}]`;
                 const html = await res.text();
-                const text = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<nav[\s\S]*?<\/nav>/gi, '').replace(/<footer[\s\S]*?<\/footer>/gi, '').replace(/<header[\s\S]*?<\/header>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
-                console.log(`✅ [工具] fetch_txt 返回${text.length}字符`);
-                return text.substring(0, 8000);
+                const fullText = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<nav[\s\S]*?<\/nav>/gi, '').replace(/<footer[\s\S]*?<\/footer>/gi, '').replace(/<header[\s\S]*?<\/header>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+                const totalLen = fullText.length, CHUNK = 12000, offset = parseInt(args.offset) || 0;
+                const chunk = fullText.substring(offset, offset + CHUNK);
+                const remaining = totalLen - offset - chunk.length;
+                console.log(`✅ [工具] fetch_txt 总${totalLen}字符，从${offset}读${chunk.length}字符`);
+                let result = chunk;
+                if (remaining > 0) result += `\n\n[截断] 总${totalLen}字符，已到${offset+chunk.length}，剩${remaining}。设置 offset=${offset+CHUNK} 继续`;
+                else if (offset > 0) result = `[从${offset}继续]\n${result}\n\n[✅ 读完，共${totalLen}字符]`;
+                return result;
             }
             case 'fetch_html': {
                 const res = await fetch(args.url, { signal: AbortSignal.timeout(timeout), headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
                 if (!res.ok) return `[HTTP ${res.status}]`;
                 const html = await res.text();
-                console.log(`✅ [工具] fetch_html 返回${html.length}字符`);
-                return html.substring(0, 8000);
+                const totalLen = html.length, CHUNK = 12000, offset = parseInt(args.offset) || 0;
+                const chunk = html.substring(offset, offset + CHUNK);
+                const remaining = totalLen - offset - chunk.length;
+                console.log(`✅ [工具] fetch_html 总${totalLen}字符，从${offset}读${chunk.length}字符`);
+                let result = chunk;
+                if (remaining > 0) result += `\n\n[截断] 总${totalLen}字符，已到${offset+chunk.length}，设置 offset=${offset+CHUNK} 继续`;
+                return result;
             }
             case 'fetch_json': {
                 const res = await fetch(args.url, { signal: AbortSignal.timeout(timeout), headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
                 if (!res.ok) return `[HTTP ${res.status}]`;
                 const data = await res.json();
                 const jsonStr = JSON.stringify(data, null, 2);
-                console.log(`✅ [工具] fetch_json 返回${jsonStr.length}字符`);
-                return jsonStr.substring(0, 8000);
+                const totalLen = jsonStr.length, CHUNK = 12000, offset = parseInt(args.offset) || 0;
+                const chunk = jsonStr.substring(offset, offset + CHUNK);
+                const remaining = totalLen - offset - chunk.length;
+                console.log(`✅ [工具] fetch_json 总${totalLen}字符，从${offset}读${chunk.length}字符`);
+                let result = chunk;
+                if (remaining > 0) result += `\n\n[截断] 总${totalLen}字符，已到${offset+chunk.length}，设置 offset=${offset+CHUNK} 继续`;
+                return result;
             }
             case 'fetch_github': {
                 const githubMatch = args.url.match(/github\.com\/([^\/]+)\/([^\/]+?)(?:\.git)?(?:\/(?:blob|tree)\/[^\/]+\/(.+))?(?:\?.*)?$/);
@@ -1134,9 +1150,15 @@ async function executeToolCall(name, args, mcpServer) {
                     const res = await fetch(apiUrl, { headers, signal: AbortSignal.timeout(timeout) });
                     if (!res.ok) return `[GitHub API ${res.status}]`;
                     const data = await res.json();
-                    const content = Buffer.from(data.content, 'base64').toString('utf8');
-                    console.log(`✅ [工具] fetch_github 返回${content.length}字符`);
-                    return content.substring(0, 10000);
+                    const fullContent = Buffer.from(data.content, 'base64').toString('utf8');
+                    const totalLen = fullContent.length, CHUNK = 15000, offset = parseInt(args.offset) || 0;
+                    const chunk = fullContent.substring(offset, offset + CHUNK);
+                    const remaining = totalLen - offset - chunk.length;
+                    console.log(`✅ [工具] fetch_github 文件总${totalLen}字符，从${offset}读${chunk.length}字符`);
+                    let result = chunk;
+                    if (remaining > 0) result += `\n\n[截断] 总${totalLen}字符，已到${offset+chunk.length}，剩${remaining}。设置 offset=${offset+CHUNK} 继续`;
+                    else if (offset > 0) result = `[从${offset}继续]\n${result}\n\n[✅ 读完，共${totalLen}字符]`;
+                    return result;
                 } else {
                     const apiUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/main?recursive=1`;
                     const res = await fetch(apiUrl, { headers, signal: AbortSignal.timeout(timeout) });
@@ -1177,10 +1199,10 @@ async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages) {
 // 🌟 独立 RP 模式雷达
 // ==========================================
 const BUILTIN_TOOLS = [
-    { type: "function", function: { name: "fetch_txt", description: "【仅在用户明确要求查看某个网页、或需要获取网络信息时使用】读取网页URL返回纯文本。日常闲聊、情感对话、RP时严禁调用。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" } }, required: ["url"] } } },
-    { type: "function", function: { name: "fetch_html", description: "【仅在需要分析网页HTML结构、调试前端代码时使用】读取网页返回原始HTML。大多数情况应该用 fetch_txt。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" } }, required: ["url"] } } },
-    { type: "function", function: { name: "fetch_json", description: "【仅在需要调用API接口获取JSON数据时使用】读取JSON接口URL，返回格式化JSON。", parameters: { type: "object", properties: { url: { type: "string", description: "JSON接口的URL" } }, required: ["url"] } } },
-    { type: "function", function: { name: "fetch_github", description: "【仅在用户明确要求查看GitHub仓库或代码文件时使用】读取GitHub仓库文件列表或具体文件内容。支持仓库根目录（返回文件树）和具体文件路径（返回内容）。", parameters: { type: "object", properties: { url: { type: "string", description: "GitHub URL" } }, required: ["url"] } } }
+    { type: "function", function: { name: "fetch_txt", description: "【仅在用户明确要求查看某个网页、或需要获取网络信息时使用】读取网页URL返回纯文本。如果内容被截断，可用offset参数继续读。日常闲聊、情感对话、RP时严禁调用。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" }, offset: { type: "integer", description: "从第几个字符开始读（默认0）。截断后设置此值继续读" } }, required: ["url"] } } },
+    { type: "function", function: { name: "fetch_html", description: "【仅在需要分析网页HTML结构、调试前端代码时使用】读取网页返回原始HTML。大多数情况应该用 fetch_txt。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
+    { type: "function", function: { name: "fetch_json", description: "【仅在需要调用API接口获取JSON数据时使用】读取JSON接口URL，返回格式化JSON。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "JSON接口的URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
+    { type: "function", function: { name: "fetch_github", description: "【仅在用户明确要求查看GitHub仓库或代码文件时使用】读取GitHub仓库文件列表或具体文件内容。支持仓库根目录（返回文件树）和具体文件路径（返回内容）。大文件被截断时，用offset参数继续读取后续内容。", parameters: { type: "object", properties: { url: { type: "string", description: "GitHub URL" }, offset: { type: "integer", description: "从第几个字符开始读（默认0）。文件被截断后设置此值继续读后面的内容" } }, required: ["url"] } } }
 ];
 
 let TOOLS_ENABLED = { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true };
