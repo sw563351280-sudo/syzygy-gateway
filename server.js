@@ -1186,7 +1186,16 @@ const BUILTIN_TOOLS = [
 let TOOLS_ENABLED = { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true };
 
 // MCP Server 配置：{ name, command, args[], env? }
-const MCP_SERVERS = [];
+const MCP_SERVERS = [
+    { name: 'filesystem',  command: 'npx', args: ['-y', '@anthropic/mcp-server-filesystem', '/app/data'] },
+    { name: 'git',         command: 'npx', args: ['-y', '@anthropic/mcp-server-git', '--repository', '/app'] },
+    { name: 'memory',      command: 'npx', args: ['-y', '@anthropic/mcp-server-memory'] },
+    { name: 'seq-thinking',command: 'npx', args: ['-y', '@anthropic/mcp-server-sequential-thinking'] },
+    { name: 'time',        command: 'npx', args: ['-y', '@anthropic/mcp-server-time'] },
+    { name: 'github',      command: 'npx', args: ['-y', '@anthropic/mcp-server-github'], env: { GITHUB_TOKEN: process.env.GITHUB_TOKEN || '' } },
+    { name: 'brave-search',command: 'npx', args: ['-y', '@anthropic/mcp-server-brave-search'], env: { BRAVE_API_KEY: process.env.BRAVE_API_KEY || '' } },
+    { name: 'puppeteer',   command: 'npx', args: ['-y', '@anthropic/mcp-server-puppeteer'] }
+];
 const mcpConnections = new Map(); // name → { process, tools, buffer }
 
 function startMCPServer(config) {
@@ -1257,7 +1266,10 @@ async function callMCPTool(serverName, toolName, args) {
 
 async function startAllMCPServers() {
     for (const config of MCP_SERVERS) {
-        startMCPServer(config).catch(e => console.log(`🔌 [MCP] ${config.name} 启动失败: ${e.message}`));
+        startMCPServer(config).catch(e => {
+            console.log(`🔌 [MCP] ${config.name} 启动失败: ${e.message}`);
+            mcpFailedConnections.push(config.name);
+        });
     }
 }
 
@@ -2106,12 +2118,18 @@ app.post('/api/flush-zep', async (req, res) => {
     } catch(e) { console.log('❌ [flush-zep]', e.message); res.json({ ok: false, error: e.message }); }
 });
 
+const mcpFailedConnections = [];
 app.get('/api/mcp/servers', (req, res) => {
     const list = [];
     for (const [name, conn] of mcpConnections) {
-        list.push({ name, command: conn.config.command, tools: conn.tools.map(t => t.function?.name || t.name) });
+        list.push({ name, status: 'connected', command: conn.config.command, tools: conn.tools.map(t => t.function?.name || t.name) });
     }
-    res.json({ servers: list, configs: MCP_SERVERS });
+    for (const config of MCP_SERVERS) {
+        if (!mcpConnections.has(config.name)) {
+            list.push({ name: config.name, status: mcpFailedConnections.includes(config.name) ? 'failed' : 'connecting', command: config.command, tools: [] });
+        }
+    }
+    res.json({ servers: list });
 });
 
 app.post('/api/mcp/add-server', (req, res) => {
