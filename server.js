@@ -1186,14 +1186,7 @@ const BUILTIN_TOOLS = [
 let TOOLS_ENABLED = { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true };
 
 // MCP Server 配置：{ name, command, args[], env? }
-const MCP_SERVERS = [
-    { name: 'filesystem',  command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/app/data'] },
-    { name: 'memory',      command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'] },
-    { name: 'seq-thinking',command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] },
-    { name: 'github',      command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_TOKEN: process.env.GITHUB_TOKEN || '' } },
-    { name: 'brave-search',command: 'npx', args: ['-y', '@modelcontextprotocol/server-brave-search'], env: { BRAVE_API_KEY: process.env.BRAVE_API_KEY || '' } },
-    { name: 'puppeteer',   command: 'npx', args: ['-y', '@modelcontextprotocol/server-puppeteer'] }
-];
+const MCP_SERVERS = [];  // 内置工具已覆盖 fetch/github，MCP 暂不启用
 const mcpConnections = new Map(); // name → { process, tools, buffer }
 
 function startMCPServer(config) {
@@ -1230,12 +1223,13 @@ function startMCPServer(config) {
                 setTimeout(() => { if (conn.pending.has(id)) { conn.pending.delete(id); rej(new Error('timeout')); } }, 60000);
             });
             conn.send('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'syzygy-gateway', version: '1.0' } })
+                .then(() => { child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n'); })
                 .then(() => conn.send('tools/list', {}))
                 .then(result => {
                     conn.tools = (result.result?.tools || []).map(t => ({
-                        ...t,
-                        _mcp: config.name,
-                        function: t.function || { name: t.name, description: t.description || '', parameters: t.inputSchema || { type: 'object', properties: {} } }
+                        type: 'function',
+                        function: { name: t.name, description: t.description || '', parameters: t.inputSchema || { type: 'object', properties: {} } },
+                        _mcp: config.name
                     }));
                     mcpConnections.set(config.name, conn);
                     console.log(`🔌 [MCP] ${config.name} 已连接，发现${conn.tools.length}个工具: ${conn.tools.map(t => t.function?.name || t.name).join(', ')}`);
@@ -1730,7 +1724,7 @@ newMessages.forEach((m, i) => {
         while (maxToolRounds-- > 0 && enabledTools.length > 0) {
             const toolBody = JSON.parse(JSON.stringify(body));
             toolBody.stream = false;
-            toolBody.tools = enabledTools;
+            toolBody.tools = enabledTools.map(t => { const { _mcp, ...clean } = t; return clean; });
             const isGeminiModel = (body.model || '').toLowerCase().includes('gemini');
             if (isGeminiModel) delete toolBody.tool_choice; else toolBody.tool_choice = "auto";
 
@@ -1802,7 +1796,11 @@ newMessages.forEach((m, i) => {
             }
         }
         // 多轮工具调用后仍无最终回复→继续走原来的fetch逻辑
-        if (maxToolRounds <= 0) console.log(`🔧 [工具] 已达最大轮次，继续走非工具流式输出`);
+        if (maxToolRounds <= 0) {
+            console.log(`🔧 [工具] 已达最大轮次，清理工具消息后继续`);
+            body.messages = body.messages.filter(m => m.role !== 'tool' && !(m.role === 'assistant' && m.tool_calls));
+            delete body.tools; delete body.tool_choice;
+        }
 
         const response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
         if (!response.ok) return res.status(response.status).json({ error: "模型报错：" + await response.text() });
@@ -2911,7 +2909,7 @@ app.post('/api/web-chat', async (req, res) => {
                 const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return true; return TOOLS_ENABLED[name]; });
                 let webMaxRounds = 5, webLastSig = '';
                 while (webMaxRounds-- > 0 && enabledTools.length > 0) {
-                    const toolFetchBody = { ...fetchBody, tools: enabledTools };
+                    const toolFetchBody = { ...fetchBody, tools: enabledTools.map(t => { const { _mcp, ...clean } = t; return clean; }) };
                     const isGeminiModel = (model || '').toLowerCase().includes('gemini');
                     if (isGeminiModel) delete toolFetchBody.tool_choice; else toolFetchBody.tool_choice = "auto";
 
