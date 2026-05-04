@@ -2965,6 +2965,9 @@ app.post('/api/web-chat', async (req, res) => {
                     return;
                 }
 
+                // 清理工具消息，防止污染后续请求
+                fetchBody.messages = apiMessages.filter(m => m.role !== 'tool' && !(m.role === 'assistant' && m.tool_calls));
+
                 const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
