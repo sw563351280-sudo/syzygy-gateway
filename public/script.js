@@ -1559,14 +1559,16 @@ async function syncMcpTools() {
         try {
             const mcpRes = await fetch('/api/mcp/servers');
             const mcpData = await mcpRes.json();
+            let mcpHtml = '<div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.1);font-size:0.75em;color:#888;">🔌 外部 MCP Server</div>';
             if (mcpData.servers && mcpData.servers.length > 0) {
-                let mcpHtml = '<div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.1);font-size:0.75em;color:#888;">🔌 MCP Server</div>';
                 mcpData.servers.forEach(s => {
                     const dot = s.status === 'connected' ? '🟢' : s.status === 'failed' ? '🔴' : '🟡';
                     mcpHtml += '<div style="display:flex;justify-content:space-between;padding:2px 4px;"><span>' + dot + ' ' + s.name + '</span><span style="font-size:0.85em;">' + s.tools.length + ' tools</span></div>';
                 });
-                listEl.innerHTML += mcpHtml;
+            } else {
+                mcpHtml += '<div style="padding:2px 4px;opacity:0.6;">⚪ 未连接（内置工具已够用）</div>';
             }
+            listEl.innerHTML += mcpHtml;
         } catch(e) {}
     } catch (e) {
         listEl.innerHTML = '<div style="color:#ff5252;">模组同步失败</div>';
