@@ -1724,6 +1724,21 @@ function retryLastMessage(btn) {
     saveToCloud(); renderChatMessages(); sendChat();
 }
 
+// ═══ 共鸣核心 ═══
+(function() {
+    const core = document.getElementById('resonanceCore');
+    const input = document.getElementById('chatInput');
+    if (!core || !input) return;
+    let typingTimer;
+    input.addEventListener('input', () => {
+        core.classList.remove('syzygy-typing'); core.classList.add('user-typing');
+        clearTimeout(typingTimer);
+        typingTimer = setTimeout(() => core.classList.remove('user-typing'), 1500);
+    });
+    window._coreStreamStart = () => { core.classList.remove('user-typing'); core.classList.add('syzygy-typing'); };
+    window._coreStreamEnd = () => core.classList.remove('syzygy-typing');
+})();
+
 // ═══ Syzygy Line 天体连线 ═══
 (function() {
     const line = document.getElementById('syzygy-line');
