@@ -19,6 +19,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
+    <svg id="syzygy-line-svg" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999;"><defs><linearGradient id="syzygy-grad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4fc3f7;stop-opacity:0.8"/><stop offset="100%" style="stop-color:#c9a961;stop-opacity:0.8"/></linearGradient></defs><line id="syzygy-line" x1="0" y1="0" x2="0" y2="0" style="stroke:url(#syzygy-grad);stroke-width:1.5;opacity:0;transition:opacity 0.3s ease-in-out;"/></svg>
     <button id="themeToggleBtn" onclick="toggleLightMode()" style="position: fixed; top: 20px; right: 20px; z-index: 9999; background: rgba(255,255,255,0.2); border: 1px solid var(--glass-border); border-radius: 50%; width: 40px; height: 40px; font-size: 20px; cursor: pointer; backdrop-filter: blur(5px); box-shadow: 0 4px 10px rgba(0,0,0,0.3); color: white;">☼</button>
     <canvas id="starmap"></canvas>
     <div class="binding-right"></div>

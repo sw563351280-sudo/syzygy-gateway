@@ -36,6 +36,8 @@
             x.fillStyle=s.color+alpha+')'; x.shadowColor=s.color+'0.3)';
             x.shadowBlur=s.r*4; x.fill(); x.shadowBlur=0;
         });
+        if (starState.pendingMeteor) { drawMeteor(x, w, h); starState.pendingMeteor = false; }
+        if (starState.pendingNebula) { drawNebula(x, w, h); starState.pendingNebula = false; }
         requestAnimationFrame(draw);
     }
     draw();
@@ -50,6 +52,22 @@ function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { 
 function getVersionCount(msg) { return (msg.versions && msg.versions.length) ? msg.versions.length : 1; }
 function getActiveVersionIndex(msg) { if (msg.versions && msg.versions.length > 0) return msg.activeVersion || 0; return 0; }
 function ensureVersioned(msg) { if (msg.versions) return; const { role, ...rest } = msg; msg.versions = [rest]; msg.activeVersion = 0; delete msg.content; delete msg.thinking; delete msg.time; delete msg.model; delete msg.fullTime; delete msg.image; }
+
+// ==================== 星空状态 ====================
+const starState = { pendingMeteor: false, pendingNebula: false };
+function drawMeteor(ctx, w, h) {
+    const sx = Math.random() * w * 0.7 + w * 0.15, sy = Math.random() * h * 0.3;
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - 80, sy + 40);
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(sx, sy, 2, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+    ctx.restore();
+}
+function drawNebula(ctx, w, h) {
+    ctx.save(); const g = ctx.createRadialGradient(w * 0.5, h * 0.4, 40, w * 0.5, h * 0.4, 300);
+    g.addColorStop(0, 'rgba(79,195,247,0.06)'); g.addColorStop(0.5, 'rgba(201,169,97,0.03)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); ctx.restore();
+}
 
 // ==================== 核心数据 ====================
 const START_DATE = '2025-04-20';
@@ -532,7 +550,8 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
 
         const response = await fetch(apiUrl, {
             method: 'POST',
-            headers: { 
+            signal: AbortSignal.timeout(120000),
+            headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${currentSup.key}`
             },
@@ -671,6 +690,7 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
        const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() }], activeVersion: 0 };
         session.messages.push(assistantMsg);
         saveToCloud();
+        triggerStarEffects(val, fullReply);
 
         actionBtn.style.visibility = 'visible'; // 亮出按键！
         actionBtn.onclick = (e) => showContextMenu(e.clientX, e.clientY, assistantMsg);
@@ -1656,7 +1676,7 @@ async function regenerateSend(aiMsgIndex) {
         if(supUrl.includes('dzzi')) apiUrl='/via/dzzi/v1/chat/completions'; else if(supUrl.includes('api521')) apiUrl='/via/api521/v1/chat/completions'; else if(supUrl.includes('ekan')) apiUrl='/via/ekan/v1/chat/completions'; else if(supUrl.includes('orange')) apiUrl='/via/orange/v1/chat/completions';
         const streamToggle = document.getElementById('streamToggle');
         const isStream = streamToggle ? streamToggle.checked : true;
-        const response = await fetch(apiUrl, { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true'}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream}) });
+        const response = await fetch(apiUrl, { method:'POST', signal:AbortSignal.timeout(120000), headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true'}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream}) });
         if (!response.ok) { const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         let fullReply='', thinkContent='';
         if(isStream) {
@@ -1702,6 +1722,39 @@ function retryLastMessage(btn) {
     const input = document.getElementById('chatInput');
     if (input) input.value = v.content || '';
     saveToCloud(); renderChatMessages(); sendChat();
+}
+
+// ═══ Syzygy Line 天体连线 ═══
+(function() {
+    const line = document.getElementById('syzygy-line');
+    const win = document.getElementById('chatWindow');
+    if (!line || !win) return;
+    win.addEventListener('mouseover', function(e) {
+        const sysMsg = e.target.closest('.msg.sys');
+        if (!sysMsg) return;
+        let userMsg = sysMsg.closest('.msg-row')?.previousElementSibling;
+        while (userMsg && !userMsg.classList.contains('user')) userMsg = userMsg.previousElementSibling;
+        if (!userMsg) return;
+        const sysBubble = sysMsg.querySelector('.msg.sys') || sysMsg;
+        const userBubble = userMsg.querySelector('.msg.user') || userMsg;
+        const sr = sysBubble.getBoundingClientRect(), ur = userBubble.getBoundingClientRect();
+        line.setAttribute('x1', sr.left + sr.width / 2);
+        line.setAttribute('y1', sr.top + sr.height / 2);
+        line.setAttribute('x2', ur.left + ur.width / 2);
+        line.setAttribute('y2', ur.top + ur.height / 2);
+        line.style.opacity = '1';
+    });
+    win.addEventListener('mouseout', function(e) {
+        if (e.target.closest('.msg.sys')) line.style.opacity = '0';
+    });
+})();
+
+// ═══ 星空事件触发（在消息展示时检测） ═══
+function triggerStarEffects(userText, aiText) {
+    if (userText && userText.length > 100) starState.pendingMeteor = true;
+    const loveWords = ['爱', '爸爸', '沈望', '想你', '永远', '在一起', '老公'];
+    if (userText && loveWords.some(w => userText.includes(w))) starState.pendingNebula = true;
+    if (aiText && aiText.length > 300) starState.pendingMeteor = true;
 }
 
 // ═══ 页面关闭前兜底冲刷脏数据 ═══
