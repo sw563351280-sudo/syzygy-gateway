@@ -91,10 +91,18 @@ function saveToCloud() {
     clearTimeout(_saveTimer);
     _saveTimer = setTimeout(async () => {
         try {
-            const sessionsToSave = chatSessions.map(s => ({
-    ...s, messages: s.messages.slice(-200) // 从50扩大到200条
-}));
-
+            const sessionsToSave = JSON.parse(JSON.stringify(chatSessions));
+            for (const s of sessionsToSave) {
+                if (!s.messages) continue;
+                s.messages = s.messages.slice(-200);
+                for (const m of s.messages) {
+                    if (m.versions && m.versions.length > 5) {
+                        m.versions = [m.versions[0], ...m.versions.slice(-4)];
+                        if (m.activeVersion >= m.versions.length) m.activeVersion = m.versions.length - 1;
+                    }
+                    delete m._zepDirty;
+                }
+            }
             await fetch('/api/sync-config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1693,3 +1701,24 @@ function retryLastMessage(btn) {
     if (input) input.value = v.content || '';
     saveToCloud(); renderChatMessages(); sendChat();
 }
+
+// ═══ 页面关闭前兜底冲刷脏数据 ═══
+window.addEventListener('beforeunload', function() {
+    const session = getActiveSession();
+    if (!session || !session.messages) return;
+    for (let i = 0; i < session.messages.length; i++) {
+        const msg = session.messages[i];
+        if (msg.role !== 'assistant' || !msg._zepDirty) continue;
+        const v = getActiveVersion(msg);
+        let userContent = '';
+        for (let j = i - 1; j >= 0; j--) {
+            if (session.messages[j].role === 'user') {
+                const uv = getActiveVersion(session.messages[j]);
+                userContent = typeof uv.content === 'string' ? uv.content : '（发送了图片）';
+                break;
+            }
+        }
+        navigator.sendBeacon('/api/flush-zep', JSON.stringify({ userContent, aiContent: v.content || '' }));
+        delete msg._zepDirty;
+    }
+});
