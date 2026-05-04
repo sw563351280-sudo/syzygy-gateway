@@ -1021,18 +1021,16 @@ async function addCapsule(){
 
 async function updateCounts(){
     try{
-        const [diaryRes, capsuleRes] = await Promise.all([fetch('/diary-logs'), fetch('/capsule-logs')]);
-        const diaries = await diaryRes.json(); const capsules = await capsuleRes.json();
-        const dc = document.getElementById('diaryCount'); const cc = document.getElementById('capsuleCount');
-        if(dc) dc.innerText = diaries.length; if(cc) cc.innerText = capsules.length;
+        const diaryRes = await fetch('/diary-logs'); const diaries = await diaryRes.json();
+        const dc = document.getElementById('diaryCount'); if(dc) dc.innerText = diaries.length;
     } catch(e){}
 }
 
 async function exportData(){
     try{
-        const [diaryRes, capsuleRes, configRes] = await Promise.all([fetch('/diary-logs'), fetch('/capsule-logs'), fetch('/api/sync-config')]);
-        const diaries = await diaryRes.json(); const capsules = await capsuleRes.json(); const config = await configRes.json();
-        const exportObj = { exported_at: new Date().toISOString(), diaries, capsules, chat_sessions: config.chatSessions, local_suppliers: suppliers };
+        const [diaryRes, configRes] = await Promise.all([fetch('/diary-logs'), fetch('/api/sync-config')]);
+        const diaries = await diaryRes.json(); const config = await configRes.json();
+        const exportObj = { exported_at: new Date().toISOString(), diaries, chat_sessions: config.chatSessions, local_suppliers: suppliers };
         const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `backup.json`; a.click();
         toast('已下载');
