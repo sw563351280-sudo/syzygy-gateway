@@ -1136,7 +1136,8 @@ async function executeToolCall(name, args) {
                     const data = await res.json();
                     const tree = (data.tree || []).filter(f => f.type === 'blob').map(f => `${f.path} (${f.size}B)`).join('\n');
                     console.log(`✅ [工具] fetch_github 仓库${owner}/${repo}文件树已获取`);
-                    return `仓库 ${owner}/${repo} 文件列表：\n${tree}`.substring(0, 8000);
+                    const hint = '\n\n[重要] 以上只是文件列表，你无法看到文件内容。不要编造代码或假装读过文件。如果需要查看具体文件，请让用户指定文件路径，如 https://github.com/' + owner + '/' + repo + '/blob/main/README.md';
+                    return (`仓库 ${owner}/${repo} 文件列表：\n${tree}${hint}`).substring(0, 8000);
                 }
             }
             default: return `[未知工具: ${name}]`;
