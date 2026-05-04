@@ -821,10 +821,11 @@ function buildMonthBlocks(entries){
 
 function diaryEntryHtml(d){
     const author = d.author === 'system' ? '沈望' : '江鱼';
+    const entryClass = d.type === 'syzygy_note' ? 'syzygy' : 'jiangyu';
     const safeText = (d.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const typeTag = d.type ? `<span class="d-type-tag">${d.type}</span>` : '';
+    const typeTag = d.type === 'syzygy_note' ? '<span class="d-type-tag">🖊️ 手记</span>' : (d.type ? `<span class="d-type-tag">${d.type}</span>` : '');
     return `
-    <div class="diary-entry" id="de-${d.id}">
+    <div class="diary-entry ${entryClass}" id="de-${d.id}">
         <div class="d-date">
             <span>${d.date || ''}</span><span class="d-author">${author}</span>${typeTag}
             ${d.id ? `<button class="d-del-btn" onclick="deleteDiaryEntry('${d.id}')">×</button>` : ''}

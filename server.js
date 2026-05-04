@@ -958,7 +958,16 @@ function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5, user
     }
     const effectiveArousal = source === 'ai_active' ? Math.max(arousal, 0.8) : arousal;
     const emoWeight = (userMsg && source === 'ai_active') ? detectEmotion(userMsg) : 0;
-    return addLongTermMemory(content, source, validTags, ttl, effectiveArousal, emoWeight);
+    const result = addLongTermMemory(content, source, validTags, ttl, effectiveArousal, emoWeight);
+    if (source === 'ai_active' && result) {
+        try {
+            const diaries = loadDiaries();
+            diaries.push({ id: 'syzygy_' + Date.now().toString(36), text: `沈望记下了：${content.trim()}`, author: 'system', type: 'syzygy_note', date: new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' }).replace(/\//g, '-'), datetime: new Date().toISOString() });
+            saveDiaries(diaries);
+            console.log('📖 [私语手记] 沈望自动记录了一条记忆');
+        } catch(e) {}
+    }
+    return result;
 }
 
 // ==========================================
