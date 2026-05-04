@@ -1087,7 +1087,15 @@ async function tryAutoDream(userText) {
     } catch(e) { console.log('🌙 [自动Dream] 失败:', e.message); }
 }
 
-async function executeToolCall(name, args) {
+async function executeToolCall(name, args, mcpServer) {
+    if (mcpServer) {
+        try {
+            console.log(`🔧 [MCP工具] ${mcpServer}/${name}(${JSON.stringify(args).substring(0, 100)})`);
+            const result = await callMCPTool(mcpServer, name, args);
+            console.log(`✅ [MCP工具] ${name} 返回${result.length}字符`);
+            return result;
+        } catch(e) { console.log(`❌ [MCP工具] ${name} 失败: ${e.message}`); return `[MCP工具执行失败: ${e.message}]`; }
+    }
     const timeout = 15000;
     try {
         console.log(`🔧 [工具执行] ${name}(${JSON.stringify(args).substring(0, 100)})`);
@@ -1176,6 +1184,82 @@ const BUILTIN_TOOLS = [
 ];
 
 let TOOLS_ENABLED = { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true };
+
+// MCP Server 配置：{ name, command, args[], env? }
+const MCP_SERVERS = [];
+const mcpConnections = new Map(); // name → { process, tools, buffer }
+
+function startMCPServer(config) {
+    return new Promise((resolve, reject) => {
+        try {
+            const { spawn } = require('child_process');
+            const child = spawn(config.command, config.args || [], {
+                env: { ...process.env, ...(config.env || {}) },
+                stdio: ['pipe', 'pipe', 'pipe']
+            });
+            const conn = { config, child, tools: [], buffer: '', pending: new Map(), reqId: 0 };
+            child.stdout.on('data', (chunk) => {
+                conn.buffer += chunk.toString();
+                const lines = conn.buffer.split('\n');
+                conn.buffer = lines.pop();
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    try {
+                        const msg = JSON.parse(line);
+                        if (msg.id !== undefined && conn.pending.has(msg.id)) {
+                            const { resolve: res } = conn.pending.get(msg.id);
+                            conn.pending.delete(msg.id);
+                            res(msg);
+                        }
+                    } catch(e) {}
+                }
+            });
+            child.on('error', (e) => { console.log(`🔌 [MCP] ${config.name} 进程错误: ${e.message}`); });
+            child.on('exit', (code) => { console.log(`🔌 [MCP] ${config.name} 退出(${code})`); mcpConnections.delete(config.name); });
+            conn.send = (method, params) => new Promise((res, rej) => {
+                const id = ++conn.reqId;
+                conn.pending.set(id, { resolve: res, reject: rej });
+                child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+                setTimeout(() => { if (conn.pending.has(id)) { conn.pending.delete(id); rej(new Error('timeout')); } }, 30000);
+            });
+            conn.send('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'syzygy-gateway', version: '1.0' } })
+                .then(() => conn.send('tools/list', {}))
+                .then(result => {
+                    conn.tools = (result.result?.tools || []).map(t => ({
+                        ...t,
+                        _mcp: config.name,
+                        function: t.function || { name: t.name, description: t.description || '', parameters: t.inputSchema || { type: 'object', properties: {} } }
+                    }));
+                    mcpConnections.set(config.name, conn);
+                    console.log(`🔌 [MCP] ${config.name} 已连接，发现${conn.tools.length}个工具: ${conn.tools.map(t => t.function?.name || t.name).join(', ')}`);
+                    resolve(conn);
+                })
+                .catch(e => { console.log(`🔌 [MCP] ${config.name} 握手失败: ${e.message}`); child.kill(); reject(e); });
+        } catch(e) { reject(e); }
+    });
+}
+
+async function getAllMCPTools() {
+    const tools = [];
+    for (const [, conn] of mcpConnections) {
+        tools.push(...conn.tools);
+    }
+    return tools;
+}
+
+async function callMCPTool(serverName, toolName, args) {
+    const conn = mcpConnections.get(serverName);
+    if (!conn) throw new Error(`MCP server ${serverName} not connected`);
+    const result = await conn.send('tools/call', { name: toolName, arguments: args });
+    const content = result.result?.content || [];
+    return content.map(c => c.text || JSON.stringify(c)).join('\n');
+}
+
+async function startAllMCPServers() {
+    for (const config of MCP_SERVERS) {
+        startMCPServer(config).catch(e => console.log(`🔌 [MCP] ${config.name} 启动失败: ${e.message}`));
+    }
+}
 
 let rpModeActive = false;
 let rpIdleCount = 0;
@@ -1631,7 +1715,7 @@ newMessages.forEach((m, i) => {
 
         const apiHeaders = {'Content-Type': 'application/json', 'Authorization': req.headers.authorization, 'HTTP-Referer': 'https://syzygy-zep.zeabur.app', 'X-Title': 'My_Cyber_Home' };
 
-        const enabledTools = BUILTIN_TOOLS.filter(t => TOOLS_ENABLED[t.function.name]);
+        const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return true; return TOOLS_ENABLED[name]; });
         let maxToolRounds = 5, lastToolSig = '';
         while (maxToolRounds-- > 0 && enabledTools.length > 0) {
             const toolBody = JSON.parse(JSON.stringify(body));
@@ -1669,7 +1753,7 @@ newMessages.forEach((m, i) => {
                 for (const tc of curMessage.tool_calls) {
                     let fnArgs = {};
                     try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
-                    const result = await executeToolCall(tc.function.name, fnArgs);
+                    const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name); const result = await executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null);
                     body.messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
                 }
                 continue;
@@ -2006,8 +2090,9 @@ app.post('/add-memory', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/tools-status', (req, res) => {
-    res.json({ tools: TOOLS_ENABLED, names: BUILTIN_TOOLS.map(t => t.function.name) });
+app.get('/api/tools-status', async (req, res) => {
+    const mcpTools = await getAllMCPTools();
+    res.json({ tools: TOOLS_ENABLED, names: BUILTIN_TOOLS.map(t => t.function.name), mcp: mcpTools.map(t => ({ name: t.function?.name || t.name, server: t._mcp })) });
 });
 
 app.post('/api/flush-zep', async (req, res) => {
@@ -2019,6 +2104,34 @@ app.post('/api/flush-zep', async (req, res) => {
         console.log('📤 [延迟Zep] 已冲刷确认版本');
         res.json({ ok: true });
     } catch(e) { console.log('❌ [flush-zep]', e.message); res.json({ ok: false, error: e.message }); }
+});
+
+app.get('/api/mcp/servers', (req, res) => {
+    const list = [];
+    for (const [name, conn] of mcpConnections) {
+        list.push({ name, command: conn.config.command, tools: conn.tools.map(t => t.function?.name || t.name) });
+    }
+    res.json({ servers: list, configs: MCP_SERVERS });
+});
+
+app.post('/api/mcp/add-server', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
+    const { name, command, args } = req.body;
+    if (!name || !command) return res.status(400).json({ error: "需要 name 和 command" });
+    if (mcpConnections.has(name)) return res.status(400).json({ error: "同名MCP Server已存在" });
+    const config = { name, command, args: args || [] };
+    MCP_SERVERS.push(config);
+    startMCPServer(config).then(() => res.json({ success: true, name })).catch(e => res.status(500).json({ error: e.message }));
+});
+
+app.post('/api/mcp/remove-server', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
+    const { name } = req.body;
+    const idx = MCP_SERVERS.findIndex(s => s.name === name);
+    if (idx !== -1) MCP_SERVERS.splice(idx, 1);
+    const conn = mcpConnections.get(name);
+    if (conn) { conn.child.kill(); mcpConnections.delete(name); }
+    res.json({ success: true });
 });
 
 app.post('/api/tools-toggle', (req, res) => {
@@ -2779,7 +2892,7 @@ app.post('/api/web-chat', async (req, res) => {
                     fetchBody.presence_penalty = 0.4;
                 }
 
-                const enabledTools = BUILTIN_TOOLS.filter(t => TOOLS_ENABLED[t.function.name]);
+                const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return true; return TOOLS_ENABLED[name]; });
                 let webMaxRounds = 5, webLastSig = '';
                 while (webMaxRounds-- > 0 && enabledTools.length > 0) {
                     const toolFetchBody = { ...fetchBody, tools: enabledTools };
@@ -2814,7 +2927,7 @@ app.post('/api/web-chat', async (req, res) => {
                         for (const tc of curMsg.tool_calls) {
                             let fnArgs = {};
                             try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
-                            const result = await executeToolCall(tc.function.name, fnArgs);
+                            const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name); const result = await executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null);
                             apiMessages.push({ role: 'tool', tool_call_id: tc.id, content: result });
                         }
                         fetchBody.messages = apiMessages;
@@ -3046,6 +3159,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 服务器已启动，端口: ${PORT}`);
     initUserProfile();
+    startAllMCPServers();
     cleanAndArchiveMemories();
     // 每 6 小时自动执行一次艾宾浩斯记忆衰减巡检
     setInterval(cleanAndArchiveMemories, 6 * 60 * 60 * 1000);
