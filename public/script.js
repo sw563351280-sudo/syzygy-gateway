@@ -1537,8 +1537,22 @@ async function syncMcpTools() {
         const allOn = Object.values(tools).every(v => v);
         const toggle = document.getElementById('toolsMasterToggle');
         if (toggle) toggle.checked = allOn;
+
+        // 追加 MCP Server 状态
+        try {
+            const mcpRes = await fetch('/api/mcp/servers');
+            const mcpData = await mcpRes.json();
+            if (mcpData.servers && mcpData.servers.length > 0) {
+                let mcpHtml = '<div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.1);font-size:0.75em;color:#888;">🔌 MCP Server</div>';
+                mcpData.servers.forEach(s => {
+                    const dot = s.status === 'connected' ? '🟢' : s.status === 'failed' ? '🔴' : '🟡';
+                    mcpHtml += '<div style="display:flex;justify-content:space-between;padding:2px 4px;"><span>' + dot + ' ' + s.name + '</span><span style="font-size:0.85em;">' + s.tools.length + ' tools</span></div>';
+                });
+                listEl.innerHTML += mcpHtml;
+            }
+        } catch(e) {}
     } catch (e) {
-        listEl.innerHTML = '<div style=”color:#ff5252;”>模组同步失败</div>';
+        listEl.innerHTML = '<div style="color:#ff5252;">模组同步失败</div>';
     }
 }
 async function toggleToolUI(name) { await fetch('/api/tools-toggle?tool=' + name, { method: 'POST' }); syncMcpTools(); }
