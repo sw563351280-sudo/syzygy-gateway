@@ -8,13 +8,13 @@
     window.addEventListener('resize',resize); resize();
 
     const starColors=['rgba(201,169,97,','rgba(212,197,160,','rgba(255,255,255,'];
-    for(let i=0;i<140;i++) stars.push({
+    for(let i=0;i<80;i++) stars.push({
         x:Math.random()*w, y:Math.random()*h,
         r:Math.random()*1.5+0.3, a:Math.random()*Math.PI*2,
         speed:0.005+Math.random()*0.015,
         color:starColors[Math.floor(Math.random()*starColors.length)]
     });
-    for(let i=0;i<5;i++) trails.push({
+    for(let i=0;i<3;i++) trails.push({
         cx:Math.random()*w, cy:Math.random()*h*0.6,
         rx:150+Math.random()*300, ry:80+Math.random()*150,
         rot:Math.random()*Math.PI,
