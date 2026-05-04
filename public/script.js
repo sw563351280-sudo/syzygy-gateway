@@ -575,6 +575,7 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
         // 🌊 流式接收核心逻辑 (Stream = true)
         // ==========================================
         if (isStream) {
+            if (window._coreStreamStart) window._coreStreamStart();
             const reader = response.body.getReader();
             const decoder = new TextDecoder("utf-8");
             let buffer = "";
@@ -690,6 +691,7 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
        const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() }], activeVersion: 0 };
         session.messages.push(assistantMsg);
         saveToCloud();
+        if (window._coreStreamEnd) window._coreStreamEnd();
         triggerStarEffects(val, fullReply);
 
         actionBtn.style.visibility = 'visible'; // 亮出按键！
