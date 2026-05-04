@@ -1,3 +1,6 @@
+// ==================== 星空状态 ====================
+const starState = { pendingMeteor: false, pendingNebula: false };
+
 // ==================== 浪漫星空背景 ====================
 (function(){
     const c=document.getElementById('starmap');
@@ -53,8 +56,6 @@ function getVersionCount(msg) { return (msg.versions && msg.versions.length) ? m
 function getActiveVersionIndex(msg) { if (msg.versions && msg.versions.length > 0) return msg.activeVersion || 0; return 0; }
 function ensureVersioned(msg) { if (msg.versions) return; const { role, ...rest } = msg; msg.versions = [rest]; msg.activeVersion = 0; delete msg.content; delete msg.thinking; delete msg.time; delete msg.model; delete msg.fullTime; delete msg.image; }
 
-// ==================== 星空状态 ====================
-const starState = { pendingMeteor: false, pendingNebula: false };
 function drawMeteor(ctx, w, h) {
     const sx = Math.random() * w * 0.7 + w * 0.15, sy = Math.random() * h * 0.3;
     ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1;
