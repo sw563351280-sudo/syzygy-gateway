@@ -1186,7 +1186,17 @@ const BUILTIN_TOOLS = [
 let TOOLS_ENABLED = { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true };
 
 // MCP Server 配置：{ name, command, args[], env? }
-const MCP_SERVERS = [];
+const MCP_SERVERS = [
+    { name: 'fetch',       command: 'npx', args: ['-y', '@anthropic/mcp-server-fetch'] },
+    { name: 'filesystem',  command: 'npx', args: ['-y', '@anthropic/mcp-server-filesystem', '/app/data'] },
+    { name: 'git',         command: 'npx', args: ['-y', '@anthropic/mcp-server-git', '--repository', '/app'] },
+    { name: 'memory',      command: 'npx', args: ['-y', '@anthropic/mcp-server-memory'] },
+    { name: 'seq-thinking',command: 'npx', args: ['-y', '@anthropic/mcp-server-sequential-thinking'] },
+    { name: 'time',        command: 'npx', args: ['-y', '@anthropic/mcp-server-time'] },
+    { name: 'github',      command: 'npx', args: ['-y', '@anthropic/mcp-server-github'], env: { GITHUB_TOKEN: process.env.GITHUB_TOKEN || '' } },
+    { name: 'brave-search',command: 'npx', args: ['-y', '@anthropic/mcp-server-brave-search'], env: { BRAVE_API_KEY: process.env.BRAVE_API_KEY || '' } },
+    { name: 'puppeteer',   command: 'npx', args: ['-y', '@anthropic/mcp-server-puppeteer'] }
+];
 const mcpConnections = new Map(); // name → { process, tools, buffer }
 
 function startMCPServer(config) {
