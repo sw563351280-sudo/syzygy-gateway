@@ -1208,7 +1208,14 @@ const BUILTIN_TOOLS = [
 let TOOLS_ENABLED = { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true };
 
 // MCP Server 配置：{ name, command, args[], env? }
-const MCP_SERVERS = [];  // 内置工具已覆盖 fetch/github，MCP 暂不启用
+const MCP_SERVERS = [
+    { name: 'filesystem',     command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/app/data'] },
+    { name: 'memory',         command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'] },
+    { name: 'seq-thinking',   command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] },
+    { name: 'github',         command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_TOKEN: process.env.GITHUB_TOKEN || '' } },
+    { name: 'brave-search',   command: 'npx', args: ['-y', '@modelcontextprotocol/server-brave-search'], env: { BRAVE_API_KEY: process.env.BRAVE_API_KEY || '' } },
+    { name: 'puppeteer',      command: 'npx', args: ['-y', '@modelcontextprotocol/server-puppeteer'] }
+];
 const mcpConnections = new Map(); // name → { process, tools, buffer }
 
 function startMCPServer(config) {
