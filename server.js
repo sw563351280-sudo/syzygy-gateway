@@ -1238,11 +1238,7 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
 // MCP Server 配置：{ name, command, args[], env? }
 const MCP_SERVERS = [
     { name: 'filesystem',     command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/app/data'] },
-    { name: 'memory',         command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'] },
-    { name: 'seq-thinking',   command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] },
-    { name: 'github',         command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'], env: { GITHUB_TOKEN: process.env.GITHUB_TOKEN || '' } },
-    { name: 'brave-search',   command: 'npx', args: ['-y', '@modelcontextprotocol/server-brave-search'], env: { BRAVE_API_KEY: process.env.BRAVE_API_KEY || '' } },
-    { name: 'puppeteer',      command: 'npx', args: ['-y', '@modelcontextprotocol/server-puppeteer'] }
+    { name: 'brave-search',   command: 'npx', args: ['-y', '@modelcontextprotocol/server-brave-search'], env: { BRAVE_API_KEY: process.env.BRAVE_API_KEY || '' } }
 ];
 const mcpConnections = new Map(); // name → { process, tools, buffer }
 
@@ -2691,99 +2687,22 @@ app.post('/api/fetch-models', async (req, res) => {
 });
 
 // ==========================================
-// 🛠️ MCP 工具箱定义与处理
-// ==========================================
-
-async function smartClick(page, act) {
-    if (act.selector) {
-        try {
-            await page.waitForSelector(act.selector, { timeout: 3000 });
-            await page.click(act.selector);
-            return true;
-        } catch(e) {}
-    }
-
-    var searchText = act.value || (act.selector || '').replace(/[^\u4e00-\u9fff\w\s]/g, '').trim();
-    if (searchText) {
-        try {
-            var clicked = await page.evaluate(function(text) {
-                var els = document.querySelectorAll('button, a, input[type="submit"], [role="button"], label');
-                for (var i = 0; i < els.length; i++) {
-                    var elText = (els[i].textContent || els[i].value || '').trim();
-                    if (elText.includes(text) || text.includes(elText)) {
-                        els[i].click();
-                        return true;
-                    }
-                }
-                return false;
-            }, searchText);
-            if (clicked) return true;
-        } catch(e) {}
-    }
-
-    if (act.selector) {
-        try {
-            var clicked = await page.evaluate(function(sel) {
-                var inputs = document.querySelectorAll('input[type="radio"], input[type="checkbox"]');
-                for (var i = 0; i < inputs.length; i++) {
-                    if (sel.includes(inputs[i].value) || sel.includes(inputs[i].name)) {
-                        inputs[i].click();
-                        return true;
-                    }
-                }
-                return false;
-            }, act.selector);
-            if (clicked) return true;
-        } catch(e) {}
-    }
-    return false;
-}
-
-// ==========================================
 // 🧹 AI 记忆自清理（海马体大扫除）
 // ==========================================
 app.post('/trigger-cleanup', async (req, res) => {
-    if (req.query.pwd !== process.env.MEMORY_PASSWORD) 
-        return res.status(401).json({ error: "密码错误" });
-
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     const routerKey = process.env.ROUTER_API_KEY;
     if (!routerKey) return res.status(500).json({ error: "缺少 ROUTER_API_KEY" });
-
     const memories = loadLongTermMemories();
     const rpMemories = loadRoleplayMemories();
-
-    if (memories.length + rpMemories.length === 0) 
-        return res.json({ success: true, summary: "记忆库是空的，不需要清理" });
-
-    const memList = memories.map(m => 
-        `[ID=${m.id}] arousal=${m.arousal||0.5} | 唤醒=${m.activation_count||0}次 | tags=[${(m.tags||[]).join(',')}] | ${m.content}`
-    ).join('\n');
-
-    const rpList = rpMemories.map(m => 
-        `[ID=${m.id}] tags=[${(m.tags||[]).join(',')}] | ${m.content}`
-    ).join('\n');
-
+    if (memories.length + rpMemories.length === 0) return res.json({ success: true, summary: "记忆库是空的，不需要清理" });
+    const memList = memories.map(m => `[ID=${m.id}] arousal=${m.arousal||0.5} | 唤醒=${m.activation_count||0}次 | tags=[${(m.tags||[]).join(',')}] | ${m.content}`).join('\n');
+    const rpList = rpMemories.map(m => `[ID=${m.id}] tags=[${(m.tags||[]).join(',')}] | ${m.content}`).join('\n');
     const prompt = `你是沈望和江鱼的记忆库管理员。请审查所有记忆条目并执行清理。
-
-【清理规则】
-1. 内容高度重复/相似的，只保留最完整的一条，其余删除
-2. 过于琐碎、无信息量、已明显过时的，删除
-3. 同一主题的碎片记忆，合并成一条更完整的
-4. 谨慎！拿不准就保留，宁可多留不要误删
-5. 重要的情感记忆、人生事件、核心偏好 绝对不删
-
-现实记忆库（${memories.length}条）：
-${memList || '（空）'}
-
-RP游戏卡带（${rpMemories.length}条）：
-${rpList || '（空）'}
-
-输出纯JSON：
-{
-    "delete_ids": ["要删除的记忆ID"],
-    "merge": [{"keep_id": "保留的ID", "delete_ids": ["被吞并的ID"], "new_content": "合并后的完整内容", "new_tags": ["新标签"]}],
-    "summary": "用一两句话说明这次清理做了什么"
-}
+【清理规则】1. 内容高度重复的只保留最完整的 2. 过于琐碎已过时的删除 3. 同一主题碎片合并 4. 拿不准就保留 5. 重要情感记忆绝对不删
+现实记忆库（${memories.length}条）：${memList || '（空）'}
+RP游戏卡带（${rpMemories.length}条）：${rpList || '（空）'}
+输出纯JSON：{ "delete_ids": [], "merge": [{"keep_id":"","delete_ids":[],"new_content":"","new_tags":[]}], "summary": "" }
 没有要删/合并的字段就给空数组。`;
 
     try {
