@@ -1782,19 +1782,19 @@ newMessages.forEach((m, i) => {
         }
         const filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
         console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
-        let maxToolRounds = 5, lastToolSig = '';
+        let maxToolRounds = 8, lastToolSig = '';
         while (maxToolRounds-- > 0 && filteredTools.length > 0) {
             const toolBody = JSON.parse(JSON.stringify(body));
             toolBody.stream = false;
             toolBody.tools = filteredTools.map(t => { const { _mcp, ...clean } = t; return clean; });
             const isGeminiModel = (body.model || '').toLowerCase().includes('gemini');
-            if (forceToolChoice && maxToolRounds === 4) {
+            if (forceToolChoice && maxToolRounds === 7) {
                 toolBody.tool_choice = isGeminiModel ? "required" : forceToolChoice;
                 console.log(`🎯 [工具强制] 第一轮 → ${isGeminiModel ? 'required(强制调工具)' : forceToolChoice.function.name}`);
             } else if (isGeminiModel) { delete toolBody.tool_choice; }
             else { toolBody.tool_choice = "auto"; }
 
-            const roundLabel = maxToolRounds === 4 ? '第一轮' : maxToolRounds === 3 ? '第二轮' : maxToolRounds === 2 ? '第三轮' : maxToolRounds === 1 ? '第四轮' : '第五轮';
+            const roundLabel = `第${8 - maxToolRounds}轮`;
             console.log(`🔧 [工具] ${roundLabel}请求（${enabledTools.length}个工具）...`);
             const toolResponse = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(toolBody) });
 
@@ -1863,8 +1863,17 @@ newMessages.forEach((m, i) => {
         }
         // 多轮工具调用后仍无最终回复→继续走原来的fetch逻辑
         if (maxToolRounds <= 0) {
-            console.log(`🔧 [工具] 已达最大轮次，清理工具消息后继续`);
+            console.log(`🔧 [工具] 已达最大轮次，压缩工具结果后继续`);
+            const toolResults = [];
+            for (const m of body.messages) { if (m.role === 'tool' && m.content) toolResults.push(m.content); }
             body.messages = body.messages.filter(m => m.role !== 'tool' && !(m.role === 'assistant' && m.tool_calls));
+            if (toolResults.length > 0) {
+                const combined = toolResults.join('\n\n---分段---\n\n');
+                const truncated = combined.substring(0, 50000);
+                const note = combined.length > 50000 ? `\n\n[注意：工具返回内容过长，已截取前50000字符，共${combined.length}字符]` : '';
+                body.messages.push({ role: 'assistant', content: `我通过工具获取到了以下信息（共${toolResults.length}段）：\n\n${truncated}${note}\n\n现在我将基于这些信息来回答。` });
+                console.log(`🔧 [工具压缩] ${toolResults.length}段 → ${truncated.length}字符注入`);
+            }
             delete body.tools; delete body.tool_choice;
         }
 
@@ -2905,13 +2914,13 @@ app.post('/api/web-chat', async (req, res) => {
                 }
                 const filteredTools = filterRelevantTools(enabledTools, text, webForceToolChoice);
                 console.log(`🔧 [web-chat工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
-                let webMaxRounds = 5, webLastSig = '';
+                let webMaxRounds = 8, webLastSig = '';
                 while (webMaxRounds-- > 0 && filteredTools.length > 0) {
                     const toolFetchBody = { ...fetchBody, tools: filteredTools.map(t => { const { _mcp, ...clean } = t; return clean; }) };
                     const isGeminiModel = (model || '').toLowerCase().includes('gemini');
-                    if (webForceToolChoice && webMaxRounds === 4) { toolFetchBody.tool_choice = isGeminiModel ? "required" : webForceToolChoice; } else if (isGeminiModel) delete toolFetchBody.tool_choice; else toolFetchBody.tool_choice = "auto";
+                    if (webForceToolChoice && webMaxRounds === 7) { toolFetchBody.tool_choice = isGeminiModel ? "required" : webForceToolChoice; } else if (isGeminiModel) delete toolFetchBody.tool_choice; else toolFetchBody.tool_choice = "auto";
 
-                    const roundLabel = webMaxRounds === 4 ? '第一轮' : webMaxRounds === 3 ? '第二轮' : webMaxRounds === 2 ? '第三轮' : webMaxRounds === 1 ? '第四轮' : '第五轮';
+                    const roundLabel = `第${8 - webMaxRounds}轮`;
                     console.log(`🔧 [web-chat工具] ${roundLabel}请求...`);
                     const toolRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                         method: 'POST',
@@ -2963,8 +2972,17 @@ app.post('/api/web-chat', async (req, res) => {
                     return;
                 }
 
-                // 清理工具消息，防止污染后续请求
+                // 压缩工具结果保留，防止数据丢失
+                const toolResults = [];
+                for (const m of apiMessages) { if (m.role === 'tool' && m.content) toolResults.push(m.content); }
                 fetchBody.messages = apiMessages.filter(m => m.role !== 'tool' && !(m.role === 'assistant' && m.tool_calls));
+                if (toolResults.length > 0) {
+                    const combined = toolResults.join('\n\n---分段---\n\n');
+                    const truncated = combined.substring(0, 50000);
+                    const note = combined.length > 50000 ? `\n\n[注意：已截取前50000字符，共${combined.length}字符]` : '';
+                    fetchBody.messages.push({ role: 'assistant', content: `我通过工具获取到了以下信息：\n\n${truncated}${note}\n\n现在基于这些信息回答。` });
+                    console.log(`🔧 [web-chat工具压缩] ${toolResults.length}段 → ${truncated.length}字符`);
+                }
 
                 const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                     method: 'POST',
