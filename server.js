@@ -1105,7 +1105,7 @@ async function executeToolCall(name, args, mcpServer) {
                 if (!res.ok) return `[HTTP ${res.status}]`;
                 const html = await res.text();
                 const fullText = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '').replace(/<nav[\s\S]*?<\/nav>/gi, '').replace(/<footer[\s\S]*?<\/footer>/gi, '').replace(/<header[\s\S]*?<\/header>/gi, '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
-                const totalLen = fullText.length, CHUNK = 12000, offset = parseInt(args.offset) || 0;
+                const totalLen = fullText.length, CHUNK = 50000, offset = parseInt(args.offset) || 0;
                 const chunk = fullText.substring(offset, offset + CHUNK);
                 const remaining = totalLen - offset - chunk.length;
                 console.log(`✅ [工具] fetch_txt 总${totalLen}字符，从${offset}读${chunk.length}字符`);
@@ -1118,7 +1118,7 @@ async function executeToolCall(name, args, mcpServer) {
                 const res = await fetch(args.url, { signal: AbortSignal.timeout(timeout), headers: { 'User-Agent': 'Mozilla/5.0 (compatible)' } });
                 if (!res.ok) return `[HTTP ${res.status}]`;
                 const html = await res.text();
-                const totalLen = html.length, CHUNK = 12000, offset = parseInt(args.offset) || 0;
+                const totalLen = html.length, CHUNK = 50000, offset = parseInt(args.offset) || 0;
                 const chunk = html.substring(offset, offset + CHUNK);
                 const remaining = totalLen - offset - chunk.length;
                 console.log(`✅ [工具] fetch_html 总${totalLen}字符，从${offset}读${chunk.length}字符`);
@@ -1131,7 +1131,7 @@ async function executeToolCall(name, args, mcpServer) {
                 if (!res.ok) return `[HTTP ${res.status}]`;
                 const data = await res.json();
                 const jsonStr = JSON.stringify(data, null, 2);
-                const totalLen = jsonStr.length, CHUNK = 12000, offset = parseInt(args.offset) || 0;
+                const totalLen = jsonStr.length, CHUNK = 50000, offset = parseInt(args.offset) || 0;
                 const chunk = jsonStr.substring(offset, offset + CHUNK);
                 const remaining = totalLen - offset - chunk.length;
                 console.log(`✅ [工具] fetch_json 总${totalLen}字符，从${offset}读${chunk.length}字符`);
@@ -1151,7 +1151,7 @@ async function executeToolCall(name, args, mcpServer) {
                     if (!res.ok) return `[GitHub API ${res.status}]`;
                     const data = await res.json();
                     const fullContent = Buffer.from(data.content, 'base64').toString('utf8');
-                    const totalLen = fullContent.length, CHUNK = 15000, offset = parseInt(args.offset) || 0;
+                    const totalLen = fullContent.length, CHUNK = 50000, offset = parseInt(args.offset) || 0;
                     const chunk = fullContent.substring(offset, offset + CHUNK);
                     const remaining = totalLen - offset - chunk.length;
                     console.log(`✅ [工具] fetch_github 文件总${totalLen}字符，从${offset}读${chunk.length}字符`);
