@@ -1762,8 +1762,11 @@ newMessages.forEach((m, i) => {
             toolBody.stream = false;
             toolBody.tools = enabledTools.map(t => { const { _mcp, ...clean } = t; return clean; });
             const isGeminiModel = (body.model || '').toLowerCase().includes('gemini');
-            if (forceToolChoice && maxToolRounds === 4) { toolBody.tool_choice = forceToolChoice; console.log(`🎯 [工具强制] 第一轮 → ${forceToolChoice.function.name}`); }
-            else if (isGeminiModel) delete toolBody.tool_choice; else toolBody.tool_choice = "auto";
+            if (forceToolChoice && maxToolRounds === 4) {
+                toolBody.tool_choice = isGeminiModel ? "required" : forceToolChoice;
+                console.log(`🎯 [工具强制] 第一轮 → ${isGeminiModel ? 'required(强制调工具)' : forceToolChoice.function.name}`);
+            } else if (isGeminiModel) { delete toolBody.tool_choice; }
+            else { toolBody.tool_choice = "auto"; }
 
             const roundLabel = maxToolRounds === 4 ? '第一轮' : maxToolRounds === 3 ? '第二轮' : maxToolRounds === 2 ? '第三轮' : maxToolRounds === 1 ? '第四轮' : '第五轮';
             console.log(`🔧 [工具] ${roundLabel}请求（${enabledTools.length}个工具）...`);
@@ -2955,7 +2958,7 @@ app.post('/api/web-chat', async (req, res) => {
                 while (webMaxRounds-- > 0 && enabledTools.length > 0) {
                     const toolFetchBody = { ...fetchBody, tools: enabledTools.map(t => { const { _mcp, ...clean } = t; return clean; }) };
                     const isGeminiModel = (model || '').toLowerCase().includes('gemini');
-                    if (webForceToolChoice && webMaxRounds === 4) { toolFetchBody.tool_choice = webForceToolChoice; } else if (isGeminiModel) delete toolFetchBody.tool_choice; else toolFetchBody.tool_choice = "auto";
+                    if (webForceToolChoice && webMaxRounds === 4) { toolFetchBody.tool_choice = isGeminiModel ? "any" : webForceToolChoice; } else if (isGeminiModel) delete toolFetchBody.tool_choice; else toolFetchBody.tool_choice = "auto";
 
                     const roundLabel = webMaxRounds === 4 ? '第一轮' : webMaxRounds === 3 ? '第二轮' : webMaxRounds === 2 ? '第三轮' : webMaxRounds === 1 ? '第四轮' : '第五轮';
                     console.log(`🔧 [web-chat工具] ${roundLabel}请求...`);
