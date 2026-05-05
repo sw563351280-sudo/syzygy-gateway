@@ -1,85 +1,264 @@
-<!DOCTYPE html><html><head><meta charset="utf-8"><title>记忆管理</title>
-<style>body{font-family:sans-serif;max-width:1000px;margin:40px auto;padding:20px}.nav-bar{margin-bottom:20px;display:flex;gap:12px}.nav-bar a,.nav-bar span{padding:6px 16px;border-radius:8px;text-decoration:none;font-size:14px}.nav-active{background:#1a73e8;color:white}.nav-link{background:white;border:1px solid #ddd;color:#333}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.card{background:#fafafa;border-radius:12px;padding:20px;border:1px solid #eee}textarea{width:100%;padding:10px;margin:5px 0;border:1px solid #ddd;border-radius:8px;box-sizing:border-box}button.add{background:#4CAF50;color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer}button.danger{background:#ff5252;color:white;border:none;padding:6px 16px;border-radius:8px;cursor:pointer}button.normal{padding:6px 16px;border-radius:6px;cursor:pointer;border:1px solid #ddd;background:white}h2{margin-top:0}.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.select-hint{font-size:13px;color:#888}@media(max-width:700px){.grid{grid-template-columns:1fr}}</style></head><body>
-<div class="nav-bar"><span class="nav-active">📋 对话记忆</span><a id="ltLink" href="#" class="nav-link">💎 长期记忆</a></div>
-<h1>🧠 记忆管理</h1>
-<div class="grid"><div class="card">
-<h2>📌 总结记忆</h2>
-<h3>🗂管家便利贴 <button onclick="triggerDream()" style="font-size:12px;padding:3px 10px;border-radius:6px;cursor:pointer;border:1px solid #ddd;background:#fff;margin-left:8px;">🌙 立即总结</button></h3>
-<div id="stateHtml"></div>
-</div><div class="card">
-<h2>💬 原始记录</h2>
-<div style="background:#e8f5e9;padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:13px;">🌙 上次Dream: <b id="lastDream"></b><button class="normal" onclick="restoreAll()" style="font-size:11px;padding:2px 8px;margin-left:8px;">🔓 全部恢复</button></div>
-<div class="toolbar"><button class="normal" onclick="location.reload()">🔄 刷新</button><button class="normal" onclick="toggleSelectAll()">☑️ 全选/取消</button><button class="danger" onclick="deleteSelected()">🗑️ 删除选中</button><span class="select-hint" id="select-count">未选中</span></div>
-<div style="max-height:600px;overflow-y:auto" id="msg-list">加载中...</div>
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><title>溯星小屋 · 记忆管理</title>
+<style>
+:root{--bg-primary:#222;--bg-card:#2A2A2A;--bg-hover:#333;--bg-input:#1A1A1A;--text-primary:#E8E8E8;--text-secondary:#888;--text-muted:#555;--accent-blue:#4D7CFF;--accent-gold:#D4A853;--accent-rp:#7C4DFF;--danger:#FF4D4D;--danger-hover:#FF6B6B;--border:#333;--shadow:rgba(0,0,0,0.3)}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:var(--bg-primary);color:var(--text-primary);min-height:100dvh;padding-bottom:72px}
+.top-bar{position:fixed;top:0;left:0;right:0;z-index:100;height:56px;background:var(--bg-primary);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 1rem}
+.top-title{font-size:1.1rem;font-weight:600;color:var(--text-primary)}
+.top-actions{display:flex;gap:8px;align-items:center}
+.btn-icon{width:36px;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.1rem;transition:opacity .15s}
+.btn-icon:active{opacity:.7}
+.btn-more{position:relative}
+.more-menu{display:none;position:absolute;top:44px;right:0;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:160px;z-index:200;box-shadow:0 4px 16px var(--shadow)}
+.more-menu.show{display:block}
+.more-menu button{display:block;width:100%;padding:10px 14px;border:none;background:transparent;color:var(--text-primary);font-size:.85rem;text-align:left;border-radius:6px;cursor:pointer;font-family:inherit}
+.more-menu button:hover{background:var(--bg-hover)}
+.more-menu button.danger{color:var(--danger)}
+
+.tab-bar{position:fixed;bottom:0;left:0;right:0;z-index:100;height:56px;background:var(--bg-primary);border-top:1px solid var(--border);display:flex}
+.tab-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border:none;background:transparent;color:var(--text-secondary);font-size:.7rem;cursor:pointer;font-family:inherit;gap:2px;position:relative;transition:color .15s;-webkit-tap-highlight-color:transparent;min-height:44px}
+.tab-btn.active{color:var(--accent-blue)}
+.tab-btn.active::after{content:'';position:absolute;bottom:0;left:25%;right:25%;height:2px;background:var(--accent-blue);border-radius:1px}
+.tab-icon{font-size:1.2rem;line-height:1}
+
+.main-content{padding:72px 1rem 2rem;max-width:800px;margin:0 auto}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+
+.search-bar{display:flex;gap:8px;margin-bottom:1rem;position:sticky;top:56px;z-index:50;background:var(--bg-primary);padding:8px 0}
+.search-bar input{flex:1;padding:10px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text-primary);font-size:.85rem;font-family:inherit;outline:none}
+.search-bar input::placeholder{color:var(--text-muted)}
+.search-bar input:focus{border-color:var(--accent-blue)}
+.btn-sm{padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);cursor:pointer;font-size:.8rem;font-family:inherit;white-space:nowrap;transition:all .15s;-webkit-tap-highlight-color:transparent;min-height:44px;display:flex;align-items:center}
+.btn-sm:active{opacity:.7}
+.btn-sm.accent{color:var(--accent-blue);border-color:var(--accent-blue)}
+
+.msg-card{background:var(--bg-card);border-radius:12px;padding:1rem;margin-bottom:.75rem;position:relative;box-shadow:0 2px 8px var(--shadow);border-left:3px solid transparent;transition:border-color .15s}
+.msg-card.user{border-left-color:var(--accent-gold)}
+.msg-card.assistant{border-left-color:var(--accent-blue)}
+.msg-card.rp{border-left-color:var(--accent-rp)}
+.msg-card.rp::after{content:'RP';position:absolute;top:8px;right:10px;background:var(--accent-rp);color:#fff;font-size:.65rem;padding:1px 6px;border-radius:4px;opacity:.7}
+.msg-card.selected{border-left-color:var(--danger)}
+.msg-card .msg-header{display:flex;justify-content:space-between;margin-bottom:6px}
+.msg-card .msg-role{font-size:.8rem;color:var(--text-secondary);font-weight:500}
+.msg-card .msg-time{font-size:.7rem;color:var(--text-muted)}
+.msg-card .msg-body{font-size:.88rem;line-height:1.6;color:var(--text-primary);white-space:pre-wrap;word-break:break-word}
+.msg-card .msg-check{position:absolute;top:10px;left:-30px;width:20px;height:20px;border-radius:50%;border:2px solid var(--text-muted);display:none;align-items:center;justify-content:center;font-size:.7rem;color:#fff;transition:all .15s}
+.msg-card.select-mode .msg-check{display:flex}
+.msg-card.selected .msg-check{display:flex;background:var(--danger);border-color:var(--danger)}
+.msg-card.selected .msg-check::after{content:'✓'}
+
+.floating-bar{position:fixed;bottom:72px;left:50%;transform:translateX(-50%);background:var(--danger);color:#fff;padding:10px 24px;border-radius:24px;font-size:.85rem;cursor:pointer;z-index:90;display:none;box-shadow:0 4px 16px rgba(255,77,77,.4)}
+.floating-bar.show{display:block}
+
+.mem-card{background:var(--bg-card);border-radius:12px;padding:1rem;margin-bottom:.75rem;box-shadow:0 2px 8px var(--shadow)}
+.mem-card .mem-title{font-size:.9rem;color:var(--text-primary);font-weight:500;margin-bottom:6px;line-height:1.5}
+.mem-card .mem-tags{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
+.mem-tag{background:var(--bg-hover);color:var(--text-secondary);font-size:.7rem;padding:3px 8px;border-radius:6px}
+.mem-card .mem-meta{display:flex;justify-content:space-between;align-items:center;font-size:.75rem;color:var(--text-muted)}
+.mem-card .mem-actions{display:flex;gap:6px}
+.heat-badge{font-size:.75rem}
+
+.filter-chips{display:flex;gap:6px;overflow-x:auto;padding:8px 0;margin-bottom:1rem;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.filter-chips::-webkit-scrollbar{display:none}
+.chip{padding:7px 14px;border-radius:16px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);font-size:.78rem;white-space:nowrap;cursor:pointer;transition:all .15s;font-family:inherit}
+.chip.active{background:var(--accent-blue);border-color:var(--accent-blue);color:#fff}
+
+.profile-card{background:var(--bg-card);border-radius:12px;padding:1rem;margin-bottom:.75rem;border-left:3px solid var(--accent-gold)}
+.profile-card summary{font-size:.9rem;color:var(--accent-gold);font-weight:600;cursor:pointer;margin-bottom:4px}
+.profile-card summary::-webkit-details-marker{display:none}
+.profile-card p{font-size:.82rem;color:var(--text-secondary);line-height:1.5;margin:6px 0 6px 12px}
+
+.empty-state{text-align:center;padding:3rem 1rem;color:var(--text-muted)}
+.empty-icon{font-size:3rem;margin-bottom:1rem;opacity:.5}
+.empty-text{font-size:.85rem}
+
+.fab{position:fixed;bottom:80px;right:20px;width:56px;height:56px;border-radius:50%;background:var(--accent-blue);color:#fff;border:none;font-size:1.5rem;cursor:pointer;box-shadow:0 4px 16px rgba(77,124,255,.3);display:flex;align-items:center;justify-content:center;z-index:80;transition:opacity .15s}
+.fab:active{opacity:.8}
+
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal-box{background:var(--bg-card);border-radius:14px;padding:1.5rem;width:90%;max-width:420px;max-height:80vh;overflow-y:auto}
+.modal-box h3{font-size:1rem;margin-bottom:1rem;color:var(--text-primary)}
+.modal-box textarea,.modal-box input{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text-primary);font-size:.85rem;font-family:inherit;margin-bottom:10px;resize:vertical}
+.modal-box .btn-row{display:flex;gap:8px;justify-content:flex-end}
+
+.edit-area{display:none;margin-top:8px}
+.edit-area textarea{width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text-primary);font-size:.85rem;font-family:inherit;margin-bottom:6px;resize:vertical;min-height:60px}
+
+.stat-row{display:flex;gap:12px;align-items:center;font-size:.78rem;color:var(--text-secondary);margin-bottom:10px;flex-wrap:wrap}
+
+@media(min-width:768px){
+  body{padding-bottom:0}
+  .tab-bar{position:static;height:48px;border-top:none;border-bottom:1px solid var(--border);margin-bottom:1rem;background:transparent}
+  .tab-btn{font-size:.8rem;flex-direction:row;gap:6px;min-height:0;padding:8px 16px}
+  .tab-btn.active::after{top:auto;bottom:-1px;left:0;right:0;height:2px}
+  .tab-icon{font-size:1rem}
+  .main-content{padding:72px 2rem 2rem}
+  .msg-card .msg-check{left:-36px;width:24px;height:24px}
+  .profile-card p{margin-left:20px}
+}
+</style></head><body>
+
+<div class="top-bar"><span class="top-title">溯星小屋</span><div class="top-actions"><button class="btn-icon" onclick="location.reload()" title="刷新">↻</button><div class="btn-more"><button class="btn-icon" onclick="this.nextElementSibling.classList.toggle('show')">···</button><div class="more-menu"><button onclick="triggerDream()">🌙 触发 Dream</button><button onclick="restoreAll()">🔓 全部恢复</button></div></div></div></div>
+
+<div class="main-content">
+<div class="tab-panel active" id="panel-timeline">
+<div class="search-bar"><input type="text" id="tlSearch" placeholder="搜索对话记忆..." oninput="filterTimeline()"><button class="btn-sm accent" onclick="toggleSelectMode()">☑ 选择</button></div>
+<div class="stat-row"><span>共 <b id="tlCount">0</b> 条</span><span>🌙 上次Dream: <b id="lastDream">-</b></span></div>
+<div id="timelineList"><div class="empty-state"><div class="empty-icon">📖</div><div class="empty-text">加载中...</div></div></div>
+</div>
+
+<div class="tab-panel" id="panel-archive">
+<div class="search-bar"><input type="text" id="arSearch" placeholder="搜索长期记忆..." oninput="filterArchive()"><button class="btn-sm" onclick="openAddModal()">＋ 新增</button></div>
+<div class="filter-chips" id="filterChips"></div>
+<div class="stat-row"><span>共 <b id="arCount">0</b> 条</span><span>🔥 高热度 <b id="arHigh">0</b></span><span>🌡️ 中 <b id="arMid">0</b></span><span>🧊 低 <b id="arLow">0</b></span><button class="btn-sm" onclick="sortByHeat()">按热度</button><button class="btn-sm" onclick="sortByTime()">按时间</button><button class="btn-sm" onclick="triggerCleanup()">🧹 AI清理</button></div>
+<div id="profileCard"></div>
+<div id="archiveList"><div class="empty-state"><div class="empty-icon">💎</div><div class="empty-text">加载中...</div></div></div>
+</div>
+
+<div class="tab-panel" id="panel-gallery">
+<div class="empty-state"><div class="empty-icon">🖼️</div><div class="empty-text">还没有照片哦</div></div>
+</div>
+</div>
+
+<div class="tab-bar">
+<button class="tab-btn active" onclick="switchTab('timeline')"><span class="tab-icon">📖</span>时间线</button>
+<button class="tab-btn" onclick="switchTab('archive')"><span class="tab-icon">💎</span>档案室</button>
+<button class="tab-btn" onclick="switchTab('gallery')"><span class="tab-icon">🖼️</span>相册</button>
+</div>
+
+<div class="floating-bar" id="deleteBar" onclick="deleteSelected()">删除已选 (<span id="deleteCount">0</span>)</div>
+
+<div class="modal-overlay" id="addModal"><div class="modal-box">
+<h3>💎 写入记忆</h3><textarea id="newContent" rows="3" placeholder="记忆内容..."></textarea>
+<input type="text" id="newTags" placeholder="标签(逗号分隔)，打roleplay进游戏箱">
+<div class="btn-row"><button class="btn-sm" onclick="closeAddModal()">取消</button><button class="btn-sm accent" onclick="submitNew()">💾 保存</button></div>
 </div></div>
-<span id="status"></span>
+
 <script>
-const PWD = new URLSearchParams(location.search).get('pwd');
-if (!PWD) { document.getElementById('msg-list').innerHTML = '缺少密码参数'; throw new Error('no pwd'); }
-document.getElementById('ltLink').href = '/long-term?pwd=' + encodeURIComponent(PWD);
-let ALL_MESSAGES = [];
-async function loadData() {
-    const res = await fetch('/api/memory-page-data?pwd=' + encodeURIComponent(PWD));
-    if (!res.ok) { document.getElementById('msg-list').innerHTML = '加载失败'; return; }
-    const data = await res.json();
-    ALL_MESSAGES = data.messages || [];
-    document.getElementById('lastDream').textContent = data.lastDreamTime || '从未';
-    document.getElementById('ltLink').textContent = '💎 长期记忆 (' + (data.ltMemCount || 0) + ')';
-    renderState(data.currentState);
-    renderMessages();
+const PWD=new URLSearchParams(location.search).get('pwd');
+if(!PWD){document.getElementById('timelineList').innerHTML='<div class="empty-state"><div class="empty-text">缺少密码参数</div></div>';throw new Error('no pwd')}
+
+let TL_MESSAGES=[],AR_MEMS=[],AR_COUNTS={},AR_HEAT={},PROFILE=null,DREAM_LOGS=[];
+let selectMode=false,selectedSet=new Set(),activeTab='timeline',arCat='all',arSrc='all';
+
+function switchTab(tab){
+  activeTab=tab;
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.textContent.includes(tab==='timeline'?'时间线':tab==='archive'?'档案室':'相册')));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id==='panel-'+tab));
+  if(tab==='timeline'&&TL_MESSAGES.length===0)loadTimeline();
+  if(tab==='archive'&&AR_MEMS.length===0)loadArchive();
 }
-function renderState(state) {
-    const safe = v => typeof v === 'object' ? JSON.stringify(v) : (v || '无');
-    if (state) document.getElementById('stateHtml').innerHTML = '<div style="background:#fff9c4;padding:12px;border-radius:8px;margin:5px 0"><b>当前偏好：</b><p>'+safe(state.new_preferences)+'</p><b>近期情感：</b><p>'+safe(state.relationship_turning_points)+'</p><b>未完成约定：</b><p>'+safe(state.pending_promises)+'</p></div>';
-    else document.getElementById('stateHtml').innerHTML = '<p style="color:#888">还没有总结～</p>';
+
+function toggleSelectMode(){selectMode=!selectMode;selectedSet.clear();renderTimeline();updateDeleteBar()}
+function toggleMsg(uuid){if(selectedSet.has(uuid))selectedSet.delete(uuid);else selectedSet.add(uuid);updateDeleteBar();renderTimeline()}
+function updateDeleteBar(){const bar=document.getElementById('deleteBar');const n=selectedSet.size;document.getElementById('deleteCount').textContent=n;bar.classList.toggle('show',selectMode&&n>0)}
+
+async function loadTimeline(){
+  const r=await fetch('/api/memory-page-data?pwd='+encodeURIComponent(PWD));
+  if(!r.ok)return;
+  const d=await r.json();TL_MESSAGES=d.messages||[];
+  document.getElementById('lastDream').textContent=d.lastDreamTime||'从未';
+  document.getElementById('tlCount').textContent=TL_MESSAGES.length;
+  renderTimeline();
 }
-function renderMessages() {
-    const html = ALL_MESSAGES.map((m, i) => {
-        const rpBadge = (m.content||'').startsWith('[RP模式]') ? '<span style="background:#e1bee7;color:#6a1b9a;padding:1px 6px;border-radius:4px;font-size:11px;margin-left:4px;">🎭 RP</span>' : '';
-        return '<div class="msg-item" style="background:'+(m.role==='user'?'#e3f2fd':'#f3e5f5')+';padding:10px;margin:5px 0;border-radius:8px;display:flex;gap:10px;align-items:flex-start;'+(rpBadge?'border-left:3px solid #ab47bc;':'')+'"><input type="checkbox" class="msg-checkbox" data-index="'+i+'" style="margin-top:4px;flex-shrink:0;width:16px;height:16px;cursor:pointer;"><div style="flex:1"><small style="color:#888">'+(m.role==='user'?'江鱼':'沈望')+' | '+new Date(m.created_at).toLocaleString()+rpBadge+'</small><p style="margin:5px 0;white-space:pre-wrap">'+(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</p></div></div>';
-    }).join('');
-    document.getElementById('msg-list').innerHTML = html || '<p style="color:#888">暂无记录</p>';
-    document.querySelectorAll('.msg-checkbox').forEach(cb => cb.addEventListener('change', updateCount));
+function filterTimeline(){
+  const kw=(document.getElementById('tlSearch').value||'').toLowerCase();
+  document.querySelectorAll('#timelineList .msg-card').forEach(c=>{
+    c.style.display=kw?((c.textContent||'').toLowerCase().includes(kw)?'':'none'):'';
+  });
 }
-function updateCount(){ const c = document.querySelectorAll('.msg-checkbox:checked').length; document.getElementById('select-count').innerText = c > 0 ? '已选'+c+'/'+ALL_MESSAGES.length+'条' : '未选中'; }
-let allSelected = false;
-function toggleSelectAll(){ allSelected = !allSelected; document.querySelectorAll('.msg-checkbox').forEach(cb => cb.checked = allSelected); updateCount(); }
+function renderTimeline(){
+  const list=document.getElementById('timelineList');
+  if(TL_MESSAGES.length===0){list.innerHTML='<div class="empty-state"><div class="empty-icon">📖</div><div class="empty-text">暂无对话记录</div></div>';return}
+  list.innerHTML=TL_MESSAGES.map((m,i)=>{
+    const isRP=(m.content||'').startsWith('[RP模式]');
+    const role=m.role==='user'?'江鱼':'沈望';const cls=['msg-card',m.role==='user'?'user':'assistant'];
+    if(isRP)cls.push('rp');if(selectMode&&selectedSet.has(m.uuid))cls.push('selected');if(selectMode)cls.push('select-mode');
+    return `<div class="${cls.join(' ')}" onclick="${selectMode?`toggleMsg('${m.uuid||''}')`:''}" data-uuid="${m.uuid||''}">
+      ${selectMode?`<div class="msg-check" onclick="event.stopPropagation();toggleMsg('${m.uuid||''}')"></div>`:''}
+      <div class="msg-header"><span class="msg-role">${role}</span><span class="msg-time">${new Date(m.created_at).toLocaleString()}</span></div>
+      <div class="msg-body">${(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div></div>`;
+  }).join('');
+}
+
 async function deleteSelected(){
-    const toDelete = [];
-    document.querySelectorAll('.msg-checkbox').forEach(cb => {
-        if (cb.checked) {
-            const idx = parseInt(cb.dataset.index);
-            const msg = ALL_MESSAGES[idx];
-            if (msg && msg.uuid) toDelete.push(msg.uuid);
-        }
-    });
-    if (toDelete.length === 0) { alert('请先勾选要删除的消息！'); return; }
-    if (!confirm('确定删除'+toDelete.length+'条消息？')) return;
-    document.getElementById('status').innerText = '⏳逐条删除中...';
-    let ok = 0, fail = 0;
-    for (const uuid of toDelete) {
-        try {
-            const r = await fetch('/delete-memory/'+uuid, { method:'DELETE' });
-            const d = await r.json();
-            if (d.success) ok++; else fail++;
-        } catch(e) { fail++; }
-    }
-    document.getElementById('status').innerText = '';
-    alert('✅ 成功删除'+ok+'条'+(fail>0?'，失败'+fail+'条':''));
-    location.reload();
+  const toDelete=[...selectedSet].filter(Boolean);if(toDelete.length===0)return;
+  if(!confirm('确定删除'+toDelete.length+'条？'))return;
+  let ok=0;for(const u of toDelete){try{const r=await fetch('/delete-memory/'+u,{method:'DELETE'});if((await r.json()).success)ok++}catch(e){}}
+  alert('✅ 删除'+ok+'条');selectMode=false;selectedSet.clear();location.reload();
 }
-async function triggerDream(){
-    const p = prompt('请输入管理员密码：'); if (!p) return;
-    const r = await fetch('/trigger-dream?pwd='+encodeURIComponent(p), { method:'POST' });
-    const d = await r.json();
-    alert(d.success ? '✅ Dream已触发' : '❌'+(d.error||d.message));
+
+async function triggerDream(){const p=prompt('管理员密码:');if(!p)return;const r=await fetch('/trigger-dream?pwd='+encodeURIComponent(p),{method:'POST'});alert((await r.json()).success?'✅ 已触发':'❌ 失败')}
+async function restoreAll(){const p=prompt('管理员密码:');if(!p)return;const r=await fetch('/api/restore-all-messages?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅ 已恢复':'❌ '+d.error);if(d.success)location.reload()}
+
+function getTTLLabel(m){if(!m.expires_at)return'♾️ 永久';const r=m.expires_at-Date.now();if(r<=0)return'⏰ 过期';const d=Math.ceil(r/86400000);return d<=3?'🔥 '+d+'天':d<=7?'📅 '+d+'天':'📦 '+d+'天'}
+function srcLabel(s){return({manual:'✍️ 手动',ai_active:'🤖 AI',butler_summary:'🌙 管家',roleplay:'🎮 RP'})[s]||s}
+
+async function loadArchive(){
+  const r=await fetch('/api/longterm-page-data?pwd='+encodeURIComponent(PWD));
+  if(!r.ok)return;const d=await r.json();
+  AR_MEMS=d.memories||[];AR_COUNTS=d.counts||{};AR_HEAT=d.heatStats||{};PROFILE=d.profile;DREAM_LOGS=d.dreamLogs||[];
+  document.getElementById('arCount').textContent=AR_MEMS.length;
+  document.getElementById('arHigh').textContent=AR_HEAT.high||0;
+  document.getElementById('arMid').textContent=AR_HEAT.mid||0;
+  document.getElementById('arLow').textContent=AR_HEAT.low||0;
+  renderChips();renderProfile();renderArchive();
 }
-async function restoreAll(){
-    const p = prompt('请输入管理员密码：'); if (!p) return;
-    const r = await fetch('/api/restore-all-messages?pwd='+encodeURIComponent(p), { method:'POST' });
-    const d = await r.json();
-    alert(d.success ? '✅ 已恢复' : '❌'+(d.error||d.message));
-    if (d.success) location.reload();
+function renderChips(){
+  const tags=new Set();AR_MEMS.forEach(m=>(m.tags||[]).forEach(t=>tags.add(t)));
+  document.getElementById('filterChips').innerHTML='<span class="chip active" onclick="arCat=\'all\';renderArchive();document.querySelectorAll(\'.chip\').forEach(c=>c.classList.toggle(\'active\',c===this))">全部</span>'+[...tags].slice(0,15).map(t=>`<span class="chip" onclick="arCat='${t}';renderArchive();document.querySelectorAll('.chip').forEach(c=>c.classList.toggle('active',c===this))">${t}</span>`).join('');
 }
-loadData();
+function renderProfile(){
+  if(!PROFILE)return;
+  const u=PROFILE.last_full_update?new Date(PROFILE.last_full_update).toLocaleString('zh-CN'):'未更新';
+  let h='<details class="profile-card"><summary>📋 江鱼画像 · '+u+'</summary>';
+  if(PROFILE.basic_info?.content)h+='<p>📌 '+PROFILE.basic_info.content.replace(/</g,'&lt;')+'</p>';
+  if(PROFILE.recent_focus?.content)h+='<p>🔥 '+PROFILE.recent_focus.content.replace(/</g,'&lt;')+'</p>';
+  if(PROFILE.communication_style?.content)h+='<p>🔍 '+PROFILE.communication_style.content.replace(/</g,'&lt;')+'</p>';
+  h+='<button class="btn-sm" style="margin-top:8px" onclick="updateProfile()">🔄 更新画像</button></details>';
+  document.getElementById('profileCard').innerHTML=h;
+}
+function renderArchive(){
+  const kw=(document.getElementById('arSearch').value||'').toLowerCase();
+  const list=document.getElementById('archiveList');
+  let mems=AR_MEMS;
+  if(arCat!=='all')mems=mems.filter(m=>(m.tags||[]).includes(arCat));
+  if(kw)mems=mems.filter(m=>(m.content||'').toLowerCase().includes(kw));
+  if(mems.length===0){list.innerHTML='<div class="empty-state"><div class="empty-icon">💎</div><div class="empty-text">暂无匹配记忆</div></div>';return}
+  list.innerHTML=mems.map(m=>{
+    const h=m.liveHeat!==undefined?m.liveHeat:(m.heat||.5);
+    const he=h>.7?'🔥':h>=.3?'🌡️':'🧊';
+    return `<div class="mem-card cat-${m.category}" id="card-${m.id}">
+      <div class="mem-title" id="ctitle-${m.id}">${(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;').substring(0,120)}</div>
+      <div class="mem-tags">${(m.tags||[]).map(t=>'<span class="mem-tag">'+t+'</span>').join('')} <span class="mem-tag" style="background:transparent">${getTTLLabel(m)}</span> <span class="mem-tag" style="background:transparent">${he} ${h.toFixed(2)}</span></div>
+      <div class="mem-meta"><span>${new Date(m.created_at).toLocaleString('zh-CN')} · ${srcLabel(m.source)} ${m.category==='archived'?'❄️':''}</span>
+      <div class="mem-actions">${m.category==='archived'?`<button class="btn-sm" onclick="restoreMem('${m.id}')">解封</button><button class="btn-sm" onclick="delArchMem('${m.id}')" style="color:var(--danger)">🗑</button>`:`<button class="btn-sm" onclick="editMem('${m.id}')">✏️</button><button class="btn-sm" onclick="toggleResolved('${m.id}',${!!m.resolved})">${m.resolved?'✅已解决':'○未解决'}</button><button class="btn-sm" onclick="delMem('${m.id}')" style="color:var(--danger)">🗑</button>`}</div></div>
+      <div class="edit-area" id="edit-${m.id}"><textarea id="ta-${m.id}">${(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea><input id="tags-${m.id}" value="${(m.tags||[]).join(',')}"><div class="btn-row"><button class="btn-sm accent" onclick="saveEdit('${m.id}')">保存</button><button class="btn-sm" onclick="cancelEdit('${m.id}')">取消</button></div></div></div>`;
+  }).join('');
+}
+function filterArchive(){renderArchive()}
+function sortByHeat(){
+  const list=document.getElementById('archiveList');const cards=[...list.children];
+  cards.sort((a,b)=>(parseFloat(b.querySelector('.mem-tags')?.textContent?.match(/[\d.]+/)?.[0])||0)-(parseFloat(a.querySelector('.mem-tags')?.textContent?.match(/[\d.]+/)?.[0])||0));
+  cards.forEach(c=>list.appendChild(c));
+}
+function sortByTime(){const list=document.getElementById('archiveList');const cards=[...list.children];cards.sort((a,b)=>(b.querySelector('.mem-meta span')?.textContent||'').localeCompare(a.querySelector('.mem-meta span')?.textContent||''));cards.forEach(c=>list.appendChild(c))}
+
+function editMem(id){document.getElementById('ctitle-'+id).style.display='none';document.getElementById('edit-'+id).style.display='block'}
+function cancelEdit(id){document.getElementById('ctitle-'+id).style.display='block';document.getElementById('edit-'+id).style.display='none'}
+async function saveEdit(id){const c=document.getElementById('ta-'+id).value;const t=document.getElementById('tags-'+id).value.split(',').filter(Boolean);await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:c,tags:t})});location.reload()}
+async function delMem(id){if(confirm('删除？')){await fetch('/api/long-term-memories/'+id,{method:'DELETE'});location.reload()}}
+async function restoreMem(id){await fetch('/api/archive-memories/'+id+'/restore',{method:'POST'});location.reload()}
+async function delArchMem(id){if(confirm('彻底删除？')){await fetch('/api/archive-memories/'+id,{method:'DELETE'});location.reload()}}
+async function toggleResolved(id,r){await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({resolved:!r})});location.reload()}
+async function updateProfile(){const r=await fetch('/trigger-profile-update?pwd='+encodeURIComponent(PWD),{method:'POST'});alert((await r.json()).success?'✅ 更新成功':'❌ 失败');loadArchive()}
+async function triggerCleanup(){if(!confirm('让AI审查清理记忆库？'))return;const r=await fetch('/trigger-cleanup?pwd='+encodeURIComponent(PWD),{method:'POST'});const d=await r.json();alert(d.success?'✅ 清理:'+d.deleted+'删 +'+d.merged+'并':'❌');location.reload()}
+
+function openAddModal(){document.getElementById('addModal').classList.add('show')}
+function closeAddModal(){document.getElementById('addModal').classList.remove('show')}
+async function submitNew(){const c=document.getElementById('newContent').value;const t=document.getElementById('newTags').value.split(',').filter(Boolean);const r=await fetch('/api/long-term-memories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:c,tags:t})});if((await r.json()).success)location.reload()}
+
+loadTimeline();
 </script></body></html>
