@@ -1046,18 +1046,6 @@ async function scanMemoryRadar(userText) {
 }
 
 
-function formatDiaryLine() {
-    try {
-        const diaries = loadDiaries();
-        const recent = diaries.slice(-3).reverse();
-        if (recent.length === 0) return '';
-        return '\n【日记本·最近3篇】\n' + recent.map(d => {
-            const who = d.author === 'system' || d.type === 'syzygy_note' ? '沈望' : '江鱼';
-            return `[${d.date||''}] ${who}：${(d.text||'').substring(0, 60)}`;
-        }).join('\n') + '\n';
-    } catch(e) { return ''; }
-}
-
 function formatProfileForPrompt(profile) {
     const p = profile || loadUserProfile();
     const parts = [];
@@ -1802,7 +1790,6 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
         const finalSystemPrompt = buildFinalSystemPrompt([
             { label: '环境参数', content: envContext },
-            { label: '日记本', content: formatDiaryLine() },
             { label: '时间线', content: formatTimeContext() },
             { label: '用户画像', content: formatProfileForPrompt() },
             { label: '高权重浮现', content: unresolvedContext },
