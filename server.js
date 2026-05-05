@@ -1196,6 +1196,17 @@ async function executeToolCall(name, args, mcpServer) {
                     return (`仓库 ${owner}/${repo} 文件列表：\n${tree}${hint}`).substring(0, 8000);
                 }
             }
+            case 'read_diary': {
+                const date = args.date;
+                if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return '[需要提供正确的日期格式 YYYY-MM-DD]';
+                const diaries = loadDiaries();
+                const matched = diaries.filter(d => d.date === date);
+                if (matched.length === 0) return `[${date} 没有日记记录]`;
+                return matched.map(d => {
+                    const who = d.author === 'system' || d.type === 'syzygy_note' ? '沈望' : '江鱼';
+                    return `[${who}] ${d.text}`;
+                }).join('\n\n');
+            }
             default: return `[未知工具: ${name}]`;
         }
     } catch(e) { console.log(`❌ [工具] ${name} 失败: ${e.message}`); return `[工具执行失败: ${e.message}]`; }
@@ -1228,7 +1239,8 @@ const BUILTIN_TOOLS = [
     { type: "function", function: { name: "fetch_txt", description: "【仅在用户明确要求查看某个网页、或需要获取网络信息时使用】读取网页URL返回纯文本。如果内容被截断，可用offset参数继续读。日常闲聊、情感对话、RP时严禁调用。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" }, offset: { type: "integer", description: "从第几个字符开始读（默认0）。截断后设置此值继续读" } }, required: ["url"] } } },
     { type: "function", function: { name: "fetch_html", description: "【仅在需要分析网页HTML结构、调试前端代码时使用】读取网页返回原始HTML。大多数情况应该用 fetch_txt。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
     { type: "function", function: { name: "fetch_json", description: "【仅在需要调用API接口获取JSON数据时使用】读取JSON接口URL，返回格式化JSON。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "JSON接口的URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
-    { type: "function", function: { name: "fetch_github", description: "【仅在用户明确要求查看GitHub仓库或代码文件时使用】读取GitHub仓库文件列表或具体文件内容。支持仓库根目录（返回文件树）和具体文件路径（返回内容）。大文件被截断时，用offset参数继续读取后续内容。", parameters: { type: "object", properties: { url: { type: "string", description: "GitHub URL" }, offset: { type: "integer", description: "从第几个字符开始读（默认0）。文件被截断后设置此值继续读后面的内容" } }, required: ["url"] } } }
+    { type: "function", function: { name: "fetch_github", description: "【仅在用户明确要求查看GitHub仓库或代码文件时使用】读取GitHub仓库文件列表或具体文件内容。支持仓库根目录（返回文件树）和具体文件路径（返回内容）。大文件被截断时，用offset参数继续读取后续内容。", parameters: { type: "object", properties: { url: { type: "string", description: "GitHub URL" }, offset: { type: "integer", description: "从第几个字符开始读（默认0）。文件被截断后设置此值继续读后面的内容" } }, required: ["url"] } } },
+    { type: "function", function: { name: "read_diary", description: "【仅在用户明确要求查看某天的日记时使用】读取指定日期的日记内容。不要在日常闲聊中调用。", parameters: { type: "object", properties: { date: { type: "string", description: "日期，格式 YYYY-MM-DD，如 2026-05-06" } }, required: ["date"] } } }
 ];
 
 let TOOLS_ENABLED = { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, mcp: true };
@@ -2257,6 +2269,14 @@ app.post('/api/flush-zep', async (req, res) => {
 });
 
 const mcpFailedConnections = [];
+app.get('/api/read-diary', (req, res) => {
+    const date = req.query.date;
+    if (!date) return res.status(400).json({ error: "需要 date 参数，格式 YYYY-MM-DD" });
+    const diaries = loadDiaries();
+    const matched = diaries.filter(d => d.date === date);
+    res.json({ date, entries: matched, count: matched.length });
+});
+
 app.get('/api/mcp/servers', (req, res) => {
     const list = [];
     for (const [name, conn] of mcpConnections) {
