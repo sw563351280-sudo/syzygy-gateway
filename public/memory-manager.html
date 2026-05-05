@@ -45,16 +45,28 @@ function updateCount(){ const c = document.querySelectorAll('.msg-checkbox:check
 let allSelected = false;
 function toggleSelectAll(){ allSelected = !allSelected; document.querySelectorAll('.msg-checkbox').forEach(cb => cb.checked = allSelected); updateCount(); }
 async function deleteSelected(){
-    const s = new Set(); document.querySelectorAll('.msg-checkbox').forEach(cb => { if(cb.checked) s.add(parseInt(cb.dataset.index)); });
-    if (s.size === 0) { alert('请先勾选！'); return; }
-    if (!confirm('确定删除'+s.size+'条？')) return;
-    document.getElementById('status').innerText = '⏳处理中...';
-    const keep = ALL_MESSAGES.filter((_, i) => !s.has(i));
-    const r = await fetch('/delete-selected', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({keepMessages:keep}) });
-    const d = await r.json();
-    alert(d.success ? '✅删除成功！' : '❌'+d.error);
-    if (d.success) location.reload();
+    const toDelete = [];
+    document.querySelectorAll('.msg-checkbox').forEach(cb => {
+        if (cb.checked) {
+            const idx = parseInt(cb.dataset.index);
+            const msg = ALL_MESSAGES[idx];
+            if (msg && msg.uuid) toDelete.push(msg.uuid);
+        }
+    });
+    if (toDelete.length === 0) { alert('请先勾选要删除的消息！'); return; }
+    if (!confirm('确定删除'+toDelete.length+'条消息？')) return;
+    document.getElementById('status').innerText = '⏳逐条删除中...';
+    let ok = 0, fail = 0;
+    for (const uuid of toDelete) {
+        try {
+            const r = await fetch('/delete-memory/'+uuid, { method:'DELETE' });
+            const d = await r.json();
+            if (d.success) ok++; else fail++;
+        } catch(e) { fail++; }
+    }
     document.getElementById('status').innerText = '';
+    alert('✅ 成功删除'+ok+'条'+(fail>0?'，失败'+fail+'条':''));
+    location.reload();
 }
 async function triggerDream(){
     const p = prompt('请输入管理员密码：'); if (!p) return;

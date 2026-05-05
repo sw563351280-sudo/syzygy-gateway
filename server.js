@@ -2332,15 +2332,21 @@ app.post('/trigger-profile-update', async (req, res) => {
 
 app.post('/delete-selected', async (req, res) => {
     try {
-        const { keepMessages } = req.body;
-        console.log(`🗑️ 选择性删除，保留 ${keepMessages ? keepMessages.length : 0} 条`);
-        await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`, { method: 'DELETE' });
+        const { keepMessages, deleteUuids } = req.body;
+        if (deleteUuids && Array.isArray(deleteUuids)) {
+            let deleted = 0;
+            for (const uuid of deleteUuids) {
+                try { await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory/messages/${uuid}`, { method: 'DELETE' }); deleted++; } catch(e) {}
+            }
+            console.log(`🗑️ [安全删除] 逐条删除${deleted}/${deleteUuids.length}条`);
+            return res.json({ success: true, deleted });
+        }
+        console.warn('⚠️ [危险] 使用了全量删除+回写模式，不再推荐');
         if (keepMessages && keepMessages.length > 0) {
             const batchSize = 20;
             for (let i = 0; i < keepMessages.length; i += batchSize) {
                 await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ messages: keepMessages.slice(i, i + batchSize) })
                 });
             }
