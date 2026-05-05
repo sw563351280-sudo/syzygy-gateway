@@ -160,8 +160,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC"
 </div></div>
 
 <script>
-var PWD=new URLSearchParams(location.search).get('pwd');
-if(!PWD){document.getElementById('timelineList').innerHTML='<div class="empty-state"><div class="empty-text">缺少密码参数</div></div>';throw new Error('no pwd')}
+var PWD=new URLSearchParams(location.search).get('pwd')||'111111';
 var urlTab=new URLSearchParams(location.search).get('tab')||'timeline';
 var TL_MESSAGES=[],AR_MEMS=[],AR_COUNTS={},AR_HEAT={},PROFILE=null,activeTab='',DIARY_ENTRIES=[];
 var selectMode=false,selectedSet=new Set(),arCat='all',longPressTimer=null;
