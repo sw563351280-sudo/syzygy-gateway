@@ -559,7 +559,8 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
             body: JSON.stringify({
                 model: selectedModel,
                 messages: historyMsgs,
-                stream: isStream
+                stream: isStream,
+                useCrossplatform: localStorage.getItem('syzygy_crossplatform') !== 'false'
             })
         });
 
@@ -1555,6 +1556,15 @@ function forceScrollToChatBottom() {
 }
 
 // 🌀 同步沈望的技能模组
+function toggleCrossPlatform(enabled) {
+    localStorage.setItem('syzygy_crossplatform', enabled ? 'true' : 'false');
+    toast(enabled ? '跨平台注入已开启' : '跨平台注入已关闭');
+}
+document.addEventListener('DOMContentLoaded', () => {
+    const toggle = document.getElementById('crossPlatformToggle');
+    if (toggle) toggle.checked = localStorage.getItem('syzygy_crossplatform') !== 'false';
+});
+
 async function syncMcpTools() {
     const listEl = document.getElementById('mcp-tools-list');
     if (!listEl) return;

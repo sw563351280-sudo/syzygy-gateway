@@ -1612,6 +1612,50 @@ app.post('/proxy/v1/chat/completions', async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+// 跨平台锚点匹配：用多对user-assistant指纹定位前端对话在Zep中的位置
+function findZepAnchor(cleanMessages, zepMessages) {
+    const pairs = [];
+    for (let i = cleanMessages.length - 1; i >= 1 && pairs.length < 3; i--) {
+        if (cleanMessages[i].role === 'assistant') {
+            for (let j = i - 1; j >= 0; j--) {
+                if (cleanMessages[j].role === 'user') {
+                    pairs.unshift({ user: extractText(cleanMessages[j].content), ai: typeof cleanMessages[i].content === 'string' ? cleanMessages[i].content : '' });
+                    i = j; break;
+                }
+            }
+        }
+    }
+    if (pairs.length === 0) return { index: -1, method: 'no_pairs' };
+    for (let i = zepMessages.length - 1; i >= 1; i--) {
+        if (zepMessages[i].role !== 'ai') continue;
+        let matched = 0, checkPos = i;
+        for (let p = pairs.length - 1; p >= 0; p--) {
+            while (checkPos >= 0 && zepMessages[checkPos].role !== 'ai') checkPos--;
+            if (checkPos < 0) break;
+            if (zepMessages[checkPos].content !== pairs[p].ai) break;
+            let userPos = checkPos - 1;
+            while (userPos >= 0 && zepMessages[userPos].role !== 'user') userPos--;
+            if (userPos < 0) break;
+            if (zepMessages[userPos].content !== pairs[p].user) break;
+            matched++; checkPos = userPos - 1;
+        }
+        if (matched >= Math.min(2, pairs.length)) {
+            console.log(`🔍 [锚点] Zep#${i}匹配${matched}对指纹`);
+            return { index: i, method: 'matched_'+matched+'_pairs' };
+        }
+    }
+    const lastAi = pairs[pairs.length - 1]?.ai;
+    if (lastAi) {
+        for (let i = zepMessages.length - 1; i >= 0; i--) {
+            if (zepMessages[i].role === 'ai' && zepMessages[i].content === lastAi) {
+                console.log(`🔍 [锚点·降级] 单条匹配Zep#${i}`);
+                return { index: i, method: 'single_match' };
+            }
+        }
+    }
+    return { index: -1, method: 'not_found' };
+}
+
 // ==========================================
 // 🌟 核心聊天接口
 // ==========================================
@@ -1679,52 +1723,49 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
             if (zepLastUser) zepLastUserContent = zepLastUser.content;
           
-// ==========================================
-// 🔄 跨平台连续对话：强制从记忆库注入上下文
-// ==========================================
-useCrossplatform = body.useCrossplatform !== false;
-if (useCrossplatform && zepMessages.length > 0) {
-    const contextCount = body.contextCount || 50;
-    let contextFromZep = zepMessages
-        .slice(-contextCount)
-        .filter(m => {
-            const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-            return !content.includes('tool_use_id') &&
-                   !content.includes('tool_call_id') &&
-                   !content.includes('toolu_');
-        })
-        .map(m => ({
-            role: m.role === 'ai' ? 'assistant' : 'user',
-            content: typeof m.content === 'string' ? m.content : m.content
-        }));
+const crossPlatformEnabled = body.useCrossplatform !== false;
 
-    // 回溯检测：找到当前用户消息在Zep历史中的最后匹配位置，裁剪掉之后的"未来消息"
-    if (currentUserMsgText) {
-        const totalBefore = contextFromZep.length;
-        for (let i = contextFromZep.length - 1; i >= 0; i--) {
-            if (contextFromZep[i].role === 'user' && contextFromZep[i].content === currentUserMsgText) {
-                contextFromZep = contextFromZep.slice(0, i);
-                console.log(`🔙 [回溯检测] 裁剪掉${totalBefore - contextFromZep.length}条未来消息，保留${contextFromZep.length}条`);
-                break;
+if (crossPlatformEnabled && zepMessages.length > 0) {
+    const anchor = findZepAnchor(cleanMessages, zepMessages);
+
+    if (anchor.index >= 0) {
+        const newerInZep = zepMessages.slice(anchor.index + 1);
+
+        if (newerInZep.length > 0) {
+            const crossMsgs = newerInZep
+                .filter(m => {
+                    const c = typeof m.content === 'string' ? m.content : '';
+                    return c.length > 0 && !c.includes('tool_use_id') && !c.includes('tool_call_id') && !c.includes('toolu_');
+                })
+                .map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content }));
+
+            if (crossMsgs.length > 0) {
+                const lastUserIdx = cleanMessages.map(m => m.role).lastIndexOf('user');
+                if (lastUserIdx > 0) cleanMessages.splice(lastUserIdx, 0, ...crossMsgs);
+                else cleanMessages.unshift(...crossMsgs);
+                console.log(`🌐 [跨平台·增量] 锚点=${anchor.method} → 注入${crossMsgs.length}条其他平台消息`);
+            } else {
+                console.log(`📱 [跨平台·无有效增量] 锚点后${newerInZep.length}条均为工具残留，跳过`);
             }
+        } else {
+            console.log(`📱 [跨平台·当前最新] 锚点=${anchor.method}，Zep无新消息`);
+        }
+    } else {
+        if (cleanMessages.length <= 2) {
+            const coldBoot = zepMessages.slice(-20).filter(m => {
+                const c = typeof m.content === 'string' ? m.content : '';
+                return c.length > 0 && !c.includes('tool_use_id');
+            }).map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content }));
+            if (coldBoot.length > 0) {
+                cleanMessages.unshift(...coldBoot);
+                console.log(`🧊 [冷启动] 前端仅${cleanMessages.length - coldBoot.length}条，注入Zep最近${coldBoot.length}条`);
+            }
+        } else {
+            console.log(`📱 [单端] 锚点未找到但前端有${cleanMessages.length}条历史，保持原样`);
         }
     }
-
-    const zepContents = new Set(contextFromZep.map(m => m.content));
-    let cutoff = cleanMessages.length;
-    for (let i = cleanMessages.length - 1; i >= 0; i--) {
-        if (zepContents.has(cleanMessages[i].content)) {
-            cutoff = i + 1;
-            break;
-        }
-    }
-    let newMessages = cleanMessages.slice(cutoff);
-    if (newMessages.length === 0) newMessages = [cleanMessages[cleanMessages.length - 1]];
-    cleanMessages = [...contextFromZep, ...newMessages];
-
-    console.log(`🌐 [跨平台模式] 注入${contextFromZep.length}条历史 + ${newMessages.length}条新消息`);
 } else {
-    console.log(`📱 [单端模式] 使用客户端${cleanMessages.length}条上下文`);
+    console.log(`📱 [单端] 跨平台关闭或无Zep数据`);
 }
 
         }
