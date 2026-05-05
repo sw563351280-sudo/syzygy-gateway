@@ -2336,371 +2336,42 @@ app.delete('/delete-memory/:uuid', async (req, res) => {
 // ==========================================
 // 🌟 对话记忆管理网页
 // ==========================================
-app.get('/memory-manager', async (req, res) => {
-    const pwd = req.query.pwd;
-    if (pwd !== process.env.MEMORY_PASSWORD) {
-        return res.status(401).send(`<div style="margin:100px auto;max-width:300px;text-align:center"><h2>🔒 请输入访问密码</h2><input type="password" id="p" style="padding:8px;width:100%;margin:10px 0;border-radius:6px;border:1px solid #ddd" onkeydown="if(event.key==='Enter')go()"><button onclick="go()" style="padding:8px 20px;background:#4CAF50;color:white;border:none;border-radius:6px;cursor:pointer">进入</button></div><script>function go(){const p=document.getElementById('p').value;if(p)window.location.href='/memory-manager?pwd='+encodeURIComponent(p);}</script>`);
-    }
+app.get('/api/memory-page-data', async (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     try {
         const [memoryRes, sessionRes] = await Promise.all([
             fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`),
             fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`)
         ]);
-        if (!memoryRes.ok) return res.status(500).send(`<h1>记忆获取失败</h1><a href="/memory-manager?pwd=${pwd}">重试</a>`);
-        if (!sessionRes.ok) return res.status(500).send(`<h1>会话获取失败</h1><a href="/memory-manager?pwd=${pwd}">重试</a>`);
-
-        const memoryData = await memoryRes.json();
-        const sessionData = await sessionRes.json();
-        const messages = memoryData.messages || [];
-        const summary = memoryData.summary?.content || '';
-        const currentState = sessionData.metadata?.current_state || null;
-        const messagesForScript = JSON.stringify(messages.map(m => ({ role: m.role, content: m.content })));
-        const ltMemCount = loadLongTermMemories().length + loadArchivedMemories().length + loadRoleplayMemories().length;
+        const memoryData = memoryRes.ok ? await memoryRes.json() : { messages: [] };
+        const sessionData = sessionRes.ok ? await sessionRes.json() : {};
         const dreamLogs = loadDreamLogs();
         const lastDreamTime = dreamLogs.length > 0 ? new Date(dreamLogs[dreamLogs.length - 1].triggered_at).toLocaleString('zh-CN') : '从未';
-
-        const messageList = messages.map((m, i) => {
-            const isRP = m.content.startsWith('[RP模式]');
-            const rpBadge = isRP ? '<span style="background:#e1bee7;color:#6a1b9a;padding:1px 6px;border-radius:4px;font-size:11px;margin-left:4px;">🎭 RP</span>' : '';
-            return `<div class="msg-item" style="background:${m.role==='user'?'#e3f2fd':'#f3e5f5'};padding:10px;margin:5px 0;border-radius:8px;display:flex;gap:10px;align-items:flex-start;${isRP?'border-left:3px solid #ab47bc;':''}"><input type="checkbox" class="msg-checkbox" data-index="${i}" style="margin-top:4px;flex-shrink:0;width:16px;height:16px;cursor:pointer;"><div style="flex:1"><small style="color:#888">${m.role==='user'?'江鱼':'沈望'} | ${new Date(m.created_at).toLocaleString()}${rpBadge}</small><p style="margin:5px 0;white-space:pre-wrap">${m.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</p></div></div>`;
-        }).join('');
-
-        const safeStrHtml = (val) => typeof val === 'object' ? JSON.stringify(val) : (val || '无');
-        const stateHtml = currentState ? `<div style="background:#fff9c4;padding:12px;border-radius:8px;margin:5px 0"><b>当前偏好：</b><p>${safeStrHtml(currentState.new_preferences)}</p><b>近期情感：</b><p>${safeStrHtml(currentState.relationship_turning_points)}</p><b>未完成约定：</b><p>${safeStrHtml(currentState.pending_promises)}</p></div>` : '<p style="color:#888">还没有总结～</p>';
-
-        res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>记忆管理</title>
-<style>body{font-family:sans-serif;max-width:1000px;margin:40px auto;padding:20px}.nav-bar{margin-bottom:20px;display:flex;gap:12px}.nav-bar a,.nav-bar span{padding:6px 16px;border-radius:8px;text-decoration:none;font-size:14px}.nav-active{background:#1a73e8;color:white}.nav-link{background:white;border:1px solid #ddd;color:#333}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.card{background:#fafafa;border-radius:12px;padding:20px;border:1px solid #eee}textarea{width:100%;padding:10px;margin:5px 0;border:1px solid #ddd;border-radius:8px;box-sizing:border-box}button.add{background:#4CAF50;color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer}button.danger{background:#ff5252;color:white;border:none;padding:6px 16px;border-radius:8px;cursor:pointer}button.normal{padding:6px 16px;border-radius:6px;cursor:pointer;border:1px solid #ddd;background:white}select{padding:10px;border-radius:8px;border:1px solid #ddd;margin-bottom:8px;width:100%}h2{margin-top:0}.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.select-hint{font-size:13px;color:#888}@media(max-width:700px){.grid{grid-template-columns:1fr}}</style>
-</head><body>
-<div class="nav-bar"><span class="nav-active">📋 对话记忆</span><a href="/long-term?pwd=${pwd}" class="nav-link">💎 长期记忆 (${ltMemCount})</a></div>
-<h1>🧠 记忆管理</h1>
-<script id="messages-data" type="application/json">${messagesForScript}</script>
-<div class="grid"><div class="card">
-<h2>📌 总结记忆</h2>
-<h3>🗂管家便利贴 <button onclick="triggerDream()" style="font-size:12px;padding:3px 10px;border-radius:6px;cursor:pointer;border:1px solid #ddd;background:#fff;margin-left:8px;">🌙 立即总结</button></h3>
-${stateHtml}
-</div><div class="card">
-<h2>💬 原始记录</h2>
-<div style="background:#e8f5e9;padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:13px;">🌙 上次Dream: <b>${lastDreamTime}</b><button class="normal" onclick="restoreAll()" style="font-size:11px;padding:2px 8px;margin-left:8px;">🔓 全部恢复</button></div>
-<div class="toolbar"><button class="normal" onclick="location.reload()">🔄 刷新</button><button class="normal" onclick="toggleSelectAll()">☑️ 全选/取消</button><button class="danger" onclick="deleteSelected()">🗑️ 删除选中</button><span class="select-hint" id="select-count">未选中</span></div>
-<div style="max-height:600px;overflow-y:auto" id="msg-list">${messageList||'<p style="color:#888">暂无记录</p>'}</div>
-</div></div>
-<span id="status"></span>
-<script>
-const ALL_MESSAGES=JSON.parse(document.getElementById('messages-data').textContent);
-function updateCount(){const c=document.querySelectorAll('.msg-checkbox:checked').length;const t=document.querySelectorAll('.msg-checkbox').length;document.getElementById('select-count').innerText=c>0?'已选'+c+'/'+t+'条':'未选中';}
-document.querySelectorAll('.msg-checkbox').forEach(cb=>cb.addEventListener('change',updateCount));
-let allSelected=false;
-function toggleSelectAll(){allSelected=!allSelected;document.querySelectorAll('.msg-checkbox').forEach(cb=>cb.checked=allSelected);updateCount();}
-async function deleteSelected(){const s=new Set();document.querySelectorAll('.msg-checkbox').forEach(cb=>{if(cb.checked)s.add(parseInt(cb.dataset.index));});if(s.size===0){alert('请先勾选！');return;}if(!confirm('确定删除'+s.size+'条？'))return;const keep=ALL_MESSAGES.filter((_,i)=>!s.has(i));document.getElementById('status').innerText='⏳处理中...';try{const r=await fetch('/delete-selected',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({keepMessages:keep})});const d=await r.json();if(d.success){alert('✅删除成功！');location.reload();}else{alert('❌'+d.error);}}catch(e){alert('❌'+e.message);}document.getElementById('status').innerText='';}
-async function addMemory(){const c=document.getElementById('content').value;const r=document.getElementById('role').value;if(!c){alert('不能为空！');return;}document.getElementById('status').innerText='⏳写入中...';try{const res=await fetch('/add-memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:c,role:r})});const d=await res.json();if(d.success){document.getElementById('status').innerText='✅成功！';document.getElementById('content').value='';setTimeout(()=>location.reload(),1000);}else{document.getElementById('status').innerText='❌'+d.error;}}catch(e){document.getElementById('status').innerText='❌'+e.message;}}
-async function triggerDream(){const p=prompt('请输入管理员密码：');if(!p)return;try{const r=await fetch('/trigger-dream?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅'+d.message:'❌'+(d.error||d.message));}catch(e){alert('❌'+e.message);}}
-async function restoreAll(){const p=prompt('请输入管理员密码：');if(!p)return;try{const r=await fetch('/api/restore-all-messages?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅ 已恢复':'❌ '+(d.error||d.message));if(d.success)location.reload();}catch(e){alert('❌'+e.message);}}
-</script></body></html>`);
-    } catch(e) {
-        res.status(500).send(`<h1>加载失败</h1><p>${e.message}</p><a href="/memory-manager?pwd=${pwd}">重试</a>`);
-    }
+        res.json({ messages: memoryData.messages || [], summary: memoryData.summary?.content || '', currentState: sessionData.metadata?.current_state || null, ltMemCount: loadLongTermMemories().length + loadArchivedMemories().length + loadRoleplayMemories().length, lastDreamTime });
+    } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// ==========================================
-// 🌟 长期记忆管理网页（海马体完全体 UI版）
-// ==========================================
-app.get('/long-term', (req, res) => {
-    const pwd = req.query.pwd;
-    if (pwd !== process.env.MEMORY_PASSWORD) return res.status(401).send(`<h3>请提供 pwd 参数</h3>`);
-
+app.get('/api/longterm-page-data', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     const activeMemories = loadLongTermMemories();
     const archivedMemories = loadArchivedMemories();
     const rpMemories = loadRoleplayMemories();
     const profile = loadUserProfile();
     const dreamLogs = loadDreamLogs().slice(-3).reverse();
-    const pwd_param = encodeURIComponent(pwd);
-
-    const dreamCard = `
-    <div class="memory-card" style="background:#f3e5f5;border-left:4px solid #7c4dff;margin-bottom:16px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <b style="font-size:16px;">🌙 Dream 日志</b>
-            <button class="normal" onclick="triggerDreamManual()" style="font-size:11px;padding:3px 10px;background:#7c4dff;color:white;border:none;">🌙 手动触发 Dream</button>
-        </div>
-        ${dreamLogs.length === 0 ? '<p style="color:#999;font-size:13px;">暂无 Dream 记录</p>' : dreamLogs.map(log => `
-        <div style="margin-bottom:8px;padding:8px;background:white;border-radius:6px;font-size:12px;">
-            <div>🌙 ${new Date(log.triggered_at).toLocaleString('zh-CN')} | ${log.trigger_type === 'manual' ? '🖐 手动' : '🤖 自动'} | 清理${log.results.cleaned.expired + log.results.cleaned.decayed}条 | 固化${log.results.consolidated.new_memories + log.results.consolidated.new_rp}条 | ${(log.duration_ms / 1000).toFixed(1)}s</div>
-            ${log.results.foresight?.length > 0 ? `<details style="margin-top:4px;"><summary style="cursor:pointer;color:#7c4dff;font-size:11px;">🔮 前瞻推断 (${log.results.foresight.length}条)</summary>${log.results.foresight.map(f => `<div style="margin:2px 0 2px 12px;color:#555;">• ${f}</div>`).join('')}</details>` : ''}
-        </div>
-        `).join('')}
-    </div>`;
-
-    const profileUpdatedAt = profile.last_full_update ? new Date(profile.last_full_update).toLocaleString('zh-CN') : '尚未更新';
-    const profileCard = `
-    <div class="memory-card" style="background:#f0f8ff;border-left:4px solid #1a73e8;margin-bottom:16px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <b style="font-size:16px;">📋 江鱼画像</b>
-            <div style="display:flex;gap:8px;align-items:center;">
-                <span style="font-size:11px;color:#888;">最后更新: ${profileUpdatedAt}</span>
-                <button class="normal" onclick="updateProfile()" style="font-size:11px;padding:3px 10px;">🔄 手动更新</button>
-            </div>
-        </div>
-        ${profile.basic_info?.content ? `<details open><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">📌 基本信息</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">${profile.basic_info.content.replace(/</g,'&lt;')}</p></details>` : ''}
-        ${profile.communication_style?.content ? `<details><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">🔍 沟通偏好</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">${profile.communication_style.content.replace(/</g,'&lt;')}</p></details>` : ''}
-        ${profile.recent_focus?.content ? `<details open><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">🔥 近期关注</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">${profile.recent_focus.content.replace(/</g,'&lt;')}</p></details>` : ''}
-        ${profile.long_term_values?.content ? `<details><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">💡 长期偏好</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">${profile.long_term_values.content.replace(/</g,'&lt;')}</p></details>` : ''}
-    </div>`;
-
-    const allMemsForFrontend = [
-        ...activeMemories.map(m => ({ ...m, category: 'active' })),
-        ...archivedMemories.map(m => ({ ...m, category: 'archived' })),
-        ...rpMemories.map(m => ({ ...m, category: 'roleplay' }))].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-    for (const m of allMemsForFrontend) {
-        m.liveHeat = (m.category !== 'roleplay') ? calculateHeat(m) : (m.heat || 0.5);
-    }
-
-    const sourceLabel = (s) => ({'manual':'✍️ 手动','ai_active':'🤖 AI主动','butler_summary':'🌙 管家','roleplay':'🎮RP副本'}[s]||s);
-
-    // 保质期计算器
-    const getTTLLabel = (mem) => {
-        if (!mem.expires_at) return '♾️ 永久';
-        const remaining = mem.expires_at - Date.now();
-        if (remaining <= 0) return '⏰ 已过期';
-        const days = Math.ceil(remaining / (24 * 60 * 60 * 1000));
-        if (days <= 3) return `🔥 ${days}天后过期`;
-        if (days <= 7) return `📅 ${days}天后过期`;
-        return `📦 ${days}天后过期`;
-    };
-
-    const memoryCards = allMemsForFrontend.map(m => {
-        // 海马体仪表盘标签
-        const ttlBadge = `<span style="background:#fff3e0;color:#e65100;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">${getTTLLabel(m)}</span>`;
-        const arousalBadge = m.arousal ? `<span style="background:#ffebee;color:#c62828;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">❤️ 浓度:${m.arousal}</span>` : '';
-        const countBadge = m.activation_count !== undefined ? `<span style="background:#e3f2fd;color:#1565c0;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">🔄 唤醒:${m.activation_count}次</span>` : '';
-        const rawHeat = m.liveHeat !== undefined ? m.liveHeat : (m.heat !== undefined ? m.heat : 0.5);
-        let heatEmoji, heatColor, heatBg;
-        if (rawHeat > 0.7) { heatEmoji = "🔥"; heatColor = "#e65100"; heatBg = "#fff3e0"; }
-        else if (rawHeat >= 0.3) { heatEmoji = "🌡️"; heatColor = "#f57f17"; heatBg = "#fffde7"; }
-        else { heatEmoji = "🧊"; heatColor = "#546e7a"; heatBg = "#eceff1"; }
-        const heatBadge = `<span style="background:${heatBg};color:${heatColor};padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;" title="实时热度">${heatEmoji} ${rawHeat.toFixed(2)}</span>`;
-        
-        return `
-        <div class="memory-card cat-${m.category}" id="card-${m.id}" data-category="${m.category}" data-source="${m.source}" data-heat="${rawHeat.toFixed(4)}">
-            <div class="memory-content" id="content-${m.id}">${m.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
-            <div class="memory-tags" id="tags-display-${m.id}">
-                <div style="margin-bottom:6px; border-bottom: 1px dashed #eee; padding-bottom: 6px;">${ttlBadge}${arousalBadge}${countBadge}${heatBadge}</div>
-                ${(m.tags||[]).length>0?m.tags.map(t=>'<span class="tag">'+t+'</span>').join(''):'<span style="color:#ccc;font-size:12px">无标签</span>'}
-            </div><div class="memory-meta">
-                <span>${new Date(m.created_at).toLocaleString('zh-CN')} · ${sourceLabel(m.source)}
-                ${m.category === 'archived' ? (m.archived_reason === 'contradiction' ? '<span style="color:#e65100;font-weight:bold;">⚡ 已被新记忆替代</span>' : '<span style="color:#0288d1;font-weight:bold;">❄️ 冰封中</span>') : ''}
-                ${m.category === 'roleplay' ? '<span style="color:#8e24aa;font-weight:bold;">🎭 游戏卡带</span>' : ''}</span>
-                <span>
-                    ${m.category === 'archived' 
-                        ? `<button class="btn-sm" style="color:#0288d1;border-color:#0288d1" onclick="restoreMemory('${m.id}')">✨ 解封</button><button class="btn-sm btn-del" onclick="deleteArchivedMemory('${m.id}')">🗑️</button>` 
-                        : `<button class="btn-sm btn-edit" onclick="startEdit('${m.id}')">✏️</button>
-                           <button class="btn-sm ${m.resolved ? 'btn-resolved-active' : 'btn-resolved'}" onclick="toggleResolved('${m.id}', ${!m.resolved})">${m.resolved ? '✅ 已解决' : '○ 未解决'}</button>
-                           <button class="btn-sm btn-del" onclick="deleteMemory('${m.id}')">🗑️</button>`}
-                </span>
-            </div>
-            <div class="edit-area" id="edit-${m.id}" style="display:none;">
-                <textarea id="ta-${m.id}" rows="3">${m.content.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
-                <input type="text" id="tags-${m.id}" value="${(m.tags||[]).join(', ')}" style="width:100%;padding:8px;border-radius:6px;margin-top:6px;box-sizing:border-box;"><div style="display:flex;gap:8px;margin-top:6px;"><button class="btn-save" onclick="saveEdit('${m.id}')">💾 保存</button><button class="btn-cancel" onclick="cancelEdit('${m.id}')">取消</button></div>
-            </div>
-        </div>`
-    }).join('');
-
-    const counts = {
-        all: activeMemories.length,
-        manual: activeMemories.filter(m=>m.source==='manual').length,
-        ai_active: activeMemories.filter(m=>m.source==='ai_active').length,
-        butler_summary: activeMemories.filter(m=>m.source==='butler_summary').length,
-        archived: archivedMemories.length,
-        roleplay: rpMemories.length
-    };
+    const allMems = [...activeMemories.map(m => ({ ...m, category: 'active', liveHeat: calculateHeat(m) })), ...archivedMemories.map(m => ({ ...m, category: 'archived', liveHeat: 0 })), ...rpMemories.map(m => ({ ...m, category: 'roleplay', liveHeat: m.heat || 0.5 }))].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const counts = { all: activeMemories.length, manual: activeMemories.filter(m => m.source === 'manual').length, ai_active: activeMemories.filter(m => m.source === 'ai_active').length, butler_summary: activeMemories.filter(m => m.source === 'butler_summary').length, archived: archivedMemories.length, roleplay: rpMemories.length };
     let heatHigh = 0, heatMid = 0, heatLow = 0;
-    for (const m of allMemsForFrontend) {
-        if (m.category !== 'active') continue;
-        const h = m.liveHeat !== undefined ? m.liveHeat : 0.5;
-        if (h > 0.7) heatHigh++;
-        else if (h >= 0.3) heatMid++;
-        else heatLow++;
-    }
+    for (const m of allMems) { if (m.category !== 'active') continue; if (m.liveHeat > 0.7) heatHigh++; else if (m.liveHeat >= 0.3) heatMid++; else heatLow++; }
+    res.json({ memories: allMems, counts, heatStats: { high: heatHigh, mid: heatMid, low: heatLow }, profile, dreamLogs });
+});
 
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>💎 长期记忆</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box} body{font-family:sans-serif;background:#f5f7fa;color:#333}
-.top-bar{background:#1a1a2e;color:white;padding:12px 24px;display:flex;gap:16px;}
-.top-bar a{color:rgba(255,255,255,.7);text-decoration:none;padding:6px 14px;} .top-bar a.active{color:white}
-.main{max-width:800px;margin:24px auto;padding:0 20px}
-.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
-.search-row{display:flex;gap:10px;margin-bottom:12px} .search-row input{flex:1;padding:10px;border-radius:8px;border:1px solid #ddd;}
-.btn-add{padding:10px 18px;background:#1a73e8;color:white;border:none;border-radius:8px;cursor:pointer;}
-.pills{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
-.pill{padding:5px 14px;border-radius:20px;border:1px solid #ddd;background:white;cursor:pointer;font-size:13px}
-.pill.active{background:#1a73e8;color:white;border-color:#1a73e8}
-.pill.archive-pill{background:#f8fbff;color:#0288d1;border-color:#81d4fa} .pill.archive-pill.active{background:#0288d1;color:white;}
-.pill.rp-pill{background:#f3e5f5;color:#8e24aa;border-color:#ce93d8} .pill.rp-pill.active{background:#8e24aa;color:white;}
-.memory-card{background:white;border:1px solid #e8e8e8;border-radius:10px;padding:16px;margin-bottom:10px;}
-.cat-archived{background:#fdfdff;border-color:#bbdefb;} .cat-roleplay{background:#faf5fb;border-color:#e1bee7; border-left:4px solid #ab47bc}
-.memory-content{font-size:15px;line-height:1.6;margin-bottom:8px;white-space:pre-wrap}
-.tag{background:#e3f2fd;color:#1565c0;padding:2px 10px;border-radius:12px;font-size:12px}
-.memory-meta{display:flex;justify-content:space-between;font-size:12px;color:#999; margin-top: 8px;}
-.btn-sm{padding:3px 10px;border-radius:5px;border:1px solid #ddd;background:white;cursor:pointer;}
-.btn-del{color:#e53935;border-color:#e53935} .btn-save{background:#4CAF50;color:white;border:none;border-radius:6px;padding:5px 14px;}
-.btn-resolved { color: #888; border-color: #ddd; }
-.btn-resolved-active { color: #2e7d32; border-color: #81c784; background: #f1f8e9; }
-.modal-bg{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);justify-content:center;align-items:center} .modal-bg.show{display:flex}
-.modal{background:white;border-radius:12px;padding:24px;width:90%;max-width:500px;}
-textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:vertical;}
-.toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#333;color:white;padding:10px 24px;border-radius:8px;display:none}
-</style></head><body>
-
-<div class="top-bar"><b>🧠 Syzygy Memory</b><a href="/memory-manager?pwd=${pwd_param}">📋 对话记忆</a><a href="/long-term?pwd=${pwd_param}" class="active">💎 长期记忆</a>
-</div>
-
-<div class="main">
-    <div class="header"><h1>💎 永久记忆档案 (海马体接管中)</h1></div>
-   <div class="search-row"><input type="text" id="searchInput" placeholder="搜索记忆内容..." oninput="filterAll()"><button class="btn-add" onclick="openModal()">＋ 新增</button><button class="normal" onclick="smartSearch()" style="background:#7c4dff;color:white;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;margin-left:4px;">🧠 智能搜索</button><button class="normal" onclick="clearSearch()" id="clearSearchBtn" style="display:none;padding:10px 14px;border-radius:8px;cursor:pointer;">✕ 清除</button><button style="padding:10px 18px;background:#ff9800;color:white;border:none;border-radius:8px;cursor:pointer;margin-left:8px;" onclick="triggerCleanup()">🧹 AI清理</button></div>
-    <div class="pills">
-        <span class="pill active" onclick="setFilter(this,'active','all')">现实脑区(${counts.all})</span>
-        <span class="pill" onclick="setFilter(this,'active','manual')">✍️ 手动 (${counts.manual})</span>
-        <span class="pill" onclick="setFilter(this,'active','ai_active')">🤖 AI主动 (${counts.ai_active})</span>
-        <span class="pill" onclick="setFilter(this,'active','butler_summary')">🌙 管家 (${counts.butler_summary})</span>
-        <span style="border-left: 2px solid #ddd; height: 20px; margin: 0 4px;"></span>
-        <span class="pill rp-pill" onclick="setFilter(this,'roleplay','all')">🎮 游戏卡带 (${counts.roleplay})</span>
-        <span class="pill archive-pill" onclick="setFilter(this,'archived','all')">🥶 冰封档案 (${counts.archived})</span>
-    </div>
-    ${profileCard}
-    ${dreamCard}
-    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;font-size:13px;flex-wrap:wrap;">
-        <span style="color:#e65100;">🔥 高热度 ${heatHigh}条</span>
-        <span style="color:#f57f17;">🌡️ 中热度 ${heatMid}条</span>
-        <span style="color:#546e7a;">🧊 低热度 ${heatLow}条</span>
-        <button class="normal" onclick="sortByHeat()" style="font-size:12px;padding:4px 12px;margin-left:auto;">📊 按热度排序</button>
-        <button class="normal" onclick="sortByTime()" style="font-size:12px;padding:4px 12px;">🕐 按时间排序</button>
-    </div>
-    <div id="memoryList">${memoryCards}</div>
-</div>
-
-<div class="modal-bg" id="addModal"><div class="modal">
-    <h3>💎 写入记忆</h3><textarea id="newContent" rows="4"></textarea><br><br>
-    <input type="text" id="newTags" placeholder="标签(逗号分隔)，打上roleplay 自动进游戏箱" style="width:100%;padding:8px;border-radius:6px;"><br><br>
-    <button class="btn-save" onclick="submitNew()">💾 保存</button> <button onclick="closeModal()">取消</button>
-</div></div>
-<div class="toast" id="toast"></div>
-
-<script>
-let currentCat='active';
-let currentSource='all';
-function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';setTimeout(()=>t.style.display='none',2000);}
-async function updateProfile(){const p=new URLSearchParams(window.location.search).get('pwd');if(!p)return alert('缺少密码');const r=await fetch('/trigger-profile-update?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅ 更新成功':'❌ '+(d.error||d.message));if(d.success)location.reload();}
-async function triggerDreamManual(){const p=new URLSearchParams(window.location.search).get('pwd');if(!p)return alert('缺少密码');const r=await fetch('/trigger-dream?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();alert(d.success?'✅ Dream已触发':'❌ '+(d.error||d.message));if(d.success)location.reload();}
-function openModal(){document.getElementById('addModal').classList.add('show');}
-function closeModal(){document.getElementById('addModal').classList.remove('show');}
-
-async function submitNew(){
-    const content=document.getElementById('newContent').value; const tags=document.getElementById('newTags').value.split(',').filter(Boolean);
-    const r=await fetch('/api/long-term-memories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content,tags})});
-    const d=await r.json(); if(d.success) location.reload();
-}
-function startEdit(id){ document.getElementById('content-'+id).style.display='none'; document.getElementById('edit-'+id).style.display='block'; }
-function cancelEdit(id){ document.getElementById('content-'+id).style.display='block'; document.getElementById('edit-'+id).style.display='none'; }
-async function saveEdit(id){
-    const content=document.getElementById('ta-'+id).value; const tags=document.getElementById('tags-'+id).value.split(',').filter(Boolean);
-    const r=await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({content,tags})});
-    if((await r.json()).success) location.reload();
-}
-async function deleteMemory(id){
-    if(confirm('删除?')) { await fetch('/api/long-term-memories/'+id,{method:'DELETE'}); location.reload(); }
-}
-async function restoreMemory(id){ await fetch('/api/archive-memories/'+id+'/restore',{method:'POST'}); location.reload(); }
-async function deleteArchivedMemory(id){ if(confirm('彻底销毁冰封?')) { await fetch('/api/archive-memories/'+id,{method:'DELETE'}); location.reload(); } }
-async function toggleResolved(id, resolved) {
-    const r = await fetch('/api/long-term-memories/' + id, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resolved })
-    });
-    if ((await r.json()).success) location.reload();
-}
-
-function sortByHeat(){
-    const list=document.getElementById('memoryList');
-    const cards=[...list.children];
-    cards.sort((a,b)=>parseFloat(b.dataset.heat||0)-parseFloat(a.dataset.heat||0));
-    cards.forEach(c=>list.appendChild(c));
-}
-function sortByTime(){
-    const list=document.getElementById('memoryList');
-    const cards=[...list.children];
-    cards.sort((a,b)=>{
-        const ta=a.querySelector('.memory-meta span')?.textContent||'';
-        const tb=b.querySelector('.memory-meta span')?.textContent||'';
-        return tb.localeCompare(ta);
-    });
-    cards.forEach(c=>list.appendChild(c));
-}
-async function smartSearch(){
-    const q=document.getElementById('searchInput').value.trim();
-    if(!q)return;
-    const p=new URLSearchParams(window.location.search).get('pwd');
-    const r=await fetch('/api/debug-search?pwd='+encodeURIComponent(p),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q})});
-    const d=await r.json();
-    const matchIds=new Set(d.matches.map(m=>m.id));
-    document.querySelectorAll('#memoryList .memory-card').forEach(card=>{
-        const id=card.id.replace('card-','');
-        if(matchIds.has(id)){
-            card.style.opacity='1';
-            card.style.border='2px solid #7c4dff';
-            const match=d.matches.find(m=>m.id===id);
-            if(match){
-                let info=card.querySelector('.match-info');
-                if(!info){info=document.createElement('div');info.className='match-info';card.appendChild(info);}
-                info.innerHTML='<div style="margin-top:6px;font-size:11px;color:#7c4dff;">向量:'+(match.vector_score||'N/A')+' | 标签:'+(match.tag_hits||[]).join(',')+' | 综合:'+(match.would_match?'✓':'—')+'</div>';
-            }
-        }else{
-            card.style.opacity='0.3';
-            card.style.border='1px solid #e8e8e8';
-            const info=card.querySelector('.match-info');
-            if(info)info.remove();
-        }
-    });
-    document.getElementById('clearSearchBtn').style.display='inline-block';
-}
-function clearSearch(){
-    document.querySelectorAll('#memoryList .memory-card').forEach(card=>{card.style.opacity='1';card.style.border='1px solid #e8e8e8';const info=card.querySelector('.match-info');if(info)info.remove();});
-    document.getElementById('clearSearchBtn').style.display='none';
-    document.getElementById('searchInput').value='';
-    filterAll();
-}
-function setFilter(pill,cat,source){
-    document.querySelectorAll('.pill').forEach(p=>p.classList.remove('active')); 
-    pill.classList.add('active'); 
-    currentCat=cat;
-    currentSource=source;
-    filterAll();
-}
-function filterAll(){
-    const kw=document.getElementById('searchInput').value.toLowerCase();
-    document.querySelectorAll('#memoryList .memory-card').forEach(c=>{
-        const matchK = c.textContent.toLowerCase().includes(kw);
-        const matchC = c.dataset.category === currentCat;
-        const matchS = currentSource === 'all' || c.dataset.source === currentSource;
-        c.style.display = (matchK && matchC && matchS) ? 'block' : 'none';
-    });
-}
-filterAll();
-async function triggerCleanup() {
-    if (!confirm('让AI审查记忆库，清理重复和不重要的条目？\\n（被清理的会移入冰封档案，不会彻底删除）')) return;
-    const pwd = new URLSearchParams(window.location.search).get('pwd');
-    try {
-        const r = await fetch('/trigger-cleanup?pwd=' + encodeURIComponent(pwd), { method: 'POST' });
-        const d = await r.json();
-        if (d.success) {
-            alert('✅ 清理完成！\\n删除: ' + d.deleted + '条\\n合并: ' + d.merged + '组\\n' + d.summary);
-            location.reload();
-        } else {
-            alert('❌ ' + (d.error || '未知错误'));
-        }
-    } catch(e) { alert('❌ ' + e.message); }
-}
-
-</script></body></html>`);
+app.get('/memory-manager', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).send('🔒 请输入访问密码');
+    res.redirect(`/memory-manager.html?pwd=${encodeURIComponent(req.query.pwd)}`);
+});
+app.get('/long-term', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).send('请提供 pwd 参数');
+    res.redirect(`/long-term.html?pwd=${encodeURIComponent(req.query.pwd)}`);
 });
 
 app.get(['/v1/models', '/via/:platform/v1/models'], async (req, res) => {

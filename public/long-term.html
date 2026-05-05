@@ -1,0 +1,246 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>💎 长期记忆</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box} body{font-family:sans-serif;background:#f5f7fa;color:#333}
+.top-bar{background:#1a1a2e;color:white;padding:12px 24px;display:flex;gap:16px;}
+.top-bar a{color:rgba(255,255,255,.7);text-decoration:none;padding:6px 14px;} .top-bar a.active{color:white}
+.main{max-width:800px;margin:24px auto;padding:0 20px}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.search-row{display:flex;gap:10px;margin-bottom:12px} .search-row input{flex:1;padding:10px;border-radius:8px;border:1px solid #ddd;}
+.btn-add{padding:10px 18px;background:#1a73e8;color:white;border:none;border-radius:8px;cursor:pointer;}
+.pills{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
+.pill{padding:5px 14px;border-radius:20px;border:1px solid #ddd;background:white;cursor:pointer;font-size:13px}
+.pill.active{background:#1a73e8;color:white;border-color:#1a73e8}
+.pill.archive-pill{background:#f8fbff;color:#0288d1;border-color:#81d4fa} .pill.archive-pill.active{background:#0288d1;color:white;}
+.pill.rp-pill{background:#f3e5f5;color:#8e24aa;border-color:#ce93d8} .pill.rp-pill.active{background:#8e24aa;color:white;}
+.memory-card{background:white;border:1px solid #e8e8e8;border-radius:10px;padding:16px;margin-bottom:10px;}
+.cat-archived{background:#fdfdff;border-color:#bbdefb;} .cat-roleplay{background:#faf5fb;border-color:#e1bee7; border-left:4px solid #ab47bc}
+.memory-content{font-size:15px;line-height:1.6;margin-bottom:8px;white-space:pre-wrap}
+.tag{background:#e3f2fd;color:#1565c0;padding:2px 10px;border-radius:12px;font-size:12px}
+.memory-meta{display:flex;justify-content:space-between;font-size:12px;color:#999; margin-top: 8px;}
+.btn-sm{padding:3px 10px;border-radius:5px;border:1px solid #ddd;background:white;cursor:pointer;}
+.btn-del{color:#e53935;border-color:#e53935} .btn-save{background:#4CAF50;color:white;border:none;border-radius:6px;padding:5px 14px;}
+.btn-resolved { color: #888; border-color: #ddd; }
+.btn-resolved-active { color: #2e7d32; border-color: #81c784; background: #f1f8e9; }
+.modal-bg{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);justify-content:center;align-items:center} .modal-bg.show{display:flex}
+.modal{background:white;border-radius:12px;padding:24px;width:90%;max-width:500px;}
+textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:vertical;}
+.toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#333;color:white;padding:10px 24px;border-radius:8px;display:none}
+</style></head><body>
+<div class="top-bar"><b>🧠 Syzygy Memory</b><a href="/memory-manager?pwd=" id="mmLink">📋 对话记忆</a><a href="#" class="active">💎 长期记忆</a></div>
+<div class="main">
+<div class="header"><h1>💎 永久记忆档案 (海马体接管中)</h1></div>
+<div class="search-row"><input type="text" id="searchInput" placeholder="搜索记忆内容..." oninput="filterAll()"><button class="btn-add" onclick="openModal()">＋ 新增</button><button class="normal" onclick="smartSearch()" style="background:#7c4dff;color:white;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;margin-left:4px;">🧠 智能搜索</button><button class="normal" onclick="clearSearch()" id="clearSearchBtn" style="display:none;padding:10px 14px;border-radius:8px;cursor:pointer;">✕ 清除</button><button style="padding:10px 18px;background:#ff9800;color:white;border:none;border-radius:8px;cursor:pointer;margin-left:8px;" onclick="triggerCleanup()">🧹 AI清理</button></div>
+<div class="pills">
+<span class="pill active" onclick="setFilter(this,'active','all')">现实脑区(<b id="cntAll">0</b>)</span>
+<span class="pill" onclick="setFilter(this,'active','manual')">✍️ 手动 (<b id="cntManual">0</b>)</span>
+<span class="pill" onclick="setFilter(this,'active','ai_active')">🤖 AI主动 (<b id="cntAI">0</b>)</span>
+<span class="pill" onclick="setFilter(this,'active','butler_summary')">🌙 管家 (<b id="cntButler">0</b>)</span>
+<span style="border-left: 2px solid #ddd; height: 20px; margin: 0 4px;"></span>
+<span class="pill rp-pill" onclick="setFilter(this,'roleplay','all')">🎮 游戏卡带 (<b id="cntRP">0</b>)</span>
+<span class="pill archive-pill" onclick="setFilter(this,'archived','all')">🥶 冰封档案 (<b id="cntArchived">0</b>)</span>
+</div>
+<div id="profileCard"></div>
+<div id="dreamCard"></div>
+<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;font-size:13px;flex-wrap:wrap;" id="heatBar">
+<span style="color:#e65100;">🔥 高热度 <b id="heatHigh">0</b>条</span>
+<span style="color:#f57f17;">🌡️ 中热度 <b id="heatMid">0</b>条</span>
+<span style="color:#546e7a;">🧊 低热度 <b id="heatLow">0</b>条</span>
+<button class="normal" onclick="sortByHeat()" style="font-size:12px;padding:4px 12px;margin-left:auto;">📊 按热度排序</button>
+<button class="normal" onclick="sortByTime()" style="font-size:12px;padding:4px 12px;">🕐 按时间排序</button>
+</div>
+<div id="memoryList">加载中...</div>
+</div>
+<div class="modal-bg" id="addModal"><div class="modal">
+<h3>💎 写入记忆</h3><textarea id="newContent" rows="4"></textarea><br><br>
+<input type="text" id="newTags" placeholder="标签(逗号分隔)，打上roleplay 自动进游戏箱" style="width:100%;padding:8px;border-radius:6px;"><br><br>
+<button class="btn-save" onclick="submitNew()">💾 保存</button> <button onclick="closeModal()">取消</button>
+</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const PWD = new URLSearchParams(location.search).get('pwd');
+if (!PWD) { document.getElementById('memoryList').innerHTML = '缺少密码参数'; throw new Error('no pwd'); }
+document.getElementById('mmLink').href = '/memory-manager?pwd=' + encodeURIComponent(PWD);
+
+let ALL_MEMS = [], COUNTS = {}, PROFILE = null, DREAM_LOGS = [], currentCat = 'active', currentSource = 'all';
+
+function showToast(msg){ const t = document.getElementById('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 2000); }
+function openModal(){ document.getElementById('addModal').classList.add('show'); }
+function closeModal(){ document.getElementById('addModal').classList.remove('show'); }
+async function submitNew(){
+    const content = document.getElementById('newContent').value;
+    const tags = document.getElementById('newTags').value.split(',').filter(Boolean);
+    const r = await fetch('/api/long-term-memories', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({content, tags}) });
+    const d = await r.json(); if (d.success) location.reload();
+}
+
+async function loadData() {
+    const res = await fetch('/api/longterm-page-data?pwd=' + encodeURIComponent(PWD));
+    if (!res.ok) { document.getElementById('memoryList').innerHTML = '加载失败'; return; }
+    const data = await res.json();
+    ALL_MEMS = data.memories || []; COUNTS = data.counts || {}; PROFILE = data.profile; DREAM_LOGS = data.dreamLogs || [];
+    document.getElementById('cntAll').textContent = COUNTS.all || 0;
+    document.getElementById('cntManual').textContent = COUNTS.manual || 0;
+    document.getElementById('cntAI').textContent = COUNTS.ai_active || 0;
+    document.getElementById('cntButler').textContent = COUNTS.butler_summary || 0;
+    document.getElementById('cntRP').textContent = COUNTS.roleplay || 0;
+    document.getElementById('cntArchived').textContent = COUNTS.archived || 0;
+    document.getElementById('heatHigh').textContent = (data.heatStats||{}).high || 0;
+    document.getElementById('heatMid').textContent = (data.heatStats||{}).mid || 0;
+    document.getElementById('heatLow').textContent = (data.heatStats||{}).low || 0;
+    renderProfile();
+    renderDream();
+    filterAll();
+}
+
+function getTTLLabel(m) {
+    if (!m.expires_at) return '♾️ 永久';
+    const remaining = m.expires_at - Date.now();
+    if (remaining <= 0) return '⏰ 已过期';
+    const days = Math.ceil(remaining / 86400000);
+    if (days <= 3) return '🔥 '+days+'天后过期';
+    if (days <= 7) return '📅 '+days+'天后过期';
+    return '📦 '+days+'天后过期';
+}
+function sourceLabel(s) { return ({'manual':'✍️ 手动','ai_active':'🤖 AI主动','butler_summary':'🌙 管家','roleplay':'🎮RP副本'})[s] || s; }
+
+function renderProfile() {
+    if (!PROFILE) return;
+    const updated = PROFILE.last_full_update ? new Date(PROFILE.last_full_update).toLocaleString('zh-CN') : '尚未更新';
+    let html = '<div class="memory-card" style="background:#f0f8ff;border-left:4px solid #1a73e8;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><b style="font-size:16px;">📋 江鱼画像</b><div style="display:flex;gap:8px;align-items:center;"><span style="font-size:11px;color:#888;">最后更新: '+updated+'</span><button class="normal" onclick="updateProfile()" style="font-size:11px;padding:3px 10px;">🔄 手动更新</button></div></div>';
+    if (PROFILE.basic_info?.content) html += '<details open><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">📌 基本信息</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">'+PROFILE.basic_info.content.replace(/</g,'&lt;')+'</p></details>';
+    if (PROFILE.communication_style?.content) html += '<details><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">🔍 沟通偏好</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">'+PROFILE.communication_style.content.replace(/</g,'&lt;')+'</p></details>';
+    if (PROFILE.recent_focus?.content) html += '<details open><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">🔥 近期关注</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">'+PROFILE.recent_focus.content.replace(/</g,'&lt;')+'</p></details>';
+    if (PROFILE.long_term_values?.content) html += '<details><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">💡 长期偏好</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">'+PROFILE.long_term_values.content.replace(/</g,'&lt;')+'</p></details>';
+    html += '</div>';
+    document.getElementById('profileCard').innerHTML = html;
+}
+
+function renderDream() {
+    let html = '<div class="memory-card" style="background:#f3e5f5;border-left:4px solid #7c4dff;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><b style="font-size:16px;">🌙 Dream 日志</b><button class="normal" onclick="triggerDreamManual()" style="font-size:11px;padding:3px 10px;background:#7c4dff;color:white;border:none;">🌙 手动触发 Dream</button></div>';
+    if (DREAM_LOGS.length === 0) html += '<p style="color:#999;font-size:13px;">暂无 Dream 记录</p>';
+    else DREAM_LOGS.forEach(log => {
+        html += '<div style="margin-bottom:8px;padding:8px;background:white;border-radius:6px;font-size:12px;"><div>🌙 '+new Date(log.triggered_at).toLocaleString('zh-CN')+' | '+(log.trigger_type==='manual'?'🖐 手动':'🤖 自动')+' | 清理'+(log.results.cleaned.expired+log.results.cleaned.decayed)+'条 | 固化'+(log.results.consolidated.new_memories+log.results.consolidated.new_rp)+'条 | '+(log.duration_ms/1000).toFixed(1)+'s</div>';
+        if (log.results.foresight?.length > 0) {
+            html += '<details style="margin-top:4px;"><summary style="cursor:pointer;color:#7c4dff;font-size:11px;">🔮 前瞻推断 ('+log.results.foresight.length+'条)</summary>';
+            log.results.foresight.forEach(f => { html += '<div style="margin:2px 0 2px 12px;color:#555;">• '+f+'</div>'; });
+            html += '</details>';
+        }
+        html += '</div>';
+    });
+    html += '</div>';
+    document.getElementById('dreamCard').innerHTML = html;
+}
+
+function renderCard(m) {
+    const ttl = getTTLLabel(m);
+    const ttlBadge = '<span style="background:#fff3e0;color:#e65100;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">'+ttl+'</span>';
+    const arousalBadge = m.arousal ? '<span style="background:#ffebee;color:#c62828;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">❤️ 浓度:'+m.arousal+'</span>' : '';
+    const countBadge = m.activation_count !== undefined ? '<span style="background:#e3f2fd;color:#1565c0;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">🔄 唤醒:'+m.activation_count+'次</span>' : '';
+    const rawHeat = m.liveHeat !== undefined ? m.liveHeat : (m.heat !== undefined ? m.heat : 0.5);
+    let heatEmoji, heatColor, heatBg;
+    if (rawHeat > 0.7) { heatEmoji = '🔥'; heatColor = '#e65100'; heatBg = '#fff3e0'; }
+    else if (rawHeat >= 0.3) { heatEmoji = '🌡️'; heatColor = '#f57f17'; heatBg = '#fffde7'; }
+    else { heatEmoji = '🧊'; heatColor = '#546e7a'; heatBg = '#eceff1'; }
+    const heatBadge = '<span style="background:'+heatBg+';color:'+heatColor+';padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;" title="实时热度">'+heatEmoji+' '+rawHeat.toFixed(2)+'</span>';
+    const archiveLabel = m.category === 'archived' ? (m.archived_reason === 'contradiction' ? '<span style="color:#e65100;font-weight:bold;">⚡ 已被新记忆替代</span>' : '<span style="color:#0288d1;font-weight:bold;">❄️ 冰封中</span>') : '';
+    const rpLabel = m.category === 'roleplay' ? '<span style="color:#8e24aa;font-weight:bold;">🎭 游戏卡带</span>' : '';
+    const buttons = m.category === 'archived'
+        ? '<button class="btn-sm" style="color:#0288d1;border-color:#0288d1" onclick="restoreMemory(\''+m.id+'\')">✨ 解封</button><button class="btn-sm btn-del" onclick="deleteArchivedMemory(\''+m.id+'\')">🗑️</button>'
+        : '<button class="btn-sm btn-edit" onclick="startEdit(\''+m.id+'\')">✏️</button><button class="btn-sm '+(m.resolved?'btn-resolved-active':'btn-resolved')+'" onclick="toggleResolved(\''+m.id+'\','+!!m.resolved+')">'+(m.resolved?'✅ 已解决':'○ 未解决')+'</button><button class="btn-sm btn-del" onclick="deleteMemory(\''+m.id+'\')">🗑️</button>';
+    return '<div class="memory-card cat-'+m.category+'" id="card-'+m.id+'" data-category="'+m.category+'" data-source="'+m.source+'" data-heat="'+rawHeat.toFixed(4)+'"><div class="memory-content" id="content-'+m.id+'">'+(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div><div class="memory-tags"><div style="margin-bottom:6px;border-bottom:1px dashed #eee;padding-bottom:6px;">'+ttlBadge+arousalBadge+countBadge+heatBadge+'</div>'+((m.tags||[]).length>0?m.tags.map(t=>'<span class="tag">'+t+'</span>').join(''):'<span style="color:#ccc;font-size:12px">无标签</span>')+'</div><div class="memory-meta"><span>'+new Date(m.created_at).toLocaleString('zh-CN')+' · '+sourceLabel(m.source)+' '+archiveLabel+' '+rpLabel+'</span><span>'+buttons+'</span></div><div class="edit-area" id="edit-'+m.id+'" style="display:none;"><textarea id="ta-'+m.id+'" rows="3">'+(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</textarea><input type="text" id="tags-'+m.id+'" value="'+(m.tags||[]).join(', ')+'" style="width:100%;padding:8px;border-radius:6px;margin-top:6px;box-sizing:border-box;"><div style="display:flex;gap:8px;margin-top:6px;"><button class="btn-save" onclick="saveEdit(\''+m.id+'\')">💾 保存</button><button class="btn-cancel" onclick="cancelEdit(\''+m.id+'\')">取消</button></div></div></div>';
+}
+
+function filterAll() {
+    const kw = document.getElementById('searchInput').value.toLowerCase();
+    document.querySelectorAll('#memoryList .memory-card').forEach(c => {
+        const matchK = c.textContent.toLowerCase().includes(kw);
+        const matchC = c.dataset.category === currentCat;
+        const matchS = currentSource === 'all' || c.dataset.source === currentSource;
+        c.style.display = (matchK && matchC && matchS) ? 'block' : 'none';
+    });
+    // render cards if not yet done
+    if (!document.querySelector('#memoryList .memory-card')) {
+        document.getElementById('memoryList').innerHTML = ALL_MEMS.map(m => renderCard(m)).join('');
+        filterAll();
+    }
+}
+function setFilter(pill, cat, source) {
+    document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active'); currentCat = cat; currentSource = source; filterAll();
+}
+function sortByHeat() {
+    const list = document.getElementById('memoryList');
+    const cards = [...list.children];
+    cards.sort((a, b) => parseFloat(b.dataset.heat || 0) - parseFloat(a.dataset.heat || 0));
+    cards.forEach(c => list.appendChild(c));
+}
+function sortByTime() {
+    const list = document.getElementById('memoryList');
+    const cards = [...list.children];
+    cards.sort((a, b) => {
+        const ta = a.querySelector('.memory-meta span')?.textContent || '';
+        const tb = b.querySelector('.memory-meta span')?.textContent || '';
+        return tb.localeCompare(ta);
+    });
+    cards.forEach(c => list.appendChild(c));
+}
+
+function startEdit(id) { document.getElementById('content-'+id).style.display = 'none'; document.getElementById('edit-'+id).style.display = 'block'; }
+function cancelEdit(id) { document.getElementById('content-'+id).style.display = 'block'; document.getElementById('edit-'+id).style.display = 'none'; }
+async function saveEdit(id) {
+    const content = document.getElementById('ta-'+id).value;
+    const tags = document.getElementById('tags-'+id).value.split(',').filter(Boolean);
+    const r = await fetch('/api/long-term-memories/'+id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({content, tags}) });
+    if ((await r.json()).success) location.reload();
+}
+async function deleteMemory(id) { if (confirm('删除?')) { await fetch('/api/long-term-memories/'+id, { method:'DELETE' }); location.reload(); } }
+async function restoreMemory(id) { await fetch('/api/archive-memories/'+id+'/restore', { method:'POST' }); location.reload(); }
+async function deleteArchivedMemory(id) { if (confirm('彻底销毁冰封?')) { await fetch('/api/archive-memories/'+id, { method:'DELETE' }); location.reload(); } }
+async function toggleResolved(id, resolved) {
+    const r = await fetch('/api/long-term-memories/'+id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ resolved: !resolved }) });
+    if ((await r.json()).success) location.reload();
+}
+
+async function smartSearch() {
+    const q = document.getElementById('searchInput').value.trim(); if (!q) return;
+    const r = await fetch('/api/debug-search?pwd='+encodeURIComponent(PWD), { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({query:q}) });
+    const d = await r.json();
+    const matchIds = new Set(d.matches.map(m => m.id));
+    document.querySelectorAll('#memoryList .memory-card').forEach(card => {
+        const id = card.id.replace('card-','');
+        if (matchIds.has(id)) {
+            card.style.opacity = '1'; card.style.border = '2px solid #7c4dff';
+            const match = d.matches.find(m => m.id === id);
+            if (match) {
+                let info = card.querySelector('.match-info');
+                if (!info) { info = document.createElement('div'); info.className = 'match-info'; card.appendChild(info); }
+                info.innerHTML = '<div style="margin-top:6px;font-size:11px;color:#7c4dff;">向量:'+(match.vector_score||'N/A')+' | 标签:'+(match.tag_hits||[]).join(',')+' | 综合:'+(match.would_match?'✓':'—')+'</div>';
+            }
+        } else { card.style.opacity = '0.3'; card.style.border = '1px solid #e8e8e8'; const info = card.querySelector('.match-info'); if (info) info.remove(); }
+    });
+    document.getElementById('clearSearchBtn').style.display = 'inline-block';
+}
+function clearSearch() {
+    document.querySelectorAll('#memoryList .memory-card').forEach(card => { card.style.opacity = '1'; card.style.border = '1px solid #e8e8e8'; const info = card.querySelector('.match-info'); if (info) info.remove(); });
+    document.getElementById('clearSearchBtn').style.display = 'none'; document.getElementById('searchInput').value = ''; filterAll();
+}
+
+async function updateProfile() {
+    const r = await fetch('/trigger-profile-update?pwd='+encodeURIComponent(PWD), { method:'POST' });
+    const d = await r.json(); alert(d.success ? '✅ 更新成功' : '❌ '+(d.error||d.message)); if (d.success) location.reload();
+}
+async function triggerDreamManual() {
+    const r = await fetch('/trigger-dream?pwd='+encodeURIComponent(PWD), { method:'POST' });
+    const d = await r.json(); alert(d.success ? '✅ Dream已触发' : '❌ '+(d.error||d.message)); if (d.success) location.reload();
+}
+async function triggerCleanup() {
+    if (!confirm('让AI审查记忆库，清理重复和不重要的条目？\n（被清理的会移入冰封档案，不会彻底删除）')) return;
+    const r = await fetch('/trigger-cleanup?pwd='+encodeURIComponent(PWD), { method:'POST' });
+    const d = await r.json();
+    if (d.success) { alert('✅ 清理完成！\n删除: '+d.deleted+'条\n合并: '+d.merged+'组\n'+d.summary); location.reload(); }
+    else alert('❌ '+(d.error||'未知错误'));
+}
+
+loadData();
+</script></body></html>

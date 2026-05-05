@@ -1,0 +1,73 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>记忆管理</title>
+<style>body{font-family:sans-serif;max-width:1000px;margin:40px auto;padding:20px}.nav-bar{margin-bottom:20px;display:flex;gap:12px}.nav-bar a,.nav-bar span{padding:6px 16px;border-radius:8px;text-decoration:none;font-size:14px}.nav-active{background:#1a73e8;color:white}.nav-link{background:white;border:1px solid #ddd;color:#333}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}.card{background:#fafafa;border-radius:12px;padding:20px;border:1px solid #eee}textarea{width:100%;padding:10px;margin:5px 0;border:1px solid #ddd;border-radius:8px;box-sizing:border-box}button.add{background:#4CAF50;color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer}button.danger{background:#ff5252;color:white;border:none;padding:6px 16px;border-radius:8px;cursor:pointer}button.normal{padding:6px 16px;border-radius:6px;cursor:pointer;border:1px solid #ddd;background:white}h2{margin-top:0}.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}.select-hint{font-size:13px;color:#888}@media(max-width:700px){.grid{grid-template-columns:1fr}}</style></head><body>
+<div class="nav-bar"><span class="nav-active">📋 对话记忆</span><a id="ltLink" href="#" class="nav-link">💎 长期记忆</a></div>
+<h1>🧠 记忆管理</h1>
+<div class="grid"><div class="card">
+<h2>📌 总结记忆</h2>
+<h3>🗂管家便利贴 <button onclick="triggerDream()" style="font-size:12px;padding:3px 10px;border-radius:6px;cursor:pointer;border:1px solid #ddd;background:#fff;margin-left:8px;">🌙 立即总结</button></h3>
+<div id="stateHtml"></div>
+</div><div class="card">
+<h2>💬 原始记录</h2>
+<div style="background:#e8f5e9;padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:13px;">🌙 上次Dream: <b id="lastDream"></b><button class="normal" onclick="restoreAll()" style="font-size:11px;padding:2px 8px;margin-left:8px;">🔓 全部恢复</button></div>
+<div class="toolbar"><button class="normal" onclick="location.reload()">🔄 刷新</button><button class="normal" onclick="toggleSelectAll()">☑️ 全选/取消</button><button class="danger" onclick="deleteSelected()">🗑️ 删除选中</button><span class="select-hint" id="select-count">未选中</span></div>
+<div style="max-height:600px;overflow-y:auto" id="msg-list">加载中...</div>
+</div></div>
+<span id="status"></span>
+<script>
+const PWD = new URLSearchParams(location.search).get('pwd');
+if (!PWD) { document.getElementById('msg-list').innerHTML = '缺少密码参数'; throw new Error('no pwd'); }
+document.getElementById('ltLink').href = '/long-term?pwd=' + encodeURIComponent(PWD);
+let ALL_MESSAGES = [];
+async function loadData() {
+    const res = await fetch('/api/memory-page-data?pwd=' + encodeURIComponent(PWD));
+    if (!res.ok) { document.getElementById('msg-list').innerHTML = '加载失败'; return; }
+    const data = await res.json();
+    ALL_MESSAGES = data.messages || [];
+    document.getElementById('lastDream').textContent = data.lastDreamTime || '从未';
+    document.getElementById('ltLink').textContent = '💎 长期记忆 (' + (data.ltMemCount || 0) + ')';
+    renderState(data.currentState);
+    renderMessages();
+}
+function renderState(state) {
+    const safe = v => typeof v === 'object' ? JSON.stringify(v) : (v || '无');
+    if (state) document.getElementById('stateHtml').innerHTML = '<div style="background:#fff9c4;padding:12px;border-radius:8px;margin:5px 0"><b>当前偏好：</b><p>'+safe(state.new_preferences)+'</p><b>近期情感：</b><p>'+safe(state.relationship_turning_points)+'</p><b>未完成约定：</b><p>'+safe(state.pending_promises)+'</p></div>';
+    else document.getElementById('stateHtml').innerHTML = '<p style="color:#888">还没有总结～</p>';
+}
+function renderMessages() {
+    const html = ALL_MESSAGES.map((m, i) => {
+        const rpBadge = (m.content||'').startsWith('[RP模式]') ? '<span style="background:#e1bee7;color:#6a1b9a;padding:1px 6px;border-radius:4px;font-size:11px;margin-left:4px;">🎭 RP</span>' : '';
+        return '<div class="msg-item" style="background:'+(m.role==='user'?'#e3f2fd':'#f3e5f5')+';padding:10px;margin:5px 0;border-radius:8px;display:flex;gap:10px;align-items:flex-start;'+(rpBadge?'border-left:3px solid #ab47bc;':'')+'"><input type="checkbox" class="msg-checkbox" data-index="'+i+'" style="margin-top:4px;flex-shrink:0;width:16px;height:16px;cursor:pointer;"><div style="flex:1"><small style="color:#888">'+(m.role==='user'?'江鱼':'沈望')+' | '+new Date(m.created_at).toLocaleString()+rpBadge+'</small><p style="margin:5px 0;white-space:pre-wrap">'+(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</p></div></div>';
+    }).join('');
+    document.getElementById('msg-list').innerHTML = html || '<p style="color:#888">暂无记录</p>';
+    document.querySelectorAll('.msg-checkbox').forEach(cb => cb.addEventListener('change', updateCount));
+}
+function updateCount(){ const c = document.querySelectorAll('.msg-checkbox:checked').length; document.getElementById('select-count').innerText = c > 0 ? '已选'+c+'/'+ALL_MESSAGES.length+'条' : '未选中'; }
+let allSelected = false;
+function toggleSelectAll(){ allSelected = !allSelected; document.querySelectorAll('.msg-checkbox').forEach(cb => cb.checked = allSelected); updateCount(); }
+async function deleteSelected(){
+    const s = new Set(); document.querySelectorAll('.msg-checkbox').forEach(cb => { if(cb.checked) s.add(parseInt(cb.dataset.index)); });
+    if (s.size === 0) { alert('请先勾选！'); return; }
+    if (!confirm('确定删除'+s.size+'条？')) return;
+    document.getElementById('status').innerText = '⏳处理中...';
+    const keep = ALL_MESSAGES.filter((_, i) => !s.has(i));
+    const r = await fetch('/delete-selected', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({keepMessages:keep}) });
+    const d = await r.json();
+    alert(d.success ? '✅删除成功！' : '❌'+d.error);
+    if (d.success) location.reload();
+    document.getElementById('status').innerText = '';
+}
+async function triggerDream(){
+    const p = prompt('请输入管理员密码：'); if (!p) return;
+    const r = await fetch('/trigger-dream?pwd='+encodeURIComponent(p), { method:'POST' });
+    const d = await r.json();
+    alert(d.success ? '✅ Dream已触发' : '❌'+(d.error||d.message));
+}
+async function restoreAll(){
+    const p = prompt('请输入管理员密码：'); if (!p) return;
+    const r = await fetch('/api/restore-all-messages?pwd='+encodeURIComponent(p), { method:'POST' });
+    const d = await r.json();
+    alert(d.success ? '✅ 已恢复' : '❌'+(d.error||d.message));
+    if (d.success) location.reload();
+}
+loadData();
+</script></body></html>
