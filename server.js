@@ -2434,11 +2434,11 @@ app.get('/api/longterm-page-data', (req, res) => {
 
 app.get('/memory-manager', (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).send('🔒 请输入访问密码');
-    res.redirect(`/memory-manager.html?pwd=${encodeURIComponent(req.query.pwd)}`);
+    res.redirect(`/memory-manager.html?tab=timeline&pwd=${encodeURIComponent(req.query.pwd)}`);
 });
 app.get('/long-term', (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).send('请提供 pwd 参数');
-    res.redirect(`/long-term.html?pwd=${encodeURIComponent(req.query.pwd)}`);
+    res.redirect(`/memory-manager.html?tab=archive&pwd=${encodeURIComponent(req.query.pwd)}`);
 });
 
 app.get(['/v1/models', '/via/:platform/v1/models'], async (req, res) => {

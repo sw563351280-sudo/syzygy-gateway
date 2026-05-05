@@ -46,6 +46,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC"
 <div class="footer">Built with love by 江鱼 · Syzygy</div>
 <div class="toast" id="toast">还在搭建中…</div>
 <script>
+const MPWD=new URLSearchParams(location.search).get('pwd')||'';
+document.querySelectorAll('.card-link').forEach(a=>{if(MPWD)a.href=a.href+'&pwd='+encodeURIComponent(MPWD)});
 function showToast(){const t=document.getElementById('toast');t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000)}
 </script>
 </body></html>
