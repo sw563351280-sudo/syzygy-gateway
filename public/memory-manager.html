@@ -163,7 +163,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC"
 var PWD=new URLSearchParams(location.search).get('pwd');
 if(!PWD){document.getElementById('timelineList').innerHTML='<div class="empty-state"><div class="empty-text">缺少密码参数</div></div>';throw new Error('no pwd')}
 var urlTab=new URLSearchParams(location.search).get('tab')||'timeline';
-var TL_MESSAGES=[],AR_MEMS=[],AR_COUNTS={},AR_HEAT={},PROFILE=null,activeTab='';
+var TL_MESSAGES=[],AR_MEMS=[],AR_COUNTS={},AR_HEAT={},PROFILE=null,activeTab='',DIARY_ENTRIES=[];
 var selectMode=false,selectedSet=new Set(),arCat='all',longPressTimer=null;
 
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000)}
@@ -283,7 +283,6 @@ function openAddModal(){document.getElementById('addModal').classList.add('show'
 function closeAddModal(){document.getElementById('addModal').classList.remove('show')}
 async function submitNew(){const c=document.getElementById('newContent').value;const t=document.getElementById('newTags').value.split(',').filter(Boolean);await fetch('/api/long-term-memories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:c,tags:t})});location.reload()}
 
-var DIARY_ENTRIES=[];
 async function loadDiary(){
   const r=await fetch('/diary-logs');
   if(!r.ok)return;DIARY_ENTRIES=await r.json();
