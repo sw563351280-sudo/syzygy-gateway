@@ -1243,7 +1243,7 @@ const BUILTIN_TOOLS = [
     { type: "function", function: { name: "read_diary", description: "【仅在用户明确要求查看某天的日记时使用】读取指定日期的日记内容。不要在日常闲聊中调用。", parameters: { type: "object", properties: { date: { type: "string", description: "日期，格式 YYYY-MM-DD，如 2026-05-06" } }, required: ["date"] } } }
 ];
 
-let TOOLS_ENABLED = { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, mcp: true };
+let TOOLS_ENABLED = { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, read_diary: true, mcp: false };
 
 function filterRelevantTools(allTools, userText, forceToolChoice) {
     const builtinNames = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github']);
