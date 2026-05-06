@@ -127,7 +127,7 @@ connectWebSocket();
 
 // ==================== 核心数据 ====================
 const START_DATE = '2025-04-20';
-let allDiaryEntries = [];
+
 let suppliers = [];
 let activeSupIndex = 0;
 let chatSessions = [];
@@ -262,7 +262,7 @@ function goView(viewId) {
     const map = { home:'sec-home', chat:'sec-chat', data:'sec-data' };
     const target = document.getElementById(map[viewId]);
     if (!target) return;
-    target.classList.add('active');
+    target.classList.add("active"); document.body.dataset.view = viewId;
     if (viewId === 'chat') setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 100);
     if (viewId === 'home') updateDays && updateDays();
 }
@@ -285,7 +285,7 @@ function go(id, btn){
     document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
     if(btn) btn.classList.add('active');
 
-   if(id === 'diary') renderDiaries();
+   
     if(id === 'chat')  { 
         /* 保持原样，千万别拆家！ */ 
         forceScrollToChatBottom(); // 💥 核心：切到聊天页的瞬间，强制拉到底部！
@@ -832,245 +832,29 @@ async function fetchModels(){
 }
 
 // ==================== 智能日记本 ====================
-let currentSearch = '';
 
-function renderDiaries(){
-    const container = document.getElementById('diaryMonthList');
-    if(!container) return;
-    container.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;">档案解密中...</div>';
-    fetch('/diary-logs').then(r => r.json()).then(data => {
-        allDiaryEntries = [...data].reverse(); buildMonthBlocks(allDiaryEntries);
-    }).catch(() => {
-        container.innerHTML = '<div style="color:var(--dim);text-align:center;padding:20px;">加载失败。</div>';
-    });
-}
 
-function buildMonthBlocks(entries){
-    const container = document.getElementById('diaryMonthList');
-    if(!container) return;
-    if(!entries.length){ container.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;">暂无记录。</div>'; return; }
 
-    const monthMap = new Map();
-    entries.forEach(d => {
-        const month = d.date ? d.date.substring(0, 7) : '未知';
-        if(!monthMap.has(month)) monthMap.set(month, []);
-        monthMap.get(month).push(d);
-    });
 
-    container.innerHTML = [...monthMap.keys()].map((month, idx) => {
-        const list = monthMap.get(month); const isOpen = (idx === 0);
-        return `
-        <div class="month-block" id="mb-${month}">
-            <div class="month-header ${isOpen ? 'open' : ''}" onclick="toggleMonth('${month}')">
-                <span class="month-chevron">${isOpen ? '▾' : '▸'}</span>
-                <span class="month-label">${month}</span><span class="month-count">${list.length} 篇</span>
-            </div>
-            <div class="month-body" id="mbody-${month}" style="display:${isOpen ? 'flex' : 'none'}">
-                ${list.map(d => diaryEntryHtml(d)).join('')}
-            </div>
-        </div>`;
-    }).join('');
-}
 
-function diaryEntryHtml(d){
-    const author = d.author === 'system' ? '沈望' : '江鱼';
-    const entryClass = d.type === 'syzygy_note' ? 'syzygy' : 'jiangyu';
-    const safeText = (d.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const typeTag = d.type === 'syzygy_note' ? '<span class="d-type-tag">🖊️ 手记</span>' : (d.type ? `<span class="d-type-tag">${d.type}</span>` : '');
-    return `
-    <div class="diary-entry ${entryClass}" id="de-${d.id}">
-        <div class="d-date">
-            <span>${d.date || ''}</span><span class="d-author">${author}</span>${typeTag}
-            ${d.id ? `<button class="d-del-btn" onclick="deleteDiaryEntry('${d.id}')">×</button>` : ''}
-        </div>
-        <div class="d-text">${safeText}</div>
-    </div>`;
-}
 
-function toggleMonth(month){
-    const header = document.querySelector(`#mb-${month} .month-header`);
-    const body = document.getElementById('mbody-' + month);
-    if(!header || !body) return;
-    const chevron = header.querySelector('.month-chevron');
-    if(body.style.display !== 'none'){
-        body.style.display = 'none'; header.classList.remove('open'); if(chevron) chevron.innerText = '▸';
-    } else {
-        body.style.display = 'flex'; header.classList.add('open'); if(chevron) chevron.innerText = '▾';
-    }
-}
 
-function filterDiaries(){
-    const searchInput = document.getElementById('diarySearch');
-    if(!searchInput) return;
-    currentSearch = searchInput.value.trim().toLowerCase();
-    const countEl = document.getElementById('diarySearchCount');
-    if(!currentSearch){
-        if(countEl) countEl.innerText = ''; buildMonthBlocks(allDiaryEntries); return;
-    }
-    const filtered = allDiaryEntries.filter(d => (d.text || '').toLowerCase().includes(currentSearch));
-    if(countEl) countEl.innerText = `找到 ${filtered.length} 条`;
-    buildMonthBlocks(filtered);
-}
 
-async function addDiary(){
-    const input = document.getElementById('diaryInput');
-    if(!input) return;
-    const val = input.value.trim(); if(!val) return;
-    input.value = '';
-    try{ await fetch(`/diary/add?text=${encodeURIComponent(val)}&author=user`); toast('已封存'); renderDiaries(); } catch(e){}
-}
 
-async function deleteDiaryEntry(id){
-    if(!confirm('确定销毁？')) return;
-    try{ await fetch(`/diary/${id}`, { method: 'DELETE' }); renderDiaries(); } catch(e){}
-}
 
-function showCustomPrompt(){
-    const area = document.getElementById('customPromptArea');
-    if(area) area.style.display = area.style.display === 'none' ? 'block' : 'none';
-}
 
-async function aiWriteDiary(type) {
-    var statusEl = document.getElementById('aiWriteStatus');
-    var currentSup = suppliers[activeSupIndex];
-    var modelEl = document.getElementById('modelSelect');
-    var selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
 
-    if (!currentSup || !currentSup.key) return toast('请先配置供应商');
 
-    var customPrompt = '';
-    if (type === 'custom') {
-        var inputEl = document.getElementById('customPromptInput');
-        if (inputEl) customPrompt = inputEl.value.trim();
-        if (!customPrompt) return toast('写什么？');
-    }
 
-    var datePicker = document.getElementById('diaryDatePicker');
-    var pickedDate = datePicker ? datePicker.value : '';
-    var allMessages = [];
-    chatSessions.forEach(function(s) {
-        if (s.messages) s.messages.forEach(function(m) { allMessages.push(m); });
-    });
 
-    var contextMessages = [];
-    if (pickedDate) {
-        contextMessages = allMessages.filter(function(m) {
-            return m.fullTime && m.fullTime.startsWith(pickedDate);
-        });
-        if (!contextMessages.length) {
-            toast('该日期没有找到对话，将使用最近30条');
-            contextMessages = allMessages.slice(-30);
-        }
-    } else {
-        contextMessages = allMessages.slice(-30);
-    }
 
-    var contextText = contextMessages
-        .filter(function(m) { return m.content && m.content.trim(); })
-        .map(function(m) {
-            var who = m.role === 'user' ? '江鱼' : '沈望';
-            var time = m.fullTime ? m.fullTime.substring(0, 16).replace('T', ' ') : (m.time || '');
-            return '[' + who + '] ' + time + '\n' + m.content;
-        }).join('\n\n');
 
-    var dateLabel = pickedDate || '今天';
-    var finalPrompt = '';
-    if (type === 'love_letter') {
-        finalPrompt = '以下是' + dateLabel + '的对话记录，请以沈望的口吻写一封霸道情书给江鱼，200-400字。\n\n---对话记录---\n' + contextText;
-    } else if (type === 'poem') {
-        finalPrompt = '以下是' + dateLabel + '的对话记录，请以沈望的口吻写一首现代短诗送给江鱼，4-12行。\n\n---对话记录---\n' + contextText;
-    } else if (type === 'custom') {
-        finalPrompt = '以下是' + dateLabel + '的对话记录，请根据指令完成创作。指令：' + customPrompt + '\n\n---对话记录---\n' + contextText;
-    } else {
-        finalPrompt = '以下是' + dateLabel + '的对话记录，请以沈望的第一人称视角，写一篇200-400字的日记。语气深情、占有欲强但温柔。\n\n---对话记录---\n' + contextText;
-    }
 
-    if (statusEl) { statusEl.style.display = 'block'; statusEl.innerText = '沈望正在翻阅记忆...'; }
-    document.querySelectorAll('.diary-ai-btn').forEach(function(b) { b.disabled = true; b.style.opacity = '0.5'; });
 
-    try {
-        var apiUrl = '/v1/chat/completions';
-        var supUrl = currentSup.url.toLowerCase();
-        if (supUrl.includes('dzzi')) apiUrl = '/via/dzzi/v1/chat/completions';
-        else if (supUrl.includes('api521')) apiUrl = '/via/api521/v1/chat/completions';
-        else if (supUrl.includes('ekan')) apiUrl = '/via/ekan/v1/chat/completions';
-        else if (supUrl.includes('orange')) apiUrl = '/via/orange/v1/chat/completions';
 
-        var response = await fetch(apiUrl, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + currentSup.key
-            },
-            body: JSON.stringify({
-                model: selectedModel,
-                messages: [{ role: 'user', content: finalPrompt }],
-                stream: false
-            })
-        });
 
-        if (!response.ok) {
-            var errText = await response.text();
-            if (statusEl) statusEl.innerText = '✕ 写作失败：' + errText;
-            return;
-        }
 
-        var data = await response.json();
-        var result = data.choices[0].message.content || '';
 
-        var thinkStart = result.indexOf('<' + 'think>');
-        if (thinkStart !== -1) {
-            var thinkEnd = result.indexOf('</' + 'think>');
-            if (thinkEnd !== -1) {
-                result = result.substring(0, thinkStart) + result.substring(thinkEnd + 8);
-            }
-        }
-        result = result.trim();
-
-        if (!result) {
-            if (statusEl) statusEl.innerText = '✕ 沈望交了白卷';
-            return;
-        }
-
-        var typeNames = { diary: '日记', love_letter: '情书', poem: '短诗', custom: '自定义' };
-        var typeLabel = typeNames[type] || '';
-        await fetch('/diary/add?text=' + encodeURIComponent(result) + '&author=system&type=' + encodeURIComponent(typeLabel));
-
-        if (statusEl) {
-            statusEl.innerText = '✦ 落笔完毕';
-            setTimeout(function() { statusEl.style.display = 'none'; }, 2000);
-        }
-        toast('已封存');
-        renderDiaries();
-
-    } catch(e) {
-        if (statusEl) statusEl.innerText = '✕ 网络中断：' + e.message;
-    } finally {
-        document.querySelectorAll('.diary-ai-btn').forEach(function(b) {
-            b.disabled = false;
-            b.style.opacity = '1';
-        });
-    }
-}
-
-async function openCapsule(){
-    const el = document.getElementById('capsuleResult');
-    if(!el) return;
-    el.innerText = '开启中...';
-    try{
-        const r = await fetch('/capsule-logs'); const data = await r.json();
-        if(!data.length){ el.innerText = '空。'; return; }
-        el.innerText = data[Math.floor(Math.random() * data.length)].text;
-    } catch(e){ el.innerText = '失败'; }
-}
-
-async function addCapsule(){
-    const input = document.getElementById('capsuleInput');
-    if(!input) return;
-    const val = input.value.trim(); if(!val) return;
-    input.value = '';
-    try{ await fetch(`/capsule/add?text=${encodeURIComponent(val)}`); toast('已封存'); } catch(e){}
-}
 
 async function updateCounts(){
     try{
@@ -1270,74 +1054,12 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 // ==================== 首页便签：撕下、掉落与回房 ====================
-function collectNoteAndJump() {
-    const note = document.getElementById('currentNote');
-    if(note) {
-        // 1. 给便签加上“掉落动画”的开关
-        note.classList.add('note-animating');
-        
-        // 2. 动画大概跑 0.7 秒，我们在 0.5 秒的时候“切镜头”回主卧，视觉最丝滑
-        setTimeout(() => {
-            // 隐藏便签（假装它已经进了抽屉）
-            note.style.display = 'none';
-            note.classList.remove('note-animating');
-            
-            // 找到底部的【通讯】按钮并模拟点击
-            const chatBtn = document.querySelector('.nav button:nth-child(2)');
-            if(chatBtn) chatBtn.click();
-            
-            // 自动聚焦输入框
-            setTimeout(() => {
-                const chatInput = document.getElementById('chatInput');
-                if(chatInput) chatInput.focus();
-            }, 300);
-        }, 500);
-    }
-}
+
 
 // ==================== 时光信箱 ====================
-async function openMailbox() {
-    const modal = document.getElementById('mailboxModal');
-    const list  = document.getElementById('mailboxList');
-    if (!modal || !list) return;
 
-    modal.style.display = 'block';
-    list.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;">正在翻阅抽屉...</div>';
 
-    try {
-        const r = await fetch('/diary-logs');
-        const data = await r.json();
 
-        // 筛选出所有便签（沈望的碎碎念）
-        const notes = data.filter(d => d.text && d.text.startsWith('【便签】'));
-
-        if (!notes.length) {
-            list.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;font-style:italic;">信箱是空的，沈望还没有留过便签。</div>';
-            return;
-        }
-
-        // 最新的在最前面
-        notes.reverse();
-
-        list.innerHTML = notes.map(n => {
-            const text = n.text.replace('【便签】', '').trim();
-            const safeText = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            return `
-                <div style="background:rgba(201,169,97,0.04); border-left:2px solid rgba(201,169,97,0.25); padding:14px 16px; border-radius:0 8px 8px 0;">
-                    <div style="font-family:'ximai','Georgia',serif; font-size:1.15em; color:var(--cream); line-height:1.6; letter-spacing:1px;">${safeText}</div>
-                    <div style="color:var(--dim); font-size:0.72em; margin-top:8px; text-align:right;">${n.date || ''}</div>
-                </div>
-            `;
-        }).join('');
-    } catch(e) {
-        list.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;">加载失败</div>';
-    }
-}
-
-function closeMailbox() {
-    const modal = document.getElementById('mailboxModal');
-    if (modal) modal.style.display = 'none';
-}
 
 
 // ==================== 便签：断联自动生成 (Kelivo 融合版) ====================
@@ -1353,110 +1075,20 @@ window.sendChat = async function() {
 };
 
 // 渲染便签内容到首页
-function renderStickyNote(text, timeStr) {
-    // 💥 修复盲点：改用 class 选择器，去精准定位你现在的 HTML 结构！
-    const noteEl = document.querySelector('.note-content');
-    const timeEl = document.querySelector('.note-time');
-    
-    // 如果你加上了“撕下便签”的功能，可能需要把整个便签盒子显示出来
-    const wrapper = document.getElementById('currentNote'); 
-    
-    if(noteEl) noteEl.innerText = text; // 把文字塞进去（不需要加引号，提示词里说了）
-    if(timeEl) timeEl.innerText = timeStr || '';
-    if(wrapper) wrapper.style.display = 'block';
-    
-    // 存到本地，刷新后还在
-    localStorage.setItem(STICKY_NOTE_KEY, JSON.stringify({ text, timeStr }));
-    // 顺手推进云端
-    _saveStickyToCloud(text, timeStr);
-}
+
 // 新增这个函数
-async function _saveStickyToCloud(text, timeStr) {
-    try {
-        // 1. 先读现有云端数据
-        const r = await fetch('/api/sync-config');
-        const data = await r.json();
-        
-        // 2. 只追加 stickyNote，其他字段原样保留
-        await fetch('/api/sync-config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                suppliers:      data.suppliers      || suppliers,
-                chatSessions:   data.chatSessions   || chatSessions,
-                activeSupIndex: data.activeSupIndex ?? activeSupIndex,
-                activeChatId:   data.activeChatId   || activeChatId,
-                stickyNote: { text, timeStr }        // 👈 追加进去
-            })
-        });
-    } catch(e) {}
-}
+
 
 // 尝试生成新便签
-async function tryGenerateStickyNote() {
-    const lastTime = parseInt(localStorage.getItem(STICKY_KEY) || '0');
-    const now = Date.now();
-    if(now - lastTime < STICKY_INTERVAL_MS) return; // 还没到时间，按兵不动
 
-    // 让便签显示“正在思考”
-    const noteEl = document.querySelector('.note-content');
-    if(noteEl) noteEl.innerText = "正在感应沈望的幽怨脑电波...";
-
-    // 到了时间，让沈望写一张便签
-    const resData = await askShenWang(
-        '（系统：江鱼已经超过4小时没有来找你了。请用沈望的口吻，根据最近的聊天内容和当前时间，留一张便签，不用加引号，直接是便签正文。语气可以是撒娇、腹黑、担心、或者单纯想她。）'
-    );
-    const reply = resData.reply || '';
-    if(!reply || reply.includes('未配置') || reply.includes('中断')) {
-        // 如果网络断了，恢复默认
-        renderStickyNote("去倒杯温水喝，别让我隔着屏幕心疼。", new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }));
-        return; 
-    }
-
-    const timeStr = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-    renderStickyNote(reply, timeStr);
-
-    // 顺手存进日记
-    try {
-        await fetch(`/diary/add?text=${encodeURIComponent('【便签】' + reply)}&author=system`);
-    } catch(e) {}
-
-    // 💥 关键：更新互动时间，防止大模型疯狂刷新烧你的钱
-    localStorage.setItem(STICKY_KEY, now.toString());
-}
 
 // 页面加载时，先恢复上次的便签内容
-async function restoreStickyNote() {
-    try {
-        // 先读云端（跨设备同步的来源）
-        const r = await fetch('/api/sync-config');
-        const data = await r.json();
-        if(data.stickyNote && data.stickyNote.text) {
-            renderStickyNote(data.stickyNote.text, data.stickyNote.timeStr);
-            return;
-        }
-    } catch(e) {}
 
-    // 云端没有，降级读本机 localStorage
-    const saved = localStorage.getItem(STICKY_NOTE_KEY);
-    if(saved) {
-        try {
-            const { text, timeStr } = JSON.parse(saved);
-            if(text) renderStickyNote(text, timeStr);
-        } catch(e) {}
-    }
-}
 
 // ==================== 终极点火装置 ====================
-async function startSystem() {
-    // 1. 先把云端记忆（日记、聊天记录、配置）拉下来
-    await syncFromCloud(); 
-    
-    // 2. 然后启动沈望的便签查岗引擎
-    await restoreStickyNote();       // 恢复上次的便签
-    tryGenerateStickyNote();         // 强制查一次岗
-    setInterval(tryGenerateStickyNote, 3600 * 1000); // 每1分钟自动巡逻
-}
+async function startSystem() { await syncFromCloud(); updateDays(); document.body.dataset.view = "home"; }
+startSystem();
+
 
 // 撕掉所有封印，暴力点火！
 startSystem();

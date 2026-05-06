@@ -641,11 +641,7 @@ body.light-mode #imgPreviewWrap img {
 }
 
 /* ============ 聊天页专属修复 ============ */
-#sec-chat.active {
-    padding: 0 !important;
-    height: calc(100dvh - 70px);
-    overflow: hidden;
-}
+#sec-chat.active { padding: 0 !important; height: 100dvh; overflow: hidden; }
 
 /* 手机端输入框高度收紧 */
 @media(max-width: 600px) {
@@ -771,11 +767,7 @@ body.light-mode #imgPreviewWrap img {
 }
 
 /* 聊天页不需要 section 的默认 padding */
-#sec-chat.active {
-    padding: 0 !important;
-    height: calc(100dvh - 70px);
-    overflow: hidden;
-}
+#sec-chat.active { padding: 0 !important; height: 100dvh; overflow: hidden; }
 
 /* 手机端输入框高度锁死，不允许无限长高 */
 @media(max-width: 600px) {
