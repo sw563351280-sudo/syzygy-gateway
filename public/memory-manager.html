@@ -196,7 +196,8 @@ function filterTimeline(){
 function renderTimeline(){
   const list=document.getElementById('timelineList');
   if(TL_MESSAGES.length===0){list.innerHTML='<div class="empty-state"><div class="empty-icon">📖</div><div class="empty-text">暂无对话记录</div></div>';return}
-  list.innerHTML=TL_MESSAGES.map((m,i)=>{
+  var sorted=TL_MESSAGES.slice().sort(function(a,b){return new Date(b.created_at)-new Date(a.created_at)});
+  list.innerHTML=sorted.map((m,i)=>{
     const isRP=(m.content||'').startsWith('[RP模式]');
     const role=m.role==='user'?'江鱼':'沈望';const cls=['msg-card',m.role==='user'?'user':'assistant'];
     if(isRP)cls.push('rp');if(selectMode&&selectedSet.has(m.uuid))cls.push('selected');
@@ -233,8 +234,17 @@ async function loadArchive(){
   renderChips();renderProfile();renderArchive();
 }
 function renderChips(){
-  const tags=new Set();AR_MEMS.filter(m=>m.category==='active').forEach(m=>(m.tags||[]).forEach(t=>tags.add(t)));
-  document.getElementById('filterChips').innerHTML='<span class="chip active" onclick="setChip(this,\'all\')">全部</span>'+[...tags].slice(0,15).map(t=>`<span class="chip" onclick="setChip(this,'${t}')">${t}</span>`).join('');
+  var chips=[
+    {key:'all',label:'全部'},
+    {key:'src:archived',label:'❄️ 冰封记忆'},
+    {key:'src:roleplay',label:'🎮 游戏库'},
+    {key:'src:manual',label:'✍️ 手动写入'},
+    {key:'src:ai_active',label:'🤖 AI写入'},
+    {key:'src:butler_summary',label:'🌙 管家写入'}
+  ];
+  document.getElementById('filterChips').innerHTML=chips.map(function(c){
+    return '<span class="chip'+(arCat===c.key?' active':'')+'" onclick="setChip(this,\''+c.key+'\')">'+c.label+'</span>';
+  }).join('');
 }
 function setChip(el,v){arCat=v;document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');renderArchive()}
 function renderProfile(){
@@ -250,7 +260,11 @@ function renderProfile(){
 function renderArchive(){
   const kw=(document.getElementById('arSearch').value||'').toLowerCase();
   let mems=AR_MEMS;
-  if(arCat!=='all')mems=mems.filter(m=>(m.tags||[]).includes(arCat));
+  if(arCat==='src:archived') mems=mems.filter(function(m){return m.category==='archived'});
+  else if(arCat==='src:roleplay') mems=mems.filter(function(m){return m.source==='roleplay'||(m.tags||[]).includes('roleplay')});
+  else if(arCat==='src:manual') mems=mems.filter(function(m){return m.source==='manual'});
+  else if(arCat==='src:ai_active') mems=mems.filter(function(m){return m.source==='ai_active'});
+  else if(arCat==='src:butler_summary') mems=mems.filter(function(m){return m.source==='butler_summary'});
   if(kw)mems=mems.filter(m=>(m.content||'').toLowerCase().includes(kw));
   const list=document.getElementById('archiveList');
   if(mems.length===0){list.innerHTML='<div class="empty-state"><div class="empty-icon">💎</div><div class="empty-text">暂无匹配记忆</div></div>';return}
@@ -277,7 +291,7 @@ async function restoreMem(id){await fetch('/api/archive-memories/'+id+'/restore'
 async function delArchMem(id){if(confirm('彻底删除？')){await fetch('/api/archive-memories/'+id,{method:'DELETE'});location.reload()}}
 async function toggleResolved(id,r){await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({resolved:!r})});location.reload()}
 async function updateProfile(){const r=await fetch('/trigger-profile-update?pwd='+encodeURIComponent(PWD),{method:'POST'});toast((await r.json()).success?'✅ 更新成功':'❌ 失败');loadArchive()}
-async function triggerCleanup(){if(!confirm('让AI审查清理记忆库？'))return;const r=await fetch('/trigger-cleanup?pwd='+encodeURIComponent(PWD),{method:'POST'});const d=await r.json();toast(d.success?'✅ 清理:'+d.deleted+'删 +'+d.merged+'并':'❌');location.reload()}
+async function triggerCleanup(){if(!confirm('让AI审查清理记忆库？'))return;var pwd=PWD||prompt('管理员密码:');if(!pwd)return;try{const r=await fetch('/trigger-cleanup?pwd='+encodeURIComponent(pwd),{method:'POST'});const d=await r.json();toast(d.success?'✅ 清理: 删除'+d.deleted+'条 合并'+d.merged+'条':'❌ '+(d.error||'失败'));if(d.success)setTimeout(function(){location.reload()},1500)}catch(e){toast('❌ 网络错误: '+e.message)}}
 function openAddModal(){document.getElementById('addModal').classList.add('show')}
 function closeAddModal(){document.getElementById('addModal').classList.remove('show')}
 async function submitNew(){const c=document.getElementById('newContent').value;const t=document.getElementById('newTags').value.split(',').filter(Boolean);await fetch('/api/long-term-memories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:c,tags:t})});location.reload()}

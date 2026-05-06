@@ -151,12 +151,22 @@ async function syncFromCloud() {
         renderChatSidebar();
         renderChatMessages();
         fetchModels();
+
+        const viewTitle = document.getElementById('chatViewTitle');
+        if (viewTitle) {
+            const curSession = chatSessions.find(s => s.id === activeChatId) || chatSessions[0];
+            viewTitle.innerText = '通讯 · ' + (curSession ? curSession.name : '主频道');
+        }
+
     } catch(e) {
         suppliers    = [{ name: "默认接口", url: "https://api.dzzi.ai/v1", key: "" }];
         chatSessions = [{ id: 'main', name: '主频道', messages: [] }];
         renderSuppliers();
         renderChatSidebar();
         renderChatMessages();
+
+        const viewTitle = document.getElementById('chatViewTitle');
+        if (viewTitle) viewTitle.innerText = '通讯 · 主频道';
     }
 }
 
@@ -644,6 +654,7 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
             sDiv.appendChild(thinkBox);
             
             const mainTextDiv = document.createElement('div');
+            mainTextDiv.classList.add('md-content');
             sDiv.appendChild(mainTextDiv);
 
             let inThinking = false; // 判断当前文字是不是包在 <think> 里面
@@ -700,7 +711,7 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
                                 thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
                             } else {
                                 fullReply += chunk;
-                                mainTextDiv.innerHTML = fullReply + '<span class="typing-cursor"></span>';
+                                mainTextDiv.innerHTML = fullReply.replace(/\n/g, '<br>') + '<span class="typing-cursor"></span>';
                             }
                             win.scrollTop = win.scrollHeight;
                         }
@@ -710,9 +721,9 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
                 }
             }
             
-            // 接收完毕，把光标去掉
-            mainTextDiv.innerHTML = fullReply;
-            
+            // 接收完毕，渲染 Markdown
+            mainTextDiv.innerHTML = renderMarkdown(fullReply);
+
         } else {
             // ==========================================
             // 🐌 非流式接收逻辑 (Stream = false)
@@ -737,8 +748,9 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
                 sDiv.appendChild(thinkBox);
             }
             const mainTextDiv = document.createElement('div');
+            mainTextDiv.classList.add('md-content');
             sDiv.appendChild(mainTextDiv);
-            mainTextDiv.innerHTML = fullReply;
+            mainTextDiv.innerHTML = renderMarkdown(fullReply);
         }
 
         // --- 5. 存入云端记忆和按钮绑定 ---
@@ -1065,10 +1077,6 @@ window.addEventListener('DOMContentLoaded', () => {
 
 // ==================== 终极点火装置 ====================
 async function startSystem() { await syncFromCloud(); updateDays(); document.body.dataset.view = "home"; }
-startSystem();
-
-
-// 撕掉所有封印，暴力点火！
 startSystem();
 
 // ==================== 对话索引 ====================
