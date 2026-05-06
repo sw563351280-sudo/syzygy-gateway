@@ -99,6 +99,18 @@ body{
     line-height:1.7;
 }
 
+body.light-mode{
+    background: linear-gradient(175deg, #FFF9E6 0%, #FFF3D6 35%, #F5EDD6 100%);
+    color:#3E2723;
+}
+body.light-mode::before{
+    background:
+        radial-gradient(ellipse 600px 400px at 15% 20%, rgba(196,165,123,0.06) 0%, transparent 70%),
+        radial-gradient(ellipse 500px 500px at 80% 75%, rgba(180,140,100,0.04) 0%, transparent 70%),
+        radial-gradient(ellipse 800px 300px at 50% 50%, rgba(196,165,123,0.03) 0%, transparent 60%);
+}
+body.light-mode::after{opacity:0!important}
+
 /* 墨渍底纹层 —— 用多重径向渐变模拟宣纸晕开的水墨 */
 body::before{
     content:'';
@@ -112,44 +124,7 @@ body::before{
         radial-gradient(ellipse 800px 300px at 50% 50%, rgba(201,169,97,0.02) 0%, transparent 60%);
 }
 
-/* 装订线 —— 左侧缝线 */
-body::after{
-    content:'';
-    position:fixed;
-    top:0;bottom:0;left:18px;
-    width:1px;
-    z-index:50;
-    pointer-events:none;
-    background: repeating-linear-gradient(
-        to bottom,
-        transparent 0px,
-        transparent 8px,
-        var(--gold-dim) 8px,
-        var(--gold-dim) 16px,
-        transparent 16px,
-        transparent 28px
-    );
-    opacity:0.25;
-}
-
-/* 右侧装订线（更淡） */
-.binding-right{
-    position:fixed;
-    top:0;bottom:0;right:18px;
-    width:1px;
-    z-index:50;
-    pointer-events:none;
-    background: repeating-linear-gradient(
-        to bottom,
-        transparent 0px,
-        transparent 12px,
-        var(--gold-dim) 12px,
-        var(--gold-dim) 18px,
-        transparent 18px,
-        transparent 34px
-    );
-    opacity:0.12;
-}
+/* 装订线 —— 已移除 */
 
 canvas#starmap{
     position:fixed;
@@ -1278,7 +1253,7 @@ body.light-mode .view-back{background:rgba(0,0,0,0.05);color:rgba(201,169,97,0.9
 body.light-mode .view-title{color:rgba(0,0,0,0.8)}
 
 /* ═══ 聊天区核心布局（全尺寸通用） ═══ */
-#sec-chat .view-topbar { flex-shrink:0 }
+#sec-chat .view-topbar { flex-shrink:0;padding-top:max(0px,env(safe-area-inset-top,0px))!important }
 .chat-layout { flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden }
 .chat-main { flex:1;display:flex;flex-direction:column;position:relative;overflow:hidden;min-height:0 }
 .chat-main-header { flex-shrink:0;display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(201,169,97,0.08);background:rgba(10,14,26,0.5) }
@@ -1441,7 +1416,7 @@ body.light-mode #sec-data input[type="text"]:focus{border-color:rgba(196,165,123
 
 /* ═══ 聊天文字缩小、气泡加宽 ═══ */
 .chat-window .msg{font-size:.78em!important;line-height:1.7!important}
-.msg{max-width:85%}
+.msg{max-width:92%}
 
 /* ═══ 聊天页隐藏装订线 ═══ */
 body[data-view="chat"]::after{opacity:0!important;transition:opacity .3s}
@@ -1457,11 +1432,11 @@ body.light-mode .chat-rename-topbar-btn,body.light-mode .chat-index-topbar-btn,b
 body.light-mode .chat-rename-topbar-btn:hover,body.light-mode .chat-index-topbar-btn:hover,body.light-mode .chat-theme-topbar-btn:hover{border-color:#C4A57B;color:#5C4033}
 @media(min-width:601px){.chat-rename-topbar-btn,.chat-index-topbar-btn,.chat-theme-topbar-btn{display:none}}
 
-/* 手机端聊天页隐藏全局月亮按钮和频道标题栏 */
+/* 手机端聊天页隐藏全局月亮按钮和频道标题栏（桌面端也隐藏，已合并到顶栏） */
+.chat-main-header{display:none!important}
 @media(max-width:600px){
 body[data-view="chat"] #themeToggleBtn{display:none!important}
-body[data-view="chat"] .chat-main-header{display:none!important}
 }
 
 /* 桌面端气泡宽度 */
-@media(min-width:768px){.msg{max-width:72%}}
+@media(min-width:768px){.msg{max-width:80%}}

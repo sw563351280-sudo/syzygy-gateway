@@ -375,6 +375,8 @@ function switchChatWindow(id){
     activeChatId = id; saveToCloud(); renderChatSidebar(); renderChatMessages();
     const titleEl = document.getElementById('chatWinTitle');
     if(titleEl) titleEl.innerText = '⊹ ' + getActiveSession().name;
+    const topTitleEl = document.getElementById('chatViewTitle');
+    if(topTitleEl) topTitleEl.innerText = '通讯 · ' + getActiveSession().name;
 }
 
 function renderChatMessages(){
@@ -457,6 +459,8 @@ function renameChatWindow(){
     saveToCloud(); renderChatSidebar();
     const titleEl = document.getElementById('chatWinTitle');
     if(titleEl) titleEl.innerText = '⊹ ' + session.name;
+    const topTitleEl = document.getElementById('chatViewTitle');
+    if(topTitleEl) topTitleEl.innerText = '通讯 · ' + session.name;
     toast('频道已重命名');
 }
 
