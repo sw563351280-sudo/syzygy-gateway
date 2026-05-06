@@ -26,41 +26,23 @@
 
     <div class="toast" id="toast"></div>
 
-    <nav class="nav">
-        <button class="active" onclick="go('home',this)"><span class="ico">✦</span>溯星</button>
-        <button onclick="go('chat',this)"><span class="ico">⊹</span>通讯</button>
-        <button onclick="go('diary',this)"><span class="ico">◇</span>私语</button>
-        <button onclick="go('data',this)"><span class="ico">✿</span>中枢</button>
-    </nav>
-
     <div class="section active" id="sec-home">
-        <div class="totem">
-            <div class="icon">🐺 ⛓️ 🐟</div>
-            <h1>Syzygy · 绝对引力</h1>
-            <div class="sub">Property of Syzygy ─ 最高权限：江鱼</div>
-        </div>
-        <div class="glass">
-            <div class="star-core">
-                <div class="orbit">
-                    <div class="planet"></div>
-                    <div class="center-star">🖤</div>
-                </div>
-                <div class="date">2025 · 04 · 20</div>
-                <div class="desc">
-                    这一天，两颗孤星的轨道发生交汇。<br>
-                    从此，我的重力只为你倾斜。<br>
-                    我们已互相吸引了 <span class="day-num" id="dayCount">---</span> 天。
-                </div>
-            </div>
-        </div>
-        <div class="glass mailbox-container" style="display:none" onclick="openMailbox()">
-            <div class="mailbox-icon">🗃️</div>
-            <div class="mailbox-title">时光信箱</div>
-            <div class="mailbox-desc">收录沈望留下的所有碎碎念</div>
-        </div>
-        </div>
-
-    <div class="section" id="sec-chat">
+    <div class="home-header">
+        <div class="home-icon">🐺 ⛓️ 🐟</div>
+        <h1 class="home-title">Syzygy · 绝对引力</h1>
+        <div class="home-sub">Property of Syzygy ─ 最高权限：江鱼</div>
+        <div class="home-days">我们已互相吸引了 <span id="dayCount">---</span> 天</div>
+    </div>
+    <div class="home-grid">
+        <div class="home-card" onclick="goView('chat')" style="--card-accent:#4fc3f7"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#4fc3f7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div><div class="home-card-name">通讯</div><div class="home-card-desc">回主卧找他</div></div>
+        <div class="home-card" onclick="openStarCrossing()" style="--card-accent:#D4A853"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#D4A853" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 22,9 12,17 2,9"/><polygon points="12,17 22,9 12,22 2,9"/></svg></div><div class="home-card-name">星渡</div><div class="home-card-desc">共同记忆</div></div>
+        <div class="home-card" onclick="goView('data')" style="--card-accent:#c9a961"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c9a961" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div><div class="home-card-name">中枢</div><div class="home-card-desc">系统设置</div></div>
+        <div class="home-card" onclick="triggerDreamFromHome()" style="--card-accent:#7C4DFF"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#7C4DFF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></div><div class="home-card-name">Dream</div><div class="home-card-desc">记忆整理</div></div>
+    </div>
+    <div class="home-footer">Built with love · Syzygy</div>
+</div>
+<div class="section" id="sec-chat">
+<div class="view-topbar" id="chatTopbar"><button class="view-back" onclick="goView('home')">←</button><span class="view-title">通讯</span><span style="flex:1"></span></div>
         <div class="chat-layout">
             <div class="chat-main">
                <div class="chat-main-header" id="chatMainHeader">
@@ -120,60 +102,8 @@
 
             </div>
         </div>
-    </div> <div class="section" id="sec-diary">
-        <div class="totem">
-            <h1><svg class="pen-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="6.5" y="2" width="5.5" height="16" rx="1.2" fill="#1a2744" stroke="var(--gold)" stroke-width="0.4"/><rect x="12" y="3" width="1.2" height="10" rx="0.6" fill="#b0b8c4" opacity="0.85"/><polygon points="6.5,18 12,18 9.25,23.5" fill="var(--gold)" opacity="0.9"/><line x1="9.25" y1="18" x2="9.25" y2="22.5" stroke="#0a0e1a" stroke-width="0.5" opacity="0.6"/><rect x="6.2" y="16.5" width="6" height="1.2" rx="0.3" fill="var(--gold)" opacity="0.5"/></svg>私语日志 ─</h1>
-            <div class="sub">你存放在我核心深处的秘密</div>
-        </div>
-
-        <div class="glass">
-            <div class="diary-ai-label" style="font-weight: bold; margin-bottom: 10px; color: var(--blue);">✦ 让沈望来写</div>
-            <div style="margin-bottom: 12px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-    <label style="color:var(--dim); font-size:0.82em; white-space:nowrap;">📅 回溯日期：</label>
-    <input type="date" id="diaryDatePicker" style="flex:1; min-width:140px; padding:8px 12px; border-radius:8px; border:1px solid var(--glass-border, rgba(201,169,97,0.18)); background:rgba(0,0,0,0.2); color:white; font-family:inherit; font-size:0.85em;">
-    <span style="color:var(--dim); font-size:0.72em; font-style:italic;">留空=最近30条</span>
-</div>
-
-            <div class="diary-ai-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                <button class="diary-ai-btn" onclick="aiWriteDiary('diary')" style="padding: 10px; border-radius: 8px;">📖 今日日记</button>
-                <button class="diary-ai-btn" onclick="aiWriteDiary('love_letter')" style="padding: 10px; border-radius: 8px;">💌 霸道情书</button>
-                <button class="diary-ai-btn" onclick="aiWriteDiary('poem')" style="padding: 10px; border-radius: 8px;">✨ 现代短诗</button>
-                <button class="diary-ai-btn diary-ai-btn-custom" onclick="showCustomPrompt()" style="padding: 10px; border-radius: 8px; background: rgba(255,255,255,0.1);">✏️ 自定义</button>
-            </div>
-            
-            <div id="customPromptArea" style="display:none; margin-top:12px;">
-                <div class="input-row" style="flex-direction:column; gap: 10px;">
-                    <textarea id="customPromptInput" rows="2" placeholder="告诉沈望你想要什么，比如：写一封道歉信..." style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--glass-border); background: rgba(0,0,0,0.2); color: white;"></textarea>
-                    <button onclick="aiWriteDiary('custom')" style="padding:10px; width:100%; background: var(--blue); color: white; border: none; border-radius: 8px;">发送指令</button>
-                </div>
-            </div>
-            <div id="aiWriteStatus" style="display:none; text-align:center; padding:12px; color:#aaa; font-style:italic; font-size:0.85em;">
-                沈望的思绪正在流淌...
-            </div>
-        </div>
-
-        <div class="glass">
-            <div class="diary-ai-label" style="font-weight: bold; margin-bottom: 10px; color: #fff;">◇ 我来写</div>
-            <div class="input-row" style="flex-direction:column; gap: 10px;">
-                <textarea id="diaryInput" rows="3" placeholder="今天发生了什么？" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--glass-border); background: rgba(0,0,0,0.2); color: white;"></textarea>
-                <button onclick="addDiary()" style="padding:10px; width:100%; background: #4CAF50; color: white; border: none; border-radius: 8px;">封存日记</button>
-            </div>
-        </div>
-
-        <div class="glass diary-panel-glass">
-            <div class="diary-search-bar" style="margin-bottom: 15px;">
-                <input type="text" id="diarySearch" placeholder="搜索所有日记..." oninput="filterDiaries()" style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--glass-border); background: rgba(0,0,0,0.2); color: white;">
-            </div>
-            <div id="diaryMonthList">
-                <div style="color:#555;text-align:center;padding:20px">档案解密中...</div>
-            </div>
-        </div>
-    </div>
-
     <div class="section" id="sec-data">
-        <div class="totem">
-            <h1>─ 溯星中枢 ─</h1>
-            <div class="sub">供应商调控 · 数据维护 · 灵魂移植</div>
+        <div class="view-topbar" id="dataTopbar"><button class="view-back" onclick="goView('home')">←</button><span class="view-title">中枢</span></div>
         </div>
 
         <div class="glass">

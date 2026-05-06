@@ -109,7 +109,7 @@ function showProactiveNotification(content) {
     requestAnimationFrame(() => { const inner = document.getElementById('proactiveNotifInner'); if (inner) inner.style.top = '20px'; });
     setTimeout(dismissProactive, 8000);
 }
-function onProactiveClick() { dismissProactive(); const chatBtn = document.querySelector('.nav button:nth-child(2)'); if (chatBtn) chatBtn.click(); if (activeChatId !== 'main') switchChatWindow('main'); setTimeout(() => { const inp = document.getElementById('chatInput'); if (inp) inp.focus(); forceScrollToChatBottom(); }, 300); }
+function onProactiveClick() { dismissProactive(); goView('chat'); if (activeChatId !== 'main') switchChatWindow('main'); setTimeout(() => { const inp = document.getElementById('chatInput'); if (inp) inp.focus(); forceScrollToChatBottom(); }, 300); }
 function dismissProactive() { const inner = document.getElementById('proactiveNotifInner'); if (inner) inner.style.top = '-120px'; setTimeout(() => { const n = document.getElementById('proactiveNotif'); if (n) n.remove(); }, 500); }
 function handleCrossPlatformMessage(msg) {
     const mainSession = chatSessions.find(s => s.id === 'main');
@@ -257,6 +257,25 @@ function toast(msg){
     setTimeout(() => t.classList.remove('show'), 2800);
 }
 
+function goView(viewId) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data' };
+    const target = document.getElementById(map[viewId]);
+    if (!target) return;
+    target.classList.add('active');
+    if (viewId === 'chat') setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 100);
+    if (viewId === 'home') updateDays && updateDays();
+}
+function openStarCrossing() {
+    const pwd = new URLSearchParams(location.search).get('pwd') || localStorage.getItem('memoryPwd') || '';
+    if (pwd) window.location.href = '/memory.html?pwd=' + encodeURIComponent(pwd);
+    else { const i = prompt('星渡访问密码:'); if (i) { localStorage.setItem('memoryPwd', i); window.location.href = '/memory.html?pwd=' + encodeURIComponent(i); } }
+}
+async function triggerDreamFromHome() {
+    const pwd = prompt('管理员密码:'); if (!pwd) return;
+    const r = await fetch('/trigger-dream?pwd=' + encodeURIComponent(pwd), { method:'POST' });
+    const d = await r.json(); toast(d.success ? '✅ Dream已触发' : '❌'+(d.error||d.message));
+}
 function go(id, btn){
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
     
