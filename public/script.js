@@ -86,8 +86,31 @@ function handleWSMessage(msg) {
         case 'new_message': handleCrossPlatformMessage(msg); break;
         case 'dream_done': handleDreamDone(msg); break;
         case 'memory_saved': handleMemorySaved(msg); break;
+        case 'proactive_message': handleProactiveMessage(msg); break;
     }
 }
+function handleProactiveMessage(msg) {
+    const mainSession = chatSessions.find(s => s.id === 'main');
+    if (mainSession) {
+        if (!mainSession.messages) mainSession.messages = [];
+        mainSession.messages.push({ role: 'assistant', versions: [{ content: msg.content, fullTime: msg.fullTime || new Date().toISOString(), time: msg.time || '', model: 'proactive' }], activeVersion: 0 });
+        saveToCloud(); if (activeChatId === 'main') renderChatMessages();
+    }
+    showProactiveNotification(msg.content);
+    if ('Notification' in window && Notification.permission === 'granted') {
+        try { new Notification('沈望', { body: msg.content, icon: '/icon-192.png', tag: 'proactive-' + Date.now() }); } catch(e) {}
+    }
+}
+function showProactiveNotification(content) {
+    const old = document.getElementById('proactiveNotif'); if (old) old.remove();
+    const notif = document.createElement('div'); notif.id = 'proactiveNotif';
+    notif.innerHTML = '<div id="proactiveNotifInner" style="position:fixed;top:-120px;left:50%;transform:translateX(-50%);width:min(90vw,380px);background:rgba(13,18,37,0.95);backdrop-filter:blur(20px);border:1px solid rgba(201,169,97,0.3);border-radius:16px;padding:16px 20px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,0.5);transition:top 0.5s cubic-bezier(0.16,1,0.3,1);cursor:pointer" onclick="onProactiveClick()"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span>🖤</span><span style="font-size:13px;font-weight:600;color:rgba(201,169,97,0.9)">沈望</span><span style="font-size:11px;color:rgba(255,255,255,0.3);margin-left:auto">刚刚</span><span onclick="event.stopPropagation();dismissProactive()" style="cursor:pointer;padding:4px;color:rgba(255,255,255,0.3)">✕</span></div><div style="font-size:14px;color:rgba(255,255,255,0.85);line-height:1.6">' + content.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div><div style="font-size:11px;color:rgba(201,169,97,0.4);margin-top:8px">点击回复</div></div>';
+    document.body.appendChild(notif);
+    requestAnimationFrame(() => { const inner = document.getElementById('proactiveNotifInner'); if (inner) inner.style.top = '20px'; });
+    setTimeout(dismissProactive, 8000);
+}
+function onProactiveClick() { dismissProactive(); const chatBtn = document.querySelector('.nav button:nth-child(2)'); if (chatBtn) chatBtn.click(); if (activeChatId !== 'main') switchChatWindow('main'); setTimeout(() => { const inp = document.getElementById('chatInput'); if (inp) inp.focus(); forceScrollToChatBottom(); }, 300); }
+function dismissProactive() { const inner = document.getElementById('proactiveNotifInner'); if (inner) inner.style.top = '-120px'; setTimeout(() => { const n = document.getElementById('proactiveNotif'); if (n) n.remove(); }, 500); }
 function handleCrossPlatformMessage(msg) {
     const mainSession = chatSessions.find(s => s.id === 'main');
     if (!mainSession) return;

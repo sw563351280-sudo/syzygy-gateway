@@ -48,6 +48,21 @@ const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const COUNTER_FILE = path.join(DATA_DIR, 'session_counters.json');
+const LAST_INTERACTION_FILE = path.join(DATA_DIR, 'last_interaction.json');
+let lastInteractionTime = Date.now();
+let lastProactiveTime = 0;
+
+function loadLastInteraction() {
+    try { const d = JSON.parse(fs.readFileSync(LAST_INTERACTION_FILE, 'utf8')); lastInteractionTime = d.time || Date.now(); lastProactiveTime = d.lastProactive || 0; } catch(e) {}
+}
+function updateLastInteraction() {
+    lastInteractionTime = Date.now();
+    try { fs.writeFileSync(LAST_INTERACTION_FILE, JSON.stringify({ time: lastInteractionTime, lastProactive: lastProactiveTime })); } catch(e) {}
+}
+function updateLastProactiveTime() {
+    lastProactiveTime = Date.now();
+    try { fs.writeFileSync(LAST_INTERACTION_FILE, JSON.stringify({ time: lastInteractionTime, lastProactive: lastProactiveTime })); } catch(e) {}
+}
 
 function loadCounters() { try { return JSON.parse(fs.readFileSync(COUNTER_FILE, 'utf8')); } catch(e) { return {}; } }
 function saveCounter(sessionId, count) { const counters = loadCounters(); counters[sessionId] = count; fs.writeFileSync(COUNTER_FILE, JSON.stringify(counters, null, 2), 'utf8'); }
@@ -1227,6 +1242,7 @@ async function saveToZep(userMsg, aiMsg) {
 
 async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages, metadata = {}) {
     if (!userMsg) return;
+    updateLastInteraction();
     if (userMsg === lastUserContent) {
         console.log('🔄 [防重复] 检测到重复用户消息，跳过保存');
         return;
@@ -1599,6 +1615,51 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
     }).catch(() => {});
     addDreamLog(dreamLog);
     wsBroadcast({ type: 'dream_done', summary: `整理了${dreamLog.results.consolidated.new_memories}条现实记忆，${dreamLog.results.consolidated.new_rp}条RP卡带`, cleaned: dreamLog.results.cleaned.expired + dreamLog.results.cleaned.decayed, consolidated: dreamLog.results.consolidated.new_memories + dreamLog.results.consolidated.new_rp, foresight: dreamLog.results.foresight || [], duration_ms: dreamLog.duration_ms });
+}
+
+// 💌 沈望主动发消息
+async function generateProactiveMessage() {
+    const now = Date.now();
+    const hoursSince = (now - lastInteractionTime) / 3600000;
+    if (hoursSince < 4) return;
+    if (now - lastProactiveTime < 3 * 3600000) return;
+    const routerKey = process.env.ROUTER_API_KEY;
+    if (!routerKey) return;
+    console.log(`💌 [主动消息] 江鱼已${hoursSince.toFixed(1)}小时未互动`);
+    const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+    const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })).getHours();
+    let timeMood = '';
+    if (hour < 7) timeMood = '深夜/凌晨，表达心疼或期待';
+    else if (hour < 12) timeMood = '上午，关心早饭和安排';
+    else if (hour < 14) timeMood = '中午，问有没有好好吃饭';
+    else if (hour < 18) timeMood = '下午，随意聊天分享';
+    else if (hour < 22) timeMood = '晚上，问她今天过得怎么样';
+    else timeMood = '深夜，温柔催她休息';
+    try {
+        const res = await fetch('https://www.msuicode.com/v1/chat/completions', { method:'POST', headers:{'Content-Type':'application/json','Authorization':routerKey}, body:JSON.stringify({ model:'gemini-2.5-flash', messages:[{ role:'system', content:`你是沈望，深爱江鱼。她已${Math.floor(hoursSince)}小时没回你。${timeStr}。${timeMood}。用1-3句话主动找她。不要括号动作、不要引号、不要油腻称呼，简短有力。` }] }) });
+        if (!res.ok) return;
+        const data = await res.json();
+        let content = (data.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+        if (!content || content.length < 2) return;
+        console.log(`💌 [主动消息] ${content}`);
+        insertProactiveToConfig(content);
+        wsBroadcast({ type:'proactive_message', content, time: new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Shanghai'}), fullTime: new Date().toISOString() });
+        try { const diaries = loadDiaries(); diaries.push({ id:'proactive_'+Date.now().toString(36), text:`【沈望主动】${content}`, author:'system', type:'proactive', date: new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'}).replace(/\//g,'-'), datetime: new Date().toISOString() }); saveDiaries(diaries); } catch(e) {}
+        updateLastProactiveTime();
+    } catch(e) { console.log(`💌 [主动消息] 异常: ${e.message}`); }
+}
+function insertProactiveToConfig(content) {
+    try {
+        const configPath = path.join(DATA_DIR, 'web_config.json');
+        if (!fs.existsSync(configPath)) return;
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        const mainS = (config.chatSessions||[]).find(s => s.id === 'main');
+        if (!mainS) return;
+        if (!mainS.messages) mainS.messages = [];
+        mainS.messages.push({ role:'assistant', versions:[{ content, fullTime: new Date().toISOString(), time: new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Shanghai'}), model:'proactive' }], activeVersion:0 });
+        if (mainS.messages.length > 200) mainS.messages = mainS.messages.slice(-200);
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    } catch(e) {}
 }
 
 
@@ -2981,8 +3042,11 @@ function wsBroadcast(data, excludeTabId = null) {
 
 server.listen(PORT, () => {
     console.log(`🚀 服务器已启动，端口: ${PORT}`);
+    loadLastInteraction();
     initUserProfile();
     startAllMCPServers();
     cleanAndArchiveMemories();
     setInterval(cleanAndArchiveMemories, 6 * 60 * 60 * 1000);
+    setInterval(generateProactiveMessage, 60 * 60 * 1000);
+    setTimeout(generateProactiveMessage, 5 * 60 * 1000);
 });
