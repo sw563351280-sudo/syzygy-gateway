@@ -1037,6 +1037,11 @@ body.light-mode .chat-sidebar {
    📱 手机端终极 UI：定海神针版 (绝对垂直对齐)
    ========================================== */
 @media(max-width: 600px) {
+.chat-layout {
+    height: calc(100dvh - 56px);
+    display: flex;
+    overflow: hidden;
+}
     .chat-layout { position: relative; }
     .chat-main .chat-window { padding-top: 20px !important; }
 

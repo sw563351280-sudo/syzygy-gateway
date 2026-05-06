@@ -1053,36 +1053,10 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// ==================== 首页便签：撕下、掉落与回房 ====================
-
-
 // ==================== 时光信箱 ====================
 
 
 
-
-
-// ==================== 便签：断联自动生成 (Kelivo 融合版) ====================
-const STICKY_INTERVAL_MS = 14400000; // 4小时 = 4 * 60 * 60 * 1000 毫秒 (测试时可改为 10000)
-const STICKY_KEY = 'syzygy_last_interaction'; 
-const STICKY_NOTE_KEY = 'syzygy_sticky_note';  
-
-// 无痕劫持：每次发消息时，偷偷更新互动时间
-const _origSendChat = sendChat;
-window.sendChat = async function() {
-    localStorage.setItem(STICKY_KEY, Date.now().toString());
-    return _origSendChat.apply(this, arguments);
-};
-
-// 渲染便签内容到首页
-
-// 新增这个函数
-
-
-// 尝试生成新便签
-
-
-// 页面加载时，先恢复上次的便签内容
 
 
 // ==================== 终极点火装置 ====================
