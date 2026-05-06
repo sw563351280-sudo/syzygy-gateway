@@ -1434,3 +1434,34 @@ body.light-mode .chat-index-btn:hover{border-color:#C4A57B;color:#5C4033;backgro
 #supplierList>div:hover{border-color:rgba(201,169,97,0.25)}
 body.light-mode #sec-data input[type="text"]{background:rgba(255,255,255,0.5);border-color:rgba(196,165,123,0.2);color:#3E2723}
 body.light-mode #sec-data input[type="text"]:focus{border-color:rgba(196,165,123,0.5);background:rgba(255,255,255,0.7)}
+
+/* ═══ 顶栏/底栏安全区适配 ═══ */
+.view-topbar{padding-top:max(14px,env(safe-area-inset-top,14px))}
+.chat-bottom-bar{padding-bottom:max(12px,env(safe-area-inset-bottom,12px))!important}
+
+/* ═══ 聊天文字缩小、气泡加宽 ═══ */
+.chat-window .msg{font-size:.78em!important;line-height:1.7!important}
+.msg{max-width:85%}
+
+/* ═══ 聊天页隐藏装订线 ═══ */
+body[data-view="chat"]::after{opacity:0!important;transition:opacity .3s}
+body[data-view="chat"] .binding-right{opacity:0!important;transition:opacity .3s}
+
+/* ═══ 顶栏工具按钮 ═══ */
+.chat-rename-topbar-btn,.chat-index-topbar-btn,.chat-theme-topbar-btn{width:30px;height:30px;border-radius:8px;border:1px solid rgba(201,169,97,0.15);background:rgba(201,169,97,0.05);color:var(--dim);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
+.chat-rename-topbar-btn{font-size:.9em}
+.chat-index-topbar-btn{font-size:.85em}
+.chat-theme-topbar-btn{font-size:.95em}
+.chat-rename-topbar-btn:hover,.chat-index-topbar-btn:hover,.chat-theme-topbar-btn:hover{border-color:rgba(201,169,97,0.35);color:var(--gold);background:rgba(201,169,97,0.1)}
+body.light-mode .chat-rename-topbar-btn,body.light-mode .chat-index-topbar-btn,body.light-mode .chat-theme-topbar-btn{border-color:rgba(196,165,123,0.2);color:#8B7355;background:rgba(196,165,123,0.06)}
+body.light-mode .chat-rename-topbar-btn:hover,body.light-mode .chat-index-topbar-btn:hover,body.light-mode .chat-theme-topbar-btn:hover{border-color:#C4A57B;color:#5C4033}
+@media(min-width:601px){.chat-rename-topbar-btn,.chat-index-topbar-btn,.chat-theme-topbar-btn{display:none}}
+
+/* 手机端聊天页隐藏全局月亮按钮和频道标题栏 */
+@media(max-width:600px){
+body[data-view="chat"] #themeToggleBtn{display:none!important}
+body[data-view="chat"] .chat-main-header{display:none!important}
+}
+
+/* 桌面端气泡宽度 */
+@media(min-width:768px){.msg{max-width:72%}}

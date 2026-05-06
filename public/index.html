@@ -6,9 +6,9 @@
     <link rel="apple-touch-icon" href="icon-192.png">
     <script>if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").then(()=>console.log("PWA 守门员已就位！")).catch((err)=>console.log("PWA 注册失败：",err))}</script>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=9">
+    <link rel="stylesheet" href="style.css?v=10">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
@@ -34,7 +34,7 @@
 </div>
     
 <div class="section" id="sec-chat">
-<div class="view-topbar" id="chatTopbar"><button class="view-back" onclick="goView('home')">←</button><span class="view-title">通讯</span><span style="flex:1"></span></div>
+<div class="view-topbar" id="chatTopbar"><button class="view-back" onclick="goView('home')">←</button><span class="view-title" id="chatViewTitle">通讯 · 主频道</span><span style="flex:1"></span><button class="chat-rename-topbar-btn" onclick="renameChatWindow()" title="重命名频道">✎</button><button class="chat-index-topbar-btn" onclick="toggleChatIndex()" title="对话索引">◈</button><button class="chat-theme-topbar-btn" onclick="toggleLightMode()" id="chatThemeBtn" title="日夜切换">☼</button></div>
         <div class="chat-layout">
             <div class="chat-main">
                <div class="chat-main-header" id="chatMainHeader">
@@ -140,7 +140,7 @@
         </div>
     </div>
 
-    <script src="script.js?v=3"></script>
+    <script src="script.js?v=4"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>
         <div id="menuModel" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🤖 模型: -</div>
