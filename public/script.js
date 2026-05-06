@@ -549,9 +549,13 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
         else if (supUrl.includes('ekan')) apiUrl = '/via/ekan/v1/chat/completions';
         else if (supUrl.includes('orange')) apiUrl = '/via/orange/v1/chat/completions';
 
+        const controller = new AbortController();
+        var silenceTimer = setTimeout(() => controller.abort(), 90000);
+        function resetSilenceTimer() { clearTimeout(silenceTimer); silenceTimer = setTimeout(() => controller.abort(), 90000); }
+
         const response = await fetch(apiUrl, {
             method: 'POST',
-            signal: AbortSignal.timeout(120000),
+            signal: controller.signal,
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${currentSup.key}`
@@ -565,6 +569,7 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
         });
 
         if (!response.ok) {
+            clearTimeout(silenceTimer);
             const err = await response.text();
             sDiv.innerHTML = `【通讯中断】服务器返回: ${err}`;
             return;
@@ -574,6 +579,7 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
         let thinkContent = "";
 
         // ==========================================
+        resetSilenceTimer();
         // 🌊 流式接收核心逻辑 (Stream = true)
         // ==========================================
         if (isStream) {
@@ -599,7 +605,8 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
-                
+                resetSilenceTimer();
+
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split("\n");
                 buffer = lines.pop(); // 保留不完整的最后一行
@@ -693,6 +700,7 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
        const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() }], activeVersion: 0 };
         session.messages.push(assistantMsg);
         saveToCloud();
+        clearTimeout(silenceTimer);
         if (window._coreStreamEnd) window._coreStreamEnd();
         triggerStarEffects(val, fullReply);
 
@@ -700,6 +708,7 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
         actionBtn.onclick = (e) => showContextMenu(e.clientX, e.clientY, assistantMsg);
 
     } catch (err) {
+        clearTimeout(silenceTimer);
         sDiv.innerHTML = '<div class="msg-error"><div>【网络崩溃】</div><div class="msg-error-detail">'+err.message+'</div><button class="msg-retry-btn" onclick="retryLastMessage(this)">↻ 重新发送</button></div>';
         sDiv.classList.add('msg-failed');
     }
@@ -1688,14 +1697,15 @@ async function regenerateSend(aiMsgIndex) {
         if(supUrl.includes('dzzi')) apiUrl='/via/dzzi/v1/chat/completions'; else if(supUrl.includes('api521')) apiUrl='/via/api521/v1/chat/completions'; else if(supUrl.includes('ekan')) apiUrl='/via/ekan/v1/chat/completions'; else if(supUrl.includes('orange')) apiUrl='/via/orange/v1/chat/completions';
         const streamToggle = document.getElementById('streamToggle');
         const isStream = streamToggle ? streamToggle.checked : true;
-        const response = await fetch(apiUrl, { method:'POST', signal:AbortSignal.timeout(120000), headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true'}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream}) });
-        if (!response.ok) { const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
+        const reController=new AbortController(); var reSilenceTimer=setTimeout(()=>reController.abort(),90000); function reReset(){clearTimeout(reSilenceTimer);reSilenceTimer=setTimeout(()=>reController.abort(),90000)}
+        const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true'}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream}) });
+        if (!response.ok) { clearTimeout(reSilenceTimer); const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         let fullReply='', thinkContent='';
         if(isStream) {
             const reader = response.body.getReader(); const decoder = new TextDecoder('utf-8'); let buffer='', inThinking=false;
             sDiv.innerHTML=''; const thinkBox=document.createElement('div'); thinkBox.className='think-box'; thinkBox.style.display='none'; thinkBox.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content"></div>'; const thinkTextDiv=thinkBox.querySelector('.think-content'); sDiv.appendChild(thinkBox);
             const mainTextDiv=document.createElement('div'); mainTextDiv.classList.add('md-content'); sDiv.appendChild(mainTextDiv);
-            while(true){const{done,value}=await reader.read(); if(done)break; buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); const d=p.choices[0].delta; if(d.reasoning_content){thinkContent+=d.reasoning_content; thinkBox.style.display='block'; thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');} if(d.content){const ck=d.content; if(ck.includes('<think>')){inThinking=true;thinkBox.style.display='block';continue;} if(ck.includes('</think>')){inThinking=false;continue;} if(inThinking){thinkContent+=ck;thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');}else{fullReply+=ck;mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';}} win.scrollTop=win.scrollHeight;}catch(e){}}}
+            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); const d=p.choices[0].delta; if(d.reasoning_content){thinkContent+=d.reasoning_content; thinkBox.style.display='block'; thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');} if(d.content){const ck=d.content; if(ck.includes('<think>')){inThinking=true;thinkBox.style.display='block';continue;} if(ck.includes('</think>')){inThinking=false;continue;} if(inThinking){thinkContent+=ck;thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');}else{fullReply+=ck;mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';}} win.scrollTop=win.scrollHeight;}catch(e){}}}
             mainTextDiv.innerHTML=renderMarkdown(fullReply);
         } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; if(fullReply.includes('<think>')){const m=fullReply.match(/<think>([\s\S]*?)<\/think>/);if(m)thinkContent=m[1].trim();fullReply=fullReply.replace(/<think>[\s\S]*?<\/think>/g,'').trim();} sDiv.innerHTML=''; if(thinkContent){const tb=document.createElement('div');tb.className='think-box';tb.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content">'+thinkContent.replace(/\n/g,'<br>')+'</div>';sDiv.appendChild(tb);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
         sDiv.classList.remove('msg-loading');
