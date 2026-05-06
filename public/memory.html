@@ -18,10 +18,11 @@
 *{margin:0;padding:0;box-sizing:border-box}
 body{
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
-  background:var(--bg-primary);
-  background-image:
-    radial-gradient(ellipse 600px 400px at 30% 20%, rgba(0,67,247,0.06) 0%, transparent 70%),
-    radial-gradient(ellipse 500px 500px at 70% 80%, rgba(155,189,255,0.04) 0%, transparent 70%);
+  background:
+    radial-gradient(ellipse 50% 40% at 25% 30%, rgba(0,67,247,0.07) 0%, transparent 70%),
+    radial-gradient(ellipse 45% 50% at 75% 70%, rgba(155,189,255,0.05) 0%, transparent 70%),
+    radial-gradient(ellipse 30% 30% at 50% 50%, rgba(190,221,255,0.03) 0%, transparent 60%),
+    linear-gradient(180deg, #060e1f 0%, #0a1628 20%, #0d1f3c 45%, #0a1a35 70%, #060e1f 100%);
   color:var(--text-primary);
   height:100dvh;
   display:flex;
@@ -37,21 +38,52 @@ body::before{
   position:fixed;
   inset:0;
   background-image:
-    radial-gradient(1px 1px at 20% 30%, rgba(155,189,255,0.3), transparent),
-    radial-gradient(1px 1px at 40% 70%, rgba(226,246,255,0.2), transparent),
-    radial-gradient(1.5px 1.5px at 60% 20%, rgba(190,221,255,0.3), transparent),
-    radial-gradient(1px 1px at 80% 60%, rgba(155,189,255,0.2), transparent),
-    radial-gradient(1px 1px at 10% 80%, rgba(0,67,247,0.2), transparent),
-    radial-gradient(1.5px 1.5px at 90% 40%, rgba(226,246,255,0.25), transparent),
-    radial-gradient(1px 1px at 50% 50%, rgba(155,189,255,0.15), transparent);
-  background-size: 200px 200px, 300px 300px, 250px 250px, 350px 350px, 180px 180px, 280px 280px, 320px 320px;
-  animation: starDrift 60s linear infinite;
+    /* 近处亮星 */
+    radial-gradient(2px 2px at 15% 25%, rgba(226,246,255,0.6), transparent),
+    radial-gradient(2.5px 2.5px at 72% 18%, rgba(155,189,255,0.5), transparent),
+    radial-gradient(2px 2px at 85% 72%, rgba(226,246,255,0.5), transparent),
+    radial-gradient(2px 2px at 35% 82%, rgba(190,221,255,0.4), transparent),
+    /* 中层星 */
+    radial-gradient(1.5px 1.5px at 45% 15%, rgba(155,189,255,0.35), transparent),
+    radial-gradient(1.5px 1.5px at 8% 55%, rgba(226,246,255,0.3), transparent),
+    radial-gradient(1.5px 1.5px at 62% 45%, rgba(190,221,255,0.3), transparent),
+    radial-gradient(1.5px 1.5px at 28% 60%, rgba(155,189,255,0.25), transparent),
+    radial-gradient(1.5px 1.5px at 90% 35%, rgba(226,246,255,0.3), transparent),
+    radial-gradient(1.5px 1.5px at 55% 88%, rgba(155,189,255,0.25), transparent),
+    /* 远处微尘 */
+    radial-gradient(1px 1px at 20% 40%, rgba(155,189,255,0.15), transparent),
+    radial-gradient(1px 1px at 40% 70%, rgba(226,246,255,0.12), transparent),
+    radial-gradient(1px 1px at 60% 30%, rgba(190,221,255,0.12), transparent),
+    radial-gradient(1px 1px at 80% 55%, rgba(155,189,255,0.1), transparent),
+    radial-gradient(1px 1px at 10% 80%, rgba(0,67,247,0.1), transparent),
+    radial-gradient(1px 1px at 95% 15%, rgba(226,246,255,0.1), transparent),
+    radial-gradient(1px 1px at 50% 50%, rgba(155,189,255,0.08), transparent),
+    radial-gradient(1px 1px at 33% 22%, rgba(190,221,255,0.1), transparent),
+    radial-gradient(1px 1px at 68% 78%, rgba(155,189,255,0.08), transparent);
+  background-size:
+    350px 350px, 400px 400px, 300px 300px, 380px 380px,
+    250px 250px, 280px 280px, 320px 320px, 300px 300px, 260px 260px, 340px 340px,
+    200px 200px, 220px 220px, 180px 180px, 240px 240px, 190px 190px, 210px 210px, 230px 230px, 250px 250px, 270px 270px;
   pointer-events:none;
   z-index:0;
 }
-@keyframes starDrift {
-  0% { transform: translateY(0); }
-  100% { transform: translateY(-50px); }
+
+/* 呼吸光晕叠加层 */
+body::after{
+  content:'';
+  position:fixed;
+  inset:0;
+  background:
+    radial-gradient(ellipse 60% 50% at 30% 35%, rgba(0,67,247,0.04) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 60% at 70% 65%, rgba(155,189,255,0.03) 0%, transparent 70%);
+  pointer-events:none;
+  z-index:0;
+  animation: nebulaBreath 25s ease-in-out infinite;
+}
+
+@keyframes nebulaBreath {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
 }
 .title-section{text-align:center;position:relative;z-index:1}
 .main-title{
@@ -61,6 +93,12 @@ body::before{
   font-weight:normal;
   letter-spacing:.2em;
   text-shadow:0 0 30px rgba(0,67,247,0.3), 0 0 60px rgba(155,189,255,0.1);
+  animation: titleGlow 8s ease-in-out infinite;
+}
+
+@keyframes titleGlow {
+  0%, 100% { text-shadow: 0 0 30px rgba(0,67,247,0.3), 0 0 60px rgba(155,189,255,0.1); }
+  50% { text-shadow: 0 0 40px rgba(0,67,247,0.4), 0 0 80px rgba(155,189,255,0.15), 0 0 120px rgba(0,67,247,0.05); }
 }
 .sub-title{
   font-size:.8rem;
