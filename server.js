@@ -1,4 +1,6 @@
 const express = require('express');
+const http = require('http');
+const WebSocket = require('ws');
 const fs = require('fs');
 const path = require('path');
 
@@ -977,6 +979,7 @@ function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5, user
     const emoWeight = (userMsg && source === 'ai_active') ? detectEmotion(userMsg) : 0;
     const result = addLongTermMemory(content, source, validTags, ttl, effectiveArousal, emoWeight);
     if (source === 'ai_active' && result) {
+        wsBroadcast({ type: 'memory_saved', preview: content.trim().substring(0, 60), tags: validTags, source: 'ai_active' });
         try {
             const diaries = loadDiaries();
             diaries.push({ id: 'syzygy_' + Date.now().toString(36), text: `沈望记下了：${content.trim()}`, author: 'system', type: 'syzygy_note', date: new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' }).replace(/\//g, '-'), datetime: new Date().toISOString() });
@@ -1222,7 +1225,7 @@ async function saveToZep(userMsg, aiMsg) {
     } catch(e) { console.log("写入金库遇到波动: ", e.message); }
 }
 
-async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages) {
+async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages, metadata = {}) {
     if (!userMsg) return;
     if (userMsg === lastUserContent) {
         console.log('🔄 [防重复] 检测到重复用户消息，跳过保存');
@@ -1230,6 +1233,7 @@ async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages) {
     }
     const rpPrefix = rpModeActive ? '[RP模式] ' : '';
     await saveToZep(rpPrefix + userMsg, rpPrefix + aiMsg);
+    wsBroadcast({ type: 'new_message', user: { content: userMsg, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }) }, assistant: { content: aiMsg, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), model: metadata.model || '' }, fullTime: new Date().toISOString(), platform: metadata.platform || 'unknown' }, metadata.sourceTabId || null);
 }
 
 // ==========================================
@@ -1594,6 +1598,7 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
         }
     }).catch(() => {});
     addDreamLog(dreamLog);
+    wsBroadcast({ type: 'dream_done', summary: `整理了${dreamLog.results.consolidated.new_memories}条现实记忆，${dreamLog.results.consolidated.new_rp}条RP卡带`, cleaned: dreamLog.results.cleaned.expired + dreamLog.results.cleaned.decayed, consolidated: dreamLog.results.consolidated.new_memories + dreamLog.results.consolidated.new_rp, foresight: dreamLog.results.foresight || [], duration_ms: dreamLog.duration_ms });
 }
 
 
@@ -1675,6 +1680,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
     try {
                 let body = req.body;
         const noMemory = req.headers['x-no-memory'] === 'true';
+        const sourceTabId = req.headers['x-tab-id'] || null;
 
         let cleanMessages = [];
         let currentUserMsgText = "";
@@ -1922,7 +1928,7 @@ newMessages.forEach((m, i) => {
                 if (!noMemory) {
                     const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(aiContent);
                     for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
-                    await saveToZepWithCounter(currentUserMsgText, ntClean, zepLastUserContent, zepMessages);
+                    await saveToZepWithCounter(currentUserMsgText, ntClean, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);
                 }
                 return;
@@ -1934,7 +1940,7 @@ newMessages.forEach((m, i) => {
                 if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
                 const finalContent = ntMems.length > 0 ? ntClean : aiContent;
                 if (!noMemory) {
-                    await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages);
+                    await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);
                 }
                 return res.status(200).json(toolData);
@@ -2027,7 +2033,7 @@ newMessages.forEach((m, i) => {
                 for (const mem of streamMemories) {
                     smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
                 }
-                await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages);
+                await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                 tryAutoDream(currentUserMsgText);
             }
         } else {
@@ -2049,7 +2055,7 @@ newMessages.forEach((m, i) => {
                     }
                 }
                 if (!noMemory) {
-                    await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages);
+                    await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);
                 }
                 res.status(response.status).json(data);
@@ -2730,7 +2736,7 @@ app.post('/api/web-chat', async (req, res) => {
                     const { cleanText, memories } = extractSaveMemoryTag(cleanAiContent);
                     for (const mem of memories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text);
                     const finalReply = memories.length > 0 ? cleanText : cleanAiContent;
-                    await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages);
+                    await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model });
                     tryAutoDream(text);
                     resolve({ text: finalReply, thinking });
                     return;
@@ -2780,7 +2786,7 @@ app.post('/api/web-chat', async (req, res) => {
                 }
                 aiReply = memories.length > 0 ? cleanText : aiReply;
 
-                await saveToZepWithCounter(text || '（发送了一张图片）', aiReply, zepLastUserContent, zepMessages);
+                await saveToZepWithCounter(text || '（发送了一张图片）', aiReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model });
                 tryAutoDream(text);
 
                 resolve({ text: aiReply, thinking: thinking });
@@ -2953,11 +2959,30 @@ app.get('/test-interact', async (req, res) => {
 // 🚀 启动服务器
 // ==========================================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const server = http.createServer(app);
+
+const wss = new WebSocket.Server({ server });
+const wsClients = new Set();
+wss.on('connection', (ws) => {
+    const client = { ws, tabId: null };
+    wsClients.add(client);
+    console.log(`🌐 [WS] 新连接，当前${wsClients.size}个客户端`);
+    ws.on('message', (raw) => {
+        try { const msg = JSON.parse(raw); if (msg.type === 'register' && msg.tabId) { client.tabId = msg.tabId; } } catch(e) {}
+    });
+    ws.on('close', () => { wsClients.delete(client); });
+    ws.on('error', () => { wsClients.delete(client); });
+});
+function wsBroadcast(data, excludeTabId = null) {
+    const payload = JSON.stringify(data); let sent = 0;
+    for (const c of wsClients) { if (c.ws.readyState !== WebSocket.OPEN) continue; if (excludeTabId && c.tabId === excludeTabId) continue; c.ws.send(payload); sent++; }
+    if (sent > 0) console.log(`🌐 [WS] 广播 ${data.type} → ${sent}个客户端`);
+}
+
+server.listen(PORT, () => {
     console.log(`🚀 服务器已启动，端口: ${PORT}`);
     initUserProfile();
     startAllMCPServers();
     cleanAndArchiveMemories();
-    // 每 6 小时自动执行一次艾宾浩斯记忆衰减巡检
     setInterval(cleanAndArchiveMemories, 6 * 60 * 60 * 1000);
 });

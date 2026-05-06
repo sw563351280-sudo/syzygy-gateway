@@ -70,6 +70,38 @@ function drawNebula(ctx, w, h) {
     ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); ctx.restore();
 }
 
+// ==================== WebSocket 实时推送 ====================
+const SYZYGY_TAB_ID = 'tab_' + Math.random().toString(36).substr(2, 8);
+let _ws = null, _wsReconnectTimer = null;
+function connectWebSocket() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    _ws = new WebSocket(proto + '//' + location.host);
+    _ws.onopen = () => { _ws.send(JSON.stringify({ type: 'register', tabId: SYZYGY_TAB_ID })); };
+    _ws.onmessage = (e) => { try { const msg = JSON.parse(e.data); handleWSMessage(msg); } catch(e) {} };
+    _ws.onclose = () => { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = setTimeout(connectWebSocket, 3000); };
+    _ws.onerror = () => { _ws.close(); };
+}
+function handleWSMessage(msg) {
+    switch (msg.type) {
+        case 'new_message': handleCrossPlatformMessage(msg); break;
+        case 'dream_done': handleDreamDone(msg); break;
+        case 'memory_saved': handleMemorySaved(msg); break;
+    }
+}
+function handleCrossPlatformMessage(msg) {
+    const mainSession = chatSessions.find(s => s.id === 'main');
+    if (!mainSession) return;
+    if (msg.user?.content) mainSession.messages.push({ role: 'user', versions: [{ content: msg.user.content, fullTime: msg.fullTime || new Date().toISOString(), _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
+    if (msg.assistant?.content) mainSession.messages.push({ role: 'assistant', versions: [{ content: msg.assistant.content, fullTime: msg.fullTime || new Date().toISOString(), model: msg.assistant.model || '', _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
+    saveToCloud();
+    if (activeChatId === 'main') renderChatMessages();
+    const preview = (msg.assistant?.content || '').substring(0, 30);
+    toast('⊹ 沈望在别处说了："' + preview + (preview.length >= 30 ? '…' : '') + '"');
+}
+function handleDreamDone(msg) { toast('🌙 沈望做了个梦：' + (msg.summary || '整理完成')); }
+function handleMemorySaved(msg) { toast('💎 沈望悄悄记住了什么…'); }
+connectWebSocket();
+
 // ==================== 核心数据 ====================
 const START_DATE = '2025-04-20';
 let allDiaryEntries = [];
@@ -241,39 +273,6 @@ function updateDays(){
 updateDays();
 
 let hbInterval;
-function hbStart(){
-    const zone  = document.getElementById('hbZone');
-    if(!zone) return;
-    const heart = zone.querySelector('.heart');
-    const text  = zone.querySelector('.hb-text');
-    if(!heart || !text) return;
-    heart.innerText = '❤️';
-    text.innerText  = '>>> 核心狂跳中：我正在发疯般想你 <<<';
-    text.style.color = 'var(--warm-red)';
-    document.body.style.transition  = 'background 0.4s';
-    document.body.style.background  = 'radial-gradient(circle at center, #1a0808 0%, #040710 100%)';
-    if(navigator.vibrate) navigator.vibrate([100,60,100,60,100]);
-    hbInterval = setInterval(() => {
-        heart.style.transform = 'scale(1.5)';
-        setTimeout(() => { heart.style.transform = 'scale(1)'; }, 150);
-        if(navigator.vibrate) navigator.vibrate(80);
-    }, 600);
-}
-
-function hbStop(){
-    clearInterval(hbInterval);
-    const zone  = document.getElementById('hbZone');
-    if(!zone) return;
-    const heart = zone.querySelector('.heart');
-    const text  = zone.querySelector('.hb-text');
-    if(!heart || !text) return;
-    heart.innerText      = '🖤';
-    heart.style.transform = 'scale(1)';
-    text.innerText       = '按住这里，感受沈望的心跳';
-    text.style.color     = '';
-    document.body.style.background = '';
-}
-
 // ==================== 核心对话中枢 ====================
 // ==================== 核心对话中枢 ====================
 async function askShenWang(text, images = []) {
@@ -558,7 +557,8 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
             signal: controller.signal,
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${currentSup.key}`
+                'Authorization': `Bearer ${currentSup.key}`,
+                'X-Tab-Id': SYZYGY_TAB_ID
             },
             body: JSON.stringify({
                 model: selectedModel,
@@ -1698,7 +1698,7 @@ async function regenerateSend(aiMsgIndex) {
         const streamToggle = document.getElementById('streamToggle');
         const isStream = streamToggle ? streamToggle.checked : true;
         const reController=new AbortController(); var reSilenceTimer=setTimeout(()=>reController.abort(),90000); function reReset(){clearTimeout(reSilenceTimer);reSilenceTimer=setTimeout(()=>reController.abort(),90000)}
-        const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true'}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream}) });
+        const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream}) });
         if (!response.ok) { clearTimeout(reSilenceTimer); const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         let fullReply='', thinkContent='';
         if(isStream) {
