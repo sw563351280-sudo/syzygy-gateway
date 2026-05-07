@@ -2064,7 +2064,11 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                     }
                     let parsed; try { parsed = JSON.parse(dataStr); } catch(e) { res.write(line + '\n'); continue; }
                     const delta = parsed.choices?.[0]?.delta;
-                    if (!delta || delta.content === undefined) { res.write(line + '\n'); continue; }
+                    if (!delta || delta.content === undefined) {
+                        if ((body.model || '').toLowerCase().includes('gemini')) console.log('🔍 [Gemini诊断] 无content块:', JSON.stringify(parsed).substring(0, 200));
+                        res.write(line + '\n'); continue;
+                    }
+                    if ((body.model || '').toLowerCase().includes('gemini')) console.log('🔍 [Gemini诊断] content块:', JSON.stringify(delta).substring(0, 200));
                     lastChunkTemplate = parsed;
                     const piece = delta.content; contentBuffer += piece; fullAiResponse += piece;
 
