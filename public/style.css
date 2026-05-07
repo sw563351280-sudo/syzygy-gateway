@@ -153,22 +153,7 @@ canvas#starmap{
     transition: border-color 0.4s ease, box-shadow 0.4s ease;
 }
 
-/* 每张卡片左侧的装订边线 */
-.glass::before{
-    content:'';
-    position:absolute;
-    left:8px;top:12px;bottom:12px;
-    width:1px;
-    background: repeating-linear-gradient(
-        to bottom,
-        var(--gold) 0px,
-        var(--gold) 3px,
-        transparent 3px,
-        transparent 9px
-    );
-    opacity:0.2;
-    border-radius:1px;
-}
+/* 卡片装订边线 —— 已移除 */
 
 .glass:hover{
     border-color: var(--page-border-hover);
@@ -1012,11 +997,6 @@ body.light-mode .chat-sidebar {
    📱 手机端终极 UI：定海神针版 (绝对垂直对齐)
    ========================================== */
 @media(max-width: 600px) {
-.chat-layout {
-    height: calc(100dvh - 56px);
-    display: flex;
-    overflow: hidden;
-}
 .chat-layout { flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden }
 .chat-main { flex:1;display:flex;flex-direction:column;position:relative;overflow:hidden;min-height:0 }
 .chat-window { flex:1;overflow-y:auto;padding:16px;min-height:0;-webkit-overflow-scrolling:touch }
@@ -1418,9 +1398,8 @@ body.light-mode #sec-data input[type="text"]:focus{border-color:rgba(196,165,123
 .chat-window .msg{font-size:.78em!important;line-height:1.7!important}
 .msg{max-width:92%}
 
-/* ═══ 聊天页隐藏装订线 ═══ */
-body[data-view="chat"]::after{opacity:0!important;transition:opacity .3s}
-body[data-view="chat"] .binding-right{opacity:0!important;transition:opacity .3s}
+/* ═══ 聊天页锁定框架 ═══ */
+body[data-view="chat"] { overflow:hidden!important;height:100dvh!important }
 
 /* ═══ 顶栏工具按钮 ═══ */
 .chat-rename-topbar-btn,.chat-index-topbar-btn,.chat-theme-topbar-btn{width:30px;height:30px;border-radius:8px;border:1px solid rgba(201,169,97,0.15);background:rgba(201,169,97,0.05);color:var(--dim);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
