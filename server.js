@@ -1916,7 +1916,11 @@ newMessages.forEach((m, i) => {
 
         const apiUrl = resolveApiUrl(req.path);
 
-        const apiHeaders = {'Content-Type': 'application/json', 'Authorization': req.headers.authorization, 'HTTP-Referer': 'https://syzygy-zep.zeabur.app', 'X-Title': 'My_Cyber_Home' };
+        const apiHeaders = {
+    'Content-Type': 'application/json', 
+    'Authorization': req.headers.authorization
+};
+
 
         const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return TOOLS_ENABLED.mcp !== false; return TOOLS_ENABLED[name]; });
         let forceToolChoice = null;
