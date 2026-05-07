@@ -521,7 +521,7 @@ if (viaMatch) {
         else if (supUrl.includes('api521')) apiUrl = '/via/api521/v1/chat/completions';
         else if (supUrl.includes('ekan')) apiUrl = '/via/ekan/v1/chat/completions';
         else if (supUrl.includes('orange')) apiUrl = '/via/orange/v1/chat/completions';
-else if (supUrl.includes('xyz') || supUrl.includes('68886868')) apiUrl = '/via/xyz/v1/chat/completions';  // ← 加这行
+else if (supUrl.includes('68886868')) apiUrl = '/via/68886868/v1/chat/completions';
 
 
         const response = await fetch(apiUrl, {
