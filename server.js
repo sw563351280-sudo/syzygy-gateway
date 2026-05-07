@@ -26,7 +26,7 @@ const API_ROUTES = {
     'dzzi':   'https://api.dzzi.ai/v1/chat/completions',
     'ekan':   'https://api.ekan8.com/v1/chat/completions',
      'orange':   'https://i.orangepie.org/v1/chat/completions',
-    'xyz':   'https://api.68886868.xyz/v1/chat/completions',
+    '68886868':   'https://api.68886868.xyz/v1/chat/completions',
 
 };
 
