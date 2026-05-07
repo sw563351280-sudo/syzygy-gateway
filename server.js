@@ -1918,6 +1918,9 @@ newMessages.forEach((m, i) => {
 
         
     console.log('🔑 [DEBUG] Authorization:', req.headers.authorization);
+console.log('🌐 [DEBUG] 目标URL:', apiUrl);      // ← 加这行
+console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
+
         
         const apiHeaders = {
     'Content-Type': 'application/json', 
