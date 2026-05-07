@@ -602,11 +602,11 @@ if (viaMatch) {
     apiUrl = '/via/' + viaMatch[1] + '/v1/chat/completions';
 }
         
-        if (supUrl.includes('dzzi')) apiUrl = '/via/dzzi/v1/chat/completions';
-        else if (supUrl.includes('api521')) apiUrl = '/via/api521/v1/chat/completions';
-        else if (supUrl.includes('ekan')) apiUrl = '/via/ekan/v1/chat/completions';
-        else if (supUrl.includes('orange')) apiUrl = '/via/orange/v1/chat/completions';
-else if (supUrl.includes('68886868')) apiUrl = '/via/68886868/v1/chat/completions';
+let apiUrl = '/v1/chat/completions';
+const viaMatch = currentSup.url.match(/\/via\/(\w+)\//);
+if (viaMatch) {
+    apiUrl = '/via/' + viaMatch[1] + '/v1/chat/completions';
+}
 
 
         const controller = new AbortController();
@@ -1358,8 +1358,12 @@ async function regenerateSend(aiMsgIndex) {
     var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; return {role:m.role,content:c}; });
     if (historyMsgs.length > 50) historyMsgs = historyMsgs.slice(-50);
     try {
-        let apiUrl = '/v1/chat/completions'; const supUrl = currentSup.url.toLowerCase();
-        if(supUrl.includes('dzzi')) apiUrl='/via/dzzi/v1/chat/completions'; else if(supUrl.includes('api521')) apiUrl='/via/api521/v1/chat/completions'; else if(supUrl.includes('ekan')) apiUrl='/via/ekan/v1/chat/completions'; else if(supUrl.includes('orange')) apiUrl='/via/orange/v1/chat/completions';else if (supUrl.includes('68886868') || supUrl.includes('xyz')) apiUrl = '/via/68886868/v1/chat/completions';
+        let apiUrl = '/v1/chat/completions';
+        const viaMatch = currentSup.url.match(/\/via\/(\w+)\//);
+        if (viaMatch) {
+            apiUrl = '/via/' + viaMatch[1] + '/v1/chat/completions';
+        }
+
 
         const streamToggle = document.getElementById('streamToggle');
         const isStream = streamToggle ? streamToggle.checked : true;
