@@ -603,6 +603,8 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
         else if (supUrl.includes('api521')) apiUrl = '/via/api521/v1/chat/completions';
         else if (supUrl.includes('ekan')) apiUrl = '/via/ekan/v1/chat/completions';
         else if (supUrl.includes('orange')) apiUrl = '/via/orange/v1/chat/completions';
+       else if (supUrl.includes('68886868') || supUrl.includes('xyz')) apiUrl = '/via/68886868/v1/chat/completions';
+
 
         const controller = new AbortController();
         var silenceTimer = setTimeout(() => controller.abort(), 90000);
@@ -1354,7 +1356,8 @@ async function regenerateSend(aiMsgIndex) {
     if (historyMsgs.length > 50) historyMsgs = historyMsgs.slice(-50);
     try {
         let apiUrl = '/v1/chat/completions'; const supUrl = currentSup.url.toLowerCase();
-        if(supUrl.includes('dzzi')) apiUrl='/via/dzzi/v1/chat/completions'; else if(supUrl.includes('api521')) apiUrl='/via/api521/v1/chat/completions'; else if(supUrl.includes('ekan')) apiUrl='/via/ekan/v1/chat/completions'; else if(supUrl.includes('orange')) apiUrl='/via/orange/v1/chat/completions';
+        if(supUrl.includes('dzzi')) apiUrl='/via/dzzi/v1/chat/completions'; else if(supUrl.includes('api521')) apiUrl='/via/api521/v1/chat/completions'; else if(supUrl.includes('ekan')) apiUrl='/via/ekan/v1/chat/completions'; else if(supUrl.includes('orange')) apiUrl='/via/orange/v1/chat/completions';else if (supUrl.includes('68886868') || supUrl.includes('xyz')) apiUrl = '/via/68886868/v1/chat/completions';
+
         const streamToggle = document.getElementById('streamToggle');
         const isStream = streamToggle ? streamToggle.checked : true;
         const reController=new AbortController(); var reSilenceTimer=setTimeout(()=>reController.abort(),90000); function reReset(){clearTimeout(reSilenceTimer);reSilenceTimer=setTimeout(()=>reController.abort(),90000)}
