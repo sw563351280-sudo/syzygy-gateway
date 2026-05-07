@@ -1925,7 +1925,9 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         
         const apiHeaders = {
     'Content-Type': 'application/json', 
-    'Authorization': req.headers.authorization
+    'Authorization': req.headers.authorization, 
+    'HTTP-Referer': 'https://syzygy-zep.zeabur.app',  // ← 这个
+    'X-Title': 'My_Cyber_Home'                         // ← 还有这个
 };
 
 
