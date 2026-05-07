@@ -1916,6 +1916,9 @@ newMessages.forEach((m, i) => {
 
         const apiUrl = resolveApiUrl(req.path);
 
+        
+    console.log('🔑 [DEBUG] Authorization:', req.headers.authorization);
+        
         const apiHeaders = {
     'Content-Type': 'application/json', 
     'Authorization': req.headers.authorization
