@@ -1639,7 +1639,7 @@ async function regenerateSend(aiMsgIndex) {
     if (historyMsgs.length > 50) historyMsgs = historyMsgs.slice(-50);
     try {
         let apiUrl = '/v1/chat/completions'; const supUrl = currentSup.url.toLowerCase();
-        if(supUrl.includes('dzzi')) apiUrl='/via/dzzi/v1/chat/completions'; else if(supUrl.includes('api521')) apiUrl='/via/api521/v1/chat/completions'; else if(supUrl.includes('ekan')) apiUrl='/via/ekan/v1/chat/completions'; else if(supUrl.includes('orange')) apiUrl='/via/orange/v1/chat/completions';
+        if(supUrl.includes('dzzi')) apiUrl='/via/dzzi/v1/chat/completions'; else if(supUrl.includes('api521')) apiUrl='/via/api521/v1/chat/completions'; else if(supUrl.includes('ekan')) apiUrl='/via/ekan/v1/chat/completions'; else if(supUrl.includes('orange')) apiUrl='/via/orange/v1/chat/completions';else if(supUrl.includes('68886868')) apiUrl='/via/68886868/v1/chat/completions';
         const streamToggle = document.getElementById('streamToggle');
         const isStream = streamToggle ? streamToggle.checked : true;
         const response = await fetch(apiUrl, { method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true'}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream}) });
