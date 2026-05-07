@@ -594,22 +594,15 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
     // 最后一条用 userContent（包含你刚重写的完美图片数组）
     historyMsgs.push({ role: 'user', content: userContent });
 
-   try {
-        // 🌟 核心修复：根据你的供应商 URL，自动拼接正确的路由路径！
-       let apiUrl = '/v1/chat/completions';
-const viaMatch = currentSup.url.match(/\/via\/(\w+)\//);
-if (viaMatch) {
-    apiUrl = '/via/' + viaMatch[1] + '/v1/chat/completions';
-}
-        
-let apiUrl = '/v1/chat/completions';
-const viaMatch = currentSup.url.match(/\/via\/(\w+)\//);
-if (viaMatch) {
-    apiUrl = '/via/' + viaMatch[1] + '/v1/chat/completions';
-}
-
+try {
+        let apiUrl = '/v1/chat/completions';
+        const viaMatch = currentSup.url.match(/\/via\/(\w+)\//);
+        if (viaMatch) {
+            apiUrl = '/via/' + viaMatch[1] + '/v1/chat/completions';
+        }
 
         const controller = new AbortController();
+
         var silenceTimer = setTimeout(() => controller.abort(), 90000);
         function resetSilenceTimer() { clearTimeout(silenceTimer); silenceTimer = setTimeout(() => controller.abort(), 90000); }
 
