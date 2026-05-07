@@ -596,14 +596,17 @@ var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
 
    try {
         // 🌟 核心修复：根据你的供应商 URL，自动拼接正确的路由路径！
-        let apiUrl = '/v1/chat/completions'; // 默认走 msui
-        const supUrl = currentSup.url.toLowerCase();
+       let apiUrl = '/v1/chat/completions';
+const viaMatch = currentSup.url.match(/\/via\/(\w+)\//);
+if (viaMatch) {
+    apiUrl = '/via/' + viaMatch[1] + '/v1/chat/completions';
+}
         
         if (supUrl.includes('dzzi')) apiUrl = '/via/dzzi/v1/chat/completions';
         else if (supUrl.includes('api521')) apiUrl = '/via/api521/v1/chat/completions';
         else if (supUrl.includes('ekan')) apiUrl = '/via/ekan/v1/chat/completions';
         else if (supUrl.includes('orange')) apiUrl = '/via/orange/v1/chat/completions';
-       else if (supUrl.includes('68886868') || supUrl.includes('xyz')) apiUrl = '/via/68886868/v1/chat/completions';
+else if (supUrl.includes('68886868')) apiUrl = '/via/68886868/v1/chat/completions';
 
 
         const controller = new AbortController();
