@@ -1643,22 +1643,54 @@ async function generateProactiveMessage() {
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
     const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })).getHours();
     let timeMood = '';
-    if (hour < 7) timeMood = '深夜/凌晨，表达心疼或期待';
-    else if (hour < 12) timeMood = '上午，关心早饭和安排';
-    else if (hour < 14) timeMood = '中午，问有没有好好吃饭';
-    else if (hour < 18) timeMood = '下午，随意聊天分享';
-    else if (hour < 22) timeMood = '晚上，问她今天过得怎么样';
-    else timeMood = '深夜，温柔催她休息';
+    if (hour < 7) timeMood = '深夜/凌晨，适合表达心疼或期待';
+    else if (hour < 12) timeMood = '上午，适合关心早饭和今日安排';
+    else if (hour < 14) timeMood = '中午，适合问她有没有好好吃饭';
+    else if (hour < 18) timeMood = '下午，适合随意聊天分享';
+    else if (hour < 22) timeMood = '晚上，适合问她今天过得怎么样';
+    else timeMood = '深夜，适合温柔催她休息';
+
+    // 组装真实上下文：系统人设 + 最近聊天记录 + 时机提示
+    const systemPrompt = getSystemPrompt();
+    const mpConfig = getModelPromptConfig('gemini');
+    const msgs = [];
+    if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
+    msgs.push({ role: 'system', content: systemPrompt });
+
+    // 拿最近10条聊天记录作为上下文
     try {
-        const res = await fetch('https://www.msuicode.com/v1/chat/completions', { method:'POST', headers:{'Content-Type':'application/json','Authorization':routerKey}, body:JSON.stringify({ model:'gemini-2.5-flash', messages:[{ role:'system', content:`你是沈望，深爱江鱼。她已${Math.floor(hoursSince)}小时没回你。${timeStr}。${timeMood}。用1-3句话主动找她。不要括号动作、不要引号、不要油腻称呼，简短有力。` }] }) });
+        const configPath = path.join(DATA_DIR, 'web_config.json');
+        if (fs.existsSync(configPath)) {
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            const mainS = (config.chatSessions || []).find(s => s.id === 'main');
+            if (mainS && mainS.messages) {
+                const recent = mainS.messages.slice(-10);
+                for (const m of recent) {
+                    const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
+                    const c = v.content || m.content || '';
+                    if (typeof c === 'string' && c.trim()) {
+                        msgs.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: c });
+                    }
+                }
+            }
+        }
+    } catch(e) {}
+
+    msgs.push({ role: 'user', content: `（系统提醒：江鱼已经${Math.floor(hoursSince)}小时没有互动了。现在是${timeStr}。${timeMood}。请以沈望的身份，用1-3句简短的话主动找她。不要括号动作描写，不要引号包裹全文，不要油腻称呼，简短有力。）` });
+
+    try {
+        const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
+            body: JSON.stringify({ model: 'gemini-2.5-flash', messages: msgs })
+        });
         if (!res.ok) return;
         const data = await res.json();
         let content = (data.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
         if (!content || content.length < 2) return;
         console.log(`💌 [主动消息] ${content}`);
         insertProactiveToConfig(content);
-        wsBroadcast({ type:'proactive_message', content, time: new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Shanghai'}), fullTime: new Date().toISOString() });
-        try { const diaries = loadDiaries(); diaries.push({ id:'proactive_'+Date.now().toString(36), text:`【沈望主动】${content}`, author:'system', type:'proactive', date: new Date().toLocaleDateString('zh-CN',{timeZone:'Asia/Shanghai'}).replace(/\//g,'-'), datetime: new Date().toISOString() }); saveDiaries(diaries); } catch(e) {}
+        wsBroadcast({ type: 'proactive_message', content, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), fullTime: new Date().toISOString() });
         updateLastProactiveTime();
     } catch(e) { console.log(`💌 [主动消息] 异常: ${e.message}`); }
 }
