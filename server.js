@@ -767,6 +767,8 @@ async function scanLongTermRadar(userText) {
             skipCount++;
         }
     }
+    const MAX_RADAR_LINES = 8;
+    if (lines.length > MAX_RADAR_LINES) { lines.length = MAX_RADAR_LINES; console.log(`🪓 [雷达截断] 保留前${MAX_RADAR_LINES}条`); }
     console.log(`🔥 [热度分层] 全文${fullCount}条 | 模糊${blurCount}条 | 跳过${skipCount}条`);
 
     if (lines.length === 0) return "";
@@ -1096,7 +1098,7 @@ function buildEnvContext(body) {
 }
 
 function buildFinalSystemPrompt(injectionQueue) {
-    const MEMORY_BUDGET = 8000;
+    const MEMORY_BUDGET = 15000;
     let usedBudget = 0;
     const parts = [];
     for (const item of injectionQueue) {
