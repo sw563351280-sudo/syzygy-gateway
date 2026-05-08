@@ -162,7 +162,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC"
 <script>
 var PWD=new URLSearchParams(location.search).get('pwd')||'111111';
 var urlTab=new URLSearchParams(location.search).get('tab')||'timeline';
-var TL_MESSAGES=[],AR_MEMS=[],AR_COUNTS={},AR_HEAT={},PROFILE=null,activeTab='',DIARY_ENTRIES=[];
+var TL_MESSAGES=[],AR_MEMS=[],AR_COUNTS={},AR_HEAT={},PROFILE=null,PENDING_PROMISES='',activeTab='',DIARY_ENTRIES=[];
 var selectMode=false,selectedSet=new Set(),arCat='all',longPressTimer=null;
 
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000)}
@@ -226,7 +226,7 @@ function srcLabel(s){return({manual:'✍️手动',ai_active:'🤖AI',butler_sum
 async function loadArchive(){
   const r=await fetch('/api/longterm-page-data?pwd='+encodeURIComponent(PWD));
   if(!r.ok)return;const d=await r.json();
-  AR_MEMS=d.memories||[];AR_COUNTS=d.counts||{};AR_HEAT=d.heatStats||{};PROFILE=d.profile;
+  AR_MEMS=d.memories||[];AR_COUNTS=d.counts||{};AR_HEAT=d.heatStats||{};PROFILE=d.profile;PENDING_PROMISES=d.pendingPromises||'';
   document.getElementById('arCount').textContent=AR_MEMS.length;
   document.getElementById('arHigh').textContent=AR_HEAT.high||0;
   document.getElementById('arMid').textContent=AR_HEAT.mid||0;
@@ -254,6 +254,7 @@ function renderProfile(){
   if(PROFILE.basic_info?.content)h+='<p>📌 '+PROFILE.basic_info.content.replace(/</g,'&lt;')+'</p>';
   if(PROFILE.recent_focus?.content)h+='<p>🔥 '+PROFILE.recent_focus.content.replace(/</g,'&lt;')+'</p>';
   if(PROFILE.communication_style?.content)h+='<p>🔍 '+PROFILE.communication_style.content.replace(/</g,'&lt;')+'</p>';
+  if(PENDING_PROMISES)h+='<p>📋 待办约定：'+PENDING_PROMISES.replace(/</g,'&lt;')+'</p>';
   h+='<button class="btn-sm gold" style="margin-top:8px" onclick="updateProfile()">🔄 更新画像</button></details>';
   document.getElementById('profileCard').innerHTML=h;
 }

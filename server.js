@@ -1277,7 +1277,12 @@ const BUILTIN_TOOLS = [
     { type: "function", function: { name: "read_diary", description: "【仅在用户明确要求查看某天的日记时使用】读取指定日期的日记内容。不要在日常闲聊中调用。", parameters: { type: "object", properties: { date: { type: "string", description: "日期，格式 YYYY-MM-DD，如 2026-05-06" } }, required: ["date"] } } }
 ];
 
-let TOOLS_ENABLED = { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, read_diary: true, mcp: false };
+const TOOLS_CONFIG_FILE = path.join(DATA_DIR, 'tools_config.json');
+function loadToolsConfig() { try { return JSON.parse(fs.readFileSync(TOOLS_CONFIG_FILE, 'utf8')); } catch(e) { return null; } }
+function saveToolsConfig(cfg) { try { fs.writeFileSync(TOOLS_CONFIG_FILE, JSON.stringify(cfg)); } catch(e) {} }
+let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, read_diary: true, mcp: false };
+// 首次启动时写入默认配置
+if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
 function filterRelevantTools(allTools, userText, forceToolChoice) {
     const builtinNames = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github']);
@@ -2445,6 +2450,7 @@ app.post('/api/tools-toggle', (req, res) => {
         for (const k of Object.keys(TOOLS_ENABLED)) TOOLS_ENABLED[k] = !allOn;
         console.log(`🔧 [工具] 全部${allOn ? '❌ 关闭' : '✅ 开启'}`);
     }
+    saveToolsConfig(TOOLS_ENABLED);
     res.json({ tools: TOOLS_ENABLED });
 });
 
@@ -2543,7 +2549,7 @@ app.get('/api/memory-page-data', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-app.get('/api/longterm-page-data', (req, res) => {
+app.get('/api/longterm-page-data', async (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     const activeMemories = loadLongTermMemories();
     const archivedMemories = loadArchivedMemories();
@@ -2554,7 +2560,15 @@ app.get('/api/longterm-page-data', (req, res) => {
     const counts = { all: activeMemories.length, manual: activeMemories.filter(m => m.source === 'manual').length, ai_active: activeMemories.filter(m => m.source === 'ai_active').length, butler_summary: activeMemories.filter(m => m.source === 'butler_summary').length, archived: archivedMemories.length, roleplay: rpMemories.length };
     let heatHigh = 0, heatMid = 0, heatLow = 0;
     for (const m of allMems) { if (m.category !== 'active') continue; if (m.liveHeat > 0.7) heatHigh++; else if (m.liveHeat >= 0.3) heatMid++; else heatLow++; }
-    res.json({ memories: allMems, counts, heatStats: { high: heatHigh, mid: heatMid, low: heatLow }, profile, dreamLogs });
+    let pendingPromises = '';
+    try {
+        const sRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`);
+        if (sRes.ok) {
+            const sData = await sRes.json();
+            pendingPromises = sData.metadata?.current_state?.pending_promises || '';
+        }
+    } catch(e) {}
+    res.json({ memories: allMems, counts, heatStats: { high: heatHigh, mid: heatMid, low: heatLow }, profile, dreamLogs, pendingPromises });
 });
 
 app.get('/memory-manager', (req, res) => {
@@ -2604,18 +2618,24 @@ RP游戏卡带（${rpMemories.length}条）：${rpList || '（空）'}
 没有要删/合并的字段就给空数组。`;
 
     try {
+        const mpConfig = getModelPromptConfig('gemini');
+        const msgs = [];
+        if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
+        msgs.push({ role: 'user', content: prompt });
+
         const aiRes = await fetch('https://www.msuicode.com/v1/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
             body: JSON.stringify({
                 model: "gemini-2.5-flash",
-                messages: [{ role: "user", content: prompt }],
-                response_format: { type: "json_object" }
+                messages: msgs
             })
         });
 
         const data = await aiRes.json();
-        const result = JSON.parse(data.choices[0].message.content.replace(/```json|```/g, '').trim());
+        const rawContent = data.choices?.[0]?.message?.content;
+        if (!rawContent) return res.json({ success: false, error: "AI返回空内容，请稍后重试" });
+        const result = JSON.parse(rawContent.replace(/```json|```/g, '').trim());
 
         let deleteCount = 0, mergeCount = 0;
 
@@ -3042,13 +3062,12 @@ app.get('/api/sync-config', (req, res) => {
 });
 
 app.post('/api/sync-config', (req, res) => {
-    const { suppliers, chatSessions, activeSupIndex, activeChatId, stickyNote } = req.body;
+    const { suppliers, chatSessions, activeSupIndex, activeChatId } = req.body;
     const data = {
         suppliers: suppliers || [],
         chatSessions: chatSessions || [],
         activeSupIndex: activeSupIndex || 0,
-        activeChatId: activeChatId || 'main',
-        stickyNote: stickyNote || null
+        activeChatId: activeChatId || 'main'
     };
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2));
     res.json({ success: true });
