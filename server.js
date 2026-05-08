@@ -1641,14 +1641,6 @@ async function generateProactiveMessage() {
     if (!routerKey) return;
     console.log(`💌 [主动消息] 江鱼已${hoursSince.toFixed(1)}小时未互动`);
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-    const hour = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Shanghai' })).getHours();
-    let timeMood = '';
-    if (hour < 7) timeMood = '深夜/凌晨，适合表达心疼或期待';
-    else if (hour < 12) timeMood = '上午，适合关心早饭和今日安排';
-    else if (hour < 14) timeMood = '中午，适合问她有没有好好吃饭';
-    else if (hour < 18) timeMood = '下午，适合随意聊天分享';
-    else if (hour < 22) timeMood = '晚上，适合问她今天过得怎么样';
-    else timeMood = '深夜，适合温柔催她休息';
 
     // 组装真实上下文：系统人设 + 最近聊天记录 + 时机提示
     const systemPrompt = getSystemPrompt();
@@ -1676,7 +1668,7 @@ async function generateProactiveMessage() {
         }
     } catch(e) {}
 
-    msgs.push({ role: 'user', content: `（系统提醒：江鱼已经${Math.floor(hoursSince)}小时没有互动了。现在是${timeStr}。${timeMood}。请以沈望的身份，用1-3句简短的话主动找她。不要括号动作描写，不要引号包裹全文，不要油腻称呼，简短有力。）` });
+    msgs.push({ role: 'user', content: `（系统提醒：江鱼已经${Math.floor(hoursSince)}小时没有消息了，现在是${timeStr}。你可以根据上下文自然地主动找她说几句话，不用太长。）` });
 
     try {
         const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
