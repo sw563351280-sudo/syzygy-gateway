@@ -42,6 +42,18 @@ function resolveApiUrl(reqPath) {
 }
 
 // ==========================================
+// 模型专属 prompt 配置
+// ==========================================
+const MODEL_PROMPTS_FILE = path.join(__dirname, 'model_prompts.json');
+let MODEL_PROMPTS = { default: { role: 'system', prepend: '' } };
+try { MODEL_PROMPTS = JSON.parse(fs.readFileSync(MODEL_PROMPTS_FILE, 'utf8')); } catch(e) {}
+function getModelPromptConfig(modelName) {
+    const keys = Object.keys(MODEL_PROMPTS).filter(k => k !== 'default');
+    const matchKey = keys.find(k => (modelName || '').toLowerCase().includes(k));
+    return MODEL_PROMPTS[matchKey] || MODEL_PROMPTS['default'] || { role: 'system', prepend: '' };
+}
+
+// ==========================================
 // 持久化计数器与目录初始化
 // ==========================================
 const DATA_DIR = path.join(__dirname, 'data');
@@ -1879,8 +1891,11 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         ]);
 
         const newMessages = [...cleanMessages];
+        const mpConfig = getModelPromptConfig(body.model || '');
+        if (mpConfig.prepend) newMessages.unshift({ role: mpConfig.role, content: mpConfig.prepend });
         newMessages.unshift({ role: 'system', content: finalSystemPrompt });
-        
+        console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${mpConfig.prepend ? mpConfig.prepend.length + '字' : '无'}`);
+
         if (memoryContext.trim().length > 0) {
     const lastMsgIndex = newMessages.length - 1;
     const lastContent = newMessages[lastMsgIndex].content;
