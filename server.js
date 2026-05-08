@@ -1635,7 +1635,7 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
 async function generateProactiveMessage() {
     const now = Date.now();
     const hoursSince = (now - lastInteractionTime) / 3600000;
-    if (hoursSince < 4) return;
+    if (hoursSince < 2) return;
     if (now - lastProactiveTime < 3 * 3600000) return;
     const routerKey = process.env.ROUTER_API_KEY;
     if (!routerKey) return;
