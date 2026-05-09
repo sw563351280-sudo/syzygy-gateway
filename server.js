@@ -1648,7 +1648,6 @@ async function generateProactiveMessage() {
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
     // 组装真实上下文：系统人设 + 最近聊天记录 + 时机提示
-    const systemPrompt = getSystemPrompt();
     const mpConfig = getModelPromptConfig('gemini');
     const msgs = [];
     if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
