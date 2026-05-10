@@ -2574,7 +2574,9 @@ app.get('/api/longterm-page-data', async (req, res) => {
             pendingPromises = sData.metadata?.current_state?.pending_promises || '';
         }
     } catch(e) {}
-    res.json({ memories: allMems, counts, heatStats: { high: heatHigh, mid: heatMid, low: heatLow }, profile, dreamLogs, pendingPromises });
+    const weeklies = loadWeeklySummaries().sort((a, b) => b.week.localeCompare(a.week)).slice(0, 5);
+    const monthlies = loadMonthlySummaries().sort((a, b) => b.month.localeCompare(a.month)).slice(0, 3);
+    res.json({ memories: allMems, counts, heatStats: { high: heatHigh, mid: heatMid, low: heatLow }, profile, dreamLogs, pendingPromises, weeklies, monthlies });
 });
 
 app.get('/memory-manager', (req, res) => {

@@ -127,6 +127,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC"
 <div class="filter-chips" id="filterChips"></div>
 <div class="stat-row"><span>共 <b id="arCount">0</b> 条</span><span>🔥 <b id="arHigh">0</b></span><span>🌡️ <b id="arMid">0</b></span><span>🧊 <b id="arLow">0</b></span><button class="btn-sm" onclick="sortByHeat()">按热度</button><button class="btn-sm" onclick="sortByTime()">按时间</button><button class="btn-sm gold" onclick="triggerCleanup()">🧹 AI清理</button></div>
 <div id="profileCard"></div>
+<div id="summaryCards"></div>
 <div id="archiveList"><div class="empty-state"><div class="empty-icon">💎</div><div class="empty-text">加载中...</div></div></div>
 </div>
 
@@ -162,7 +163,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC"
 <script>
 var PWD=new URLSearchParams(location.search).get('pwd')||'111111';
 var urlTab=new URLSearchParams(location.search).get('tab')||'timeline';
-var TL_MESSAGES=[],AR_MEMS=[],AR_COUNTS={},AR_HEAT={},PROFILE=null,PENDING_PROMISES='',activeTab='',DIARY_ENTRIES=[];
+var TL_MESSAGES=[],AR_MEMS=[],AR_COUNTS={},AR_HEAT={},PROFILE=null,PENDING_PROMISES='',WEEKLIES=[],MONTHLIES=[],activeTab='',DIARY_ENTRIES=[];
 var selectMode=false,selectedSet=new Set(),arCat='all',longPressTimer=null;
 
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000)}
@@ -226,12 +227,12 @@ function srcLabel(s){return({manual:'✍️手动',ai_active:'🤖AI',butler_sum
 async function loadArchive(){
   const r=await fetch('/api/longterm-page-data?pwd='+encodeURIComponent(PWD));
   if(!r.ok)return;const d=await r.json();
-  AR_MEMS=d.memories||[];AR_COUNTS=d.counts||{};AR_HEAT=d.heatStats||{};PROFILE=d.profile;PENDING_PROMISES=d.pendingPromises||'';
+  AR_MEMS=d.memories||[];AR_COUNTS=d.counts||{};AR_HEAT=d.heatStats||{};PROFILE=d.profile;PENDING_PROMISES=d.pendingPromises||'';WEEKLIES=d.weeklies||[];MONTHLIES=d.monthlies||[];
   document.getElementById('arCount').textContent=AR_MEMS.length;
   document.getElementById('arHigh').textContent=AR_HEAT.high||0;
   document.getElementById('arMid').textContent=AR_HEAT.mid||0;
   document.getElementById('arLow').textContent=AR_HEAT.low||0;
-  renderChips();renderProfile();renderArchive();
+  renderChips();renderProfile();renderSummaryCards();renderArchive();
 }
 function renderChips(){
   var chips=[
@@ -257,6 +258,31 @@ function renderProfile(){
   if(PENDING_PROMISES)h+='<p>📋 待办约定：'+PENDING_PROMISES.replace(/</g,'&lt;')+'</p>';
   h+='<button class="btn-sm gold" style="margin-top:8px" onclick="updateProfile()">🔄 更新画像</button></details>';
   document.getElementById('profileCard').innerHTML=h;
+}
+function renderSummaryCards(){
+  var el=document.getElementById('summaryCards');
+  if(!el)return;
+  var h='';
+  if(WEEKLIES.length>0){
+    h+='<details class="profile-card" style="border-left-color:var(--accent-blue)"><summary>📋 周总结 · 最近'+WEEKLIES.length+'周</summary>';
+    for(var i=0;i<WEEKLIES.length;i++){
+      var w=WEEKLIES[i];
+      h+='<p><b>'+w.week+'</b>：'+(w.summary||'').replace(/</g,'&lt;')+'</p>';
+      if(w.key_themes&&w.key_themes.length)h+='<p style="font-size:0.75em;color:var(--text-muted)">关键词：'+w.key_themes.join(' / ')+'</p>';
+    }
+    h+='</details>';
+  }
+  if(MONTHLIES.length>0){
+    h+='<details class="profile-card" style="border-left-color:var(--accent-purple)"><summary>📦 月总结 · 最近'+MONTHLIES.length+'月</summary>';
+    for(var i=0;i<MONTHLIES.length;i++){
+      var m=MONTHLIES[i];
+      h+='<p><b>'+m.month+'</b>：'+(m.summary||'').replace(/</g,'&lt;')+'</p>';
+      if(m.key_themes&&m.key_themes.length)h+='<p style="font-size:0.75em;color:var(--text-muted)">关键词：'+m.key_themes.join(' / ')+'</p>';
+      if(m.highlights&&m.highlights.length)h+='<p style="font-size:0.75em;color:var(--text-muted)">亮点：'+m.highlights.join(' / ')+'</p>';
+    }
+    h+='</details>';
+  }
+  el.innerHTML=h;
 }
 function renderArchive(){
   const kw=(document.getElementById('arSearch').value||'').toLowerCase();
