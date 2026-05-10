@@ -427,7 +427,7 @@ async function generateDailyPage(script) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
             body: JSON.stringify({
-                model: "gemini-2.5-flash",
+                model: "deepseek-chat",
                 messages: [{ role: "user", content: `根据以下聊天记录生成今日摘要（100-200字）、关键事件（1-5条）、情绪基调。输出纯JSON：{"summary":"","key_events":[],"emotional_tone":""}\n\n${script}` }],
                 response_format: { type: "json_object" }
             })
@@ -462,7 +462,7 @@ async function generateWeeklySummary() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
             body: JSON.stringify({
-                model: "gemini-2.5-flash",
+                model: "deepseek-chat",
                 messages: [{ role: "user", content: `基于以下日页面生成周总结（200-300字）：\n${input}\n输出纯JSON：{"summary":"","key_themes":[],"overall_tone":""}` }],
                 response_format: { type: "json_object" }
             })
@@ -494,7 +494,7 @@ async function generateMonthlySummary() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
             body: JSON.stringify({
-                model: "gemini-2.5-flash",
+                model: "deepseek-chat",
                 messages: [{ role: "user", content: `基于以下周总结生成月总结（300-500字）：\n${input}\n输出纯JSON：{"summary":"","key_themes":[],"highlights":[],"overall_tone":""}` }],
                 response_format: { type: "json_object" }
             })
@@ -1515,7 +1515,7 @@ ${chat}
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
             body: JSON.stringify({
-                model: "gemini-2.5-flash",
+                model: "deepseek-chat",
                 messages: [{ role: "user", content: prompt }],
                 response_format: { type: "json_object" }
             })
@@ -1573,7 +1573,7 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
             body: JSON.stringify({
-                model: "gemini-2.5-flash",
+                model: "deepseek-chat",
                 messages: [{ role: "system", content: buildDreamPrompt(script) }, { role: "user", content: `聊天记录：\n${script}` }],
                 response_format: { type: "json_object" }
             })
@@ -1678,7 +1678,7 @@ async function generateProactiveMessage() {
         const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
-            body: JSON.stringify({ model: 'gemini-2.5-flash', messages: msgs })
+            body: JSON.stringify({ model: 'deepseek-chat', messages: msgs })
         });
         if (!res.ok) return;
         const data = await res.json();
@@ -2617,17 +2617,15 @@ RP游戏卡带（${rpMemories.length}条）：${rpList || '（空）'}
 没有要删/合并的字段就给空数组。`;
 
     try {
-        const mpConfig = getModelPromptConfig('gemini');
-        const msgs = [];
-        if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
-        msgs.push({ role: 'user', content: prompt });
+        const msgs = [{ role: 'system', content: '你是记忆库管理助手。请审查记忆条目并返回JSON格式的清理方案。' }, { role: 'user', content: prompt }];
 
         const aiRes = await fetch('https://www.msuicode.com/v1/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
             body: JSON.stringify({
-                model: "gemini-2.5-flash",
-                messages: msgs
+                model: "deepseek-chat",
+                messages: msgs,
+                response_format: { type: "json_object" }
             })
         });
 
@@ -2805,7 +2803,7 @@ app.post('/api/web-chat', async (req, res) => {
                     { role: "user", content: userContent }
                 ];
 
-                const fetchBody = { model: model || 'gemini-2.5-flash', messages: apiMessages };
+                const fetchBody = { model: model || 'deepseek-chat', messages: apiMessages };
                 const isGemini = (model || '').toLowerCase().includes('gemini');
                 if (!isGemini) {
                     fetchBody.frequency_penalty = 0.4;
