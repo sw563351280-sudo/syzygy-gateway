@@ -1640,15 +1640,16 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
 async function generateProactiveMessage() {
     const now = Date.now();
     const hoursSince = (now - lastInteractionTime) / 3600000;
-    if (hoursSince < 2) return;
-    if (now - lastProactiveTime < 3 * 3600000) return;
+    if (hoursSince < 0.083) return; // 5分钟
+    if (now - lastProactiveTime < 10 * 60000) return; // 10分钟冷却
     const routerKey = process.env.ROUTER_API_KEY;
     if (!routerKey) return;
     console.log(`💌 [主动消息] 江鱼已${hoursSince.toFixed(1)}小时未互动`);
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
     // 组装真实上下文：系统人设 + 最近聊天记录 + 时机提示
-    const mpConfig = getModelPromptConfig('gemini');
+    const proactiveModel = 'deepseek-chat';
+    const mpConfig = getModelPromptConfig(proactiveModel);
     const msgs = [];
     if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
     msgs.push({ role: 'system', content: systemPrompt });
@@ -1670,7 +1671,7 @@ async function generateProactiveMessage() {
                 }
             }
         }
-    } catch(e) {}
+    } catch(e) { console.log(`💌 [主动消息] 读取上下文失败: ${e.message}`); }
 
     msgs.push({ role: 'user', content: `（系统提醒：江鱼已经${Math.floor(hoursSince)}小时没有消息了，现在是${timeStr}。你可以根据上下文自然地主动找她说几句话，不用太长。）` });
 
@@ -1678,12 +1679,12 @@ async function generateProactiveMessage() {
         const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
-            body: JSON.stringify({ model: 'deepseek-chat', messages: msgs })
+            body: JSON.stringify({ model: proactiveModel, messages: msgs })
         });
-        if (!res.ok) return;
+        if (!res.ok) { console.log(`💌 [主动消息] API返回${res.status}: ${await res.text().then(t=>t.substring(0,200))}`); return; }
         const data = await res.json();
         let content = (data.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-        if (!content || content.length < 2) return;
+        if (!content || content.length < 2) { console.log(`💌 [主动消息] 空内容，原始: ${JSON.stringify(data).substring(0, 200)}`); return; }
         console.log(`💌 [主动消息] ${content}`);
         insertProactiveToConfig(content);
         wsBroadcast({ type: 'proactive_message', content, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), fullTime: new Date().toISOString() });
@@ -3120,6 +3121,6 @@ server.listen(PORT, () => {
     startAllMCPServers();
     cleanAndArchiveMemories();
     setInterval(cleanAndArchiveMemories, 6 * 60 * 60 * 1000);
-    setInterval(generateProactiveMessage, 60 * 60 * 1000);
-    setTimeout(generateProactiveMessage, 5 * 60 * 1000);
+    setInterval(generateProactiveMessage, 5 * 60 * 1000); // 每5分钟检查
+    setTimeout(generateProactiveMessage, 30 * 1000); // 启动30秒后首次检查
 });
