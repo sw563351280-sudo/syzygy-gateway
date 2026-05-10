@@ -1647,14 +1647,9 @@ async function generateProactiveMessage() {
     console.log(`💌 [主动消息] 江鱼已${hoursSince.toFixed(1)}小时未互动`);
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
-    // 组装真实上下文：系统人设 + 最近聊天记录 + 时机提示
-    const proactiveModel = 'deepseek-chat';
-    const mpConfig = getModelPromptConfig(proactiveModel);
-    const msgs = [];
-    if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
-    msgs.push({ role: 'system', content: systemPrompt });
-
-    // 拿最近10条聊天记录作为上下文
+    // 读取最近聊天记录 + 获取最后使用的模型
+    let proactiveModel = 'deepseek-chat';
+    const recentMsgs = [];
     try {
         const configPath = path.join(DATA_DIR, 'web_config.json');
         if (fs.existsSync(configPath)) {
@@ -1666,13 +1661,24 @@ async function generateProactiveMessage() {
                     const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
                     const c = v.content || m.content || '';
                     if (typeof c === 'string' && c.trim()) {
-                        msgs.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: c });
+                        recentMsgs.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: c });
+                        if (m.role === 'assistant' && v.model && v.model !== 'proactive') {
+                            proactiveModel = v.model;
+                        }
                     }
                 }
             }
         }
     } catch(e) { console.log(`💌 [主动消息] 读取上下文失败: ${e.message}`); }
 
+    // 组装上下文
+    const mpConfig = getModelPromptConfig(proactiveModel);
+    const msgs = [];
+    if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
+    msgs.push({ role: 'system', content: systemPrompt });
+    for (const m of recentMsgs) msgs.push(m);
+
+    console.log(`💌 [主动消息] 使用模型: ${proactiveModel}`);
     msgs.push({ role: 'user', content: `（系统提醒：江鱼已经${Math.floor(hoursSince)}小时没有消息了，现在是${timeStr}。你可以根据上下文自然地主动找她说几句话，不用太长。）` });
 
     try {
