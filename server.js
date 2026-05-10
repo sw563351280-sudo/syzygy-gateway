@@ -2624,8 +2624,7 @@ RP游戏卡带（${rpMemories.length}条）：${rpList || '（空）'}
             headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
             body: JSON.stringify({
                 model: "deepseek-chat",
-                messages: msgs,
-                response_format: { type: "json_object" }
+                messages: msgs
             })
         });
 
