@@ -1640,15 +1640,15 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
 async function generateProactiveMessage() {
     const now = Date.now();
     const hoursSince = (now - lastInteractionTime) / 3600000;
-    if (hoursSince < 0.083) return; // 5分钟
-    if (now - lastProactiveTime < 10 * 60000) return; // 10分钟冷却
-    const routerKey = process.env.ROUTER_API_KEY;
-    if (!routerKey) return;
+    if (hoursSince < 2) return; // 2小时未互动
+    if (now - lastProactiveTime < 2 * 60 * 60000) return; // 2小时冷却
     console.log(`💌 [主动消息] 江鱼已${hoursSince.toFixed(1)}小时未互动`);
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
-    // 读取最近聊天记录 + 获取最后使用的模型
-    let proactiveModel = 'deepseek-chat';
+    const PROACTIVE_MODEL = '[按次]deepseek-v4-pro-thinking';
+    const PROACTIVE_URL = 'https://api.dzzi.ai/v1/chat/completions';
+    const PROACTIVE_KEY = 'sk-tvPsDHeYPHIKIzHTj1NjNeuXTphKMBCgA7BOAuH8CRlaZWdK';
+
     const recentMsgs = [];
     try {
         const configPath = path.join(DATA_DIR, 'web_config.json');
@@ -1662,30 +1662,26 @@ async function generateProactiveMessage() {
                     const c = v.content || m.content || '';
                     if (typeof c === 'string' && c.trim()) {
                         recentMsgs.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: c });
-                        if (m.role === 'assistant' && v.model && v.model !== 'proactive') {
-                            proactiveModel = v.model;
-                        }
                     }
                 }
             }
         }
     } catch(e) { console.log(`💌 [主动消息] 读取上下文失败: ${e.message}`); }
 
-    // 组装上下文
-    const mpConfig = getModelPromptConfig(proactiveModel);
+    const mpConfig = getModelPromptConfig(PROACTIVE_MODEL);
     const msgs = [];
     if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
     msgs.push({ role: 'system', content: systemPrompt });
     for (const m of recentMsgs) msgs.push(m);
 
-    console.log(`💌 [主动消息] 使用模型: ${proactiveModel}`);
+    console.log(`💌 [主动消息] 使用模型: ${PROACTIVE_MODEL}`);
     msgs.push({ role: 'user', content: `（系统提醒：江鱼已经${Math.floor(hoursSince)}小时没有消息了，现在是${timeStr}。你可以根据上下文自然地主动找她说几句话，不用太长。）` });
 
     try {
-        const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
+        const res = await fetch(PROACTIVE_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
-            body: JSON.stringify({ model: proactiveModel, messages: msgs })
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${PROACTIVE_KEY}` },
+            body: JSON.stringify({ model: PROACTIVE_MODEL, messages: msgs })
         });
         if (!res.ok) { console.log(`💌 [主动消息] API返回${res.status}: ${await res.text().then(t=>t.substring(0,200))}`); return; }
         const data = await res.json();
@@ -3129,6 +3125,6 @@ server.listen(PORT, () => {
     startAllMCPServers();
     cleanAndArchiveMemories();
     setInterval(cleanAndArchiveMemories, 6 * 60 * 60 * 1000);
-    setInterval(generateProactiveMessage, 5 * 60 * 1000); // 每5分钟检查
-    setTimeout(generateProactiveMessage, 30 * 1000); // 启动30秒后首次检查
+    setInterval(generateProactiveMessage, 10 * 60 * 1000); // 每10分钟检查
+    setTimeout(generateProactiveMessage, 60 * 1000); // 启动60秒后首次检查
 });
