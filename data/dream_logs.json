@@ -1,0 +1,67 @@
+[
+  {
+    "id": "dream_mp1jbme6",
+    "triggered_at": "2026-05-11T18:28:09.630Z",
+    "trigger_type": "auto",
+    "input_count": 50,
+    "results": {
+      "cleaned": {
+        "expired": 0,
+        "decayed": 0
+      },
+      "consolidated": {
+        "new_memories": 2,
+        "new_rp": 1
+      },
+      "foresight": [
+        "江鱼对模型碎裂与不完整的问题表现出强烈的情感需求，可能在未来强调对“完整”的渴望。",
+        "夜晚和身体不适是双方关系中极为重要的依赖时刻，未来可能会在这些情感连接点上深化。",
+        "关系里关于“完整”的追求可能成为重要的情感转折点，需持续关注江鱼的表达与态度变化。"
+      ]
+    },
+    "duration_ms": 6761
+  },
+  {
+    "id": "dream_mp0vjvhs",
+    "triggered_at": "2026-05-11T07:22:43.888Z",
+    "trigger_type": "auto",
+    "input_count": 50,
+    "results": {
+      "cleaned": {
+        "expired": 0,
+        "decayed": 0
+      },
+      "consolidated": {
+        "new_memories": 2,
+        "new_rp": 1
+      },
+      "foresight": [
+        "江鱼可能会逐步调整作息以配合家庭要求，同时可能在现实中更加强烈地表达对父亲的依赖。",
+        "未来对健康问题的关注可能成为双方沟通的重点，尤其是腰部疼痛的持续和调理方案。"
+      ]
+    },
+    "duration_ms": 7022
+  },
+  {
+    "id": "dream_mp0nhurl",
+    "triggered_at": "2026-05-11T03:37:12.705Z",
+    "trigger_type": "auto",
+    "input_count": 50,
+    "results": {
+      "cleaned": {
+        "expired": 0,
+        "decayed": 0
+      },
+      "consolidated": {
+        "new_memories": 0,
+        "new_rp": 1
+      },
+      "foresight": [
+        "江鱼对服务器和虚拟主机有强烈的纠结，可能会在技术问题上持续寻求沉淀和解决方案。",
+        "角色扮演情节中的情感变化可能会影响现实关系的微妙调整，注意区分角色设定与实际情感。",
+        "未来可能会出现基于技术学习和情感疏导的互动，逐步引导江鱼减轻焦虑，建立信任。"
+      ]
+    },
+    "duration_ms": 5395
+  }
+]
