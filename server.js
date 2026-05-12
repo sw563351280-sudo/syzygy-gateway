@@ -1313,10 +1313,7 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
 }
 
 // MCP Server 配置：{ name, command, args[], env? }
-const MCP_SERVERS = [
-    { name: 'filesystem',     command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/app/data'] },
-    { name: 'brave-search',   command: 'npx', args: ['-y', '@modelcontextprotocol/server-brave-search'], env: { BRAVE_API_KEY: process.env.BRAVE_API_KEY || '' } }
-];
+const MCP_SERVERS = [];
 const mcpConnections = new Map(); // name → { process, tools, buffer }
 
 function startMCPServer(config) {
