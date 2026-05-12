@@ -1313,7 +1313,9 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
 }
 
 // MCP Server 配置：{ name, command, args[], env? }
-const MCP_SERVERS = [];
+const MCP_SERVERS = [
+    { name: 'filesystem', command: 'node', args: ['node_modules/@modelcontextprotocol/server-filesystem/dist/index.js', '/opt/syzygy'] }
+];
 const mcpConnections = new Map(); // name → { process, tools, buffer }
 
 function startMCPServer(config) {
