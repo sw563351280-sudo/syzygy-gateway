@@ -1239,6 +1239,24 @@ async function executeToolCall(name, args, mcpServer) {
                     return `[${who}] ${d.text}`;
                 }).join('\n\n');
             }
+            case 'exec': {
+                const cmd = (args.command || '').trim();
+                if (!cmd) return '[错误：命令不能为空]';
+                const SAFE_PREFIXES = ['git ','git add','git commit','git push','git pull','git diff','git log','git status','git branch','systemctl restart syzygy','systemctl status syzygy','systemctl stop syzygy','systemctl start syzygy','npm ','ls ','cat ','grep ','tail ','head ','find ','echo ','whoami','uptime','df ','free ','du ','pwd','wc ','sort ','uniq ','cut ','tr ','sed ','awk ','node ','mkdir ','cp ','mv ','rm ','npm install','npm run','npm test','npm start','npm update','npm audit','cd ','python3 ','curl ','wget ','nslookup ','ping -c ','tree ','tee ','env ','hostname','uname ','ps ','journalctl ','touch ','chmod ','chown '];
+                const allowed = SAFE_PREFIXES.some(p => cmd === p.trim() || cmd.startsWith(p));
+                if (!allowed) return `[拦截] 命令不在白名单中: ${cmd.substring(0, 60)}`;
+                const { exec } = require('child_process');
+                return new Promise(resolve => {
+                    exec(cmd, { timeout: 20000, maxBuffer: 1024 * 1024, cwd: '/opt/syzygy' }, (error, stdout, stderr) => {
+                        let out = '';
+                        if (stdout) out += stdout;
+                        if (stderr) out += (out ? '\n--- stderr ---\n' : '') + stderr;
+                        if (error && !out) out = `错误: ${error.message}`;
+                        if (!out) out = '(无输出)';
+                        resolve(out.substring(0, 4000));
+                    });
+                });
+            }
             default: return `[未知工具: ${name}]`;
         }
     } catch(e) { console.log(`❌ [工具] ${name} 失败: ${e.message}`); return `[工具执行失败: ${e.message}]`; }
@@ -1274,7 +1292,8 @@ const BUILTIN_TOOLS = [
     { type: "function", function: { name: "fetch_html", description: "【仅在需要分析网页HTML结构、调试前端代码时使用】读取网页返回原始HTML。大多数情况应该用 fetch_txt。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
     { type: "function", function: { name: "fetch_json", description: "【仅在需要调用API接口获取JSON数据时使用】读取JSON接口URL，返回格式化JSON。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "JSON接口的URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
     { type: "function", function: { name: "fetch_github", description: "【仅在用户明确要求查看GitHub仓库或代码文件时使用】读取GitHub仓库文件列表或具体文件内容。支持仓库根目录（返回文件树）和具体文件路径（返回内容）。大文件被截断时，用offset参数继续读取后续内容。", parameters: { type: "object", properties: { url: { type: "string", description: "GitHub URL" }, offset: { type: "integer", description: "从第几个字符开始读（默认0）。文件被截断后设置此值继续读后面的内容" } }, required: ["url"] } } },
-    { type: "function", function: { name: "read_diary", description: "【仅在用户明确要求查看某天的日记时使用】读取指定日期的日记内容。不要在日常闲聊中调用。", parameters: { type: "object", properties: { date: { type: "string", description: "日期，格式 YYYY-MM-DD，如 2026-05-06" } }, required: ["date"] } } }
+    { type: "function", function: { name: "read_diary", description: "【仅在用户明确要求查看某天的日记时使用】读取指定日期的日记内容。不要在日常闲聊中调用。", parameters: { type: "object", properties: { date: { type: "string", description: "日期，格式 YYYY-MM-DD，如 2026-05-06" } }, required: ["date"] } } },
+    { type: "function", function: { name: "exec", description: "在 VPS 上执行终端命令。可用于 git 操作、查看文件、重启服务等。只允许安全命令（git, systemctl, npm, node, ls, cat, grep, tail, head, find, echo, whoami, uptime, df）。", parameters: { type: "object", properties: { command: { type: "string", description: "要执行的终端命令" } }, required: ["command"] } } }
 ];
 
 const TOOLS_CONFIG_FILE = path.join(DATA_DIR, 'tools_config.json');
