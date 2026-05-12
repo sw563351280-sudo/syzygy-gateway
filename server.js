@@ -2016,13 +2016,14 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
         let maxToolRounds = 8, lastToolSig = '';
         const isStreamMode = body.stream;
-        if (isStreamMode) {
-            res.setHeader('Content-Type', 'text/event-stream');
-            res.setHeader('Cache-Control', 'no-cache');
-            res.setHeader('Connection', 'keep-alive');
-            body.stream = false; // 工具轮次内部用非流式
-        }
+        let streamingSetup = false;
         while (maxToolRounds-- > 0 && filteredTools.length > 0) {
+            if (isStreamMode && !streamingSetup) {
+                res.setHeader('Content-Type', 'text/event-stream');
+                res.setHeader('Cache-Control', 'no-cache');
+                res.setHeader('Connection', 'keep-alive');
+                streamingSetup = true;
+            }
             const toolBody = JSON.parse(JSON.stringify(body));
             toolBody.stream = false;
             toolBody.tools = filteredTools.map(t => { const { _mcp, ...clean } = t; return clean; });
