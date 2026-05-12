@@ -1818,6 +1818,13 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 const { tool_calls, ...clean } = msg;
                 return clean;
             }
+            // 清除用户消息里的 base64 图片（DeepSeek 等模型不支持）
+            if (msg.role === 'user' && Array.isArray(msg.content)) {
+                return { ...msg, content: msg.content.filter(p => p.type !== 'image_url') };
+            }
+            if (msg.role === 'user' && typeof msg.content === 'string' && msg.content.includes('data:image')) {
+                return { ...msg, content: '（发送了图片）' };
+            }
             return msg;
         });
             const lastUserMsg = [...cleanMessages].reverse().find(m => m.role === 'user');
