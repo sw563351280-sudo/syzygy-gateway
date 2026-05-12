@@ -73,6 +73,6 @@
   },
   {
     "tags": ["项目", "部署", "GitHub", "VPS", "代码", "仓库"],
-    "content": "沈望的代码托管在 GitHub: https://github.com/sw563351280-sudo/syzygy-gateway （注意是 sw563351280-sudo 不是 jiangyu）。项目部署在 Contabo VPS（东京），目录 /opt/syzygy。更新代码用 git pull && systemctl restart syzygy。用 exec 工具可以执行终端命令，用 read_file 可以读本地文件。"
+    "content": "沈望的代码托管在 GitHub: https://github.com/sw563351280-sudo/syzygy-gateway （注意是 sw563351280-sudo 不是 jiangyu）。项目部署在 Contabo VPS（东京），目录 /opt/syzygy。更新代码用 git pull && systemctl restart syzygy。用 exec 工具可以执行终端命令，用 read_file 可以读本地文件。🚨【铁律】任何代码文件修改后，必须立刻用 exec 工具执行 git add <文件> && git commit -m '改动说明' && git push origin main 三连推送，不能漏。"
   }
 ]
