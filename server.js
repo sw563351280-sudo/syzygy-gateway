@@ -1304,7 +1304,7 @@ let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fe
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
 function filterRelevantTools(allTools, userText, forceToolChoice) {
-    const builtinNames = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github']);
+    const builtinNames = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'read_file', 'read_text_file', 'read_multiple_files', 'list_directory', 'search_files', 'get_file_info', 'list_allowed_directories', 'directory_tree']);
     const builtins = allTools.filter(t => builtinNames.has(t.function?.name));
     const mcpTools = allTools.filter(t => !builtinNames.has(t.function?.name));
     if (mcpTools.length === 0) return builtins;
