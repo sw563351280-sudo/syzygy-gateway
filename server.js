@@ -2015,6 +2015,13 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         const filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
         console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
         let maxToolRounds = 8, lastToolSig = '';
+        const isStreamMode = body.stream;
+        if (isStreamMode) {
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+            body.stream = false; // 工具轮次内部用非流式
+        }
         while (maxToolRounds-- > 0 && filteredTools.length > 0) {
             const toolBody = JSON.parse(JSON.stringify(body));
             toolBody.stream = false;
@@ -2036,7 +2043,9 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                     console.log(`🔧 [工具] 模型不支持FC(${errStatus})，降级`);
                     break;
                 }
-                return res.status(errStatus).json({ error: "模型报错：" + await toolResponse.text() });
+                const errText = await toolResponse.text();
+                if (isStreamMode) { res.write(`data: [ERROR]${errText.substring(0,500)}\n\n`); res.end(); return; }
+                return res.status(errStatus).json({ error: "模型报错：" + errText });
             }
 
             const toolData = await toolResponse.json();
@@ -2055,37 +2064,45 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                 for (const tc of curMessage.tool_calls) {
                     let fnArgs = {};
                     try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
-                    const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name); const result = await executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null);
+                    const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name);
+                    const startTime = Date.now();
+                    const result = await executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null);
+                    const elapsed = Date.now() - startTime;
+                    if (isStreamMode) {
+                        res.write(`data: ${JSON.stringify({ type: 'tool_call', name: tc.function.name, arguments: fnArgs, result: result.substring(0, 5000), elapsed })}\n\n`);
+                    }
                     body.messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
                 }
                 continue;
             }
 
-            // 没有 tool_calls → 这是最终回复
+            // 没有 tool_calls → 最终回复
             console.log(`🔧 [工具] ${roundLabel}AI返回最终回复`);
             const aiContent = curMessage?.content || '';
-            if (body.stream) {
-                res.setHeader('Content-Type', 'text/event-stream');
-                res.setHeader('Cache-Control', 'no-cache');
-                res.setHeader('Connection', 'keep-alive');
-                const chunk = { id: toolData.id || 'chatcmpl-tool', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { content: aiContent }, finish_reason: 'stop' }] };
-                res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+
+            const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(aiContent);
+            for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+            const finalContent = ntMems.length > 0 ? ntClean : aiContent;
+
+            if (isStreamMode) {
+                // 流式：直接把最终回复切成 SSE chunks 发出
+                const chunkId = toolData.id || 'chatcmpl-tool';
+                const created = Math.floor(Date.now()/1000);
+                const chars = finalContent.split('');
+                for (let i = 0; i < chars.length; i += 8) {
+                    const delta = chars.slice(i, i + 8).join('');
+                    res.write(`data: ${JSON.stringify({ id: chunkId, object: 'chat.completion.chunk', created, model: body.model, choices: [{ index: 0, delta: { content: delta }, finish_reason: null }] })}\n\n`);
+                }
+                res.write(`data: ${JSON.stringify({ id: chunkId, object: 'chat.completion.chunk', created, model: body.model, choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }] })}\n\n`);
                 res.write('data: [DONE]\n\n');
                 res.end();
                 if (!noMemory) {
-                    const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(aiContent);
-                    for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
-                    await saveToZepWithCounter(currentUserMsgText, ntClean, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
+                    await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);
                 }
                 return;
             } else {
-                const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(aiContent);
-                if (!noMemory) {
-                    for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
-                }
                 if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
-                const finalContent = ntMems.length > 0 ? ntClean : aiContent;
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);

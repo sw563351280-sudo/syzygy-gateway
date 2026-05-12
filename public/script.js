@@ -670,9 +670,22 @@ try {
                     if (!line.startsWith("data: ")) continue;
                     const dataStr = line.replace("data: ", "").trim();
                     if (dataStr === "[DONE]") continue;
+                    if (dataStr.startsWith("[ERROR]")) { sDiv.innerHTML = '【通讯中断】服务器返回: ' + dataStr.replace('[ERROR]',''); return; }
 
                     try {
                         const parsed = JSON.parse(dataStr);
+
+                        // 🔧 工具调用事件
+                        if (parsed.type === 'tool_call') {
+                            const toolBox = document.createElement('div');
+                            toolBox.className = 'tool-call-box';
+                            const resultPreview = (parsed.result || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            toolBox.innerHTML = `<div class="tool-call-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';this.classList.toggle('tool-collapsed')"><span class="tool-call-icon">🔧</span> <b>${parsed.name}</b> <span class="tool-call-args">${JSON.stringify(parsed.arguments||{}).replace(/</g,'&lt;').substring(0,80)}</span> <span class="tool-call-elapsed">${parsed.elapsed||0}ms</span></div><div class="tool-call-result" style="display:none"><pre>${resultPreview}</pre></div>`;
+                            sDiv.appendChild(toolBox);
+                            win.scrollTop = win.scrollHeight;
+                            continue;
+                        }
+
                         const delta = parsed.choices[0].delta;
                         
                         // 1. 处理推理内容 (reasoning_content) - 如果模型支持

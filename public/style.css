@@ -1424,3 +1424,40 @@ body[data-view="chat"] #themeToggleBtn{display:none!important}
 
 /* ═══ 隐藏 Syzygy Line 连线 ═══ */
 #syzygy-line-svg{display:none!important}
+
+/* ═══ 工具调用框 ═══ */
+.tool-call-box {
+  margin: 6px 0 6px 12px;
+  border-left: 2px solid #4fc3f7;
+  border-radius: 0 6px 6px 0;
+  background: rgba(79,195,247,0.06);
+  font-size: 0.82em;
+}
+.tool-call-header {
+  padding: 6px 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #4fc3f7;
+  user-select: none;
+}
+.tool-call-header:hover { background: rgba(79,195,247,0.1); }
+.tool-call-header.tool-collapsed .tool-call-icon { transform: rotate(-90deg); }
+.tool-call-icon { transition: transform 0.15s; display: inline-block; }
+.tool-call-args { color: #888; font-size: 0.85em; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-call-elapsed { color: #666; font-size: 0.8em; margin-left: auto; }
+.tool-call-result { padding: 6px 10px 10px; }
+.tool-call-result pre {
+  margin: 0;
+  padding: 8px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 4px;
+  color: #bbb;
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  line-height: 1.4;
+}
