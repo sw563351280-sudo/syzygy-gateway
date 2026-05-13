@@ -2014,7 +2014,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         }
         const filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
         console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
-        let maxToolRounds = 8, lastToolSig = '';
+        let maxToolRounds = 12, lastToolSig = '';
         const isStreamMode = body.stream;
         let streamingSetup = false;
         while (maxToolRounds-- > 0 && filteredTools.length > 0) {
@@ -2128,13 +2128,20 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         }
 
         const response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
-        if (!response.ok) return res.status(response.status).json({ error: "模型报错：" + await response.text() });
+        if (!response.ok) {
+            const errText = await response.text();
+            if (isStreamMode) { res.write(`data: [ERROR]${errText.substring(0,500)}\n\n`); res.end(); return; }
+            return res.status(response.status).json({ error: "模型报错：" + errText });
+        }
 
         // 流式与非流式处理
         if (body.stream) {
-            res.setHeader('Content-Type', 'text/event-stream');
-            res.setHeader('Cache-Control', 'no-cache');
-            res.setHeader('Connection', 'keep-alive');
+            if (!streamingSetup) {
+                res.setHeader('Content-Type', 'text/event-stream');
+                res.setHeader('Cache-Control', 'no-cache');
+                res.setHeader('Connection', 'keep-alive');
+                streamingSetup = true;
+            }
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let sseBuffer = ''; let contentBuffer = ''; let isBuffering = false; let lastChunkTemplate = null; let fullAiResponse = '';
