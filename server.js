@@ -2594,15 +2594,27 @@ app.delete('/delete-memory/:uuid', async (req, res) => {
 app.get('/api/memory-page-data', async (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     try {
-        const [memoryRes, sessionRes] = await Promise.all([
-            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`),
-            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`)
-        ]);
-        const memoryData = memoryRes.ok ? await memoryRes.json() : { messages: [] };
-        const sessionData = sessionRes.ok ? await sessionRes.json() : {};
+        // 从本地聊天记录读取时间线
+        const configPath = path.join(DATA_DIR, 'web_config.json');
+        let messages = [];
+        if (fs.existsSync(configPath)) {
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            const mainS = (config.chatSessions || []).find(s => s.id === 'main');
+            if (mainS?.messages) {
+                messages = mainS.messages.slice(-200).map((m, i) => {
+                    const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
+                    return {
+                        uuid: `msg_${i}`,
+                        created_at: v.fullTime || m.fullTime || new Date().toISOString(),
+                        role: m.role === 'assistant' ? 'ai' : 'user',
+                        content: typeof v.content === 'string' ? v.content : JSON.stringify(v.content || m.content || '')
+                    };
+                });
+            }
+        }
         const dreamLogs = loadDreamLogs();
         const lastDreamTime = dreamLogs.length > 0 ? new Date(dreamLogs[dreamLogs.length - 1].triggered_at).toLocaleString('zh-CN') : '从未';
-        res.json({ messages: memoryData.messages || [], summary: memoryData.summary?.content || '', currentState: sessionData.metadata?.current_state || null, ltMemCount: loadLongTermMemories().length + loadArchivedMemories().length + loadRoleplayMemories().length, lastDreamTime });
+        res.json({ messages, summary: '', currentState: null, ltMemCount: loadLongTermMemories().length + loadArchivedMemories().length + loadRoleplayMemories().length, lastDreamTime });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
