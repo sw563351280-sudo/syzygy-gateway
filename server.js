@@ -18,7 +18,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
 
 const CONTRADICTION_DETECTION_ENABLED = true;
-const ZEP_URL = "https://syzymer.zeabur.app";
+const ZEP_URL = 'http://127.0.0.1:9999'; // Zep已废弃，指向本地不存在的端口快速失败
 const SESSION_ID = "syzygy_01";
 
 const API_ROUTES = {
@@ -1263,6 +1263,7 @@ async function executeToolCall(name, args, mcpServer) {
 }
 
 async function saveToZep(userMsg, aiMsg) {
+    if (!ZEP_URL) return;
     try {
         await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`, {
             method: 'POST',
@@ -1837,12 +1838,15 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         let vectorSearchContext = "";
         if (currentUserMsgText && currentUserMsgText.length > 4) {
             try {
-                const searchRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/search`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: currentUserMsgText, search_scope: "messages", search_type: "similarity", limit: 5 })
-                });
-                if (searchRes.ok) {
+                let searchRes = null;
+                if (ZEP_URL) {
+                    searchRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/search`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: currentUserMsgText, search_scope: "messages", search_type: "similarity", limit: 5 })
+                    });
+                }
+                if (searchRes && searchRes.ok) {
                     const searchData = await searchRes.json();
                     const relevantMemories = (searchData.results || []).filter(r => r.score > 0.72);
                     if (relevantMemories.length > 0) {
@@ -1856,10 +1860,10 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             } catch(e) {}
         }
 
-        const [zepRes, sessionRes] = await Promise.all([
+        const [zepRes, sessionRes] = ZEP_URL ? await Promise.all([
             fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`).catch(() => null),
             fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
-        ]);
+        ]) : [null, null];
 
         let memoryContext = vectorSearchContext;
         let zepLastUserContent = "";
@@ -2768,10 +2772,10 @@ app.post('/api/web-chat', async (req, res) => {
             let zepLastUserContent = "";
 
             try {
-                const [zepRes, sessionRes] = await Promise.all([
+                const [zepRes, sessionRes] = ZEP_URL ? await Promise.all([
                     fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null),
                     fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
-                ]);
+                ]) : [null, null];
                 if (zepRes?.ok) {
                     const zepData = await zepRes.json();
                     zepMessages = zepData.messages || [];
@@ -2799,12 +2803,15 @@ app.post('/api/web-chat', async (req, res) => {
 
                 let vectorSearchContext = "";
                 if (text && text.length > 4) {
-                    const searchRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/search`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text: text, search_scope: "messages", search_type: "similarity", limit: 5 })
-                    });
-                    if (searchRes.ok) {
+                    let searchRes2 = null;
+                    if (ZEP_URL) {
+                        searchRes2 = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/search`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ text: text, search_scope: "messages", search_type: "similarity", limit: 5 })
+                        });
+                    }
+                    if (searchRes2 && searchRes2.ok) {
                         const searchData = await searchRes.json();
                         const relevantMemories = (searchData.results || []).filter(r => r.score > 0.72);
                         if (relevantMemories.length > 0) {
