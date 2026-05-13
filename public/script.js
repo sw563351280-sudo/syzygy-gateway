@@ -571,7 +571,7 @@ async function sendChat() {
     // ✅ 修改后的代码：界面里依然存着 200 条，但我们只挑最近的 20 条发给沈望
 // .slice(-21, -1) 的意思是从最后数第 31 条开始，取到倒数第 2 条
 // 这样沈望既能记得刚刚聊了什么，又不会因为看太多废话而烧掉你的 Token
-var historyMsgs = session.messages.slice(-51, -1).map(function(m) {
+var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
     var v = getActiveVersion(m);
     var safeContent = v.content;
     if (Array.isArray(v.content)) {
