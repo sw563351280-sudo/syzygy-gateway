@@ -603,8 +603,10 @@ try {
 
         const controller = new AbortController();
 
-        var silenceTimer = setTimeout(() => controller.abort(), 90000);
-        function resetSilenceTimer() { clearTimeout(silenceTimer); silenceTimer = setTimeout(() => controller.abort(), 90000); }
+        const useToolsTO = document.getElementById('useToolsToggle')?.checked;
+        const toolTimeout = useToolsTO ? 300000 : 120000;
+        var silenceTimer = setTimeout(() => controller.abort(), toolTimeout);
+        function resetSilenceTimer() { clearTimeout(silenceTimer); silenceTimer = setTimeout(() => controller.abort(), toolTimeout); }
 
         const response = await fetch(apiUrl, {
             method: 'POST',
