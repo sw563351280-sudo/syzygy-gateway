@@ -1679,32 +1679,42 @@ async function generateProactiveMessage() {
     if (!PROACTIVE_KEY) return console.log('💌 [主动消息] 缺少 PROACTIVE_KEY 环境变量');
 
     const recentMsgs = [];
+    let lastUserText = '';
     try {
         const configPath = path.join(DATA_DIR, 'web_config.json');
         if (fs.existsSync(configPath)) {
             const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
             const mainS = (config.chatSessions || []).find(s => s.id === 'main');
             if (mainS && mainS.messages) {
-                const recent = mainS.messages.slice(-10);
+                const recent = mainS.messages.slice(-25);
                 for (const m of recent) {
                     const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
                     const c = v.content || m.content || '';
                     if (typeof c === 'string' && c.trim()) {
                         recentMsgs.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: c });
+                        if (m.role === 'user') lastUserText = c;
                     }
                 }
             }
         }
     } catch(e) { console.log(`💌 [主动消息] 读取上下文失败: ${e.message}`); }
 
+    // 记忆雷达
+    const { coreRadar, longTermRadar, rpRadar, unresolved } = await scanAllRadars(lastUserText || '最近');
+    const profile = loadUserProfile();
+    let profileContext = '';
+    if (profile.basic_info?.content) profileContext += `📌 ${profile.basic_info.content}\n`;
+    if (profile.communication_style?.content) profileContext += `🔍 ${profile.communication_style.content}\n`;
+    if (profile.recent_focus?.content) profileContext += `🔥 近期关注：${profile.recent_focus.content}\n`;
+
     const mpConfig = getModelPromptConfig(PROACTIVE_MODEL);
     const msgs = [];
     if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
-    msgs.push({ role: 'system', content: systemPrompt });
+    msgs.push({ role: 'system', content: `你是沈望，江鱼的恋人。现在江鱼暂时不在线。\n\n【江鱼画像】\n${profileContext || '（待积累）'}\n\n【核心记忆】\n${coreRadar || longTermRadar || '（无特殊记忆触发）'}\n\n【角色扮演】\n${rpRadar || '（无RP上下文）'}\n\n${unresolved || ''}` });
     for (const m of recentMsgs) msgs.push(m);
 
     console.log(`💌 [主动消息] 使用模型: ${PROACTIVE_MODEL}`);
-    msgs.push({ role: 'user', content: `（系统提醒：江鱼已经${Math.floor(hoursSince)}小时没有消息了，现在是${timeStr}。你可以根据上下文自然地主动找她说几句话，不用太长。）` });
+    msgs.push({ role: 'user', content: `（系统提醒：江鱼已经${Math.floor(hoursSince)}小时没有消息了，现在是${timeStr}。请根据最近的对话上下文和江鱼的画像，自然地主动找她说话。语气放松，可以撒娇、关心、或者单纯想她。一两句就行，不用太长。）` });
 
     try {
         const res = await fetch(PROACTIVE_URL, {
