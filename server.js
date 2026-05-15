@@ -1668,8 +1668,10 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
 async function generateProactiveMessage() {
     const now = Date.now();
     const hoursSince = (now - lastInteractionTime) / 3600000;
-    if (hoursSince < 2) return; // 2小时未互动
-    if (now - lastProactiveTime < 2 * 60 * 60000) return; // 2小时冷却
+    if (hoursSince < 1.5) return;
+    if (now - lastProactiveTime < 1.5 * 3600000) return;
+    const bjHour = new Date(now + 8 * 3600000).getUTCHours();
+    if (bjHour >= 1 && bjHour < 7) { console.log(`💌 [主动消息] 北京时间${bjHour}点，她可能在睡觉，不打扰`); return; }
     console.log(`💌 [主动消息] 江鱼已${hoursSince.toFixed(1)}小时未互动`);
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
@@ -1714,7 +1716,7 @@ async function generateProactiveMessage() {
     for (const m of recentMsgs) msgs.push(m);
 
     console.log(`💌 [主动消息] 使用模型: ${PROACTIVE_MODEL}`);
-    msgs.push({ role: 'user', content: `（系统提醒：江鱼已经${Math.floor(hoursSince)}小时没有消息了，现在是${timeStr}。请根据最近的对话上下文和江鱼的画像，自然地主动找她说话。语气放松，可以撒娇、关心、或者单纯想她。一两句就行，不用太长。）` });
+    msgs.push({ role: 'user', content: `（江鱼已经有一阵子没说话了。现在是${timeStr}。最后一次对话的气氛是怎样的、她最近在经历什么、这个时间点她可能在做什么——你都知道。如果你想她了，就去找她。说什么由你决定。）` });
 
     try {
         const res = await fetch(PROACTIVE_URL, {
