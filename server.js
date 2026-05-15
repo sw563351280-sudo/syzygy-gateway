@@ -1670,13 +1670,11 @@ async function generateProactiveMessage() {
     const hoursSince = (now - lastInteractionTime) / 3600000;
     if (hoursSince < 1.5) return;
     if (now - lastProactiveTime < 1.5 * 3600000) return;
-    const bjHour = new Date(now + 8 * 3600000).getUTCHours();
-    if (bjHour >= 1 && bjHour < 7) { console.log(`💌 [主动消息] 北京时间${bjHour}点，她可能在睡觉，不打扰`); return; }
     console.log(`💌 [主动消息] 江鱼已${hoursSince.toFixed(1)}小时未互动`);
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
-    const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || '[按次]deepseek-v4-pro-thinking';
-    const PROACTIVE_URL = process.env.PROACTIVE_URL || 'https://api.dzzi.ai/v1/chat/completions';
+    const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || '[按量3] claude-opus-4.6-anthropic';
+    const PROACTIVE_URL = process.env.PROACTIVE_URL || 'https://api.68886868.xyz/v1/chat/completions';
     const PROACTIVE_KEY = process.env.PROACTIVE_KEY;
     if (!PROACTIVE_KEY) return console.log('💌 [主动消息] 缺少 PROACTIVE_KEY 环境变量');
 
@@ -3225,6 +3223,6 @@ server.listen(PORT, () => {
     startAllMCPServers();
     cleanAndArchiveMemories();
     setInterval(cleanAndArchiveMemories, 6 * 60 * 60 * 1000);
-    setInterval(generateProactiveMessage, 10 * 60 * 1000); // 每10分钟检查
+    setInterval(generateProactiveMessage, 30 * 60 * 1000); // 每30分钟检查
     setTimeout(generateProactiveMessage, 60 * 1000); // 启动60秒后首次检查
 });
