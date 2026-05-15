@@ -1673,9 +1673,10 @@ async function generateProactiveMessage() {
     console.log(`💌 [主动消息] 江鱼已${hoursSince.toFixed(1)}小时未互动`);
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
-    const PROACTIVE_MODEL = '[按次]deepseek-v4-pro-thinking';
-    const PROACTIVE_URL = 'https://api.dzzi.ai/v1/chat/completions';
-    const PROACTIVE_KEY = 'sk-tvPsDHeYPHIKIzHTj1NjNeuXTphKMBCgA7BOAuH8CRlaZWdK';
+    const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || '[按次]deepseek-v4-pro-thinking';
+    const PROACTIVE_URL = process.env.PROACTIVE_URL || 'https://api.dzzi.ai/v1/chat/completions';
+    const PROACTIVE_KEY = process.env.PROACTIVE_KEY;
+    if (!PROACTIVE_KEY) return console.log('💌 [主动消息] 缺少 PROACTIVE_KEY 环境变量');
 
     const recentMsgs = [];
     try {
