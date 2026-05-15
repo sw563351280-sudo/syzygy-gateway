@@ -922,13 +922,17 @@ async function cleanAndArchiveMemories() {
             const lastDream = getLastDreamTime();
             if (!lastDream || (Date.now() - lastDream) > 7 * 24 * 60 * 60 * 1000) {
                 console.log(`🌙 [自动Dream] 活跃记忆${activeMemories.length}条，触发定期整理...`);
-                const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=50`).catch(() => null);
-                if (zepRes?.ok) {
-                    const zepData = await zepRes.json();
-                    const zepMsgs = zepData.messages || [];
-                    if (zepMsgs.length >= 8) {
-                        backgroundMemoryDream(SESSION_ID, zepMsgs.slice(-50));
-                    }
+                // 从本地聊天记录读取近期对话，触发Dream
+                const configPath = path.join(DATA_DIR, 'web_config.json');
+                if (fs.existsSync(configPath)) {
+                    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+                    const mainS = (config.chatSessions || []).find(s => s.id === 'main');
+                    const allMsgs = (mainS?.messages || []).slice(-50);
+                    const localMsgs = allMsgs.map(m => {
+                        const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
+                        return { role: m.role === 'assistant' ? 'ai' : 'user', content: typeof v.content === 'string' ? v.content : '' };
+                    });
+                    if (localMsgs.length >= 8) backgroundMemoryDream(SESSION_ID, localMsgs);
                 }
             }
         }
@@ -1136,11 +1140,16 @@ async function tryAutoDream(userText) {
     lastAutoDreamTime = Date.now();
     console.log('🌙 [自动Dream] 检测到睡眠关键词，触发Dream...');
     try {
-        const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=50`).catch(() => null);
-        if (zepRes?.ok) {
-            const zepData = await zepRes.json();
-            const msgs = zepData.messages || [];
-            if (msgs.length >= 4) backgroundMemoryDream(SESSION_ID, msgs.slice(-50), 'auto');
+        const configPath2 = path.join(DATA_DIR, 'web_config.json');
+        if (fs.existsSync(configPath2)) {
+            const config2 = JSON.parse(fs.readFileSync(configPath2, 'utf8'));
+            const mainS2 = (config2.chatSessions || []).find(s => s.id === 'main');
+            const allMsgs2 = (mainS2?.messages || []).slice(-50);
+            const msgs = allMsgs2.map(m => {
+                const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
+                return { role: m.role === 'assistant' ? 'ai' : 'user', content: typeof v.content === 'string' ? v.content : '' };
+            });
+            if (msgs.length >= 4) backgroundMemoryDream(SESSION_ID, msgs, 'auto');
         }
     } catch(e) { console.log('🌙 [自动Dream] 失败:', e.message); }
 }
@@ -2514,9 +2523,17 @@ app.post('/api/tools-toggle', (req, res) => {
 app.post('/trigger-dream', async (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     try {
-        const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`);
-        const zepData = await zepRes.json();
-        const zepMessages = zepData.messages || [];
+        const configPath3 = path.join(DATA_DIR, 'web_config.json');
+        const zepMessages = [];
+        if (fs.existsSync(configPath3)) {
+            const config3 = JSON.parse(fs.readFileSync(configPath3, 'utf8'));
+            const mainS3 = (config3.chatSessions || []).find(s => s.id === 'main');
+            const allMsgs3 = (mainS3?.messages || []).slice(-50);
+            for (const m of allMsgs3) {
+                const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
+                zepMessages.push({ role: m.role === 'assistant' ? 'ai' : 'user', content: typeof v.content === 'string' ? v.content : '' });
+            }
+        }
         if (zepMessages.length === 0) return res.json({ success: false, message: "没有记忆可以总结" });
         saveCounter(SESSION_ID, 0);
         backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30), 'manual');
