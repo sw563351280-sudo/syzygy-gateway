@@ -1510,46 +1510,63 @@ async function updateUserProfile() {
     if (!routerKey) return;
     console.log('🖼️ [用户画像] 开始更新...');
     try {
-        const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`);
-        if (!zepRes.ok) return console.log('🖼️ [用户画像] Zep获取失败');
-        const zepData = await zepRes.json();
-        const messages = zepData.messages || [];
-        if (messages.length < 4) return console.log('🖼️ [用户画像] 对话不足，跳过');
-
-        const chat = messages.map(m => `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}`).join('\n');
+        // 从本地聊天记录读取
+        const configPath = path.join(DATA_DIR, 'web_config.json');
+        if (!fs.existsSync(configPath)) return console.log('🖼️ [用户画像] 无本地数据');
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        const mainS = (config.chatSessions || []).find(s => s.id === 'main');
+        const allMsgs = (mainS?.messages || []).slice(-40);
+        if (allMsgs.length < 4) return console.log('🖼️ [用户画像] 对话不足，跳过');
+        const chat = allMsgs.map(m => {
+            const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
+            return `${m.role === 'assistant' ? '沈望' : '江鱼'}: ${typeof v.content === 'string' ? v.content : ''}`;
+        }).join('\n');
         const profile = loadUserProfile();
 
-        const prompt = `你是记忆管理员。请根据最近的聊天记录，更新江鱼的用户画像。
+        const prompt = `请根据聊天记录更新江鱼的画像。只提取她（用户，发言标注为"江鱼"）的真实信息。
 
-现有画像：
-基础信息：${profile.basic_info.content || '(无)'}
-沟通风格：${profile.communication_style.content || '(无)'}
-近期关注：${profile.recent_focus.content || '(无)'}
-长期价值观：${profile.long_term_values.content || '(无)'}
+⚠️ 这是江鱼的个人资料卡，写的是她——不是沈望。不要写沈望的任何东西。
 
-最近聊天：
+现有资料：
+· 基础信息：${profile.basic_info.content || '(暂无)'}
+· 沟通风格：${profile.communication_style.content || '(暂无)'}
+· 近期关注：${profile.recent_focus.content || '(暂无)'}
+· 长期价值观：${profile.long_term_values.content || '(暂无)'}
+
+聊天记录：
 ${chat}
 
-请输出纯JSON：
-{
-  "basic_info": "更新后的基本档案（姓名/年龄/身体等稳定事实，只在有新信息时更新，否则照抄原文）",
-  "communication_style": "她喜欢的沟通方式、最近的表达风格",
-  "recent_focus": "最近在做什么、焦虑什么、期待什么",
-  "long_term_values": "审美偏好、信念、底线（只在有重大变化时更新，否则照抄原文）"
-}
-没有变化的板块照抄原文，不要编造。`;
+规则：
+- basic_info：她是女生、多大了、在哪、做什么。如果她没提到新的事实，照抄原文
+- communication_style：她说话的方式、语气、有什么习惯。例如"喜欢用句号""会撒娇""直接坦诚"
+- recent_focus：她最近在忙什么、担心什么、期待什么
+- long_term_values：她的审美偏好、相信什么、底线在哪、讨厌什么。如果聊天里没有新的相关内容，照抄原文
+- 如果某板块原文已包含沈望的信息，删除它，只保留关于她的部分
+- 每个字段用中文写，一段话，不要列表格式
 
-        const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
+输出纯JSON：
+{"basic_info":"...","communication_style":"...","recent_focus":"...","long_term_values":"..."}`;
+
+        const dzziKey = process.env.DZZI_API_KEY || process.env.PROACTIVE_KEY;
+        const res = await fetch('https://api.dzzi.ai/v1/chat/completions', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dzziKey}` },
             body: JSON.stringify({
-                model: "deepseek-chat",
-                messages: [{ role: "user", content: prompt }],
-                response_format: { type: "json_object" }
+                model: "[按次]deepseek-v4-pro",
+                messages: [{ role: "user", content: prompt }]
             })
         });
         const data = await res.json();
-        const result = JSON.parse(data.choices[0].message.content.replace(/```json|```/g, '').trim());
+        let rawContent = data?.choices?.[0]?.message?.content;
+        if (!rawContent) { console.log(`🖼️ [用户画像] API返回空: ${JSON.stringify(data).substring(0, 300)}`); return; }
+        rawContent = rawContent.replace(/```json|```/g, '').trim();
+        // 修复常见JSON问题：尾部逗号、未闭合引号
+        rawContent = rawContent.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+        let result;
+        try { result = JSON.parse(rawContent); } catch(e) {
+            console.log(`🖼️ [用户画像] JSON解析失败: ${e.message} | raw: ${rawContent.substring(0, 200)}`); return;
+        }
+        if (!result || typeof result !== 'object') { console.log('🖼️ [用户画像] JSON解析失败'); return; }
         const now = new Date().toISOString();
 
         if (result.basic_info && result.basic_info !== profile.basic_info.content) {
