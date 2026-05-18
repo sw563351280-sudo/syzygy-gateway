@@ -1850,18 +1850,20 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         if (body.messages) {
     cleanMessages = body.messages
         .filter(msg => msg.role !== 'system' && msg.role !== 'tool')
-        .map(msg => {
+        .map((msg, i, arr) => {
             // 清除 assistant 消息里残留的 tool_calls
             if (msg.role === 'assistant' && msg.tool_calls) {
                 const { tool_calls, ...clean } = msg;
                 return clean;
             }
-            // 清除用户消息里的 base64 图片（DeepSeek 等模型不支持）
+            // 清除历史用户消息里的 base64 图片（保留最后一条当前消息的图片）
             if (msg.role === 'user' && Array.isArray(msg.content)) {
-                return { ...msg, content: msg.content.filter(p => p.type !== 'image_url') };
+                const isLastUser = !arr.slice(i + 1).some(m => m.role === 'user');
+                if (!isLastUser) return { ...msg, content: msg.content.filter(p => p.type !== 'image_url') };
             }
             if (msg.role === 'user' && typeof msg.content === 'string' && msg.content.includes('data:image')) {
-                return { ...msg, content: '（发送了图片）' };
+                const isLastUser = !arr.slice(i + 1).some(m => m.role === 'user');
+                if (!isLastUser) return { ...msg, content: '（发送了图片）' };
             }
             return msg;
         });
