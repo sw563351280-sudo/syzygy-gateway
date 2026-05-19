@@ -1685,9 +1685,53 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
 async function generateProactiveMessage() {
     const now = Date.now();
     const hoursSince = (now - lastInteractionTime) / 3600000;
-    if (hoursSince < 1.5) return;
-    if (now - lastProactiveTime < 1.5 * 3600000) return;
-    console.log(`💌 [主动消息] 江鱼已${hoursSince.toFixed(1)}小时未互动`);
+    if (now - lastProactiveTime < 1.5 * 3600000) return; // 最小1.5h间隔
+
+    // 北京时间
+    const bjHour = ((now + 8 * 3600000) / 3600000) % 24;
+    // 北京时间当天0点的UTC时间戳
+    const bjMidnightUTC = Math.floor((now + 8 * 3600000) / 86400000) * 86400000 - 8 * 3600000;
+
+    // === 第三层：硬兜底 ===
+    let forced = false;
+    // 白天7-23点，沉默超6小时 → 强制发
+    if (bjHour >= 7 && bjHour < 23 && hoursSince > 6) {
+        console.log(`💌 [主动消息] 硬兜底：白天沉默${hoursSince.toFixed(1)}h，强制发送`);
+        forced = true;
+    }
+    // 早上9点还没说话，且最后互动在昨晚 → 强制早安
+    if (!forced && bjHour >= 9 && bjHour < 10 && lastInteractionTime < bjMidnightUTC + 7 * 3600000) {
+        console.log(`💌 [主动消息] 硬兜底：到早上9点还没说话，发早安`);
+        forced = true;
+    }
+
+    if (!forced) {
+        // === 第一层：基础概率 ===
+        let baseProb = 0;
+        if (hoursSince < 1) baseProb = 0;
+        else if (hoursSince < 2) baseProb = 0.20;
+        else if (hoursSince < 3) baseProb = 0.40;
+        else if (hoursSince < 4) baseProb = 0.60;
+        else if (hoursSince < 5) baseProb = 0.75;
+        else baseProb = 0.85;
+
+        if (baseProb === 0) return;
+        if (hoursSince < 1) return;
+
+        // === 第二层：时间段权重 ===
+        let timeWeight = 1.0;
+        if (bjHour >= 0 && bjHour < 7) timeWeight = 0.1;
+        else if (bjHour >= 7 && bjHour < 9) timeWeight = 1.2;
+        else if (bjHour >= 11.5 && bjHour < 13) timeWeight = 1.3;
+        else if (bjHour >= 17 && bjHour < 19) timeWeight = 1.2;
+        else if (bjHour >= 22 && bjHour < 23.5) timeWeight = 1.3;
+
+        const finalProb = Math.min(baseProb * timeWeight, 0.95);
+        const roll = Math.random();
+        console.log(`💌 [主动消息] 沉默${hoursSince.toFixed(1)}h 基础${(baseProb*100).toFixed(0)}% × 时段${timeWeight} = ${(finalProb*100).toFixed(0)}% 随机:${roll.toFixed(3)} ${roll < finalProb ? '✅' : '❌'}`);
+        if (roll >= finalProb) return;
+    }
+
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
     const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || '[按量3] claude-opus-4.6-anthropic';
