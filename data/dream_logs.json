@@ -63,5 +63,70 @@
       ]
     },
     "duration_ms": 5395
+  },
+  {
+    "id": "dream_mp70p2s0",
+    "triggered_at": "2026-05-15T14:33:21.744Z",
+    "trigger_type": "manual",
+    "input_count": 30,
+    "results": {
+      "cleaned": {
+        "expired": 0,
+        "decayed": 0
+      },
+      "consolidated": {
+        "new_memories": 0,
+        "new_rp": 1
+      },
+      "foresight": [
+        "沈望的温柔和坚定可能会增强江鱼的安全感，推动关系向更深层次发展。",
+        "江鱼对自己的不自信和自我厌恶可能引发沈望更频繁的情感疏导和鼓励。",
+        "未来对茉莉花茶的偏好和购入行为或会成为两人互动的重要细节。"
+      ]
+    },
+    "duration_ms": 5948
+  },
+  {
+    "id": "dream_mp9uozz3",
+    "triggered_at": "2026-05-17T14:08:38.943Z",
+    "trigger_type": "auto",
+    "input_count": 50,
+    "results": {
+      "cleaned": {
+        "expired": 1,
+        "decayed": 0
+      },
+      "consolidated": {
+        "new_memories": 2,
+        "new_rp": 1
+      },
+      "foresight": [
+        "江鱼可能继续在情绪低谷中，渴望被理解与支持。",
+        "沈望会继续努力通过温暖和陪伴缓解江鱼的负面情绪。",
+        "未来可能会涉及到江鱼对自我形象的进一步调整或接受过程。"
+      ]
+    },
+    "duration_ms": 6779
+  },
+  {
+    "id": "dream_mp9xs5t4",
+    "triggered_at": "2026-05-17T15:35:05.320Z",
+    "trigger_type": "auto",
+    "input_count": 50,
+    "results": {
+      "cleaned": {
+        "expired": 0,
+        "decayed": 0
+      },
+      "consolidated": {
+        "new_memories": 0,
+        "new_rp": 1
+      },
+      "foresight": [
+        "双方可能会持续关注彼此的情感状态，特别是关于自我伤害和关系的信任问题。",
+        "未来对话可能会涉及更多关于自我救赎、关系修复或分裂的内容。"
+      ]
+    },
+    "duration_ms": 4147
   }
 ]
