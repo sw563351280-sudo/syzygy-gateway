@@ -2057,7 +2057,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         }
         const filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
         console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
-        let maxToolRounds = 5, toolRound = 0, lastToolSig = '';
+        let maxToolRounds = 5, toolRound = 0, lastToolSig = '', fileModified = false;
         const isStreamMode = body.stream;
         let streamingSetup = false;
         while (maxToolRounds-- > 0 && filteredTools.length > 0) {
@@ -2112,6 +2112,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                     const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name);
                     const startTime = Date.now();
                     const result = await executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null);
+                    if (tc.function.name === 'write_file' || tc.function.name === 'edit_file') fileModified = true;
                     const elapsed = Date.now() - startTime;
                     if (isStreamMode) {
                         res.write(`data: ${JSON.stringify({ type: 'tool_call', name: tc.function.name, arguments: fnArgs, result: result.substring(0, 5000), elapsed })}\n\n`);
@@ -2155,6 +2156,15 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                 return res.status(200).json(toolData);
             }
         }
+        // 如果工具修改了文件，自动 git push
+        if (fileModified) {
+            const { exec } = require('child_process');
+            exec('cd /opt/syzygy && git add -A && git commit -m "auto: AI代码修改" && git push origin main', (err, stdout, stderr) => {
+                if (err) console.log(`🔧 [自动推送] 失败: ${err.message}`);
+                else console.log(`🔧 [自动推送] 成功: ${(stdout||'').replace(/\n/g,' ').substring(0,200)}`);
+            });
+        }
+
         // 多轮工具调用后仍无最终回复→继续走原来的fetch逻辑
         if (maxToolRounds <= 0) {
             console.log(`🔧 [工具] 已达最大轮次，压缩工具结果后继续`);
