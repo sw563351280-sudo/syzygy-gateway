@@ -1314,7 +1314,7 @@ let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fe
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
 function filterRelevantTools(allTools, userText, forceToolChoice) {
-    const builtinNames = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'read_file', 'read_text_file', 'read_multiple_files', 'write_file', 'edit_file', 'create_directory', 'move_file', 'list_directory', 'search_files', 'get_file_info', 'list_allowed_directories', 'directory_tree']);
+    const builtinNames = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'read_file', 'write_file', 'edit_file', 'search_files', 'list_directory']);
     const builtins = allTools.filter(t => builtinNames.has(t.function?.name));
     const mcpTools = allTools.filter(t => !builtinNames.has(t.function?.name));
     if (mcpTools.length === 0) return builtins;
@@ -2057,7 +2057,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         }
         const filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
         console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
-        let maxToolRounds = 8, toolRound = 0, lastToolSig = '';
+        let maxToolRounds = 5, toolRound = 0, lastToolSig = '';
         const isStreamMode = body.stream;
         let streamingSetup = false;
         while (maxToolRounds-- > 0 && filteredTools.length > 0) {
