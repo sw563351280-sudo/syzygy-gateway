@@ -1339,31 +1339,42 @@ let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fe
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
 function filterRelevantTools(allTools, userText, forceToolChoice) {
-    const builtinNames = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'bark_push', 'check_phone', 'read_file', 'write_file', 'edit_file', 'search_files', 'list_directory']);
-    const builtins = allTools.filter(t => builtinNames.has(t.function?.name));
-    const mcpTools = allTools.filter(t => !builtinNames.has(t.function?.name));
-    if (mcpTools.length === 0) return builtins;
-    if (forceToolChoice) { console.log(`🔧 [工具筛选] 强制模式→${builtins.length}个内置工具`); return builtins; }
+    // 轻量工具（始终可见）
+    const alwaysBuiltins = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'bark_push', 'check_phone']);
+    // 代码工具（只在有关键词或命令式时出现）
+    const codeBuiltins = new Set(['read_file', 'write_file', 'edit_file', 'search_files', 'list_directory']);
+    const allBuiltins = new Set([...alwaysBuiltins, ...codeBuiltins]);
+    // MCP工具 = 不在 allBuiltins 里的
+    const alwaysTools = allTools.filter(t => alwaysBuiltins.has(t.function?.name));
+    const optionalTools = allTools.filter(t => !alwaysBuiltins.has(t.function?.name));
     const textLower = (userText || '').toLowerCase();
-    const scoredMcp = mcpTools.map(t => {
+    const hasCodeKW = /文件|代码|server|prompt|json|改|修|写|替换|编辑|读一下|看一下|查一下/.test(textLower);
+    const looksCommand = /帮我|请你|能不能|搜一下|用.+工具|调用/.test(textLower);
+
+    if (forceToolChoice) {
+        const result = [...alwaysTools, ...allTools.filter(t => codeBuiltins.has(t.function?.name))];
+        console.log(`🔧 [工具筛选] 强制模式→${result.length}个工具`);
+        return result;
+    }
+
+    // 收集可选工具（代码 + MCP），按关键词评分
+    const scored = optionalTools.map(t => {
         const name = (t.function?.name || '').toLowerCase();
         const desc = (t.function?.description || '').toLowerCase();
         let score = 0;
+        if (codeBuiltins.has(t.function?.name)) score = hasCodeKW ? 5 : (looksCommand ? 3 : 0);
         const words = textLower.split(/[\s,，。！？、]+/).filter(w => w.length >= 2);
         for (const w of words) { if (name.includes(w)) score += 3; if (desc.includes(w)) score += 1; }
-        if (textLower.includes('搜索') || textLower.includes('search')) { if (name.includes('search')) score += 5; }
-        if (textLower.includes('文件') || textLower.includes('file')) { if (name.includes('file') || name.includes('read') || name.includes('write')) score += 5; }
         return { tool: t, score };
     });
-    const MAX_MCP = 8;
-    const relevant = scoredMcp.filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, MAX_MCP).map(s => s.tool);
+    const relevant = scored.filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, 8).map(s => s.tool);
+
     if (relevant.length === 0) {
-        const looksCommand = /帮我|请你|能不能|查一下|搜一下|找一下|用.+工具|调用/.test(textLower);
-        if (looksCommand && mcpTools.length > 0) { const fb = mcpTools.slice(0, 6); console.log(`🔧 [工具筛选] 命令式→${builtins.length}+${fb.length}=${builtins.length+fb.length}个`); return [...builtins, ...fb]; }
-        console.log(`🔧 [工具筛选] 日常对话→${builtins.length}个内置`); return builtins;
+        console.log(`🔧 [工具筛选] 日常对话→${alwaysTools.length}个轻量工具`);
+        return alwaysTools;
     }
-    console.log(`🔧 [工具筛选] 匹配${relevant.length}个MCP: ${relevant.map(t => t.function?.name).join(',')}`);
-    return [...builtins, ...relevant];
+    console.log(`🔧 [工具筛选] ${alwaysTools.length}轻量 + ${relevant.length}可选: ${relevant.map(t => t.function?.name).join(',')}`);
+    return [...alwaysTools, ...relevant];
 }
 
 // MCP Server 配置：{ name, command, args[], env? }
