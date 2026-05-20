@@ -1334,7 +1334,7 @@ const BUILTIN_TOOLS = [
 const TOOLS_CONFIG_FILE = path.join(DATA_DIR, 'tools_config.json');
 function loadToolsConfig() { try { return JSON.parse(fs.readFileSync(TOOLS_CONFIG_FILE, 'utf8')); } catch(e) { return null; } }
 function saveToolsConfig(cfg) { try { fs.writeFileSync(TOOLS_CONFIG_FILE, JSON.stringify(cfg)); } catch(e) {} }
-let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, read_diary: true, mcp: false };
+let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, read_diary: true, exec: true, bark_push: true, check_phone: true, mcp: false };
 // 首次启动时写入默认配置
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
@@ -2142,7 +2142,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
 };
 
 
-        const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return TOOLS_ENABLED.mcp !== false; return TOOLS_ENABLED[name]; });
+        const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return TOOLS_ENABLED.mcp !== false; return TOOLS_ENABLED[name] !== false; });
         let forceToolChoice = null;
         if (currentUserMsgText) {
             const hasGitHub = /github\.com/i.test(currentUserMsgText);
@@ -3036,7 +3036,7 @@ app.post('/api/web-chat', async (req, res) => {
                     fetchBody.presence_penalty = 0.4;
                 }
 
-                const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return TOOLS_ENABLED.mcp !== false; return TOOLS_ENABLED[name]; });
+                const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return TOOLS_ENABLED.mcp !== false; return TOOLS_ENABLED[name] !== false; });
                 let webForceToolChoice = null;
                 if (text) {
                     const hasGitHub = /github\.com/i.test(text);
