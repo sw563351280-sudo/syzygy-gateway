@@ -1338,21 +1338,22 @@ let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fe
 // 首次启动时写入默认配置
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
+// 轻量工具（始终可见，不触发工具循环）
+const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'bark_push', 'check_phone']);
+// 代码工具（只在有关键词或命令式时出现）
+const CODE_TOOLS = new Set(['read_file', 'write_file', 'edit_file', 'search_files', 'list_directory']);
+
 function filterRelevantTools(allTools, userText, forceToolChoice) {
-    // 轻量工具（始终可见）
-    const alwaysBuiltins = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'bark_push', 'check_phone']);
-    // 代码工具（只在有关键词或命令式时出现）
-    const codeBuiltins = new Set(['read_file', 'write_file', 'edit_file', 'search_files', 'list_directory']);
-    const allBuiltins = new Set([...alwaysBuiltins, ...codeBuiltins]);
+    const allBuiltins = new Set([...LIGHT_TOOLS, ...CODE_TOOLS]);
     // MCP工具 = 不在 allBuiltins 里的
-    const alwaysTools = allTools.filter(t => alwaysBuiltins.has(t.function?.name));
-    const optionalTools = allTools.filter(t => !alwaysBuiltins.has(t.function?.name));
+    const alwaysTools = allTools.filter(t => LIGHT_TOOLS.has(t.function?.name));
+    const optionalTools = allTools.filter(t => !LIGHT_TOOLS.has(t.function?.name));
     const textLower = (userText || '').toLowerCase();
     const hasCodeKW = /文件|代码|server|prompt|json|改|修|写|替换|编辑|读一下|看一下|查一下/.test(textLower);
     const looksCommand = /帮我|请你|能不能|搜一下|用.+工具|调用/.test(textLower);
 
     if (forceToolChoice) {
-        const result = [...alwaysTools, ...allTools.filter(t => codeBuiltins.has(t.function?.name))];
+        const result = [...alwaysTools, ...allTools.filter(t => CODE_TOOLS.has(t.function?.name))];
         console.log(`🔧 [工具筛选] 强制模式→${result.length}个工具`);
         return result;
     }
@@ -1362,7 +1363,7 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
         const name = (t.function?.name || '').toLowerCase();
         const desc = (t.function?.description || '').toLowerCase();
         let score = 0;
-        if (codeBuiltins.has(t.function?.name)) score = hasCodeKW ? 5 : (looksCommand ? 3 : 0);
+        if (CODE_TOOLS.has(t.function?.name)) score = hasCodeKW ? 5 : (looksCommand ? 3 : 0);
         const words = textLower.split(/[\s,，。！？、]+/).filter(w => w.length >= 2);
         for (const w of words) { if (name.includes(w)) score += 3; if (desc.includes(w)) score += 1; }
         return { tool: t, score };
@@ -2163,6 +2164,8 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         }
         const filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
         console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
+        // 只有轻量工具 → 不启动工具循环，直接走流式
+        const lightOnly = filteredTools.length > 0 && filteredTools.every(t => LIGHT_TOOLS.has(t.function?.name));
         let maxToolRounds = 5, toolRound = 0, lastToolSig = '', fileModified = false;
         const isStreamMode = body.stream;
         let streamingSetup = false;
@@ -2231,13 +2234,25 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
             // 没有 tool_calls → 最终回复
             console.log(`🔧 [工具] ${roundLabel}AI返回最终回复`);
             const aiContent = curMessage?.content || '';
+            const reasoning = curMessage?.reasoning_content || '';
+            // 也兼容 <think> 标签格式
+            let thinkFromTag = ''; let cleanForFinal = aiContent;
+            if (aiContent.includes('<think>')) {
+                const match = aiContent.match(/<think>([\s\S]*?)<\/think>/);
+                if (match) { thinkFromTag = match[1].trim(); cleanForFinal = aiContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim(); }
+            }
+            const finalThink = reasoning || thinkFromTag;
 
-            const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(aiContent);
+            const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(cleanForFinal);
             for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
-            const finalContent = ntMems.length > 0 ? ntClean : aiContent;
+            const finalContent = ntMems.length > 0 ? ntClean : cleanForFinal;
 
             if (isStreamMode) {
-                // 流式：直接把最终回复切成 SSE chunks 发出
+                // 先发思考内容
+                if (finalThink) {
+                    res.write(`data: ${JSON.stringify({ id: 'think', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { reasoning_content: finalThink }, finish_reason: null }] })}\n\n`);
+                }
+                // 再把最终回复切成 SSE chunks
                 const chunkId = toolData.id || 'chatcmpl-tool';
                 const created = Math.floor(Date.now()/1000);
                 const chars = finalContent.split('');
@@ -2255,6 +2270,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                 return;
             } else {
                 if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
+                if (finalThink) toolData.choices[0].message.reasoning_content = finalThink;
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);
