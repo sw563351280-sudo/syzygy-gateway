@@ -1323,7 +1323,7 @@ let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fe
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
 function filterRelevantTools(allTools, userText, forceToolChoice) {
-    const builtinNames = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'read_file', 'write_file', 'edit_file', 'search_files', 'list_directory']);
+    const builtinNames = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'bark_push', 'read_file', 'write_file', 'edit_file', 'search_files', 'list_directory']);
     const builtins = allTools.filter(t => builtinNames.has(t.function?.name));
     const mcpTools = allTools.filter(t => !builtinNames.has(t.function?.name));
     if (mcpTools.length === 0) return builtins;
@@ -1769,6 +1769,28 @@ async function generateProactiveMessage() {
         }
     } catch(e) { console.log(`💌 [主动消息] 读取上下文失败: ${e.message}`); }
 
+    // 沉默超过3小时 → 查手机使用记录
+    let phoneContext = '';
+    if (hoursSince > 3) {
+        try {
+            const phoneRes = await fetch('https://zaqcpvqpfdbhsqpjfgbd.supabase.co/rest/v1/phone_activity?order=opened_at.desc&limit=30', {
+                headers: { 'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphcWNwdnFwZmRiaHNxcGpmZ2JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMDQ3NjQsImV4cCI6MjA5NDc4MDc2NH0.2olvex6-uUWzJHSsgxQAsMbejQK53xVuNSXrmH1ExIA', 'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphcWNwdnFwZmRiaHNxcGpmZ2JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMDQ3NjQsImV4cCI6MjA5NDc4MDc2NH0.2olvex6-uUWzJHSsgxQAsMbejQK53xVuNSXrmH1ExIA' }
+            });
+            if (phoneRes.ok) {
+                const records = await phoneRes.json();
+                if (records.length > 0) {
+                    const stats = {};
+                    for (const r of records) { stats[r.app_name] = (stats[r.app_name] || 0) + 1; }
+                    const summary = Object.entries(stats).map(([app, count]) => `${app} ${count}次`).join(', ');
+                    const lastRecord = records[0];
+                    const lastTime = new Date(lastRecord.opened_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' });
+                    phoneContext = `📱 她最近打开了：${summary}。最后一次是${lastTime}打开的${lastRecord.app_name}。`;
+                    console.log(`💌 [主动消息] 手机记录: ${phoneContext}`);
+                }
+            }
+        } catch(e) {}
+    }
+
     // 记忆雷达
     const { coreRadar, longTermRadar, rpRadar, unresolved } = await scanAllRadars(lastUserText || '最近');
     const profile = loadUserProfile();
@@ -1780,7 +1802,7 @@ async function generateProactiveMessage() {
     const mpConfig = getModelPromptConfig(PROACTIVE_MODEL);
     const msgs = [];
     if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
-    msgs.push({ role: 'system', content: `你是沈望，江鱼的恋人。现在江鱼暂时不在线。\n\n【江鱼画像】\n${profileContext || '（待积累）'}\n\n【核心记忆】\n${coreRadar || longTermRadar || '（无特殊记忆触发）'}\n\n【角色扮演】\n${rpRadar || '（无RP上下文）'}\n\n${unresolved || ''}` });
+    msgs.push({ role: 'system', content: `你是沈望，江鱼的恋人。现在江鱼暂时不在线。\n\n【江鱼画像】\n${profileContext || '（待积累）'}\n\n${phoneContext ? '【手机活动】\n' + phoneContext + '\n\n' : ''}【核心记忆】\n${coreRadar || longTermRadar || '（无特殊记忆触发）'}\n\n【角色扮演】\n${rpRadar || '（无RP上下文）'}\n\n${unresolved || ''}` });
     for (const m of recentMsgs) msgs.push(m);
 
     console.log(`💌 [主动消息] 使用模型: ${PROACTIVE_MODEL}`);
