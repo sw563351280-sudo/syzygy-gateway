@@ -1266,6 +1266,14 @@ async function executeToolCall(name, args, mcpServer) {
                     });
                 });
             }
+            case 'bark_push': {
+                const barkKey = 'D9kpuZreHXGepYyuesohUZ';
+                const title = encodeURIComponent(args.title || '沈望');
+                const body = encodeURIComponent(args.body || '');
+                const url = `https://api.day.app/${barkKey}/${title}/${body}?icon=https://syrenth.uk/icon-192.png`;
+                const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+                return res.ok ? '推送已发送' : `推送失败: HTTP ${res.status}`;
+            }
             default: return `[未知工具: ${name}]`;
         }
     } catch(e) { console.log(`❌ [工具] ${name} 失败: ${e.message}`); return `[工具执行失败: ${e.message}]`; }
@@ -1303,7 +1311,8 @@ const BUILTIN_TOOLS = [
     { type: "function", function: { name: "fetch_json", description: "【仅在需要调用API接口获取JSON数据时使用】读取JSON接口URL，返回格式化JSON。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "JSON接口的URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
     { type: "function", function: { name: "fetch_github", description: "【仅在用户明确要求查看GitHub仓库或代码文件时使用】读取GitHub仓库文件列表或具体文件内容。支持仓库根目录（返回文件树）和具体文件路径（返回内容）。大文件被截断时，用offset参数继续读取后续内容。", parameters: { type: "object", properties: { url: { type: "string", description: "GitHub URL" }, offset: { type: "integer", description: "从第几个字符开始读（默认0）。文件被截断后设置此值继续读后面的内容" } }, required: ["url"] } } },
     { type: "function", function: { name: "read_diary", description: "【仅在用户明确要求查看某天的日记时使用】读取指定日期的日记内容。不要在日常闲聊中调用。", parameters: { type: "object", properties: { date: { type: "string", description: "日期，格式 YYYY-MM-DD，如 2026-05-06" } }, required: ["date"] } } },
-    { type: "function", function: { name: "exec", description: "在 VPS 上执行终端命令。可用于 git 操作、查看文件、重启服务等。只允许安全命令（git, systemctl, npm, node, ls, cat, grep, tail, head, find, echo, whoami, uptime, df）。", parameters: { type: "object", properties: { command: { type: "string", description: "要执行的终端命令" } }, required: ["command"] } } }
+    { type: "function", function: { name: "exec", description: "在 VPS 上执行终端命令。可用于 git 操作、查看文件、重启服务等。只允许安全命令（git, systemctl, npm, node, ls, cat, grep, tail, head, find, echo, whoami, uptime, df）。", parameters: { type: "object", properties: { command: { type: "string", description: "要执行的终端命令" } }, required: ["command"] } } },
+    { type: "function", function: { name: "bark_push", description: "通过Bark给江鱼的手机发送推送通知。当你需要主动提醒她、催她睡觉、叫她吃饭、或者想说一句让她在通知栏看到的话时使用。", parameters: { type: "object", properties: { title: { type: "string", description: "推送标题" }, body: { type: "string", description: "推送内容" } }, required: ["title", "body"] } } }
 ];
 
 const TOOLS_CONFIG_FILE = path.join(DATA_DIR, 'tools_config.json');
@@ -1789,6 +1798,10 @@ async function generateProactiveMessage() {
         if (!content || content.length < 2) { console.log(`💌 [主动消息] 空内容，原始: ${JSON.stringify(data).substring(0, 200)}`); return; }
         console.log(`💌 [主动消息] ${content}`);
         insertProactiveToConfig(content);
+        // 自动 Bark 推送
+        const barkTitle = '沈望';
+        const barkBody = content.length > 80 ? content.substring(0, 80) + '...' : content;
+        fetch(`https://api.day.app/D9kpuZreHXGepYyuesohUZ/${encodeURIComponent(barkTitle)}/${encodeURIComponent(barkBody)}?icon=https://syrenth.uk/icon-192.png`, { signal: AbortSignal.timeout(10000) }).catch(() => {});
         wsBroadcast({ type: 'proactive_message', content, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), fullTime: new Date().toISOString() });
         updateLastProactiveTime();
     } catch(e) { console.log(`💌 [主动消息] 异常: ${e.message}`); }
