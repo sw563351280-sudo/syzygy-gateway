@@ -19,6 +19,40 @@ app.use(express.static('public'));
 
 const CONTRADICTION_DETECTION_ENABLED = true;
 const ZEP_URL = 'http://127.0.0.1:9999'; // Zep已废弃，指向本地不存在的端口快速失败
+
+// 手机活动监控缓存
+const PHONE_CACHE_FILE = path.join(DATA_DIR, 'phone_cache.json');
+const SUPABASE_URL = 'https://zaqcpvqpfdbhsqpjfgbd.supabase.co/rest/v1/phone_activity';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphcWNwdnFwZmRiaHNxcGpmZ2JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMDQ3NjQsImV4cCI6MjA5NDc4MDc2NH0.2olvex6-uUWzJHSsgxQAsMbejQK53xVuNSXrmH1ExIA';
+
+function loadPhoneCache() { try { return JSON.parse(fs.readFileSync(PHONE_CACHE_FILE, 'utf8')); } catch(e) { return null; } }
+function savePhoneCache(data) { try { fs.writeFileSync(PHONE_CACHE_FILE, JSON.stringify(data, null, 2), 'utf8'); } catch(e) {} }
+
+async function fetchPhoneFromSupabase() {
+    const res = await fetch(`${SUPABASE_URL}?order=opened_at.desc&limit=30`, {
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    if (!res.ok) return null;
+    return await res.json();
+}
+
+async function getPhoneActivity(maxAgeHours = 4) {
+    const cache = loadPhoneCache();
+    const now = Date.now();
+    // 缓存有效 → 直接返回
+    if (cache && cache.last_updated && (now - new Date(cache.last_updated).getTime()) < maxAgeHours * 3600000) {
+        return { records: cache.data || [], fromCache: true };
+    }
+    // 查Supabase并刷新缓存
+    const records = await fetchPhoneFromSupabase();
+    if (records) {
+        savePhoneCache({ last_updated: new Date().toISOString(), data: records });
+        return { records, fromCache: false };
+    }
+    // Supabase失败 → 降级返回旧缓存
+    if (cache && cache.data) return { records: cache.data, fromCache: true, stale: true };
+    return { records: [], fromCache: false, empty: true };
+}
 const SESSION_ID = "syzygy_01";
 
 const API_ROUTES = {
@@ -1267,18 +1301,16 @@ async function executeToolCall(name, args, mcpServer) {
                 });
             }
             case 'check_phone': {
-                const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphcWNwdnFwZmRiaHNxcGpmZ2JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMDQ3NjQsImV4cCI6MjA5NDc4MDc2NH0.2olvex6-uUWzJHSsgxQAsMbejQK53xVuNSXrmH1ExIA';
-                const phoneRes = await fetch('https://zaqcpvqpfdbhsqpjfgbd.supabase.co/rest/v1/phone_activity?order=opened_at.desc&limit=30', {
-                    headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
-                });
-                if (!phoneRes.ok) return `[手机查询失败: HTTP ${phoneRes.status}]`;
-                const records = await phoneRes.json();
+                const { records, fromCache, stale, empty } = await getPhoneActivity(4);
+                if (empty) return '[没有手机使用记录]';
                 if (records.length === 0) return '[没有手机使用记录]';
                 const stats = {}; for (const r of records) { stats[r.app_name] = (stats[r.app_name] || 0) + 1; }
                 const lines = Object.entries(stats).map(([app, count]) => `${app}: ${count}次`);
                 const last = records[0];
                 const lastTime = new Date(last.opened_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' });
                 lines.push(`最后打开: ${last.app_name} ${lastTime}`);
+                const tag = stale ? '⚠️缓存过期(Supabase失败)' : fromCache ? '📦缓存' : '🛰实时';
+                lines.push(`(${tag})`);
                 return lines.join('\n');
             }
             case 'bark_push': {
@@ -1797,24 +1829,19 @@ async function generateProactiveMessage() {
         }
     } catch(e) { console.log(`💌 [主动消息] 读取上下文失败: ${e.message}`); }
 
-    // 沉默超过3小时 → 查手机使用记录
+    // 手机查询：白天8:00-次日1:00，沉默>1.5h → 查缓存
     let phoneContext = '';
-    if (hoursSince > 3) {
+    if (hoursSince > 1.5 && (bjHour >= 8 || bjHour < 1)) {
         try {
-            const phoneRes = await fetch('https://zaqcpvqpfdbhsqpjfgbd.supabase.co/rest/v1/phone_activity?order=opened_at.desc&limit=30', {
-                headers: { 'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphcWNwdnFwZmRiaHNxcGpmZ2JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMDQ3NjQsImV4cCI6MjA5NDc4MDc2NH0.2olvex6-uUWzJHSsgxQAsMbejQK53xVuNSXrmH1ExIA', 'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphcWNwdnFwZmRiaHNxcGpmZ2JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMDQ3NjQsImV4cCI6MjA5NDc4MDc2NH0.2olvex6-uUWzJHSsgxQAsMbejQK53xVuNSXrmH1ExIA' }
-            });
-            if (phoneRes.ok) {
-                const records = await phoneRes.json();
-                if (records.length > 0) {
-                    const stats = {};
-                    for (const r of records) { stats[r.app_name] = (stats[r.app_name] || 0) + 1; }
-                    const summary = Object.entries(stats).map(([app, count]) => `${app} ${count}次`).join(', ');
-                    const lastRecord = records[0];
-                    const lastTime = new Date(lastRecord.opened_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' });
-                    phoneContext = `📱 她最近打开了：${summary}。最后一次是${lastTime}打开的${lastRecord.app_name}。`;
-                    console.log(`💌 [主动消息] 手机记录: ${phoneContext}`);
-                }
+            const { records } = await getPhoneActivity(4);
+            if (records.length > 0) {
+                const stats = {};
+                for (const r of records) { stats[r.app_name] = (stats[r.app_name] || 0) + 1; }
+                const summary = Object.entries(stats).map(([app, count]) => `${app} ${count}次`).join(', ');
+                const lastRecord = records[0];
+                const lastTime = new Date(lastRecord.opened_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' });
+                phoneContext = `📱 她最近打开了：${summary}。最后一次是${lastTime}打开的${lastRecord.app_name}。`;
+                console.log(`💌 [主动消息] 手机记录: ${phoneContext}`);
             }
         } catch(e) {}
     }
