@@ -19,40 +19,6 @@ app.use(express.static('public'));
 
 const CONTRADICTION_DETECTION_ENABLED = true;
 const ZEP_URL = 'http://127.0.0.1:9999'; // Zep已废弃，指向本地不存在的端口快速失败
-
-// 手机活动监控缓存
-const PHONE_CACHE_FILE = path.join(DATA_DIR, 'phone_cache.json');
-const SUPABASE_URL = 'https://zaqcpvqpfdbhsqpjfgbd.supabase.co/rest/v1/phone_activity';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphcWNwdnFwZmRiaHNxcGpmZ2JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMDQ3NjQsImV4cCI6MjA5NDc4MDc2NH0.2olvex6-uUWzJHSsgxQAsMbejQK53xVuNSXrmH1ExIA';
-
-function loadPhoneCache() { try { return JSON.parse(fs.readFileSync(PHONE_CACHE_FILE, 'utf8')); } catch(e) { return null; } }
-function savePhoneCache(data) { try { fs.writeFileSync(PHONE_CACHE_FILE, JSON.stringify(data, null, 2), 'utf8'); } catch(e) {} }
-
-async function fetchPhoneFromSupabase() {
-    const res = await fetch(`${SUPABASE_URL}?order=opened_at.desc&limit=30`, {
-        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
-    });
-    if (!res.ok) return null;
-    return await res.json();
-}
-
-async function getPhoneActivity(maxAgeHours = 4) {
-    const cache = loadPhoneCache();
-    const now = Date.now();
-    // 缓存有效 → 直接返回
-    if (cache && cache.last_updated && (now - new Date(cache.last_updated).getTime()) < maxAgeHours * 3600000) {
-        return { records: cache.data || [], fromCache: true };
-    }
-    // 查Supabase并刷新缓存
-    const records = await fetchPhoneFromSupabase();
-    if (records) {
-        savePhoneCache({ last_updated: new Date().toISOString(), data: records });
-        return { records, fromCache: false };
-    }
-    // Supabase失败 → 降级返回旧缓存
-    if (cache && cache.data) return { records: cache.data, fromCache: true, stale: true };
-    return { records: [], fromCache: false, empty: true };
-}
 const SESSION_ID = "syzygy_01";
 
 const API_ROUTES = {
@@ -92,6 +58,37 @@ function getModelPromptConfig(modelName) {
 // ==========================================
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// 手机活动监控缓存
+const PHONE_CACHE_FILE = path.join(DATA_DIR, 'phone_cache.json');
+const SUPABASE_URL = 'https://zaqcpvqpfdbhsqpjfgbd.supabase.co/rest/v1/phone_activity';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphcWNwdnFwZmRiaHNxcGpmZ2JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMDQ3NjQsImV4cCI6MjA5NDc4MDc2NH0.2olvex6-uUWzJHSsgxQAsMbejQK53xVuNSXrmH1ExIA';
+
+function loadPhoneCache() { try { return JSON.parse(fs.readFileSync(PHONE_CACHE_FILE, 'utf8')); } catch(e) { return null; } }
+function savePhoneCache(data) { try { fs.writeFileSync(PHONE_CACHE_FILE, JSON.stringify(data, null, 2), 'utf8'); } catch(e) {} }
+
+async function fetchPhoneFromSupabase() {
+    const res = await fetch(`${SUPABASE_URL}?order=opened_at.desc&limit=30`, {
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+    });
+    if (!res.ok) return null;
+    return await res.json();
+}
+
+async function getPhoneActivity(maxAgeHours = 4) {
+    const cache = loadPhoneCache();
+    const now = Date.now();
+    if (cache && cache.last_updated && (now - new Date(cache.last_updated).getTime()) < maxAgeHours * 3600000) {
+        return { records: cache.data || [], fromCache: true };
+    }
+    const records = await fetchPhoneFromSupabase();
+    if (records) {
+        savePhoneCache({ last_updated: new Date().toISOString(), data: records });
+        return { records, fromCache: false };
+    }
+    if (cache && cache.data) return { records: cache.data, fromCache: true, stale: true };
+    return { records: [], fromCache: false, empty: true };
+}
 
 const COUNTER_FILE = path.join(DATA_DIR, 'session_counters.json');
 const LAST_INTERACTION_FILE = path.join(DATA_DIR, 'last_interaction.json');
