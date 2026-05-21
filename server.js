@@ -2189,12 +2189,12 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         const filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
         console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
         // 只有轻量工具 → 不启动工具循环，直接走流式
+        // 只有轻量工具且无强制触发 → 日常聊天无需工具，直接流式
         const lightOnly = filteredTools.length > 0 && filteredTools.every(t => LIGHT_TOOLS.has(t.function?.name));
-        if (lightOnly && !forceToolChoice) {
-            console.log(`🔧 [工具] 仅有轻量工具，保留工具但跳过循环走流式`);
-            body.tools = filteredTools.map(t => { const { _mcp, ...clean } = t; return clean; });
-            body.tool_choice = 'auto';
-            filteredTools.length = 0; // 跳过while循环
+        const hasPhoneKeywords = /查.*手机|手机.*记录|看.*app|推送|bark|发.*通知|app.*使用/.test((currentUserMsgText || '').toLowerCase());
+        if (lightOnly && !forceToolChoice && !hasPhoneKeywords) {
+            console.log(`🔧 [工具] 日常聊天，跳过工具走纯流式`);
+            filteredTools.length = 0;
         }
         let maxToolRounds = 5, toolRound = 0, lastToolSig = '', fileModified = false;
         const isStreamMode = body.stream;
