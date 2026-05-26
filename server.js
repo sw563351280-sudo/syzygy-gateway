@@ -2724,6 +2724,7 @@ app.post('/api/tools-toggle', (req, res) => {
 app.post('/trigger-dream', async (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     try {
+        const targetDate = req.query.date || ''; // YYYY-MM-DD, 可选
         const configPath3 = path.join(DATA_DIR, 'web_config.json');
         const zepMessages = [];
         if (fs.existsSync(configPath3)) {
@@ -2734,18 +2735,21 @@ app.post('/trigger-dream', async (req, res) => {
             for (const m of allMsgs3) {
                 const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
                 const content = typeof v.content === 'string' ? v.content : '';
+                const time = v.fullTime || '';
+                if (targetDate && !time.startsWith(targetDate)) continue;
                 if (TECH_KW.some(kw => content.includes(kw))) continue;
-                zepMessages.push({ role: m.role === 'assistant' ? 'ai' : 'user', content, time: v.fullTime || '' });
+                zepMessages.push({ role: m.role === 'assistant' ? 'ai' : 'user', content, time });
             }
         }
-        if (zepMessages.length === 0) return res.json({ success: false, message: "没有消息可以总结" });
+        if (zepMessages.length === 0) return res.json({ success: false, message: targetDate ? `${targetDate} 没有可总结的消息` : "没有消息可以总结" });
         const BATCH_SIZE = 30;
         const batches = [];
         for (let i = 0; i < zepMessages.length; i += BATCH_SIZE) {
             batches.push(zepMessages.slice(i, i + BATCH_SIZE));
         }
         saveCounter(SESSION_ID, 0);
-        res.json({ success: true, message: `已触发分批恢复，共${zepMessages.length}条消息 → ${batches.length}批，每批${BATCH_SIZE}条。耐心等待~` });
+        const dateLabel = targetDate ? `${targetDate} ` : '';
+        res.json({ success: true, message: `已触发${dateLabel}分批恢复，共${zepMessages.length}条消息 → ${batches.length}批，每批${BATCH_SIZE}条。耐心等待~` });
 
         // 后台逐批处理
         (async () => {
@@ -2758,6 +2762,23 @@ app.post('/trigger-dream', async (req, res) => {
             console.log(`🌙 [Dream·恢复] 全部${batches.length}批完成!`);
             wsBroadcast({ type: 'dream_recovery_done', batches: batches.length, totalMessages: zepMessages.length });
         })();
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/chat-dates', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
+    try {
+        const configPath = path.join(DATA_DIR, 'web_config.json');
+        if (!fs.existsSync(configPath)) return res.json({ dates: [] });
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        const mainS = (config.chatSessions || []).find(s => s.id === 'main');
+        const dates = {};
+        for (const m of (mainS?.messages || [])) {
+            const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
+            const t = (v.fullTime || '').substring(0, 10);
+            if (t) dates[t] = (dates[t] || 0) + 1;
+        }
+        res.json({ dates: Object.entries(dates).map(([d, n]) => ({ date: d, messages: n })).sort((a, b) => b.date.localeCompare(a.date)) });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
