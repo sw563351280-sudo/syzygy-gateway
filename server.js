@@ -1535,14 +1535,20 @@ function buildDreamPrompt(script) {
 3. 如果不确定，宁可归入 roleplay_memories 也不要污染现实记忆！
 
 【🚨 核心警告：记忆质量门槛（恢复模式·临时放宽）】
-permanent_memories 允许记录：
+permanent_memories 每条必须包含：
+- 📅 具体日期（从聊天记录的时间戳提取，如"X月X日"）
+- 📝 发生了什么（1-3句话，足够具体，包含关键细节）
+- 🏷️ 2-5个中文标签
+✅ 记录以下内容：
 ✅ 人生事件、偏好、情绪波动、约定、日常琐事里体现的长期模式
 ✅ 江鱼表达过的任何感受、恐惧、喜好、期待
-✅ 关系中值得回顾的时刻（哪怕细微）
+✅ 关系中值得回顾的时刻
+✅ 两人之间的约定、计划、共同决定
 ⛔ 仍然禁止：
 - 任何 RP/角色扮演相关内容
 - 与已有记忆完全重复的内容
-👉 尽量多提取，但每条内容要具体、有实质信息。
+- 空洞概括（如"今天聊了很多"、"度过了愉快的一天"）
+👉 每条100-300字，要有实质性信息量。日期必须准确。
 
 请输出纯 JSON 格式：
 {
@@ -1654,7 +1660,10 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
     const startedAt = Date.now();
     const routerKey = process.env.ROUTER_API_KEY;
     if (!routerKey) return;
-    const script = zepMessages.map(m => `${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}`).join('\n');
+    const script = zepMessages.map(m => {
+        const dateStr = m.time ? new Date(m.time).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '';
+        return `${dateStr ? '[' + dateStr + '] ' : ''}${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}`;
+    }).join('\n');
 
     const dreamLog = {
         id: 'dream_' + Date.now().toString(36),
@@ -2719,7 +2728,7 @@ app.post('/trigger-dream', async (req, res) => {
             const allMsgs3 = (mainS3?.messages || []);
             for (const m of allMsgs3) {
                 const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
-                zepMessages.push({ role: m.role === 'assistant' ? 'ai' : 'user', content: typeof v.content === 'string' ? v.content : '' });
+                zepMessages.push({ role: m.role === 'assistant' ? 'ai' : 'user', content: typeof v.content === 'string' ? v.content : '', time: v.fullTime || '' });
             }
         }
         if (zepMessages.length === 0) return res.json({ success: false, message: "没有消息可以总结" });
