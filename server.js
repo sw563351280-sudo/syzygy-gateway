@@ -1692,7 +1692,7 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
             body: JSON.stringify({
-                model: "deepseek-chat",
+                model: "deepseek-v3.2",
                 messages: [{ role: "system", content: buildDreamPrompt(script) }, { role: "user", content: `聊天记录：\n${script}` }],
                 max_tokens: 4096
             })
