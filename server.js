@@ -1682,8 +1682,7 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
             headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
             body: JSON.stringify({
                 model: "deepseek-chat",
-                messages: [{ role: "system", content: buildDreamPrompt(script) }, { role: "user", content: `聊天记录：\n${script}` }],
-                response_format: { type: "json_object" }
+                messages: [{ role: "system", content: buildDreamPrompt(script) }, { role: "user", content: `聊天记录：\n${script}` }]
             })
         });
         if (!res.ok) {
