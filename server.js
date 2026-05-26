@@ -1693,7 +1693,7 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
             headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
             body: JSON.stringify({
                 model: "deepseek-v3.2",
-                messages: [{ role: "system", content: buildDreamPrompt(script) }, { role: "user", content: `聊天记录：\n${script}` }],
+                messages: [{ role: "system", content: buildDreamPrompt(script) }, { role: "user", content: `⚠️ 每条记忆必须100字以上、3-5句话！包含具体日期！\n\n聊天记录：\n${script}` }],
                 max_tokens: 4096
             })
         });
