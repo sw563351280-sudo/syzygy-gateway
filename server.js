@@ -2729,9 +2729,12 @@ app.post('/trigger-dream', async (req, res) => {
             const config3 = JSON.parse(fs.readFileSync(configPath3, 'utf8'));
             const mainS3 = (config3.chatSessions || []).find(s => s.id === 'main');
             const allMsgs3 = (mainS3?.messages || []);
+            const TECH_KW = ['git ','systemctl','curl','exec','stash','pull','push origin','502','Bad Gateway','重启','npm ','Dream','API','token','max_tokens','prompt','response_format','环境变量','ROUTER_KEY','DZZI_KEY','模型','deepseek'];
             for (const m of allMsgs3) {
                 const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
-                zepMessages.push({ role: m.role === 'assistant' ? 'ai' : 'user', content: typeof v.content === 'string' ? v.content : '', time: v.fullTime || '' });
+                const content = typeof v.content === 'string' ? v.content : '';
+                if (TECH_KW.some(kw => content.includes(kw))) continue;
+                zepMessages.push({ role: m.role === 'assistant' ? 'ai' : 'user', content, time: v.fullTime || '' });
             }
         }
         if (zepMessages.length === 0) return res.json({ success: false, message: "没有消息可以总结" });
