@@ -2720,16 +2720,32 @@ app.post('/trigger-dream', async (req, res) => {
         if (fs.existsSync(configPath3)) {
             const config3 = JSON.parse(fs.readFileSync(configPath3, 'utf8'));
             const mainS3 = (config3.chatSessions || []).find(s => s.id === 'main');
-            const allMsgs3 = (mainS3?.messages || []).slice(-50);
+            const allMsgs3 = (mainS3?.messages || []);
             for (const m of allMsgs3) {
                 const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
                 zepMessages.push({ role: m.role === 'assistant' ? 'ai' : 'user', content: typeof v.content === 'string' ? v.content : '' });
             }
         }
-        if (zepMessages.length === 0) return res.json({ success: false, message: "没有记忆可以总结" });
+        if (zepMessages.length === 0) return res.json({ success: false, message: "没有消息可以总结" });
+        const BATCH_SIZE = 30;
+        const batches = [];
+        for (let i = 0; i < zepMessages.length; i += BATCH_SIZE) {
+            batches.push(zepMessages.slice(i, i + BATCH_SIZE));
+        }
         saveCounter(SESSION_ID, 0);
-        backgroundMemoryDream(SESSION_ID, zepMessages.slice(-30), 'manual');
-        res.json({ success: true, message: `已触发总结，正在处理 ${Math.min(zepMessages.length, 30)} 条记忆。计数器已重置。` });
+        res.json({ success: true, message: `已触发分批恢复，共${zepMessages.length}条消息 → ${batches.length}批，每批${BATCH_SIZE}条。耐心等待~` });
+
+        // 后台逐批处理
+        (async () => {
+            for (let i = 0; i < batches.length; i++) {
+                console.log(`🌙 [Dream·恢复] 第${i+1}/${batches.length}批 (${batches[i].length}条)`);
+                await backgroundMemoryDream(SESSION_ID, batches[i], 'manual');
+                wsBroadcast({ type: 'dream_progress', batch: i+1, total: batches.length, messages: `${batches[i].length}条` });
+                if (i < batches.length - 1) await new Promise(r => setTimeout(r, 2000)); // 间隔2秒
+            }
+            console.log(`🌙 [Dream·恢复] 全部${batches.length}批完成!`);
+            wsBroadcast({ type: 'dream_recovery_done', batches: batches.length, totalMessages: zepMessages.length });
+        })();
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
