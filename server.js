@@ -1282,7 +1282,7 @@ async function executeToolCall(name, args, mcpServer) {
             case 'exec': {
                 const cmd = (args.command || '').trim();
                 if (!cmd) return '[错误：命令不能为空]';
-                const SAFE_PREFIXES = ['git ','git add','git commit','git push','git pull','git diff','git log','git status','git branch','systemctl restart syzygy','systemctl status syzygy','systemctl stop syzygy','systemctl start syzygy','npm ','ls ','cat ','grep ','tail ','head ','find ','echo ','whoami','uptime','df ','free ','du ','pwd','wc ','sort ','uniq ','cut ','tr ','sed ','awk ','node ','mkdir ','cp ','mv ','rm ','npm install','npm run','npm test','npm start','npm update','npm audit','cd ','python3 ','curl ','wget ','nslookup ','ping -c ','tree ','tee ','env ','hostname','uname ','ps ','journalctl ','touch ','chmod ','chown '];
+                const SAFE_PREFIXES = ['git ','git add','git commit','git push','git pull','git diff','git log','git status','git branch','systemctl daemon-reload','systemctl restart syzygy','systemctl status syzygy','systemctl stop syzygy','systemctl start syzygy','npm ','ls ','cat ','grep ','tail ','head ','find ','echo ','whoami','uptime','df ','free ','du ','pwd','wc ','sort ','uniq ','cut ','tr ','sed ','awk ','node ','mkdir ','cp ','mv ','rm ','npm install','npm run','npm test','npm start','npm update','npm audit','cd ','python3 ','curl ','wget ','nslookup ','ping -c ','tree ','tee ','env ','hostname','uname ','ps ','journalctl ','touch ','chmod ','chown '];
                 const allowed = SAFE_PREFIXES.some(p => cmd === p.trim() || cmd.startsWith(p));
                 if (!allowed) return `[拦截] 命令不在白名单中: ${cmd.substring(0, 60)}`;
                 const { exec } = require('child_process');
