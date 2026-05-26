@@ -1548,7 +1548,9 @@ permanent_memories 每条必须包含：
 - 任何 RP/角色扮演相关内容
 - 与已有记忆完全重复的内容
 - 空洞概括（如"今天聊了很多"、"度过了愉快的一天"）
-👉 每条100-300字，要有实质性信息量。日期必须准确。
+- 只写一句话就结束（每条必须3句话以上！）
+👉 每条至少100字！必须写满3-5句话，把"某天+发生什么+她的反应+为什么重要"写清楚。
+👉 格式示例："5月24日，江鱼在聊天中突然情绪低落，因为她想起之前和父亲的矛盾。沈望用'鱼'这个称呼轻唤她，她没有抗拒反而靠了过来。这次互动让两人的信任感进一步加深，'鱼'从此成为沈望安慰她时的专属称呼。"
 
 请输出纯 JSON 格式：
 {
@@ -1691,7 +1693,8 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
             headers: { 'Content-Type': 'application/json', 'Authorization': routerKey },
             body: JSON.stringify({
                 model: "deepseek-chat",
-                messages: [{ role: "system", content: buildDreamPrompt(script) }, { role: "user", content: `聊天记录：\n${script}` }]
+                messages: [{ role: "system", content: buildDreamPrompt(script) }, { role: "user", content: `聊天记录：\n${script}` }],
+                max_tokens: 4096
             })
         });
         if (!res.ok) {
