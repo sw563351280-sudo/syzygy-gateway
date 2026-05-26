@@ -312,8 +312,8 @@ function sortByTime(){const list=document.getElementById('archiveList');const ca
 
 function editMem(id){document.getElementById('ctitle-'+id).style.display='none';document.getElementById('edit-'+id).style.display='block'}
 function cancelEdit(id){document.getElementById('ctitle-'+id).style.display='block';document.getElementById('edit-'+id).style.display='none'}
-async function saveEdit(id){const c=document.getElementById('ta-'+id).value;const t=document.getElementById('tags-'+id).value.split(',').filter(Boolean);await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:c,tags:t})});location.reload()}
-async function delMem(id){if(confirm('删除？')){await fetch('/api/long-term-memories/'+id,{method:'DELETE'});location.reload()}}
+async function saveEdit(id){const c=document.getElementById('ta-'+id).value;const t=document.getElementById('tags-'+id).value.split(',').filter(Boolean);await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:c,tags:t})});loadArchive()}
+async function delMem(id){if(confirm('删除？')){await fetch('/api/long-term-memories/'+id,{method:'DELETE'});loadArchive()}}
 async function restoreMem(id){await fetch('/api/archive-memories/'+id+'/restore',{method:'POST'});location.reload()}
 async function delArchMem(id){if(confirm('彻底删除？')){await fetch('/api/archive-memories/'+id,{method:'DELETE'});location.reload()}}
 async function toggleResolved(id,r){await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({resolved:!r})});location.reload()}
