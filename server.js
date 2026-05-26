@@ -1688,13 +1688,12 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
     // 🧩 固化层
     console.log('🌙 [Dream·固化层] AI提取记忆碎片...');
     try {
-        const dreamKey = process.env.DREAM_API_KEY || routerKey;
-        const dreamModel = process.env.DREAM_MODEL || 'gemini-3.1-flash-lite-preview';
-        const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
+        const dreamKey = process.env.DZZI_API_KEY || routerKey;
+        const res = await fetch('https://api.dzzi.ai/v1/chat/completions', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': dreamKey },
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dreamKey}` },
             body: JSON.stringify({
-                model: dreamModel,
+                model: '[按次]gemini-3.1-pro-preview-128',
                 messages: [{ role: "system", content: buildDreamPrompt(script) }, { role: "user", content: `⚠️ 每条记忆必须100字以上、3-5句话！包含具体日期！\n\n聊天记录：\n${script}` }],
                 max_tokens: 4096
             })
