@@ -1810,10 +1810,10 @@ async function generateProactiveMessage() {
 
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
-    const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || '[按量3] claude-opus-4.6-anthropic';
-    const PROACTIVE_URL = process.env.PROACTIVE_URL || 'https://api.68886868.xyz/v1/chat/completions';
-    const PROACTIVE_KEY = process.env.PROACTIVE_KEY;
-    if (!PROACTIVE_KEY) return console.log('💌 [主动消息] 缺少 PROACTIVE_KEY 环境变量');
+    const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || '[0.1]claude-opus-4-6-thinking';
+    const PROACTIVE_URL = process.env.PROACTIVE_URL || 'https://api.dzzi.ai/v1/chat/completions';
+    const PROACTIVE_KEY = process.env.DZZI_API_KEY || process.env.PROACTIVE_KEY;
+    if (!PROACTIVE_KEY) return console.log('💌 [主动消息] 缺少 DZZI_API_KEY 或 PROACTIVE_KEY 环境变量');
 
     const recentMsgs = [];
     let lastUserText = '';
