@@ -412,9 +412,9 @@ function initUserProfile() {
     if (fs.existsSync(USER_PROFILE_FILE)) return;
     const profile = { ...DEFAULT_PROFILE };
     try {
-        const blocks = JSON.parse(fs.readFileSync(path.join(__dirname, 'memory_blocks.json'), 'utf8'));
+        const factBlocks = loadLongTermMemories().filter(m => m.type === 'fact' || m.source === 'migrated_from_blocks');
         const sp = fs.readFileSync(path.join(__dirname, 'system_prompt.txt'), 'utf8');
-        profile.basic_info = { content: blocks.filter(b => (b.tags||[]).some(t => ['江鱼','用户','她'].includes(t))).map(b => b.content).join('；').substring(0, 500) || '(待积累)', updated_at: new Date().toISOString() };
+        profile.basic_info = { content: factBlocks.filter(b => (b.tags||[]).some(t => ['江鱼','用户','她'].includes(t))).map(b => b.content).join('；').substring(0, 500) || '(待积累)', updated_at: new Date().toISOString() };
         profile.long_term_values = { content: sp.substring(0, 300), updated_at: new Date().toISOString() };
     } catch(e) { console.log('初始化画像跳过:', e.message); }
     saveUserProfile(profile);
@@ -1074,8 +1074,8 @@ let memoryBlocks = [];
 try {
     console.log("🛠️ 正在读取 OS 核心与记忆图鉴...");
     systemPrompt = fs.readFileSync(path.join(__dirname, 'system_prompt.txt'), 'utf8');
-    memoryBlocks = JSON.parse(fs.readFileSync(path.join(__dirname, 'memory_blocks.json'), 'utf8'));
-    console.log(`✅ 成功加载 OS 核心，并挂载了 ${memoryBlocks.length} 个固化记忆模块！`);
+    memoryBlocks = loadLongTermMemories().filter(m => m.type === 'fact' || m.source === 'migrated_from_blocks');
+    console.log(`✅ 从长期记忆加载了 ${memoryBlocks.length} 个事实类记忆模块！`);
 } catch (e) { console.log("⚠️ 读取失败，原因:", e.message); }
 
 async function scanAllRadars(userText) {
