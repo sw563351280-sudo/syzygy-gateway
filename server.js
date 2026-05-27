@@ -736,7 +736,19 @@ function updateLongTermMemory(id, newContent, newTags) {
     if (newTags !== undefined) memories[idx].tags = newTags;
     memories[idx].updated_at = new Date().toISOString();
     memories[idx].last_accessed = Date.now();
-    saveLongTermMemories(memories);
+    // 分拣回各文件
+    const origActive = activeMems.map(m => m.id);
+    const origArchived = archivedMems.map(m => m.id);
+    const origRP = rpMems.map(m => m.id);
+    const backActive = [], backArchived = [], backRP = [];
+    for (const m of allMemories) {
+        if (origActive.includes(m.id)) backActive.push(m);
+        else if (origArchived.includes(m.id)) backArchived.push(m);
+        else backRP.push(m);
+    }
+    saveLongTermMemories(backActive);
+    saveArchivedMemories(backArchived);
+    saveRoleplayMemories(backRP);
     return memories[idx];
 }
 
@@ -2493,7 +2505,19 @@ app.post('/api/long-term-memories', (req, res) => {
             pinned: pinned || false
         };
         memories.push(entry);
-        saveLongTermMemories(memories);
+        // 分拣回各文件
+    const origActive = activeMems.map(m => m.id);
+    const origArchived = archivedMems.map(m => m.id);
+    const origRP = rpMems.map(m => m.id);
+    const backActive = [], backArchived = [], backRP = [];
+    for (const m of allMemories) {
+        if (origActive.includes(m.id)) backActive.push(m);
+        else if (origArchived.includes(m.id)) backArchived.push(m);
+        else backRP.push(m);
+    }
+    saveLongTermMemories(backActive);
+    saveArchivedMemories(backArchived);
+    saveRoleplayMemories(backRP);
         memoryBlocks = memories.filter(m => m.type === 'fact' || m.source === 'migrated_from_blocks');
         return res.json({ success: true, memory: entry });
     }
@@ -2842,7 +2866,10 @@ app.post('/api/migrate-blocks', (req, res) => {
 // 一次性字段补全（跑完即删）
 app.post('/api/migrate-step2', (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
-    const memories = loadLongTermMemories();
+    const activeMems = loadLongTermMemories();
+    const archivedMems = loadArchivedMemories();
+    const rpMems = loadRoleplayMemories();
+    const allMemories = [...activeMems, ...archivedMems, ...rpMems];
 
     const TYPE_RULES = [
       { type:'play_record', kw:['play','CNC','性','高潮','惩罚','项圈','调教','主奴','支配','服从','捆绑','羞耻','乳','阴','操','进入','硬了','湿了','射','舔','咬痕','勒痕','狗项圈','Puppy','puppy','S.W.','主人','项圈','午夜蓝','蜥蜴皮','控制与占有','勒出痕迹'], w:3 },
@@ -2896,7 +2923,19 @@ app.post('/api/migrate-step2', (req, res) => {
       else counts.valence_bucket.neutral++;
       counts.updated++;
     }
-    saveLongTermMemories(memories);
+    // 分拣回各文件
+    const origActive = activeMems.map(m => m.id);
+    const origArchived = archivedMems.map(m => m.id);
+    const origRP = rpMems.map(m => m.id);
+    const backActive = [], backArchived = [], backRP = [];
+    for (const m of allMemories) {
+        if (origActive.includes(m.id)) backActive.push(m);
+        else if (origArchived.includes(m.id)) backArchived.push(m);
+        else backRP.push(m);
+    }
+    saveLongTermMemories(backActive);
+    saveArchivedMemories(backArchived);
+    saveRoleplayMemories(backRP);
     res.json({success:true,total:memories.length,skipped:counts.skipped,updated:counts.updated,type_counts:counts.type,valence:counts.valence_bucket});
 });
 
