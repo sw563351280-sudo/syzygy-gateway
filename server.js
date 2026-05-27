@@ -736,19 +736,7 @@ function updateLongTermMemory(id, newContent, newTags) {
     if (newTags !== undefined) memories[idx].tags = newTags;
     memories[idx].updated_at = new Date().toISOString();
     memories[idx].last_accessed = Date.now();
-    // 分拣回各文件
-    const origActive = activeMems.map(m => m.id);
-    const origArchived = archivedMems.map(m => m.id);
-    const origRP = rpMems.map(m => m.id);
-    const backActive = [], backArchived = [], backRP = [];
-    for (const m of allMemories) {
-        if (origActive.includes(m.id)) backActive.push(m);
-        else if (origArchived.includes(m.id)) backArchived.push(m);
-        else backRP.push(m);
-    }
-    saveLongTermMemories(backActive);
-    saveArchivedMemories(backArchived);
-    saveRoleplayMemories(backRP);
+    saveLongTermMemories(memories);
     return memories[idx];
 }
 
@@ -2913,7 +2901,7 @@ app.post('/api/migrate-step2', (req, res) => {
     }
 
     const counts={type:{},valence_bucket:{negative:0,neutral:0,positive:0},skipped:0,updated:0};
-    for(const m of memories){
+    for(const m of allMemories){
       if(m.source==='migrated_from_blocks'&&m.type==='fact'){counts.skipped++;continue;}
       m.type=classifyType(m.content,m.tags);
       m.valence=classifyValence(m.content,m.tags,m.type);
@@ -2936,7 +2924,7 @@ app.post('/api/migrate-step2', (req, res) => {
     saveLongTermMemories(backActive);
     saveArchivedMemories(backArchived);
     saveRoleplayMemories(backRP);
-    res.json({success:true,total:memories.length,skipped:counts.skipped,updated:counts.updated,type_counts:counts.type,valence:counts.valence_bucket});
+    res.json({success:true,total:allMemories.length,skipped:counts.skipped,updated:counts.updated,type_counts:counts.type,valence:counts.valence_bucket});
 });
 
 app.get('/api/chat-dates', (req, res) => {
