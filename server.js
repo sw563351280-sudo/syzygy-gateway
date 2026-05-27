@@ -901,6 +901,7 @@ async function cleanAndArchiveMemories() {
         let decayCount = 0;
 
         for (const m of memories) {
+            if (m.type === 'promise') { activeMemories.push(m); continue; }
             if (m.expires_at && now > m.expires_at) {
                 archived.push({ ...m, archived_reason: 'expired' });
                 expiredCount++;
