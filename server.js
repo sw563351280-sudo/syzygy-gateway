@@ -2459,11 +2459,42 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
 // 🌟 长期记忆 CRUD 接口
 // ==========================================
 app.post('/api/long-term-memories', (req, res) => {
-    const { content, source, tags } = req.body;
+    const { content, source, tags, type, valence, ttl, arousal, pinned } = req.body;
     if (!content) return res.status(400).json({ error: "content 不能为空" });
     const parsedTags = Array.isArray(tags) ? tags : (tags ? tags.split(/[,，]/).map(t => t.trim()).filter(Boolean) : []);
     if(parsedTags.some(t => ['roleplay','rp','副本','游戏','设定'].includes(t.toLowerCase().replace(/\s+/g, '')))) {
         const entry = addRoleplayMemory(content, parsedTags);
+        return res.json({ success: true, memory: entry });
+    }
+    if (type === 'fact') {
+        // 直接写入完整字段，绕过 addLongTermMemory 的默认值
+        const memories = loadLongTermMemories();
+        if (memories.some(m => m.content === content.trim())) {
+            return res.json({ success: false, error: "内容重复" });
+        }
+        const entry = {
+            id: Date.now().toString(36) + Math.random().toString(36).substr(2, 4),
+            content: content.trim(),
+            tags: parsedTags,
+            source: source || 'migrated_from_blocks',
+            type: 'fact',
+            ttl: ttl || 'perm',
+            expires_at: null,
+            last_accessed: Date.now(),
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            arousal: arousal || 0.3,
+            valence: valence !== undefined ? valence : 0.0,
+            activation_count: 0,
+            heat: 0.5,
+            emotional_weight: 0,
+            last_recalled_at: Date.now(),
+            query_hashes: [],
+            pinned: pinned || false
+        };
+        memories.push(entry);
+        saveLongTermMemories(memories);
+        memoryBlocks = memories.filter(m => m.type === 'fact' || m.source === 'migrated_from_blocks');
         return res.json({ success: true, memory: entry });
     }
     const entry = addLongTermMemory(content, source || 'manual', parsedTags);
