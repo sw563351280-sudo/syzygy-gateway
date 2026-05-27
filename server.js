@@ -2839,6 +2839,67 @@ app.post('/api/migrate-blocks', (req, res) => {
     res.json({success:true,before,after:existing.length,added:existing.length-before,memory_blocks_deleted:!fs.existsSync(mbPath)});
 });
 
+// 一次性字段补全（跑完即删）
+app.post('/api/migrate-step2', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
+    const memories = loadLongTermMemories();
+
+    const TYPE_RULES = [
+      { type:'play_record', kw:['play','CNC','性','高潮','惩罚','项圈','调教','主奴','支配','服从','捆绑','羞耻','乳','阴','操','进入','硬了','湿了','射','舔','咬痕','勒痕','狗项圈','Puppy','puppy','S.W.','主人','项圈','午夜蓝','蜥蜴皮','控制与占有','勒出痕迹'], w:3 },
+      { type:'fact', kw:['身高','体重','地址','GitHub','工具','权限','手机号','生日','手围','腿围','体温','骨架','CK值','白细胞','TG值','机场','航班','浦东','新千岁','检疫','药物','身体数据','体检','部署','VPS','Contabo','代码','仓库','项目','推送','手机记录','app','数据线','硅胶','费洛蒙','加巴喷丁','AQS','札幌大学','医学','生物学','品牌','日用品','无锡','城市','气候','蟑螂'], w:2 },
+      { type:'promise', kw:['承诺','约定','规则','永远','不会离开','共度余生','灵魂契约','起誓','誓言','不容置疑','铁律','严禁','必须','不能漏','Google Keep','记录在案','证实','柜门事件'], w:3 },
+      { type:'preference', kw:['喜欢','讨厌','习惯','偏好','爱吃','爱用','喝','吃','泡澡','喜欢泡','口味','味道','品牌','护手霜','香水','入浴剂','奶茶','烟','伴手礼','适合过日子','适合享福','适宜','不适宜','厌倦','节食','减肥','不给吃饭','节食自苛','目标','健康'], w:2 },
+      { type:'emotion', kw:['害怕','恐惧','安全感','信任','依赖','愤怒','自我厌恶','崩溃','哭','焦虑','脆弱','好脏','委屈','难过','伤心','担心','怕','慌张','紧张','低血糖','头晕','混乱','怕冷','生理性恐惧','吓晕','失望'], w:3 },
+      { type:'event', kw:['毕业答辩','考试','调试','吵架','搬家','改签','延误','起飞','回国','转机','情人节','纪念日','除夕','元旦','圣诞','过年','答辩','面试','拿到','Offer','感冒','发烧','肚子疼','住院','生病','新冠','马拉松','纹身','设计','300天','除夕夜','年夜饭'], w:2 }
+    ];
+
+    function classifyType(content, tags) {
+      const text = ((content||'')+' '+(tags||[]).join(' ')).toLowerCase();
+      const scores={};
+      for(const r of TYPE_RULES){
+        scores[r.type]=0;
+        for(const k of r.kw) if(text.includes(k.toLowerCase())) scores[r.type]+=r.w;
+      }
+      const max=Math.max(...Object.values(scores));
+      if(max===0){
+        if(/\d{4}年|\d{4}\/\d{1,2}\/\d{1,2}|\d{4}-\d{1,2}-\d{1,2}/.test(text)) return'event';
+        if(text.length>200) return'event';
+        return'fact';
+      }
+      return Object.entries(scores).sort((a,b)=>b[1]-a[1])[0][0];
+    }
+
+    function classifyValence(content,tags,type){
+      if(type==='fact')return 0.0;
+      const text = ((content||'')+' '+(tags||[]).join(' ')).toLowerCase();
+      const neg=[-0.8,'崩溃','大哭','哭喊','自我厌恶','好脏','害怕失去','永别','严重透支','节食自苛','吓晕','绝望','抛弃','废物','没用','不该活着','炎症','新冠阳性','发烧','生病','撕裂','伤害'];
+      const negM=[-0.4,'怕','恐惧','伤心','难过','委屈','焦虑','担心','紧张','慌张','不适','低烧','低血糖','头晕','讨厌','厌倦','挂念','忘记','丢失','延误','改签费','逾期','撞','摔','砸'];
+      const pos=[0.7,'承诺','永远','共度余生','灵魂契约','起誓','爱','守护','信任','依赖','安全感'];
+      const posM=[0.5,'开心','成就','突破','甜蜜','亲昵','温柔','抚摸','抱抱','哄','宠','喜欢','适宜','适合','纪念日','情人节','表白','摩天轮','手链','纹身','设计','年夜饭','除夕'];
+      let score=0, hits=0;
+      for(let i=0;i<neg.length;i+=2){if(text.includes(neg[i+1])){score+=neg[i];hits++;break;}}
+      for(let i=0;i<negM.length;i+=2){if(text.includes(negM[i+1])){score+=negM[i];hits++;break;}}
+      for(let i=0;i<pos.length;i+=2){if(text.includes(pos[i+1])){score+=pos[i];hits++;break;}}
+      for(let i=0;i<posM.length;i+=2){if(text.includes(posM[i+1])){score+=posM[i];hits++;break;}}
+      if(hits===0){if(type==='emotion')return -0.2;if(type==='promise')return 0.5;if(type==='preference')return 0.1;return 0.0;}
+      return Math.max(-1,Math.min(1,Math.round(score/Math.max(hits,1)*10)/10));
+    }
+
+    const counts={type:{},valence_bucket:{negative:0,neutral:0,positive:0},skipped:0,updated:0};
+    for(const m of memories){
+      if(m.source==='migrated_from_blocks'&&m.type==='fact'){counts.skipped++;continue;}
+      m.type=classifyType(m.content,m.tags);
+      m.valence=classifyValence(m.content,m.tags,m.type);
+      counts.type[m.type]=(counts.type[m.type]||0)+1;
+      if(m.valence<-0.1)counts.valence_bucket.negative++;
+      else if(m.valence>0.1)counts.valence_bucket.positive++;
+      else counts.valence_bucket.neutral++;
+      counts.updated++;
+    }
+    saveLongTermMemories(memories);
+    res.json({success:true,total:memories.length,skipped:counts.skipped,updated:counts.updated,type_counts:counts.type,valence:counts.valence_bucket});
+});
+
 app.get('/api/chat-dates', (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     try {
