@@ -1759,7 +1759,7 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
 
 // 💌 沈望主动发消息
 let _proactiveLastError = '';
-async function generateProactiveMessage() {
+async function generateProactiveMessage(forceOverride = false) {
     _proactiveLastError = '';
     const now = Date.now();
     const hoursSince = (now - lastInteractionTime) / 3600000;
@@ -1783,7 +1783,7 @@ async function generateProactiveMessage() {
         forced = true;
     }
 
-    if (!forced) {
+    if (!forceOverride && !forced) {
         // === 第一层：基础概率 ===
         let baseProb = 0;
         if (hoursSince < 1) baseProb = 0;
@@ -3265,7 +3265,7 @@ app.all('/trigger-proactive', async (req, res) => {
         const savedLI = lastInteractionTime;
         lastProactiveTime = 0;
         lastInteractionTime = Date.now() - 7 * 3600000;
-        await generateProactiveMessage();
+        await generateProactiveMessage(true);
         lastInteractionTime = savedLI;
         const sent = lastProactiveTime !== 0;
         if (!sent) lastProactiveTime = savedLT;
