@@ -3256,7 +3256,7 @@ RP游戏卡带（${rpMemories.length}条）：${rpList || '（空）'}
     }
 });
 
-app.post('/trigger-proactive', async (req, res) => {
+app.all('/trigger-proactive', async (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     try {
         // 测试模式：跳过冷却 + 沉默时间设为24h确保触发概率参数通过
