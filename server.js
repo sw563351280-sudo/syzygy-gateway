@@ -3259,15 +3259,20 @@ RP游戏卡带（${rpMemories.length}条）：${rpList || '（空）'}
 app.all('/trigger-proactive', async (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     try {
-        // 测试模式：跳过冷却 + 沉默时间设为24h确保触发概率参数通过
         const savedLT = lastProactiveTime;
         const savedLI = lastInteractionTime;
         lastProactiveTime = 0;
-        lastInteractionTime = Date.now() - 7 * 3600000; // 7小时前
+        lastInteractionTime = Date.now() - 7 * 3600000;
         await generateProactiveMessage();
         lastInteractionTime = savedLI;
-        if (lastProactiveTime === 0) lastProactiveTime = savedLT;
-        res.json({ success: true, message: "已触发主动消息检查，看前端和Bark推送" });
+        const sent = lastProactiveTime !== 0;
+        if (!sent) lastProactiveTime = savedLT;
+        if (sent) {
+            res.json({ success: true, message: "✅ 主动消息已发送，看前端和Bark推送" });
+        } else {
+            const hasKey = !!(process.env.DZZI_API_KEY || process.env.PROACTIVE_KEY);
+            res.json({ success: false, message: `❌ 消息未发出`, debug: { hasApiKey: hasKey, model: process.env.PROACTIVE_MODEL || 'claude-opus-4-6', hint: !hasKey ? '缺少DZZI_API_KEY环境变量' : '可能是API调用失败或返回空内容，看服务器日志: journalctl -u syzygy -n 30' } });
+        }
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
