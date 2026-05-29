@@ -22,14 +22,13 @@ jobs:
             set -e
             SVC=/etc/systemd/system/syzygy.service
 
-            # 1. 修复 DZZI_API_KEY typo (CFT4r → CFT4R)
-            sed -i 's|CFT4r|CFT4R|' \$SVC
+            # 清理旧的主动消息环境变量 + typo的key
+            sed -i -e '/PROACTIVE_KEY=/d' -e '/PROACTIVE_MODEL=/d' -e '/PROACTIVE_URL=/d' -e '/CFT4r/d' \$SVC
 
-            # 2. 修复 PROACTIVE_MODEL (必须有[0.1]前缀)
-            sed -i 's|Environment=\"PROACTIVE_MODEL=.*\"|Environment=\"PROACTIVE_MODEL=[0.1]claude-opus-4-6\"|' \$SVC
-
-            # 3. 修复 PROACTIVE_URL (直连dzzi，不走代理绕圈)
-            sed -i 's|Environment=\"PROACTIVE_URL=.*\"|Environment=\"PROACTIVE_URL=https://api.dzzi.ai/v1/chat/completions\"|' \$SVC
+            # 在 DREAM_API_KEY 之前插入 msui 配置（逆序插入以保持顺序）
+            sed -i '/^Environment=\"DREAM_API_KEY/i Environment=\"PROACTIVE_URL=https://www.msuicode.com/v1/chat/completions\"' \$SVC
+            sed -i '/^Environment=\"DREAM_API_KEY/i Environment=\"PROACTIVE_MODEL=claude-opus-4-6\"' \$SVC
+            sed -i '/^Environment=\"DREAM_API_KEY/i Environment=\"PROACTIVE_KEY=sk-jodiKrzzGDtNR9S7PaUaTsSp0OdJxBD9lD6KqDOaSD2iochX\"' \$SVC
 
             systemctl daemon-reload
 

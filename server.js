@@ -1812,10 +1812,10 @@ async function generateProactiveMessage(forceOverride = false) {
 
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
-    const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || '[0.1]claude-opus-4-6';
-    const PROACTIVE_URL = process.env.PROACTIVE_URL || 'https://api.dzzi.ai/v1/chat/completions';
-    const PROACTIVE_KEY = process.env.DZZI_API_KEY || process.env.PROACTIVE_KEY;
-    if (!PROACTIVE_KEY) { _proactiveLastError = '缺少DZZI_API_KEY或PROACTIVE_KEY'; return console.log('💌 [主动消息] 缺少 DZZI_API_KEY 或 PROACTIVE_KEY 环境变量'); }
+    const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || 'claude-opus-4-6';
+    const PROACTIVE_URL = process.env.PROACTIVE_URL || 'https://www.msuicode.com/v1/chat/completions';
+    const PROACTIVE_KEY = process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
+    if (!PROACTIVE_KEY) { _proactiveLastError = '缺少PROACTIVE_KEY或DZZI_API_KEY'; return console.log('💌 [主动消息] 缺少 PROACTIVE_KEY 或 DZZI_API_KEY 环境变量'); }
 
     const recentMsgs = [];
     let lastUserText = '';
