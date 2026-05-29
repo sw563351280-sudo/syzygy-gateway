@@ -1793,8 +1793,8 @@ async function generateProactiveMessage() {
         else if (hoursSince < 5) baseProb = 0.75;
         else baseProb = 0.85;
 
-        if (baseProb === 0) return;
-        if (hoursSince < 1) return;
+        if (baseProb === 0) { _proactiveLastError = `概率=0 (hoursSince=${hoursSince.toFixed(1)}, bjHour=${bjHour.toFixed(1)})`; return; }
+        if (hoursSince < 1) { _proactiveLastError = '沉默不足1h'; return; }
 
         // === 第二层：时间段权重 ===
         let timeWeight = 1.0;
@@ -1807,12 +1807,12 @@ async function generateProactiveMessage() {
         const finalProb = Math.min(baseProb * timeWeight, 0.95);
         const roll = Math.random();
         console.log(`💌 [主动消息] 沉默${hoursSince.toFixed(1)}h 基础${(baseProb*100).toFixed(0)}% × 时段${timeWeight} = ${(finalProb*100).toFixed(0)}% 随机:${roll.toFixed(3)} ${roll < finalProb ? '✅' : '❌'}`);
-        if (roll >= finalProb) return;
+        if (roll >= finalProb) { _proactiveLastError = `概率未命中: ${(finalProb*100).toFixed(0)}%概率, roll=${roll.toFixed(3)}`; return; }
     }
 
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
-    const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || 'claude-opus-4-6';
+    const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || '[0.1]claude-opus-4-6';
     const PROACTIVE_URL = process.env.PROACTIVE_URL || 'https://api.dzzi.ai/v1/chat/completions';
     const PROACTIVE_KEY = process.env.DZZI_API_KEY || process.env.PROACTIVE_KEY;
     if (!PROACTIVE_KEY) { _proactiveLastError = '缺少DZZI_API_KEY或PROACTIVE_KEY'; return console.log('💌 [主动消息] 缺少 DZZI_API_KEY 或 PROACTIVE_KEY 环境变量'); }
@@ -3272,7 +3272,7 @@ app.all('/trigger-proactive', async (req, res) => {
         if (sent) {
             res.json({ success: true, message: "✅ 主动消息已发送，看前端和Bark推送" });
         } else {
-            res.json({ success: false, message: `❌ 消息未发出`, reason: _proactiveLastError || '概率未命中或未知', debug: { model: process.env.PROACTIVE_MODEL || 'claude-opus-4-6', url: process.env.PROACTIVE_URL || 'https://api.dzzi.ai/v1/chat/completions' } });
+            res.json({ success: false, message: `❌ 消息未发出`, reason: _proactiveLastError || '未知', debug: { model: process.env.PROACTIVE_MODEL || '[0.1]claude-opus-4-6', url: process.env.PROACTIVE_URL || 'https://api.dzzi.ai/v1/chat/completions' } });
         }
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
