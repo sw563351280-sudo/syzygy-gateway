@@ -1758,10 +1758,12 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
 }
 
 // 💌 沈望主动发消息
+let _proactiveLastError = '';
 async function generateProactiveMessage() {
+    _proactiveLastError = '';
     const now = Date.now();
     const hoursSince = (now - lastInteractionTime) / 3600000;
-    if (now - lastProactiveTime < 1.5 * 3600000) return; // 最小1.5h间隔
+    if (now - lastProactiveTime < 1.5 * 3600000) { _proactiveLastError = '1.5h冷却中'; return; }
 
     // 北京时间
     const bjHour = ((now + 8 * 3600000) / 3600000) % 24;
@@ -1813,7 +1815,7 @@ async function generateProactiveMessage() {
     const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || 'claude-opus-4-6';
     const PROACTIVE_URL = process.env.PROACTIVE_URL || 'https://api.dzzi.ai/v1/chat/completions';
     const PROACTIVE_KEY = process.env.DZZI_API_KEY || process.env.PROACTIVE_KEY;
-    if (!PROACTIVE_KEY) return console.log('💌 [主动消息] 缺少 DZZI_API_KEY 或 PROACTIVE_KEY 环境变量');
+    if (!PROACTIVE_KEY) { _proactiveLastError = '缺少DZZI_API_KEY或PROACTIVE_KEY'; return console.log('💌 [主动消息] 缺少 DZZI_API_KEY 或 PROACTIVE_KEY 环境变量'); }
 
     const recentMsgs = [];
     let lastUserText = '';
@@ -1884,11 +1886,11 @@ async function generateProactiveMessage() {
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${PROACTIVE_KEY}` },
             body: JSON.stringify({ model: PROACTIVE_MODEL, messages: msgs })
         });
-        if (!res.ok) { console.log(`💌 [主动消息] API返回${res.status}: ${await res.text().then(t=>t.substring(0,200))}`); return; }
+        if (!res.ok) { const errText = await res.text().then(t=>t.substring(0,200)); _proactiveLastError = `API返回${res.status}: ${errText}`; console.log(`💌 [主动消息] ${_proactiveLastError}`); return; }
         const data = await res.json();
         const msg = data.choices?.[0]?.message;
         let content = (msg?.content || msg?.reasoning_content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-        if (!content || content.length < 2) { console.log(`💌 [主动消息] 空内容，原始: ${JSON.stringify(data).substring(0, 300)}`); return; }
+        if (!content || content.length < 2) { _proactiveLastError = `空内容，原始: ${JSON.stringify(data).substring(0, 300)}`; console.log(`💌 [主动消息] ${_proactiveLastError}`); return; }
         console.log(`💌 [主动消息] ${content}`);
         insertProactiveToConfig(content);
         // 自动 Bark 推送
@@ -1897,7 +1899,7 @@ async function generateProactiveMessage() {
         fetch(`https://api.day.app/D9kpuZreHXGepYyuesohUZ/${encodeURIComponent(barkTitle)}/${encodeURIComponent(barkBody)}?icon=https://syrenth.uk/icon-192.png`, { signal: AbortSignal.timeout(10000) }).catch(() => {});
         wsBroadcast({ type: 'proactive_message', content, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), fullTime: new Date().toISOString() });
         updateLastProactiveTime();
-    } catch(e) { console.log(`💌 [主动消息] 异常: ${e.message}`); }
+    } catch(e) { _proactiveLastError = `异常: ${e.message}`; console.log(`💌 [主动消息] ${_proactiveLastError}`); }
 }
 function insertProactiveToConfig(content) {
     try {
@@ -3270,8 +3272,7 @@ app.all('/trigger-proactive', async (req, res) => {
         if (sent) {
             res.json({ success: true, message: "✅ 主动消息已发送，看前端和Bark推送" });
         } else {
-            const hasKey = !!(process.env.DZZI_API_KEY || process.env.PROACTIVE_KEY);
-            res.json({ success: false, message: `❌ 消息未发出`, debug: { hasApiKey: hasKey, model: process.env.PROACTIVE_MODEL || 'claude-opus-4-6', hint: !hasKey ? '缺少DZZI_API_KEY环境变量' : '可能是API调用失败或返回空内容，看服务器日志: journalctl -u syzygy -n 30' } });
+            res.json({ success: false, message: `❌ 消息未发出`, reason: _proactiveLastError || '概率未命中或未知', debug: { model: process.env.PROACTIVE_MODEL || 'claude-opus-4-6', url: process.env.PROACTIVE_URL || 'https://api.dzzi.ai/v1/chat/completions' } });
         }
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
