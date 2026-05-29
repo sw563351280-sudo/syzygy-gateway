@@ -7,6 +7,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Setup key
         run: |
@@ -25,7 +26,7 @@ jobs:
 
       - name: SSH Deploy
         run: |
-          ssh -v -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key -p 2222 root@46.250.248.31 "
+          ssh -v -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key root@46.250.248.31 "
             cd /opt/syzygy || exit 1
             git pull origin main
             npm install --production
