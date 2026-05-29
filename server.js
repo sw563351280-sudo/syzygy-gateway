@@ -1810,7 +1810,7 @@ async function generateProactiveMessage() {
 
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
-    const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || '[0.1]claude-opus-4-6-thinking';
+    const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || 'claude-opus-4-6';
     const PROACTIVE_URL = process.env.PROACTIVE_URL || 'https://api.dzzi.ai/v1/chat/completions';
     const PROACTIVE_KEY = process.env.DZZI_API_KEY || process.env.PROACTIVE_KEY;
     if (!PROACTIVE_KEY) return console.log('💌 [主动消息] 缺少 DZZI_API_KEY 或 PROACTIVE_KEY 环境变量');
@@ -1853,13 +1853,21 @@ async function generateProactiveMessage() {
         } catch(e) {}
     }
 
-    // 记忆雷达
-    const { coreRadar, longTermRadar, rpRadar, unresolved } = await scanAllRadars(lastUserText || '最近');
-    const profile = loadUserProfile();
+    // 记忆雷达（降级保护：失败不阻断消息发送）
+    let coreRadar = '', longTermRadar = '', rpRadar = '', unresolved = '';
+    try {
+        const radarResult = await scanAllRadars(lastUserText || '最近');
+        coreRadar = radarResult.coreRadar; longTermRadar = radarResult.longTermRadar;
+        rpRadar = radarResult.rpRadar; unresolved = radarResult.unresolved;
+    } catch(e) { console.log(`💌 [主动消息] 记忆雷达失败(降级): ${e.message}`); }
+
     let profileContext = '';
-    if (profile.basic_info?.content) profileContext += `📌 ${profile.basic_info.content}\n`;
-    if (profile.communication_style?.content) profileContext += `🔍 ${profile.communication_style.content}\n`;
-    if (profile.recent_focus?.content) profileContext += `🔥 近期关注：${profile.recent_focus.content}\n`;
+    try {
+        const profile = loadUserProfile();
+        if (profile.basic_info?.content) profileContext += `📌 ${profile.basic_info.content}\n`;
+        if (profile.communication_style?.content) profileContext += `🔍 ${profile.communication_style.content}\n`;
+        if (profile.recent_focus?.content) profileContext += `🔥 近期关注：${profile.recent_focus.content}\n`;
+    } catch(e) { console.log(`💌 [主动消息] 画像加载失败(降级): ${e.message}`); }
 
     const mpConfig = getModelPromptConfig(PROACTIVE_MODEL);
     const msgs = [];
@@ -1878,8 +1886,9 @@ async function generateProactiveMessage() {
         });
         if (!res.ok) { console.log(`💌 [主动消息] API返回${res.status}: ${await res.text().then(t=>t.substring(0,200))}`); return; }
         const data = await res.json();
-        let content = (data.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-        if (!content || content.length < 2) { console.log(`💌 [主动消息] 空内容，原始: ${JSON.stringify(data).substring(0, 200)}`); return; }
+        const msg = data.choices?.[0]?.message;
+        let content = (msg?.content || msg?.reasoning_content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+        if (!content || content.length < 2) { console.log(`💌 [主动消息] 空内容，原始: ${JSON.stringify(data).substring(0, 300)}`); return; }
         console.log(`💌 [主动消息] ${content}`);
         insertProactiveToConfig(content);
         // 自动 Bark 推送
