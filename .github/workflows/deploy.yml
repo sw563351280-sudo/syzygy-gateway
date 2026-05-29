@@ -16,7 +16,7 @@ jobs:
           key: ${{ secrets.CONTABO_SSH_KEY }}
           port: 22
           script: |
-            cd /opt/syzygy-gateway || cd /root/syzygy-gateway || exit 1
+            cd /opt/syzygy
             git pull origin main
             npm install --production
             systemctl restart syzygy.service
