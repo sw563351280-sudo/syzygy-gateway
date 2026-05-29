@@ -19,6 +19,23 @@ jobs:
       - name: Deploy
         run: |
           ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key root@46.250.248.31 "
+            set -e
+            # 修复 systemd 环境变量（DZZI_API_KEY 里有typo: CFT4r 应为 CFT4R）
+            if grep -q 'CFT4r' /etc/systemd/system/syzygy.service; then
+              sed -i 's|CFT4r|CFT4R|' /etc/systemd/system/syzygy.service
+              echo 'Fixed DZZI_API_KEY typo'
+              NEED_RELOAD=1
+            fi
+            # 修复 PROACTIVE_MODEL（必须有 [0.1] 前缀）
+            if grep -q 'PROACTIVE_MODEL=claude-opus-4-6$' /etc/systemd/system/syzygy.service; then
+              sed -i 's|PROACTIVE_MODEL=claude-opus-4-6$|PROACTIVE_MODEL=[0.1]claude-opus-4-6|' /etc/systemd/system/syzygy.service
+              echo 'Fixed PROACTIVE_MODEL'
+              NEED_RELOAD=1
+            fi
+            if [ \"\$NEED_RELOAD\" = 1 ]; then
+              systemctl daemon-reload
+            fi
+            # 代码更新
             cd /opt/syzygy || exit 1
             git fetch origin main
             git reset --hard origin/main
