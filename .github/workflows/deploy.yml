@@ -7,26 +7,18 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Setup key
+      - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          echo "Key lines: $(wc -l < ~/.ssh/deploy_key)"
-          head -1 ~/.ssh/deploy_key
         env:
           SSH_KEY: ${{ secrets.CONTABO_SSH_KEY }}
 
-      - name: Test TCP
+      - name: Deploy
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq netcat-openbsd 2>/dev/null || true
-          nc -zv -w 10 46.250.248.31 2222 2>&1 || echo "TCP 2222 unreachable"
-
-      - name: SSH Deploy
-        run: |
-          ssh -v -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key root@46.250.248.31 "
+          ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key root@46.250.248.31 "
             cd /opt/syzygy || exit 1
             git pull origin main
             npm install --production
