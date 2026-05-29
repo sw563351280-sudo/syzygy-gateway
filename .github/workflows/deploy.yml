@@ -20,7 +20,8 @@ jobs:
         run: |
           ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key root@46.250.248.31 "
             cd /opt/syzygy || exit 1
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
             npm install --production
             systemctl restart syzygy.service
             echo '=== DEPLOY OK ==='
