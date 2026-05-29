@@ -7,6 +7,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Setup key
         run: |
@@ -21,11 +22,11 @@ jobs:
       - name: Test TCP
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq netcat-openbsd 2>/dev/null || true
-          nc -zv -w 10 46.250.248.31 22 2>&1 || echo "TCP 22 unreachable"
+          nc -zv -w 10 46.250.248.31 2222 2>&1 || echo "TCP 2222 unreachable"
 
       - name: SSH Deploy
         run: |
-          ssh -v -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key root@46.250.248.31 "
+          ssh -v -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key root@46.250.248.31 "
             cd /opt/syzygy || exit 1
             git pull origin main
             npm install --production
