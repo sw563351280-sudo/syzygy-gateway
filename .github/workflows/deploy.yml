@@ -8,16 +8,20 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: 46.250.248.31
-          username: root
-          key: ${{ secrets.CONTABO_SSH_KEY }}
-          port: 22
-          script: |
-            cd /opt/syzygy
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+        env:
+          SSH_KEY: ${{ secrets.CONTABO_SSH_KEY }}
+
+      - name: Deploy
+        run: |
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=30 -i ~/.ssh/deploy_key root@46.250.248.31 "
+            cd /opt/syzygy || exit 1
             git pull origin main
             npm install --production
             systemctl restart syzygy.service
-            echo "✅ Deployed at $(date)"
+            echo '=== DEPLOY OK ==='
+          "
