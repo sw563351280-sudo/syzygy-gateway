@@ -199,12 +199,12 @@ async function scanTranscriptRadar(userText) {
     if (!userText || userText.length < 4) return "";
     const now = new Date();
     let allChunks = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 12; i++) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         allChunks = allChunks.concat(loadTranscriptMonth(d));
     }
     if (allChunks.length === 0) return "";
-    const results = await rrfMergeSearch(userText, allChunks, 2);
+    const results = await rrfMergeSearch(userText, allChunks, 3);
     if (results.length === 0) return "";
     const lines = results.map(r => {
         const c = r.memory;
