@@ -109,9 +109,10 @@
 
 记忆雷达 (每次对话触发):
   scanAllRadars(userText)
-    ├── scanMemoryRadar()     → 静态核心记忆 RRF搜索
-    ├── scanLongTermRadar()   → 长期记忆 RRF搜索 + 热度分层注入
-    ├── scanRoleplayRadar()   → RP卡带 RRF搜索
+    ├── scanMemoryRadar()       → 静态核心记忆 RRF搜索
+    ├── scanLongTermRadar()     → 长期记忆 RRF搜索 + 热度分层注入
+    ├── scanRoleplayRadar()     → RP卡带 RRF搜索
+    ├── scanTranscriptRadar()   → 最近对话原文雷达 (取最近几轮对话作为上下文)
     └── surfaceUnresolvedMemories() → 未解决的高热度记忆(前2条)
 
 RRF 搜索 (双路融合, rrfMergeSearch):
@@ -159,6 +160,7 @@ API: POST /trigger-dream?pwd=xxx
 | 151-215 | getEmbedding() — SiliconFlow 多provider降级 |
 | 217-296 | ensureEmbedding(), reindexAllEmbeddings() |
 | 297-332 | rrfMergeSearch() — 向量+关键词双路RRF融合 |
+| 198-221 | scanTranscriptRadar() — 对话原文雷达 (取最近几轮对话原文) |
 
 ### 4.2 记忆管理 (line 750-980)
 
@@ -170,7 +172,7 @@ API: POST /trigger-dream?pwd=xxx
 | 870-890 | surfaceUnresolvedMemories() — 高热度未解决记忆 |
 | 892-974 | cleanAndArchiveMemories() — 衰减/过期/归档 + 自动Dream触发 |
 | 977-978 | SAVE_MEMORY 标签提取正则 |
-| 1082-1090 | scanAllRadars() — 四路雷达聚合 |
+| 1173-1184 | scanAllRadars() — 五路雷达聚合 (含 transcriptRadar) |
 
 ### 4.3 工具系统 (line 1350-1578)
 

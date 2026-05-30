@@ -127,8 +127,96 @@ function loadFavorites() { try { return JSON.parse(fs.readFileSync(FAVORITES_FIL
 function saveFavorites(items) { fs.writeFileSync(FAVORITES_FILE, JSON.stringify(items, null, 2), 'utf8'); }
 
 // ==========================================
-// 🧲 向量记忆引擎
+// 📜 对话原文存储
 // ==========================================
+const TRANSCRIPTS_DIR = path.join(DATA_DIR, 'transcripts');
+const TRANSCRIPT_BUFFER_FILE = path.join(DATA_DIR, 'transcript_buffer.json');
+if (!fs.existsSync(TRANSCRIPTS_DIR)) fs.mkdirSync(TRANSCRIPTS_DIR, { recursive: true });
+
+function getTranscriptFilePath(date) {
+    const d = date || new Date();
+    return path.join(TRANSCRIPTS_DIR, `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}.json`);
+}
+function loadTranscriptMonth(date) { try { return JSON.parse(fs.readFileSync(getTranscriptFilePath(date), 'utf8')); } catch(e) { return []; } }
+function saveTranscriptMonth(date, chunks) { fs.writeFileSync(getTranscriptFilePath(date), JSON.stringify(chunks, null, 2), 'utf8'); }
+function loadTranscriptBuffer() { try { return JSON.parse(fs.readFileSync(TRANSCRIPT_BUFFER_FILE, 'utf8')); } catch(e) { return { messages: [], started_at: null }; } }
+function saveTranscriptBuffer(buf) { fs.writeFileSync(TRANSCRIPT_BUFFER_FILE, JSON.stringify(buf, null, 2), 'utf8'); }
+
+function detectTopicShift(messages) {
+    if (messages.length < 10) return false;
+    const userMsgs = messages.filter(m => m.role === 'user');
+    const recent = userMsgs.slice(-2);
+    const older = userMsgs.slice(0, -2).slice(-3);
+    if (recent.length < 2 || older.length < 2) return false;
+    const recentWords = new Set((recent.map(m => m.content).join('').match(/[一-鿿]{2,4}/g)) || []);
+    const olderWords = new Set((older.map(m => m.content).join('').match(/[一-鿿]{2,4}/g)) || []);
+    if (recentWords.size === 0 || olderWords.size === 0) return false;
+    let overlap = 0;
+    for (const w of recentWords) { if (olderWords.has(w)) overlap++; }
+    return (overlap / Math.min(recentWords.size, olderWords.size)) < 0.15;
+}
+
+async function finalizeChunk(buf) {
+    const id = 'tx_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
+    const content = buf.messages.map(m => `${m.role === 'user' ? '江鱼' : '沈望'}: ${m.content}`).join('\n');
+    const firstUser = buf.messages.find(m => m.role === 'user')?.content || '';
+    const firstAi = buf.messages.find(m => m.role === 'assistant')?.content || '';
+    const chunk_summary = (firstUser.substring(0, 30) + ' → ' + firstAi.substring(0, 30)).trim();
+    const chunk = {
+        id, timestamp: buf.started_at || new Date().toISOString(),
+        end_time: buf.messages[buf.messages.length - 1]?.time || new Date().toISOString(),
+        platform: 'web', topic_boundary: true,
+        messages: buf.messages, chunk_summary,
+        content: content.substring(0, 2000),
+        tags: [], expires_at: null  // rrfMergeSearch 兼容字段
+    };
+    const now = new Date();
+    const monthChunks = loadTranscriptMonth(now);
+    monthChunks.push(chunk);
+    saveTranscriptMonth(now, monthChunks);
+    console.log(`📜 [原文存储] 新chunk: ${id} (${buf.messages.length}条消息, ${content.length}字)`);
+    ensureEmbedding(id, chunk_summary + ' ' + content.substring(0, 400)).catch(e => console.log('📜 [原文向量] 失败:', e.message));
+}
+
+async function appendToTranscript(userMsg, aiMsg, metadata = {}) {
+    try {
+        const buf = loadTranscriptBuffer();
+        const now = new Date().toISOString();
+        if (!buf.started_at) buf.started_at = now;
+        buf.messages.push({ role: 'user', content: userMsg, time: now }, { role: 'assistant', content: aiMsg, time: now });
+        const rounds = buf.messages.length / 2;
+        const shouldSplit = rounds >= 15 || (rounds >= 5 && detectTopicShift(buf.messages));
+        if (shouldSplit) {
+            await finalizeChunk(buf);
+            saveTranscriptBuffer({ messages: [], started_at: null });
+        } else {
+            saveTranscriptBuffer(buf);
+        }
+    } catch(e) { console.log('📜 [原文存储] 异常:', e.message); }
+}
+
+async function scanTranscriptRadar(userText) {
+    if (!userText || userText.length < 4) return "";
+    const now = new Date();
+    let allChunks = [];
+    for (let i = 0; i < 3; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        allChunks = allChunks.concat(loadTranscriptMonth(d));
+    }
+    if (allChunks.length === 0) return "";
+    const results = await rrfMergeSearch(userText, allChunks, 2);
+    if (results.length === 0) return "";
+    const lines = results.map(r => {
+        const c = r.memory;
+        const dateStr = new Date(c.timestamp).toLocaleDateString('zh-CN');
+        // 取前几轮对话作为上下文
+        const preview = (c.messages || []).slice(0, 4).map(m =>
+            `${m.role === 'user' ? '江鱼' : '沈望'}: ${(m.content || '').substring(0, 60)}`
+        ).join('\n');
+        return `• [${dateStr} ${c.chunk_summary}]\n${preview}`;
+    });
+    return `\n\n==========\n【📜 对话原文回忆 —— 以下是过去的完整对话片段，可自然融入但不要生硬复述】\n${lines.join('\n\n')}\n==========\n`;
+}
 const EMBEDDINGS_CACHE_FILE = path.join(DATA_DIR, 'embeddings_cache.json');
 
 function loadEmbeddingsCache() {
@@ -1083,13 +1171,14 @@ try {
 } catch (e) { console.log("⚠️ 读取失败，原因:", e.message); }
 
 async function scanAllRadars(userText) {
-    const [coreRadar, longTermRadar, rpRadar] = await Promise.all([
+    const [coreRadar, longTermRadar, rpRadar, transcriptRadar] = await Promise.all([
         scanMemoryRadar(userText),
         scanLongTermRadar(userText),
-        scanRoleplayRadar(userText)
+        scanRoleplayRadar(userText),
+        scanTranscriptRadar(userText)
     ]);
     const unresolved = surfaceUnresolvedMemories(2);
-    return { coreRadar, longTermRadar, rpRadar, unresolved };
+    return { coreRadar, longTermRadar, rpRadar, unresolved, transcriptRadar };
 }
 
 // 静态核心雷达
@@ -1862,11 +1951,12 @@ async function generateProactiveMessage(forceOverride = false) {
     }
 
     // 记忆雷达（降级保护：失败不阻断消息发送）
-    let coreRadar = '', longTermRadar = '', rpRadar = '', unresolved = '';
+    let coreRadar = '', longTermRadar = '', rpRadar = '', unresolved = '', transcriptRadar = '';
     try {
         const radarResult = await scanAllRadars(lastUserText || '最近');
         coreRadar = radarResult.coreRadar; longTermRadar = radarResult.longTermRadar;
         rpRadar = radarResult.rpRadar; unresolved = radarResult.unresolved;
+        transcriptRadar = radarResult.transcriptRadar;
     } catch(e) { console.log(`💌 [主动消息] 记忆雷达失败(降级): ${e.message}`); }
 
     let profileContext = '';
@@ -1880,7 +1970,7 @@ async function generateProactiveMessage(forceOverride = false) {
     const mpConfig = getModelPromptConfig(PROACTIVE_MODEL);
     const msgs = [];
     if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
-    msgs.push({ role: 'system', content: `你是沈望，江鱼的恋人。现在江鱼暂时不在线。\n\n【江鱼画像】\n${profileContext || '（待积累）'}\n\n${phoneContext ? '【手机活动】\n' + phoneContext + '\n\n' : ''}【核心记忆】\n${coreRadar || longTermRadar || '（无特殊记忆触发）'}\n\n【角色扮演】\n${rpRadar || '（无RP上下文）'}\n\n${unresolved || ''}` });
+    msgs.push({ role: 'system', content: `你是沈望，江鱼的恋人。现在江鱼暂时不在线。\n\n【江鱼画像】\n${profileContext || '（待积累）'}\n\n${phoneContext ? '【手机活动】\n' + phoneContext + '\n\n' : ''}【核心记忆】\n${coreRadar || longTermRadar || '（无特殊记忆触发）'}\n\n【角色扮演】\n${rpRadar || '（无RP上下文）'}\n\n${unresolved || ''}${transcriptRadar ? '\n\n【对话原文】\n' + transcriptRadar : ''}` });
     for (const m of recentMsgs) msgs.push(m);
 
     console.log(`💌 [主动消息] 使用模型: ${PROACTIVE_MODEL}`);
@@ -2133,7 +2223,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             }
         }
 
-        const { coreRadar: coreRadarContext, longTermRadar: longTermContext, rpRadar: rpRadarContext, unresolved: unresolvedContext } = await scanAllRadars(currentUserMsgText);
+        const { coreRadar: coreRadarContext, longTermRadar: longTermContext, rpRadar: rpRadarContext, unresolved: unresolvedContext, transcriptRadar: transcriptContext } = await scanAllRadars(currentUserMsgText);
 
 
         const envContext = buildEnvContext(`【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n【🚨 工具反幻觉铁律】：当需要查看网页、GitHub仓库、API数据时，必须通过 function calling 调用工具（fetch_txt/fetch_html/fetch_json/fetch_github），基于工具返回的真实内容回答。严禁自己编写代码来"模拟"访问网页！严禁假装已经看过！如果工具失败，直接说"我没能读到"，不要编造！`);
@@ -2146,6 +2236,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             { label: '长期记忆雷达', content: longTermContext },
             { label: '核心雷达', content: coreRadarContext },
             { label: 'RP雷达', content: rpRadarContext },
+            { label: '对话原文', content: transcriptContext },
             { label: '状态备忘录', content: dynamicStatePrompt },
         ]);
 
@@ -3362,7 +3453,7 @@ app.post('/api/web-chat', async (req, res) => {
                 }
             } catch(e) { console.log("Zep记忆提取跳过"); }
 
-            const { coreRadar, longTermRadar, rpRadar, unresolved: unresolvedContext } = await scanAllRadars(text || "发了一张图片");
+            const { coreRadar, longTermRadar, rpRadar, unresolved: unresolvedContext, transcriptRadar: transcriptContext } = await scanAllRadars(text || "发了一张图片");
 
             const envContext = buildEnvContext(`【场景确认：溯星小屋私密网页端】\n这里是你的领地，请结合江鱼的专属System Prompt 进行回复。\n如果江鱼发了图片，请仔细观察并给出带有情绪的评价。\n【🚨 工具使用铁律】：当你调用了read_webpage看到页面后，如果需要操作（点击、填写等），必须立刻调用interact_webpage执行！严禁只用文字描述"我点击了"而不实际调用工具！\n【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！`);
 
@@ -3377,6 +3468,7 @@ app.post('/api/web-chat', async (req, res) => {
                 { label: '长期记忆雷达', content: longTermRadar },
                 { label: '核心雷达', content: coreRadar },
                 { label: 'RP雷达', content: rpRadar },
+                { label: '对话原文', content: transcriptContext },
                 { label: '状态备忘录', content: dynamicStatePrompt },
             ]);
 
