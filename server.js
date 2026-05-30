@@ -1619,8 +1619,9 @@ ${chat}
 输出纯JSON：
 {"basic_info":"...","communication_style":"...","recent_focus":"...","long_term_values":"..."}`;
 
-        const dzziKey = process.env.DZZI_API_KEY || process.env.PROACTIVE_KEY;
-        const res = await fetch('https://api.dzzi.ai/v1/chat/completions', {
+        const dzziKey = process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
+        if (!dzziKey) { console.log('🖼️ [用户画像] 缺少 API key'); return; }
+        const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dzziKey}` },
             body: JSON.stringify({
@@ -1689,8 +1690,10 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
     // 🧩 固化层
     console.log('🌙 [Dream·固化层] AI提取记忆碎片...');
     try {
-        const dreamKey = process.env.DZZI_API_KEY || routerKey;
-        const res = await fetch('https://api.dzzi.ai/v1/chat/completions', {
+        // 优先用 DREAM_API_KEY（纯 key），其次 ROUTER_API_KEY（去掉 Bearer 前缀）
+        const dreamKey = process.env.DREAM_API_KEY || (routerKey || '').replace(/^Bearer\s+/i, '');
+        if (!dreamKey) throw new Error('缺少 DREAM_API_KEY 或 ROUTER_API_KEY');
+        const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dreamKey}` },
             body: JSON.stringify({
