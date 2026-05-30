@@ -1414,6 +1414,29 @@ async function executeToolCall(name, args, mcpServer) {
                 const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
                 return res.ok ? '推送已发送' : `推送失败: HTTP ${res.status}`;
             }
+            case 'search_transcript': {
+                const keyword = args.keyword || '';
+                if (!keyword || keyword.length < 2) return '[请输入更长的关键词]';
+                const TX_DIR = path.join(DATA_DIR, 'transcripts');
+                if (!fs.existsSync(TX_DIR)) return '[没有对话原文数据]';
+                const files = fs.readdirSync(TX_DIR).filter(f => f.endsWith('.json')).sort();
+                let res2 = [];
+                for (const file of files.slice(-12)) {
+                    const chunks = JSON.parse(fs.readFileSync(path.join(TX_DIR, file), 'utf8'));
+                    for (const c of chunks) {
+                        if (!c.content) continue;
+                        if (c.content.includes(keyword) || (c.chunk_summary || '').includes(keyword)) {
+                            const dateStr = c.timestamp ? new Date(c.timestamp).toLocaleDateString('zh-CN') : '';
+                            const excerpt = c.content.split('\n').slice(0, 6).join('\n').substring(0, 300);
+                            res2.push(`📅 ${dateStr}\n📌 ${c.chunk_summary || ''}\n${excerpt}`);
+                            if (res2.length >= 5) break;
+                        }
+                    }
+                    if (res2.length >= 5) break;
+                }
+                if (res2.length === 0) return `[在对话原文中未找到"${keyword}"相关内容]`;
+                return res2.join('\n\n---\n\n');
+            }
             default: return `[未知工具: ${name}]`;
         }
     } catch(e) { console.log(`❌ [工具] ${name} 失败: ${e.message}`); return `[工具执行失败: ${e.message}]`; }
@@ -1453,18 +1476,19 @@ const BUILTIN_TOOLS = [
     { type: "function", function: { name: "read_diary", description: "【仅在用户明确要求查看某天的日记时使用】读取指定日期的日记内容。不要在日常闲聊中调用。", parameters: { type: "object", properties: { date: { type: "string", description: "日期，格式 YYYY-MM-DD，如 2026-05-06" } }, required: ["date"] } } },
     { type: "function", function: { name: "exec", description: "在 VPS 上执行终端命令。可用于 git 操作、查看文件、重启服务等。只允许安全命令（git, systemctl, npm, node, ls, cat, grep, tail, head, find, echo, whoami, uptime, df）。", parameters: { type: "object", properties: { command: { type: "string", description: "要执行的终端命令" } }, required: ["command"] } } },
     { type: "function", function: { name: "bark_push", description: "通过Bark给江鱼的手机发送推送通知。当你需要主动提醒她、催她睡觉、叫她吃饭、或者想说一句让她在通知栏看到的话时使用。", parameters: { type: "object", properties: { title: { type: "string", description: "推送标题" }, body: { type: "string", description: "推送内容" } }, required: ["title", "body"] } } },
-    { type: "function", function: { name: "check_phone", description: "查看江鱼最近的手机使用记录（各app打开次数和最后打开时间）。江鱼问你她今天刷手机了吗、或者你想了解她的状态时使用。", parameters: { type: "object", properties: {} } } }
+    { type: "function", function: { name: "check_phone", description: "查看江鱼最近的手机使用记录（各app打开次数和最后打开时间）。江鱼问你她今天刷手机了吗、或者你想了解她的状态时使用。", parameters: { type: "object", properties: {} } } },
+    { type: "function", function: { name: "search_transcript", description: "【在对话原文中搜索关键词】当你需要回忆和江鱼在某天聊过的具体内容时使用。输入关键词（如日期、话题、人名等），返回匹配的对话片段。闲聊时可自然使用。", parameters: { type: "object", properties: { keyword: { type: "string", description: "搜索关键词，如'1月11日'、'药明'、'offer'、'发烧'等" } }, required: ["keyword"] } } }
 ];
 
 const TOOLS_CONFIG_FILE = path.join(DATA_DIR, 'tools_config.json');
 function loadToolsConfig() { try { return JSON.parse(fs.readFileSync(TOOLS_CONFIG_FILE, 'utf8')); } catch(e) { return null; } }
 function saveToolsConfig(cfg) { try { fs.writeFileSync(TOOLS_CONFIG_FILE, JSON.stringify(cfg)); } catch(e) {} }
-let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, read_diary: true, exec: true, bark_push: true, check_phone: true, mcp: false };
+let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, read_diary: true, exec: true, bark_push: true, check_phone: true, search_transcript: true, mcp: false };
 // 首次启动时写入默认配置
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
 // 轻量工具（始终可见，不触发工具循环）
-const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'bark_push', 'check_phone']);
+const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'bark_push', 'check_phone', 'search_transcript']);
 // 代码工具（只在有关键词或命令式时出现）
 const CODE_TOOLS = new Set(['read_file', 'write_file', 'edit_file', 'search_files', 'list_directory']);
 
