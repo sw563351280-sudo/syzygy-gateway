@@ -269,12 +269,13 @@ function toast(msg){
 
 function goView(viewId) {
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data' };
+    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites' };
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
     if (viewId === 'chat') setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 100);
     if (viewId === 'home') updateDays && updateDays();
+    if (viewId === 'favorites') loadAndRenderFavorites();
 }
 function openStarCrossing() {
     const pwd = new URLSearchParams(location.search).get('pwd') || localStorage.getItem('memoryPwd') || '';
@@ -426,7 +427,7 @@ function renderChatMessages(){
             actionsHtml += '<div class="version-nav"><button class="ver-btn" onclick="switchVersion(' + index + ',-1)"' + (vIdx===0?' disabled':'') + '>‹</button><span class="ver-label">' + (vIdx+1) + ' / ' + vCount + '</span><button class="ver-btn" onclick="switchVersion(' + index + ',1)"' + (vIdx===vCount-1?' disabled':'') + '>›</button></div>';
         }
         if(m.role === 'user'){ actionsHtml += '<button class="msg-inline-btn" onclick="editUserMessage(' + index + ')" title="编辑">✎</button>'; actionsHtml += '<button class="msg-inline-btn" onclick="resendUserMessage(' + index + ')" title="重新发送">↻</button>'; }
-        if(m.role === 'assistant') actionsHtml += '<button class="msg-inline-btn" onclick="regenerateAt(' + index + ')" title="重新生成">↻</button>';
+        if(m.role === 'assistant'){ actionsHtml += '<button class="msg-inline-btn" onclick="regenerateAt(' + index + ')" title="重新生成">↻</button>'; actionsHtml += '<button class="msg-inline-btn fav-star" id="favBtn_' + index + '" onclick="openFavDialog(' + index + ')" title="收藏">★</button>'; }
         actionsHtml += '</div>';
         htmlContent += actionsHtml;
 
@@ -1492,3 +1493,143 @@ window.addEventListener('beforeunload', function() {
         delete msg._zepDirty;
     }
 });
+
+// ⭐ 收藏夹
+let _favTargetMsgIdx = 0;
+let _favCache = [];
+
+async function loadFavCache() {
+    try { const r = await fetch('/api/favorites'); const d = await r.json(); _favCache = d.favorites || []; } catch(e) { _favCache = []; }
+}
+
+function openFavDialog(index) {
+    _favTargetMsgIdx = index;
+    const session = getActiveSession();
+    if (!session || !session.messages) return toast('无对话数据');
+    const aiMsg = session.messages[index];
+    if (!aiMsg || aiMsg.role !== 'assistant') return;
+    const aiV = getActiveVersion(aiMsg);
+    let userContent = '';
+    for (let j = index - 1; j >= 0; j--) {
+        if (session.messages[j].role === 'user') {
+            const uv = getActiveVersion(session.messages[j]);
+            userContent = typeof uv.content === 'string' ? uv.content : '（发送了图片）';
+            break;
+        }
+    }
+    const aiContent = typeof aiV.content === 'string' ? aiV.content : '';
+    document.getElementById('favPreview').innerHTML = '<div style="margin-bottom:8px;color:var(--dim);font-size:0.8em;">👤 江鱼：</div><div style="margin-bottom:12px;padding:8px 12px;background:rgba(79,195,247,0.06);border-left:2px solid #4fc3f7;border-radius:4px;">' + (userContent || '(空)').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div><div style="margin-bottom:8px;color:var(--dim);font-size:0.8em;">🤖 沈望：</div><div style="padding:8px 12px;background:rgba(201,169,97,0.06);border-left:2px solid var(--gold);border-radius:4px;">' + (aiContent || '(空)').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
+    document.getElementById('favTags').value = '';
+    document.getElementById('favNote').value = '';
+    document.getElementById('favModal').style.display = 'block';
+}
+
+function closeFavModal() {
+    document.getElementById('favModal').style.display = 'none';
+}
+
+async function confirmFavorite() {
+    const session = getActiveSession();
+    if (!session || !session.messages) return;
+    const aiMsg = session.messages[_favTargetMsgIdx];
+    if (!aiMsg) return;
+    const aiV = getActiveVersion(aiMsg);
+    let userContent = '', userMsg = null;
+    for (let j = _favTargetMsgIdx - 1; j >= 0; j--) {
+        if (session.messages[j].role === 'user') {
+            userMsg = session.messages[j];
+            const uv = getActiveVersion(userMsg);
+            userContent = typeof uv.content === 'string' ? uv.content : '';
+            break;
+        }
+    }
+    const tagsStr = (document.getElementById('favTags').value || '').trim();
+    const tags = tagsStr ? tagsStr.split(/[,，]/).map(t => t.trim()).filter(Boolean) : [];
+    const note = (document.getElementById('favNote').value || '').trim();
+    try {
+        const r = await fetch('/api/favorites', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                messages: [{ role: 'user', content: userContent || '（发送了图片）' }, { role: 'assistant', content: aiV.content || '' }],
+                note, tags
+            })
+        });
+        const d = await r.json();
+        if (d.success) {
+            toast('已收藏 ⭐');
+            closeFavModal();
+            const btn = document.getElementById('favBtn_' + _favTargetMsgIdx);
+            if (btn) { btn.classList.add('faved'); btn.innerHTML = '★'; }
+        } else {
+            toast('收藏失败: ' + (d.error || '未知'));
+        }
+    } catch(e) { toast('网络错误: ' + e.message); }
+}
+
+async function loadAndRenderFavorites() {
+    await loadFavCache();
+    const list = document.getElementById('favList');
+    const tagBar = document.getElementById('favTagBar');
+    if (!list) return;
+
+    // 收集所有标签
+    const allTags = new Set();
+    _favCache.forEach(f => f.tags && f.tags.forEach(t => allTags.add(t)));
+
+    // 渲染标签筛选栏
+    tagBar.innerHTML = '<button onclick="filterFavByTag(null)" style="padding:4px 12px;border-radius:14px;border:1px solid rgba(201,169,97,0.3);background:rgba(201,169,97,0.1);color:var(--gold);cursor:pointer;font-size:0.85em;">全部 (' + _favCache.length + ')</button>';
+    allTags.forEach(t => {
+        const count = _favCache.filter(f => f.tags && f.tags.includes(t)).length;
+        tagBar.innerHTML += '<button onclick="filterFavByTag(\'' + t.replace(/'/g, "\\'") + '\')" style="padding:4px 12px;border-radius:14px;border:1px solid rgba(201,169,97,0.15);background:rgba(201,169,97,0.03);color:var(--cream);cursor:pointer;font-size:0.85em;">' + t.replace(/</g,'&lt;') + ' (' + count + ')</button>';
+    });
+
+    // 渲染列表
+    renderFavList(_favCache);
+}
+
+function filterFavByTag(tag) {
+    const items = tag ? _favCache.filter(f => f.tags && f.tags.includes(tag)) : _favCache;
+    renderFavList(items);
+}
+
+function renderFavList(items) {
+    const list = document.getElementById('favList');
+    if (!list) return;
+    if (items.length === 0) {
+        list.innerHTML = '<div style="text-align:center;color:var(--dim);padding:60px 20px;">还没有收藏的对话<br><br>在聊天中点消息旁的 ★ 即可收藏</div>';
+        return;
+    }
+    let html = '';
+    items.forEach(f => {
+        const dt = new Date(f.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+        const userC = f.messages[0]?.content || '';
+        const aiC = f.messages[1]?.content || '';
+        const tagsHtml = (f.tags || []).map(t => '<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(201,169,97,0.08);color:var(--gold);font-size:0.75em;margin-right:4px;">' + t.replace(/</g,'&lt;') + '</span>').join('');
+        html += '<div style="background:rgba(12,16,28,0.6);border:1px solid rgba(201,169,97,0.12);border-radius:12px;padding:14px 16px;">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">';
+        html += '<span style="font-size:0.75em;color:var(--dim);">' + dt + '</span>';
+        html += '<button onclick="deleteFavorite(\'' + f.id + '\')" style="background:transparent;border:none;color:var(--warm-red);cursor:pointer;font-size:0.9em;padding:2px 8px;">✕</button>';
+        html += '</div>';
+        html += '<div style="margin-bottom:6px;font-size:0.82em;color:#4fc3f7;">👤 ' + escapeHtml(userC).substring(0, 120) + (userC.length > 120 ? '...' : '') + '</div>';
+        html += '<div style="margin-bottom:8px;font-size:0.85em;color:var(--cream);">🤖 ' + escapeHtml(aiC).substring(0, 200) + (aiC.length > 200 ? '...' : '') + '</div>';
+        if (tagsHtml) html += '<div style="margin-bottom:6px;">' + tagsHtml + '</div>';
+        if (f.note) html += '<div style="font-size:0.78em;color:var(--gold-dim);margin-top:4px;padding-left:8px;border-left:2px solid rgba(201,169,97,0.2);">📝 ' + escapeHtml(f.note) + '</div>';
+        html += '</div>';
+    });
+    list.innerHTML = html;
+}
+
+function escapeHtml(s) {
+    return (s || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function deleteFavorite(id) {
+    if (!confirm('确定删除这条收藏？')) return;
+    try {
+        const r = await fetch('/api/favorites/' + id, { method: 'DELETE' });
+        const d = await r.json();
+        if (d.success) { toast('已删除'); loadAndRenderFavorites(); }
+        else { toast('删除失败'); }
+    } catch(e) { toast('网络错误'); }
+}

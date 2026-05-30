@@ -29,6 +29,7 @@
         <div class="home-card" onclick="openStarCrossing()" style="--card-accent:#D4A853"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#D4A853" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 22,9 12,17 2,9"/><polygon points="12,17 22,9 12,22 2,9"/></svg></div><div class="home-card-name">星渡</div><div class="home-card-desc">共同记忆</div></div>
         <div class="home-card" onclick="goView('data')" style="--card-accent:#c9a961"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c9a961" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div><div class="home-card-name">中枢</div><div class="home-card-desc">系统设置</div></div>
         <div class="home-card" onclick="triggerDreamFromHome()" style="--card-accent:#7C4DFF"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#7C4DFF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></div><div class="home-card-name">Dream</div><div class="home-card-desc">记忆整理</div></div>
+	        <div class="home-card" onclick="goView('favorites')" style="--card-accent:#FFD700"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FFD700" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg></div><div class="home-card-name">收藏夹</div><div class="home-card-desc">珍藏对话</div></div>
     </div>
     <div class="home-footer">Built with love · Syzygy</div>
 </div>
@@ -140,7 +141,19 @@
         </div>
     </div>
 
-    <script src="script.js?v=5"></script>
+    
+<div class="section" id="sec-favorites">
+    <div class="view-topbar">
+        <button class="view-back" onclick="goView('home')">←</button>
+        <span class="view-title">⭐ 收藏夹</span>
+        <span style="flex:1"></span>
+        <button class="chat-rename-topbar-btn" onclick="loadAndRenderFavorites()" title="刷新">↻</button>
+    </div>
+    <div style="padding:12px 16px;display:flex;gap:8px;flex-wrap:wrap;" id="favTagBar"></div>
+    <div id="favList" style="padding:0 16px 80px 16px;overflow-y:auto;max-height:calc(100vh - 120px);display:flex;flex-direction:column;gap:12px;"></div>
+</div>
+
+	<script src="script.js?v=6"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>
         <div id="menuModel" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🤖 模型: -</div>
@@ -158,6 +171,25 @@
         </div>
         <div id="mailboxList" style="flex:1; overflow-y:auto; padding:14px 18px; display:flex; flex-direction:column; gap:12px;">
             <div style="color:var(--dim); text-align:center; padding:30px;">加载中...</div>
+        </div>
+    </div>
+</div>
+
+
+<div id="favModal" style="display:none;position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);" onclick="if(event.target===this)closeFavModal()">
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:92%;max-width:500px;max-height:85vh;background:rgba(12,16,28,0.95);border:1px solid rgba(201,169,97,0.25);border-radius:14px;display:flex;flex-direction:column;overflow:hidden;">
+        <div style="padding:18px 20px;border-bottom:1px solid rgba(201,169,97,0.1);display:flex;justify-content:space-between;align-items:center;">
+            <span style="color:var(--gold);font-size:1em;letter-spacing:2px;">⭐ 收藏对话</span>
+            <button onclick="closeFavModal()" style="background:transparent;border:none;color:var(--dim);font-size:1.3em;cursor:pointer;">✕</button>
+        </div>
+        <div style="padding:14px 18px;max-height:300px;overflow-y:auto;font-size:0.85em;color:var(--cream);border-bottom:1px solid rgba(201,169,97,0.05);" id="favPreview"></div>
+        <div style="padding:14px 18px;display:flex;flex-direction:column;gap:10px;">
+            <input id="favTags" placeholder="标签（用逗号分隔，可跳过）" style="background:rgba(255,255,255,0.05);border:1px solid rgba(201,169,97,0.2);border-radius:8px;padding:10px 12px;color:var(--cream);font-size:0.9em;">
+            <textarea id="favNote" placeholder="备注（可选）" rows="2" style="background:rgba(255,255,255,0.05);border:1px solid rgba(201,169,97,0.2);border-radius:8px;padding:10px 12px;color:var(--cream);font-size:0.9em;resize:vertical;"></textarea>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button onclick="closeFavModal()" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:10px 20px;color:var(--dim);cursor:pointer;">取消</button>
+                <button onclick="confirmFavorite()" style="background:rgba(201,169,97,0.15);border:1px solid rgba(201,169,97,0.4);border-radius:8px;padding:10px 20px;color:var(--gold);cursor:pointer;font-weight:bold;">★ 收藏</button>
+            </div>
         </div>
     </div>
 </div>

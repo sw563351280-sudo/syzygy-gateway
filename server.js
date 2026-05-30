@@ -122,6 +122,9 @@ const DREAM_LOGS_FILE = path.join(DATA_DIR, 'dream_logs.json');
 const DAILY_PAGES_FILE = path.join(DATA_DIR, 'daily_pages.json');
 const WEEKLY_SUMMARIES_FILE = path.join(DATA_DIR, 'weekly_summaries.json');
 const MONTHLY_SUMMARIES_FILE = path.join(DATA_DIR, 'monthly_summaries.json');
+const FAVORITES_FILE = path.join(DATA_DIR, 'favorites.json');
+function loadFavorites() { try { return JSON.parse(fs.readFileSync(FAVORITES_FILE, 'utf8')); } catch(e) { return []; } }
+function saveFavorites(items) { fs.writeFileSync(FAVORITES_FILE, JSON.stringify(items, null, 2), 'utf8'); }
 
 // ==========================================
 // 🧲 向量记忆引擎
@@ -3638,6 +3641,44 @@ app.get('/capsule/add', (req, res) => {
     const entries = loadCapsules();
     entries.push({ id: Date.now().toString(36), text: decodeURIComponent(text), date: new Date().toISOString() });
     saveCapsules(entries);
+    res.json({ success: true });
+});
+
+// ==========================================
+// ==========================================
+// ⭐ 收藏夹
+// ==========================================
+app.post('/api/favorites', (req, res) => {
+    try {
+        const { messages, note, tags } = req.body || {};
+        if (!messages || !Array.isArray(messages) || messages.length === 0)
+            return res.status(400).json({ error: "messages 不能为空" });
+        const items = loadFavorites();
+        const entry = {
+            id: 'fav_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4),
+            timestamp: new Date().toISOString(),
+            messages,
+            note: (note || '').trim() || '',
+            tags: Array.isArray(tags) ? tags.map(t => t.trim()).filter(Boolean) : []
+        };
+        items.push(entry);
+        saveFavorites(items);
+        res.json({ success: true, favorite: entry });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/favorites', (req, res) => {
+    let items = loadFavorites();
+    if (req.query.tag) items = items.filter(f => f.tags.includes(req.query.tag));
+    items.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    res.json({ favorites: items });
+});
+
+app.delete('/api/favorites/:id', (req, res) => {
+    const items = loadFavorites();
+    const filtered = items.filter(f => f.id !== req.params.id);
+    if (filtered.length === items.length) return res.status(404).json({ error: "未找到该收藏" });
+    saveFavorites(filtered);
     res.json({ success: true });
 });
 
