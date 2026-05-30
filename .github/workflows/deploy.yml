@@ -18,24 +18,36 @@ jobs:
 
       - name: Deploy
         run: |
-          ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key root@46.250.248.31 "
+          ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key root@46.250.248.31 '
             set -e
-            SVC=/etc/systemd/system/syzygy.service
-
-            # 清理旧的主动消息环境变量 + typo的key
-            sed -i -e '/PROACTIVE_KEY=/d' -e '/PROACTIVE_MODEL=/d' -e '/PROACTIVE_URL=/d' -e '/CFT4r/d' \$SVC
-
-            # 在 DREAM_API_KEY 之前插入 msui 配置（逆序插入以保持顺序）
-            sed -i '/^Environment=\"DREAM_API_KEY/i Environment=\"PROACTIVE_URL=https://www.msuicode.com/v1/chat/completions\"' \$SVC
-            sed -i '/^Environment=\"DREAM_API_KEY/i Environment=\"PROACTIVE_MODEL=claude-opus-4-6\"' \$SVC
-            sed -i '/^Environment=\"DREAM_API_KEY/i Environment=\"PROACTIVE_KEY=sk-jodiKrzzGDtNR9S7PaUaTsSp0OdJxBD9lD6KqDOaSD2iochX\"' \$SVC
-
-            systemctl daemon-reload
-
             cd /opt/syzygy || exit 1
+
+            # 备份沈望在VPS上修改的文件
+            mkdir -p /tmp/syzygy_backup
+            git diff --name-only | while read f; do
+              if [ -f "$f" ]; then
+                dir=$(dirname "$f")
+                mkdir -p "/tmp/syzygy_backup/$dir"
+                cp "$f" "/tmp/syzygy_backup/$f"
+                echo "  💾 备份: $f"
+              fi
+            done
+
+            # 部署最新代码
             git fetch origin main
             git reset --hard origin/main
             npm install --production
+
+            # 恢复沈望的本地修改
+            if [ -d /tmp/syzygy_backup ]; then
+              find /tmp/syzygy_backup -type f | while read f; do
+                rel=$(echo "$f" | sed "s|^/tmp/syzygy_backup/||")
+                cp "$f" "/opt/syzygy/$rel"
+                echo "  ✅ 恢复: $rel"
+              done
+              rm -rf /tmp/syzygy_backup
+            fi
+
             systemctl restart syzygy.service
-            echo '=== DEPLOY OK ==='
-          "
+            echo "=== DEPLOY OK ==="
+          '
