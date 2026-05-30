@@ -8,7 +8,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=12">
+    <link rel="stylesheet" href="style.css?v=13">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
@@ -153,7 +153,7 @@
     <div id="favList" style="padding:0 16px 80px 16px;overflow-y:auto;max-height:calc(100vh - 120px);display:flex;flex-direction:column;gap:12px;"></div>
 </div>
 
-	<script src="script.js?v=6"></script>
+	<script src="script.js?v=7"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>
         <div id="menuModel" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🤖 模型: -</div>
@@ -191,6 +191,16 @@
                 <button onclick="confirmFavorite()" style="background:rgba(201,169,97,0.15);border:1px solid rgba(201,169,97,0.4);border-radius:8px;padding:10px 20px;color:var(--gold);cursor:pointer;font-weight:bold;">★ 收藏</button>
             </div>
         </div>
+    </div>
+</div>
+
+<div id="favDetail" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);" onclick="if(event.target===this)document.getElementById('favDetail').style.display='none'">
+    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:92%;max-width:560px;max-height:85vh;background:rgba(12,16,28,0.95);border:1px solid rgba(201,169,97,0.25);border-radius:14px;display:flex;flex-direction:column;overflow:hidden;">
+        <div style="padding:18px 20px;border-bottom:1px solid rgba(201,169,97,0.1);display:flex;justify-content:space-between;align-items:center;">
+            <span style="color:var(--gold);font-size:1em;letter-spacing:2px;">⭐ 收藏详情</span>
+            <button onclick="document.getElementById('favDetail').style.display='none'" style="background:transparent;border:none;color:var(--dim);font-size:1.3em;cursor:pointer;">✕</button>
+        </div>
+        <div id="favDetailBody" style="padding:16px 20px;overflow-y:auto;flex:1;"></div>
     </div>
 </div>
 

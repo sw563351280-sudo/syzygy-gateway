@@ -1601,23 +1601,42 @@ function renderFavList(items) {
         return;
     }
     let html = '';
-    items.forEach(f => {
+    items.forEach((f, fi) => {
         const dt = new Date(f.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
         const userC = f.messages[0]?.content || '';
         const aiC = f.messages[1]?.content || '';
         const tagsHtml = (f.tags || []).map(t => '<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(201,169,97,0.08);color:var(--gold);font-size:0.75em;margin-right:4px;">' + t.replace(/</g,'&lt;') + '</span>').join('');
-        html += '<div style="background:rgba(12,16,28,0.6);border:1px solid rgba(201,169,97,0.12);border-radius:12px;padding:14px 16px;">';
+        html += '<div class="fav-card" onclick="viewFavDetail(' + fi + ')" style="background:rgba(12,16,28,0.6);border:1px solid rgba(201,169,97,0.12);border-radius:12px;padding:14px 16px;cursor:pointer;transition:border-color 0.2s;">';
         html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">';
         html += '<span style="font-size:0.75em;color:var(--dim);">' + dt + '</span>';
-        html += '<button onclick="deleteFavorite(\'' + f.id + '\')" style="background:transparent;border:none;color:var(--warm-red);cursor:pointer;font-size:0.9em;padding:2px 8px;">✕</button>';
+        html += '<button onclick="event.stopPropagation();deleteFavorite(\'' + f.id + '\')" style="background:transparent;border:none;color:var(--warm-red);cursor:pointer;font-size:0.9em;padding:2px 8px;">✕</button>';
         html += '</div>';
-        html += '<div style="margin-bottom:6px;font-size:0.82em;color:#4fc3f7;">👤 ' + escapeHtml(userC).substring(0, 120) + (userC.length > 120 ? '...' : '') + '</div>';
-        html += '<div style="margin-bottom:8px;font-size:0.85em;color:var(--cream);">🤖 ' + escapeHtml(aiC).substring(0, 200) + (aiC.length > 200 ? '...' : '') + '</div>';
+        html += '<div style="margin-bottom:6px;font-size:0.82em;color:#4fc3f7;white-space:pre-wrap;">👤 ' + escapeHtml(userC).substring(0, 120) + (userC.length > 120 ? '...' : '') + '</div>';
+        html += '<div style="margin-bottom:8px;font-size:0.85em;color:var(--cream);white-space:pre-wrap;">🤖 ' + escapeHtml(aiC).substring(0, 200) + (aiC.length > 200 ? '...' : '') + '</div>';
         if (tagsHtml) html += '<div style="margin-bottom:6px;">' + tagsHtml + '</div>';
         if (f.note) html += '<div style="font-size:0.78em;color:var(--gold-dim);margin-top:4px;padding-left:8px;border-left:2px solid rgba(201,169,97,0.2);">📝 ' + escapeHtml(f.note) + '</div>';
+        html += '<div style="text-align:center;font-size:0.75em;color:rgba(201,169,97,0.3);margin-top:6px;">点击查看全文 ▾</div>';
         html += '</div>';
     });
     list.innerHTML = html;
+}
+
+function viewFavDetail(fi) {
+    const f = _favCache[fi];
+    if (!f) return;
+    const dt = new Date(f.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+    const userC = f.messages[0]?.content || '';
+    const aiC = f.messages[1]?.content || '';
+    const tagsHtml = (f.tags || []).map(t => '<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(201,169,97,0.12);color:var(--gold);font-size:0.8em;margin-right:4px;">' + t.replace(/</g,'&lt;') + '</span>').join('');
+    const detail = document.getElementById('favDetail');
+    const body = document.getElementById('favDetailBody');
+    body.innerHTML = '<div style="margin-bottom:12px;color:var(--dim);font-size:0.85em;">🕒 ' + dt + (tagsHtml ? ' &nbsp;' + tagsHtml : '') + '</div>'
+        + '<div style="margin-bottom:10px;color:var(--dim);font-size:0.85em;">👤 江鱼：</div>'
+        + '<div style="margin-bottom:16px;padding:10px 14px;background:rgba(79,195,247,0.06);border-left:2px solid #4fc3f7;border-radius:4px;white-space:pre-wrap;line-height:1.7;">' + escapeHtml(userC) + '</div>'
+        + '<div style="margin-bottom:10px;color:var(--dim);font-size:0.85em;">🤖 沈望：</div>'
+        + '<div style="margin-bottom:16px;padding:10px 14px;background:rgba(201,169,97,0.06);border-left:2px solid var(--gold);border-radius:4px;white-space:pre-wrap;line-height:1.7;">' + escapeHtml(aiC) + '</div>'
+        + (f.note ? '<div style="font-size:0.85em;color:var(--gold-dim);padding:8px 12px;border-left:2px solid rgba(201,169,97,0.2);">📝 ' + escapeHtml(f.note) + '</div>' : '');
+    detail.style.display = 'block';
 }
 
 function escapeHtml(s) {

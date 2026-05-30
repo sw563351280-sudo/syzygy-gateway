@@ -1468,3 +1468,6 @@ body[data-view="chat"] #themeToggleBtn{display:none!important}
 .fav-star.faved { color: #FFD700; background: rgba(255,215,0,0.12); border-color: rgba(255,215,0,0.5); text-shadow: 0 0 6px rgba(255,215,0,0.4); }
 .msg:hover .fav-star { opacity: 1; }
 
+
+.fav-card:hover { border-color: rgba(201,169,97,0.35) !important; background: rgba(201,169,97,0.03) !important; }
+
