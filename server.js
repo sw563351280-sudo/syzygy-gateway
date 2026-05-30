@@ -158,7 +158,10 @@ function detectTopicShift(messages) {
 
 async function finalizeChunk(buf) {
     const id = 'tx_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
-    const content = buf.messages.map(m => `${m.role === 'user' ? '江鱼' : '沈望'}: ${m.content}`).join('\n');
+    const content = buf.messages.map(m => {
+        const t = m.time ? new Date(m.time).toLocaleDateString('zh-CN') : '';
+        return `[${t}] ${m.role === 'user' ? '江鱼' : '沈望'}: ${m.content}`;
+    }).join('\n');
     const firstUser = buf.messages.find(m => m.role === 'user')?.content || '';
     const firstAi = buf.messages.find(m => m.role === 'assistant')?.content || '';
     const chunk_summary = (firstUser.substring(0, 30) + ' → ' + firstAi.substring(0, 30)).trim();
