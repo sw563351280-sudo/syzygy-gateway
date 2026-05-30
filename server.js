@@ -170,7 +170,7 @@ async function finalizeChunk(buf) {
         end_time: buf.messages[buf.messages.length - 1]?.time || new Date().toISOString(),
         platform: 'web', topic_boundary: true,
         messages: buf.messages, chunk_summary,
-        content: content.substring(0, 2000),
+        content: content.substring(0, 3000),
         tags: [], expires_at: null  // rrfMergeSearch 兼容字段
     };
     const now = new Date();
@@ -188,7 +188,7 @@ async function appendToTranscript(userMsg, aiMsg, metadata = {}) {
         if (!buf.started_at) buf.started_at = now;
         buf.messages.push({ role: 'user', content: userMsg, time: now }, { role: 'assistant', content: aiMsg, time: now });
         const rounds = buf.messages.length / 2;
-        const shouldSplit = rounds >= 15 || (rounds >= 5 && detectTopicShift(buf.messages));
+        const shouldSplit = rounds >= 6 || (rounds >= 3 && detectTopicShift(buf.messages));
         if (shouldSplit) {
             await finalizeChunk(buf);
             saveTranscriptBuffer({ messages: [], started_at: null });
