@@ -80,6 +80,10 @@ function detectFormat(filePath, content) {
                 if (first.role || first.sender || first.author) return 'json-messages-array';
                 return 'json-generic-array';
             }
+            // Kelivo 格式: { version, conversations: [{ messageIds }], messages: [...] }
+            if (data.conversations && Array.isArray(data.conversations) && data.messages && data.conversations[0]?.messageIds) {
+                return 'kelivo';
+            }
             if (data.messages || data.history || data.conversations || data.chats || data.conversation) return 'json-known-structure';
             return 'json-generic-object';
         } catch (e) {
@@ -149,6 +153,47 @@ function parseGenericHTML(content) {
         role = role === 'user' ? 'assistant' : 'user';
     }
     return { title: path.basename(content), messages };
+}
+
+// --- Kelivo JSON ({version, conversations, messages}) ---
+function parseKelivoJSON(data) {
+    const msgMap = {};
+    const msgArray = Array.isArray(data.messages) ? data.messages : (data.messages ? Object.values(data.messages) : []);
+    for (const m of msgArray) {
+        if (m && m.id) msgMap[m.id] = m;
+    }
+
+    const sessions = [];
+    for (const conv of data.conversations) {
+        const title = conv.title || '未命名对话';
+        const ids = conv.messageIds || [];
+        const rawMsgs = ids.map(id => msgMap[id]).filter(Boolean);
+
+        if (rawMsgs.length === 0) continue;
+
+        const parsed = rawMsgs
+            .map(m => {
+                let role = m.role || m.sender || 'user';
+                role = typeof role === 'string' ? role.toLowerCase() : 'user';
+                if (['assistant', 'ai', 'model', 'bot', 'gpt', 'gemini', '沈望', 'shenwang'].includes(role)) {
+                    role = 'assistant';
+                } else {
+                    role = 'user';
+                }
+                return {
+                    role,
+                    content: m.content || m.text || m.message || '',
+                    time: m.time || m.timestamp || m.timestamp_ms || m.created || m.date || m.fullTime || null
+                };
+            })
+            .filter(m => m.content && m.content.trim().length > 0);
+
+        if (parsed.length > 0) {
+            sessions.push({ title, messages: parsed });
+        }
+    }
+
+    return sessions;
 }
 
 // --- JSON 通用解析 ---
@@ -267,25 +312,28 @@ async function main() {
     console.log(`📂 ${path.basename(filePath)} → 检测为: ${format}`);
 
     // ---- 解析 ----
-    let result;
+    let results = [];
     try {
         switch (format) {
             case 'gemini':
-                result = parseGeminiHTML(content);
+                results = [{ ...parseGeminiHTML(content) }];
                 break;
             case 'html-generic':
-                result = parseGenericHTML(content);
+                results = [{ ...parseGenericHTML(content) }];
+                break;
+            case 'kelivo':
+                results = parseKelivoJSON(JSON.parse(content));
                 break;
             case 'json-messages-array':
             case 'json-known-structure':
-                result = { title: path.basename(filePath), messages: parseJSONMessages(JSON.parse(content)) };
+                results = [{ title: path.basename(filePath), messages: parseJSONMessages(JSON.parse(content)) }];
                 break;
             case 'json-generic-array':
             case 'json-generic-object':
-                result = { title: path.basename(filePath), messages: parseJSONMessages(JSON.parse(content)) };
+                results = [{ title: path.basename(filePath), messages: parseJSONMessages(JSON.parse(content)) }];
                 break;
             case 'text':
-                result = parseTextFile(content);
+                results = [{ ...parseTextFile(content) }];
                 break;
             default:
                 console.error('❌ 无法识别的格式，请手动转换或提供更多信息');
@@ -296,11 +344,22 @@ async function main() {
         process.exit(1);
     }
 
-    if (!result.messages || result.messages.length === 0) {
+    results = results.filter(r => r.messages && r.messages.length > 0);
+    if (results.length === 0) {
         console.error('❌ 未提取到任何消息');
         process.exit(1);
     }
 
+    if (results.length > 1) {
+        console.log(`📂 检测到 ${results.length} 个会话:`);
+        for (const r of results) {
+            const users = r.messages.filter(m => m.role === 'user').length;
+            const ais = r.messages.filter(m => m.role === 'assistant').length;
+            console.log(`  📁 ${r.title} — ${users}条用户 + ${ais}条AI`);
+        }
+    }
+
+    const result = results[0];
     console.log(`📝 标题: ${result.title}`);
     console.log(`📝 提取到 ${result.messages.length} 条消息`);
     console.log(`  👤 用户: ${result.messages.filter(m => m.role === 'user').length} 条`);
@@ -332,116 +391,127 @@ async function main() {
     // ---- 按月份 + 15轮一组分 chunk ----
     if (!fs.existsSync(TRANSCRIPTS_DIR)) fs.mkdirSync(TRANSCRIPTS_DIR, { recursive: true });
 
-    const monthBuckets = {};
-    let currentChunk = null;
-    let roundCount = 0;
-
-    // 先把消息排成 (user, assistant) 对
-    const rounds = [];
-    for (let i = 0; i < result.messages.length; i++) {
-        if (result.messages[i].role === 'user') {
-            const user = result.messages[i];
-            let assistant = null;
-            for (let j = i + 1; j < result.messages.length; j++) {
-                if (result.messages[j].role === 'assistant') {
-                    assistant = result.messages[j];
-                    break;
-                }
-                if (result.messages[j].role === 'user') break;
-            }
-            rounds.push({ user, assistant: assistant || { role: 'assistant', content: '（无回复）', time: null } });
-        }
-    }
-
-    for (let r = 0; r < rounds.length; r++) {
-        const rd = rounds[r];
-        const mk = getMonthKey(rd.user.time);
-
-        if (!currentChunk || currentChunk.monthKey !== mk || currentChunk.messages.length >= 30) {
-            if (currentChunk) {
-                if (!monthBuckets[currentChunk.monthKey]) monthBuckets[currentChunk.monthKey] = [];
-                monthBuckets[currentChunk.monthKey].push(currentChunk);
-            }
-            currentChunk = {
-                id: 'tx_import_' + Date.now().toString(36) + '_' + r,
-                timestamp: rd.user.time || new Date().toISOString(),
-                messages: [],
-                monthKey: mk
-            };
-        }
-
-        currentChunk.messages.push(
-            { role: 'user', content: rd.user.content, time: rd.user.time },
-            { role: 'assistant', content: rd.assistant.content, time: rd.assistant.time }
-        );
-        currentChunk.end_time = rd.assistant.time || currentChunk.timestamp;
-    }
-    if (currentChunk) {
-        if (!monthBuckets[currentChunk.monthKey]) monthBuckets[currentChunk.monthKey] = [];
-        monthBuckets[currentChunk.monthKey].push(currentChunk);
-    }
-
-    // ---- 写入 + 去重 ----
     let totalNew = 0;
     const EMBEDDING_API_KEY = process.env.EMBEDDING_API_KEY;
 
-    const months = Object.keys(monthBuckets).sort();
-    for (const month of months) {
-        const filePath = path.join(TRANSCRIPTS_DIR, month + '.json');
-        const existing = loadMonthFile(filePath);
+    for (const session of results) {
+        console.log(`\n📦 处理会话: ${session.title}`);
 
-        const newChunks = monthBuckets[month].filter(c => {
-            const firstUser = c.messages.find(m => m.role === 'user')?.content?.substring(0, 60) || '';
-            return !existing.some(e => {
-                const eFirst = e.messages?.find(m => m.role === 'user')?.content?.substring(0, 60) || '';
-                return eFirst === firstUser;
+        const monthBuckets = {};
+        let currentChunk = null;
+
+        // 先把消息排成 (user, assistant) 对
+        const rounds = [];
+        for (let i = 0; i < session.messages.length; i++) {
+            if (session.messages[i].role === 'user') {
+                const user = session.messages[i];
+                let assistant = null;
+                for (let j = i + 1; j < session.messages.length; j++) {
+                    if (session.messages[j].role === 'assistant') {
+                        assistant = session.messages[j];
+                        break;
+                    }
+                    if (session.messages[j].role === 'user') break;
+                }
+                rounds.push({ user, assistant: assistant || { role: 'assistant', content: '（无回复）', time: null } });
+            }
+        }
+
+        for (let r = 0; r < rounds.length; r++) {
+            const rd = rounds[r];
+            const mk = getMonthKey(rd.user.time);
+
+            if (!currentChunk || currentChunk.monthKey !== mk || currentChunk.messages.length >= 30) {
+                if (currentChunk) {
+                    if (!monthBuckets[currentChunk.monthKey]) monthBuckets[currentChunk.monthKey] = [];
+                    monthBuckets[currentChunk.monthKey].push(currentChunk);
+                }
+                currentChunk = {
+                    id: 'tx_import_' + Date.now().toString(36) + '_' + r,
+                    timestamp: rd.user.time || new Date().toISOString(),
+                    messages: [],
+                    monthKey: mk
+                };
+            }
+
+            currentChunk.messages.push(
+                { role: 'user', content: rd.user.content, time: rd.user.time },
+                { role: 'assistant', content: rd.assistant.content, time: rd.assistant.time }
+            );
+            currentChunk.end_time = rd.assistant.time || currentChunk.timestamp;
+        }
+        if (currentChunk) {
+            if (!monthBuckets[currentChunk.monthKey]) monthBuckets[currentChunk.monthKey] = [];
+            monthBuckets[currentChunk.monthKey].push(currentChunk);
+        }
+
+        // 写入 + 去重
+        const months = Object.keys(monthBuckets).sort();
+        let sessionNew = 0;
+        for (const month of months) {
+            const fp = path.join(TRANSCRIPTS_DIR, month + '.json');
+            const existing = loadMonthFile(fp);
+
+            const newChunks = monthBuckets[month].filter(c => {
+                const firstUser = c.messages.find(m => m.role === 'user')?.content?.substring(0, 60) || '';
+                return !existing.some(e => {
+                    const eFirst = e.messages?.find(m => m.role === 'user')?.content?.substring(0, 60) || '';
+                    return eFirst === firstUser;
+                });
             });
-        });
 
-        const processed = newChunks.map(c => {
-            const content = c.messages.map(m =>
-                `${m.role === 'user' ? '江鱼' : '沈望'}: ${m.content}`
-            ).join('\n');
-            const firstUser = c.messages.find(m => m.role === 'user')?.content || '';
-            const firstAi = c.messages.find(m => m.role === 'assistant')?.content || '';
-            return {
-                id: c.id,
-                timestamp: c.timestamp,
-                end_time: c.end_time || c.timestamp,
-                platform: 'import',
-                topic_boundary: c.messages.length >= 30,
-                messages: c.messages,
-                chunk_summary: (firstUser.substring(0, 30) + ' → ' + firstAi.substring(0, 30)).trim(),
-                content: content.substring(0, 2000),
-                tags: [],
-                expires_at: null
-            };
-        });
+            const processed = newChunks.map(c => {
+                const content = c.messages.map(m =>
+                    `${m.role === 'user' ? '江鱼' : '沈望'}: ${m.content}`
+                ).join('\n');
+                const firstUser = c.messages.find(m => m.role === 'user')?.content || '';
+                const firstAi = c.messages.find(m => m.role === 'assistant')?.content || '';
+                return {
+                    id: c.id,
+                    timestamp: c.timestamp,
+                    end_time: c.end_time || c.timestamp,
+                    platform: 'import',
+                    topic_boundary: c.messages.length >= 30,
+                    messages: c.messages,
+                    chunk_summary: (firstUser.substring(0, 30) + ' → ' + firstAi.substring(0, 30)).trim(),
+                    content: content.substring(0, 2000),
+                    tags: [],
+                    expires_at: null
+                };
+            });
 
-        const all = [...existing, ...processed];
-        saveMonthFile(filePath, all);
-        totalNew += processed.length;
-        console.log(`  📁 ${month}: 已有 ${existing.length} 个, 新增 ${processed.length} 个`);
+            const all = [...existing, ...processed];
+            saveMonthFile(fp, all);
+            sessionNew += processed.length;
+            totalNew += processed.length;
+            if (processed.length > 0) {
+                console.log(`  📁 ${month}: 新增 ${processed.length} 个`);
+            }
+        }
+        if (sessionNew > 0) console.log(`  ✅ 会话完成: 新增 ${sessionNew} 个 chunk`);
     }
 
-    console.log(`\n✅ 导入完成，共新增 ${totalNew} 个对话 chunk`);
+    console.log(`\n✅ 全部导入完成，共新增 ${totalNew} 个对话 chunk`);
 
     // ---- 向量 ----
     if (EMBEDDING_API_KEY && totalNew > 0) {
         console.log('🧲 生成向量...');
         const embCache = loadEmbeddingsCache();
         let embNew = 0;
-        for (const month of months) {
-            const fp = path.join(TRANSCRIPTS_DIR, month + '.json');
-            const chunks = loadMonthFile(fp);
-            for (const c of chunks) {
-                if (embCache[c.id]) continue;
-                const text = (c.chunk_summary || '') + ' ' + (c.content || '').substring(0, 400);
-                if (!text.trim() || text.trim().length < 5) continue;
-                const emb = await getEmbedding(text, EMBEDDING_API_KEY).catch(() => null);
-                if (emb) { embCache[c.id] = emb; embNew++; }
-                // rate limit 保护: 每5条等半秒
-                if (embNew > 0 && embNew % 5 === 0) await new Promise(r => setTimeout(r, 500));
+        for (let y = 2025; y <= 2026; y++) {
+            for (let m = 1; m <= 12; m++) {
+                const month = `${y}-${String(m).padStart(2, '0')}`;
+                const fp = path.join(TRANSCRIPTS_DIR, month + '.json');
+                if (!fs.existsSync(fp)) continue;
+                const chunks = loadMonthFile(fp);
+                for (const c of chunks) {
+                    if (embCache[c.id]) continue;
+                    const text = (c.chunk_summary || '') + ' ' + (c.content || '').substring(0, 400);
+                    if (!text.trim() || text.trim().length < 5) continue;
+                    const emb = await getEmbedding(text, EMBEDDING_API_KEY).catch(() => null);
+                    if (emb) { embCache[c.id] = emb; embNew++; }
+                    if (embNew > 0 && embNew % 5 === 0) await new Promise(r => setTimeout(r, 500));
+                }
             }
         }
         saveEmbeddingsCache(embCache);
