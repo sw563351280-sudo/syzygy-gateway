@@ -178,7 +178,7 @@ API: POST /trigger-dream?pwd=xxx
 
 | 行号 | 内容 |
 |------|------|
-| 1353-1362 | BUILTIN_TOOLS — 7个内置工具 (fetch_txt/html/json/github, exec, bark_push, check_phone) |
+| 1353-1362 | BUILTIN_TOOLS — 8个内置工具 (fetch_txt/html/json/github, exec, bark_push, check_phone, search_transcript) |
 | 1363-1369 | 工具开关配置 (data/tools_config.json) |
 | 1371-1409 | filterRelevantTools() — 按关键词评分筛选 |
 | 1412-1540 | MCP Server 管理 (filesystem MCP: /opt/syzygy 目录读写) |
