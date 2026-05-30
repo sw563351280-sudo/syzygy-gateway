@@ -1,5 +1,7 @@
 # CLAUDE.md — 溯星小屋记忆系统升级指南
 
+> 📖 详细架构文档见 [ARCHITECTURE.md](./ARCHITECTURE.md) — 包含完整目录结构、代码行号参考、数据流、API端点、前端函数、环境变量等。
+
 ## 项目简介
 这是"溯星小屋"（Syzygy Gateway），一个 AI 伴侣聊天系统。
 角色叫"沈望"，用户叫"江鱼"。
