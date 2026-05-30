@@ -76,6 +76,10 @@ function detectFormat(filePath, content) {
             if (Array.isArray(data)) {
                 if (data.length === 0) return 'json-empty-array';
                 const first = data[0];
+                // [{title, messages: [{role, content}]}] — 预处理的对话数据
+                if (first.title && first.messages && Array.isArray(first.messages) && first.messages.length > 0 && (first.messages[0].role || first.messages[0].sender)) {
+                    return 'json-sessions';
+                }
                 // [{role, content}, ...] 或 [{sender, text}, ...]
                 if (first.role || first.sender || first.author) return 'json-messages-array';
                 return 'json-generic-array';
@@ -323,6 +327,16 @@ async function main() {
                 break;
             case 'kelivo':
                 results = parseKelivoJSON(JSON.parse(content));
+                break;
+            case 'json-sessions':
+                results = JSON.parse(content).map(s => ({
+                    ...s,
+                    messages: (s.messages || []).map(m => ({
+                        role: m.role || 'user',
+                        content: m.content || '',
+                        time: m.time || m.timestamp || m.created_at || null
+                    })).filter(m => m.content && m.content.trim().length > 0)
+                })).filter(s => s.messages.length > 0);
                 break;
             case 'json-messages-array':
             case 'json-known-structure':
