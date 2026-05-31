@@ -135,7 +135,7 @@ function flushBuffer() {
         topic_boundary: true,
         messages: bufMessages,
         chunk_summary: (firstUser.substring(0, 30) + ' → ' + firstAi.substring(0, 30)).trim(),
-        content: content.substring(0, 3000),
+        content: content,
         tags: [],
         expires_at: null
     };

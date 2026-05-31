@@ -171,7 +171,7 @@ async function finalizeChunk(buf) {
         end_time: buf.messages[buf.messages.length - 1]?.time || new Date().toISOString(),
         platform: 'web', topic_boundary: true,
         messages: buf.messages, chunk_summary,
-        content: content.substring(0, 3000),
+        content: content,
         tags: [], expires_at: null  // rrfMergeSearch 兼容字段
     };
     const now = new Date();
@@ -1452,9 +1452,14 @@ async function executeToolCall(name, args, mcpServer) {
                         const inTimestamp = dateHint && c.timestamp && c.timestamp.includes(dateHint);
                         if (inContent || inSummary || inMessages || inTimestamp) {
                             const dateStr = c.timestamp ? new Date(c.timestamp).toLocaleDateString('zh-CN') : '';
-                            const excerpt = c.content.split('\n').slice(0, 6).join('\n').substring(0, 300);
+                            // 用 messages 数组构建完整对话，不再依赖被截断的 content
+                            const msgs = (c.messages || []);
+                            const excerpt = msgs.map(m => {
+                                const role = m.role === 'user' ? '江鱼' : '沈望';
+                                return `${role}: ${m.content || ''}`;
+                            }).join('\n').substring(0, 2000);
                             res2.push(`📅 ${dateStr}\n📌 ${c.chunk_summary || ''}\n${excerpt}`);
-                            if (res2.length >= 5) break;
+                            if (res2.length >= 3) break;
                         }
                     }
                     if (res2.length >= 5) break;
