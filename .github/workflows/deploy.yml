@@ -48,6 +48,12 @@ jobs:
               rm -rf /tmp/syzygy_backup
             fi
 
+            # 补录历史对话原文到 transcripts（idempotent，已有则跳过）
+            node migrate_transcripts.js || echo "⚠️ 补录脚本失败，继续部署"
+            # 清理旧 transcript buffer 避免残留数据重复写入
+            rm -f data/transcript_buffer.json
+            echo "📜 对话原文补录完成"
+
             systemctl restart syzygy.service
             echo "=== DEPLOY OK ==="
           '
