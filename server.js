@@ -203,6 +203,28 @@ async function scanTranscriptRadar(userText) {
     if (!userText || userText.length < 4) return "";
     const now = new Date();
     let allChunks = [];
+
+    // 把 buffer 里的未归档消息也做成临时 chunk，确保最新对话可被检索
+    const bufData = loadTranscriptBuffer();
+    if (bufData.messages && bufData.messages.length > 0) {
+        const bufContent = bufData.messages.map(m => {
+            const d = m.time ? new Date(m.time) : new Date();
+            const t = `${d.getMonth()+1}月${d.getDate()}日`;
+            return `[${t}] ${m.role === 'user' ? '江鱼' : '沈望'}: ${m.content}`;
+        }).join('\n');
+        const firstUser = bufData.messages.find(m => m.role === 'user')?.content || '';
+        const firstAi = bufData.messages.find(m => m.role === 'assistant')?.content || '';
+        allChunks.push({
+            id: 'buffer_temp',
+            timestamp: bufData.started_at || new Date().toISOString(),
+            end_time: new Date().toISOString(),
+            content: bufContent,
+            chunk_summary: (firstUser.substring(0, 30) + ' → ' + firstAi.substring(0, 30)).trim(),
+            messages: bufData.messages,
+            tags: [], expires_at: null, heat: 1.0, arousal: 1.0
+        });
+    }
+
     for (let i = 0; i < 12; i++) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         allChunks = allChunks.concat(loadTranscriptMonth(d));
@@ -1432,7 +1454,6 @@ async function executeToolCall(name, args, mcpServer) {
                 const keyword = args.keyword || '';
                 if (!keyword || keyword.length < 2) return '[请输入更长的关键词]';
                 const TX_DIR = path.join(DATA_DIR, 'transcripts');
-                if (!fs.existsSync(TX_DIR)) return '[没有对话原文数据]';
 
                 // 中文日期 → ISO 日期转换 (如 "1月8日" → -01-08)
                 const dateMatch = keyword.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
@@ -1440,8 +1461,26 @@ async function executeToolCall(name, args, mcpServer) {
                     ? `-${String(parseInt(dateMatch[1])).padStart(2, '0')}-${String(parseInt(dateMatch[2])).padStart(2, '0')}`
                     : null;
 
-                const files = fs.readdirSync(TX_DIR).filter(f => f.endsWith('.json')).sort();
                 let res2 = [];
+
+                // 先搜 transcript_buffer 里未归档的最新消息
+                const bufData = loadTranscriptBuffer();
+                if (bufData.messages && bufData.messages.length > 0) {
+                    const bufMsgs = bufData.messages;
+                    // buffer 里直接搜每条消息的 content
+                    const matchedInBuffer = bufMsgs.some(m => (m.content || '').includes(keyword));
+                    const inBufTimestamp = dateHint && bufData.started_at && bufData.started_at.includes(dateHint);
+                    if (matchedInBuffer || inBufTimestamp) {
+                        const dateStr = bufData.started_at ? new Date(bufData.started_at).toLocaleDateString('zh-CN') : '今天';
+                        const excerpt = bufMsgs.map(m => {
+                            const role = m.role === 'user' ? '江鱼' : '沈望';
+                            return `${role}: ${m.content || ''}`;
+                        }).join('\n').substring(0, 2000);
+                        res2.push(`📅 ${dateStr}\n📌 [最新对话·未归档]\n${excerpt}`);
+                    }
+                }
+
+                const files = fs.readdirSync(TX_DIR).filter(f => f.endsWith('.json')).sort();
                 for (const file of files.slice(-12)) {
                     const chunks = JSON.parse(fs.readFileSync(path.join(TX_DIR, file), 'utf8'));
                     for (const c of chunks) {
