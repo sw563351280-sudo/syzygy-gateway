@@ -2991,6 +2991,8 @@ app.post('/api/mcp/remove-server', (req, res) => {
 app.get('/debug-dream', (req, res) => {
     res.json(_dreamDiag.last || { note: '尚未触发过Dream' });
 });
+
+app.post('/api/tools-toggle', (req, res) => {
     const toolName = req.query.tool;
     if (toolName && TOOLS_ENABLED.hasOwnProperty(toolName)) {
         TOOLS_ENABLED[toolName] = !TOOLS_ENABLED[toolName];
