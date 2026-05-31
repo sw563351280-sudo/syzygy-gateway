@@ -119,6 +119,7 @@ const ARCHIVE_FILE = path.join(DATA_DIR, 'deep_archive.json');
 const ROLEPLAY_FILE = path.join(DATA_DIR, 'roleplay_archives.json');
 const USER_PROFILE_FILE = path.join(DATA_DIR, 'user_profile.json');
 const DREAM_LOGS_FILE = path.join(DATA_DIR, 'dream_logs.json');
+const _dreamDiag = { last: null, history: [] };
 const DAILY_PAGES_FILE = path.join(DATA_DIR, 'daily_pages.json');
 const WEEKLY_SUMMARIES_FILE = path.join(DATA_DIR, 'weekly_summaries.json');
 const MONTHLY_SUMMARIES_FILE = path.join(DATA_DIR, 'monthly_summaries.json');
@@ -1851,8 +1852,14 @@ ${chat}
 
 async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto') {
     const startedAt = Date.now();
+    const diag = { startedAt: new Date().toISOString(), triggerType, inputCount: zepMessages.length, steps: [], errors: [], done: false };
+    _dreamDiag.last = diag;
+    if (_dreamDiag.history.length > 20) _dreamDiag.history.shift();
+    _dreamDiag.history.push(diag);
+
     const routerKey = process.env.ROUTER_API_KEY;
-    if (!routerKey) return;
+    if (!routerKey) { diag.errors.push('缺少 ROUTER_API_KEY'); diag.done = true; return; }
+    diag.steps.push('有ROUTER_API_KEY');
     const script = zepMessages.map(m => {
         const dateStr = m.time ? new Date(m.time).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '';
         return `${dateStr ? '[' + dateStr + '] ' : ''}${m.role === 'ai' ? '沈望' : '江鱼'}: ${m.content}`;
@@ -1878,10 +1885,14 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
 
     // 🧩 固化层
     console.log('🌙 [Dream·固化层] AI提取记忆碎片...');
+    diag.steps.push('进入固化层');
     try {
         // 优先用 DREAM_API_KEY（纯 key），其次 ROUTER_API_KEY（去掉 Bearer 前缀）
         const dreamKey = process.env.DREAM_API_KEY || (routerKey || '').replace(/^Bearer\s+/i, '');
-        if (!dreamKey) throw new Error('缺少 DREAM_API_KEY 或 ROUTER_API_KEY');
+        const dreamKeySource = process.env.DREAM_API_KEY ? 'DREAM_API_KEY' : 'ROUTER_API_KEY';
+        diag.steps.push(`key来源: ${dreamKeySource}, key前8位: ${(dreamKey||'').substring(0,8)}`);
+        if (!dreamKey) { diag.errors.push('缺少 Dream key'); throw new Error('缺少 DREAM_API_KEY 或 ROUTER_API_KEY'); }
+        diag.steps.push('调用msui API: [按次]gemini-3.1-pro-preview-128');
         const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dreamKey}` },
@@ -1891,24 +1902,43 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
                 max_tokens: 4096
             })
         });
+        diag.steps.push(`API状态码: ${res.status}`);
         if (!res.ok) {
             const errText = await res.text().catch(() => '');
+            diag.errors.push(`API ${res.status}: ${errText.substring(0, 200)}`);
             throw new Error(`AI API ${res.status}: ${errText.substring(0, 200)}`);
         }
         const data = await res.json();
+        diag.steps.push(`API返回有choices: ${!!(data?.choices?.[0]?.message?.content)}`);
         if (!data?.choices?.[0]?.message?.content) {
+            diag.errors.push(`API返回异常: ${JSON.stringify(data).substring(0, 300)}`);
             console.log('🌙 [Dream·固化层] API返回异常:', JSON.stringify(data).substring(0, 300));
             throw new Error('API返回无choices');
         }
-        let summaryJsonStr = data.choices[0].message.content.replace(/```json|```/g, '').trim();
-        const summaryJson = JSON.parse(summaryJsonStr);
+        const rawContent = data.choices[0].message.content;
+        diag.steps.push(`原始响应长度: ${rawContent.length}, 前200字: ${rawContent.substring(0, 200)}`);
+        let summaryJsonStr = rawContent.replace(/```json|```/g, '').trim();
+        // 修复常见JSON问题：尾部逗号、未闭合引号、多余的换行
+        summaryJsonStr = summaryJsonStr.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+        let summaryJson;
+        try {
+            summaryJson = JSON.parse(summaryJsonStr);
+        } catch (parseErr) {
+            diag.errors.push(`JSON解析失败: ${parseErr.message} | 原始: ${summaryJsonStr.substring(0, 200)}`);
+            console.error('🌙 [Dream·固化层] JSON解析失败:', parseErr.message);
+            console.error('🌙 [Dream·固化层] 原始JSON(前500):', summaryJsonStr.substring(0, 500));
+            throw parseErr;
+        }
+        diag.steps.push(`JSON解析成功, permanent_memories: ${(summaryJson.permanent_memories||[]).length}条, rp: ${(summaryJson.roleplay_memories||[]).length}条`);
         console.log("✅ 潜意识便利贴已成功更新（含次元壁分类）！");
 
         if (summaryJson.permanent_memories && Array.isArray(summaryJson.permanent_memories)) {
             const capped = summaryJson.permanent_memories.slice(0, 8);
             for (const mem of capped) {
                 if (typeof mem === 'object' && mem.content && mem.content.trim()) {
-                    smartMemoryWrite(mem.content, mem.tags, 'butler_summary', mem.ttl || '1m', mem.arousal || 0.5);
+                    const writeResult = smartMemoryWrite(mem.content, mem.tags, 'butler_summary', mem.ttl || '1m', mem.arousal || 0.5);
+                    diag.steps.push(`memWrite: tags=${JSON.stringify(mem.tags||[])}, ttl=${mem.ttl||'1m'}, written=${!!writeResult}, content前40字="${(mem.content||'').substring(0, 40)}"`);
+                    if (!writeResult) diag.errors.push(`统一守门拦截: tags=${JSON.stringify(mem.tags||[])}, content="${(mem.content||'').substring(0, 60)}"`);
                     dreamLog.results.consolidated.new_memories++;
                 }
             }
@@ -1918,6 +1948,7 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
             for (const mem of cappedRP) {
                 if (typeof mem === 'object' && mem.content && mem.content.trim()) {
                     addRoleplayMemory(mem.content, mem.tags || [], mem.ttl || '1w');
+                    diag.steps.push(`rpWrite: ${(mem.content||'').substring(0, 40)}`);
                     dreamLog.results.consolidated.new_rp++;
                 }
             }
@@ -1936,8 +1967,9 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
             body: JSON.stringify({ metadata: summaryMeta })
         });
         updateUserProfile().catch(e => console.log('🖼️ [用户画像] 后台更新异常:', e.message));
-    } catch (e) { console.error("🌙 [Dream·固化层] 失败:", e.message); }
+    } catch (e) { console.error("🌙 [Dream·固化层] 失败:", e.message); diag.errors.push(`固化层异常: ${e.message}`); }
 
+    diag.done = true;
     dreamLog.duration_ms = Date.now() - startedAt;
     generateDailyPage(script).then(page => {
         if (page) {
@@ -2956,7 +2988,9 @@ app.post('/api/mcp/remove-server', (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/tools-toggle', (req, res) => {
+app.get('/debug-dream', (req, res) => {
+    res.json(_dreamDiag.last || { note: '尚未触发过Dream' });
+});
     const toolName = req.query.tool;
     if (toolName && TOOLS_ENABLED.hasOwnProperty(toolName)) {
         TOOLS_ENABLED[toolName] = !TOOLS_ENABLED[toolName];
