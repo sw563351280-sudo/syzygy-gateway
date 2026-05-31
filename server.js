@@ -688,14 +688,17 @@ function formatDiaryContext(userText) {
 // ==========================================
 function isTagMatch(tag, text) {
     if (!tag || tag.length < 2) return false;
-    
-    if (tag.length >= 3) {
-        return text.toLowerCase().includes(tag.toLowerCase());
+
+    const tagLower = tag.toLowerCase();
+    const textLower = text.toLowerCase();
+
+    if (/^[a-z0-9_-]+$/i.test(tag)) {
+        const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`\\b${escapedTag}\\b`, 'i');
+        return regex.test(text);
     }
-    
-    const escapedTag = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`(?<![\\u4e00-\\u9fff])${escapedTag}(?![\\u4e00-\\u9fff])`, 'i');
-    return regex.test(text);
+
+    return textLower.includes(tagLower);
 }
 
 
@@ -1462,6 +1465,7 @@ async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages, m
     }
     const rpPrefix = rpModeActive ? '[RP模式] ' : '';
     await saveToZep(rpPrefix + userMsg, rpPrefix + aiMsg);
+    await appendToTranscript(userMsg, aiMsg, metadata);
     wsBroadcast({ type: 'new_message', user: { content: userMsg, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }) }, assistant: { content: aiMsg, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), model: metadata.model || '' }, fullTime: new Date().toISOString(), platform: metadata.platform || 'unknown' }, metadata.sourceTabId || null);
 }
 
@@ -3876,6 +3880,12 @@ server.listen(PORT, () => {
     initUserProfile();
     startAllMCPServers();
     cleanAndArchiveMemories();
+
+    // 启动后延迟 10 秒在后台进行增量向量索引重建，补全可能缺失的存量记忆向量缓存
+    setTimeout(() => {
+        reindexAllEmbeddings().catch(e => console.log('🧲 [启动向量索引] 失败:', e.message));
+    }, 10000);
+
     setInterval(cleanAndArchiveMemories, 6 * 60 * 60 * 1000);
     setInterval(generateProactiveMessage, 30 * 60 * 1000); // 每30分钟检查
     setTimeout(generateProactiveMessage, 60 * 1000); // 启动60秒后首次检查
