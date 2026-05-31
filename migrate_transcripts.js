@@ -67,19 +67,34 @@ if (allPairs.length === 0) {
 }
 
 // ---- 读取已有 transcript 的所有 chunk id 用于去重 ----
+// 同时清理旧的 tx_migrate_ 开头 chunk（上次迁移旧格式，需要重新生成）
+let removedOldCount = 0;
 const existingIds = new Set();
 if (fs.existsSync(TRANSCRIPTS_DIR)) {
     for (const file of fs.readdirSync(TRANSCRIPTS_DIR)) {
         if (!file.endsWith('.json')) continue;
+        const filePath = path.join(TRANSCRIPTS_DIR, file);
         try {
-            const chunks = JSON.parse(fs.readFileSync(path.join(TRANSCRIPTS_DIR, file), 'utf8'));
-            for (const c of chunks) {
+            const chunks = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+            const filtered = chunks.filter(c => {
+                if (c.id && c.id.startsWith('tx_migrate_')) {
+                    removedOldCount++;
+                    return false;
+                }
+                return true;
+            });
+            if (filtered.length !== chunks.length) {
+                fs.writeFileSync(filePath, JSON.stringify(filtered, null, 2), 'utf8');
+                console.log(`🧹 ${file}: 清理 ${chunks.length - filtered.length} 个旧迁移chunk`);
+            }
+            for (const c of filtered) {
                 if (c.id) existingIds.add(c.id);
             }
         } catch(e) {}
     }
 }
-console.log(`🏷️  已有 ${existingIds.size} 个 chunk id，将跳过重复`);
+if (removedOldCount > 0) console.log(`🧹 共清理 ${removedOldCount} 个旧格式迁移chunk，将重新生成`);
+console.log(`🏷️  已有 ${existingIds.size} 个非迁移 chunk id`);
 
 // ---- 话题切换检测（与 server.js 一致） ----
 function detectTopicShift(messages) {
@@ -106,7 +121,8 @@ function flushBuffer() {
     const bufMessages = [...buffer];
     const id = 'tx_migrate_' + bufMessages[0]?.time?.replace(/[^0-9]/g, '').substring(0, 10) + '_' + Math.random().toString(36).substr(2, 6);
     const content = bufMessages.map(m => {
-        const t = m.time ? new Date(m.time).toLocaleDateString('zh-CN') : '';
+        const d = m.time ? new Date(m.time) : null;
+        const t = d ? `${d.getMonth()+1}月${d.getDate()}日` : '';
         return `[${t}] ${m.role === 'user' ? '江鱼' : '沈望'}: ${m.content}`;
     }).join('\n');
     const firstUser = bufMessages.find(m => m.role === 'user')?.content || '';

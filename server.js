@@ -159,7 +159,8 @@ function detectTopicShift(messages) {
 async function finalizeChunk(buf) {
     const id = 'tx_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
     const content = buf.messages.map(m => {
-        const t = m.time ? new Date(m.time).toLocaleDateString('zh-CN') : '';
+        const d = m.time ? new Date(m.time) : null;
+        const t = d ? `${d.getMonth()+1}月${d.getDate()}日` : '';
         return `[${t}] ${m.role === 'user' ? '江鱼' : '沈望'}: ${m.content}`;
     }).join('\n');
     const firstUser = buf.messages.find(m => m.role === 'user')?.content || '';
@@ -324,10 +325,18 @@ async function reindexAllEmbeddings() {
     const cache = loadEmbeddingsCache();
     let indexed = 0, skipped = 0, failed = 0;
 
+    // 收集对话原文 chunks（最近12个月）
+    const transcriptChunks = [];
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        transcriptChunks.push(...loadTranscriptMonth(d));
+    }
     const allMemories = [
         ...loadLongTermMemories(),
         ...loadRoleplayMemories(),
-        ...memoryBlocks.filter(b => b.content).map((b, i) => ({ id: `block_${i}`, content: b.content }))
+        ...memoryBlocks.filter(b => b.content).map((b, i) => ({ id: `block_${i}`, content: b.content })),
+        ...transcriptChunks.filter(c => c.id && c.chunk_summary).map(c => ({ id: c.id, content: c.chunk_summary + ' ' + (c.content || '').substring(0, 200) }))
     ];
 
     for (const m of allMemories) {
@@ -378,8 +387,10 @@ function _keywordRankSearch(queryText, memories, topK = 10) {
             score += hits.length * 1.5;
         }
         const contentLower = (m.content || '').toLowerCase();
+        const summaryLower = (m.chunk_summary || '').toLowerCase();
         for (const sw of subwords) {
             if (contentLower.includes(sw.toLowerCase())) score += 1.0;
+            else if (summaryLower.includes(sw.toLowerCase())) score += 0.8;
         }
         if (score > 0) results.push({ memory: m, score });
     }
@@ -1422,13 +1433,24 @@ async function executeToolCall(name, args, mcpServer) {
                 if (!keyword || keyword.length < 2) return '[请输入更长的关键词]';
                 const TX_DIR = path.join(DATA_DIR, 'transcripts');
                 if (!fs.existsSync(TX_DIR)) return '[没有对话原文数据]';
+
+                // 中文日期 → ISO 日期转换 (如 "1月8日" → -01-08)
+                const dateMatch = keyword.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日?/);
+                const dateHint = dateMatch
+                    ? `-${String(parseInt(dateMatch[1])).padStart(2, '0')}-${String(parseInt(dateMatch[2])).padStart(2, '0')}`
+                    : null;
+
                 const files = fs.readdirSync(TX_DIR).filter(f => f.endsWith('.json')).sort();
                 let res2 = [];
                 for (const file of files.slice(-12)) {
                     const chunks = JSON.parse(fs.readFileSync(path.join(TX_DIR, file), 'utf8'));
                     for (const c of chunks) {
-                        if (!c.content) continue;
-                        if (c.content.includes(keyword) || (c.chunk_summary || '').includes(keyword)) {
+                        // 搜索 content + chunk_summary + messages原文 + 时间戳日期
+                        const inContent = c.content && c.content.includes(keyword);
+                        const inSummary = (c.chunk_summary || '').includes(keyword);
+                        const inMessages = (c.messages || []).some(m => (m.content || '').includes(keyword));
+                        const inTimestamp = dateHint && c.timestamp && c.timestamp.includes(dateHint);
+                        if (inContent || inSummary || inMessages || inTimestamp) {
                             const dateStr = c.timestamp ? new Date(c.timestamp).toLocaleDateString('zh-CN') : '';
                             const excerpt = c.content.split('\n').slice(0, 6).join('\n').substring(0, 300);
                             res2.push(`📅 ${dateStr}\n📌 ${c.chunk_summary || ''}\n${excerpt}`);
