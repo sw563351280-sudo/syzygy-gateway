@@ -1892,12 +1892,12 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
         const dreamKeySource = process.env.DREAM_API_KEY ? 'DREAM_API_KEY' : 'ROUTER_API_KEY';
         diag.steps.push(`key来源: ${dreamKeySource}, key前8位: ${(dreamKey||'').substring(0,8)}`);
         if (!dreamKey) { diag.errors.push('缺少 Dream key'); throw new Error('缺少 DREAM_API_KEY 或 ROUTER_API_KEY'); }
-        diag.steps.push('调用msui API: [按次]gemini-3.1-pro-preview-128');
+        diag.steps.push('调用msui API: gemini-3.1-pro-preview');
         const res = await fetch('https://www.msuicode.com/v1/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dreamKey}` },
             body: JSON.stringify({
-                model: '[按次]gemini-3.1-pro-preview-128',
+                model: 'gemini-3.1-pro-preview',
                 messages: [{ role: "system", content: buildDreamPrompt(script) }, { role: "user", content: `⚠️ 每条记忆必须100字以上、3-5句话！包含具体日期！\n\n聊天记录：\n${script}` }],
                 max_tokens: 4096
             })
