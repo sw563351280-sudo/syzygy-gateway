@@ -51,39 +51,8 @@ jobs:
             # 补录历史对话原文到 transcripts（idempotent，已有则跳过）
             node migrate_transcripts.js || echo "⚠️ 补录脚本失败，继续部署"
 
-            # 将当前 transcript_buffer 也归档到当月的 transcript 文件，防止消息丢失
-            node -e "
-            const fs = require('fs');
-            const path = require('path');
-            const bufFile = 'data/transcript_buffer.json';
-            if (!fs.existsSync(bufFile)) process.exit(0);
-            const buf = JSON.parse(fs.readFileSync(bufFile, 'utf8'));
-            if (!buf.messages || buf.messages.length === 0) process.exit(0);
-            const content = buf.messages.map(m => {
-                const d = m.time ? new Date(m.time) : new Date();
-                return '[' + (d.getMonth()+1) + '月' + d.getDate() + '日] ' + (m.role === 'user' ? '江鱼' : '沈望') + ': ' + m.content;
-            }).join('\n');
-            const firstUser = buf.messages.find(m => m.role === 'user');
-            const firstAi = buf.messages.find(m => m.role === 'assistant');
-            const chunk = {
-                id: 'tx_buf_' + Date.now().toString(36),
-                timestamp: buf.started_at || new Date().toISOString(),
-                end_time: new Date().toISOString(),
-                platform: 'web', topic_boundary: false,
-                messages: buf.messages,
-                chunk_summary: ((firstUser?.content||'').substring(0,30) + ' → ' + (firstAi?.content||'').substring(0,30)).trim(),
-                content: content,
-                tags: [], expires_at: null
-            };
-            const d = new Date();
-            const monthFile = path.join('data','transcripts', d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'.json');
-            let existing = [];
-            try { existing = JSON.parse(fs.readFileSync(monthFile, 'utf8')); } catch(e) {}
-            existing.push(chunk);
-            fs.writeFileSync(monthFile, JSON.stringify(existing, null, 2), 'utf8');
-            fs.unlinkSync(bufFile);
-            console.log('📜 buffer 已归档: ' + chunk.id + ' (' + buf.messages.length + '条消息)');
-            " || echo "⚠️ buffer 归档失败"
+            # 将当前 transcript_buffer 归档到当月文件，防止未满6轮的消息丢失
+            node archive_buffer.js || echo "⚠️ buffer 归档失败"
 
             systemctl restart syzygy.service
             echo "=== DEPLOY OK ==="
