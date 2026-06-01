@@ -351,49 +351,86 @@ function neuRenderWeek() {
     strip.innerHTML = html;
 }
 
-// ═══ To Do ═══
-function neuLoadTodos() {
-    try { return JSON.parse(localStorage.getItem('syzygy_todos') || '[]'); } catch(e) { return []; }
+// ═══ To Do (共享待办，服务器存储) ═══
+async function neuFetchTodos() {
+    try { const r = await fetch('/api/todos'); const d = await r.json(); return d; } catch(e) { return { todos:[], active:[], done:[] }; }
 }
-function neuSaveTodos(todos) { localStorage.setItem('syzygy_todos', JSON.stringify(todos)); }
 
-function neuRenderTodos() {
+async function neuRenderTodos() {
     const list = document.getElementById('neuTodoList');
     if (!list) return;
-    const todos = neuLoadTodos();
-    if (todos.length === 0) {
-        list.innerHTML = '<div style="color:#A0AEC0;font-size:13px;padding:4px 0;">No tasks yet — tap + to add</div>';
+    const data = await neuFetchTodos();
+    const active = data.active || [];
+    if (active.length === 0) {
+        list.innerHTML = '<div style="color:#A0AEC0;font-size:13px;padding:4px 0;">暂无待办 — 点 + 添加</div>';
         return;
     }
-    list.innerHTML = todos.map((t, i) =>
-        '<div class="neu-todo-item' + (t.done ? ' done' : '') + '">'
-        + '<input type="checkbox" ' + (t.done ? 'checked' : '') + ' onchange="neuToggleTodo(' + i + ')">'
-        + '<span>' + escHtml(t.text) + '</span>'
-        + '<button class="neu-todo-rm-btn" onclick="neuRemoveTodo(' + i + ')">×</button>'
-        + '</div>'
-    ).join('');
+    const shenItems = active.filter(t => t.owner === 'shen');
+    const fishItems = active.filter(t => t.owner === 'fish');
+
+    let html = '';
+    if (shenItems.length > 0) {
+        html += '<div class="neu-todo-col-header">🌙 沈望记的</div>';
+        for (const t of shenItems) {
+            html += '<div class="neu-todo-item">'
+                + '<input type="checkbox" onchange="neuToggleTodo(\'' + t.id + '\')">'
+                + '<span>' + escHtml(t.text) + '</span>'
+                + '<button class="neu-todo-rm-btn" onclick="neuDeleteTodo(\'' + t.id + '\')">×</button>'
+                + '</div>';
+        }
+    }
+    if (fishItems.length > 0) {
+        html += '<div class="neu-todo-col-header">🐟 江鱼记的</div>';
+        for (const t of fishItems) {
+            html += '<div class="neu-todo-item">'
+                + '<input type="checkbox" onchange="neuToggleTodo(\'' + t.id + '\')">'
+                + '<span>' + escHtml(t.text) + '</span>'
+                + '<button class="neu-todo-rm-btn" onclick="neuDeleteTodo(\'' + t.id + '\')">×</button>'
+                + '</div>';
+        }
+    }
+    list.innerHTML = html;
 }
 
-function neuAddTodo() {
-    const text = prompt('New task:');
-    if (!text || !text.trim()) return;
-    const todos = neuLoadTodos();
-    todos.push({ text: text.trim(), done: false });
-    neuSaveTodos(todos);
-    neuRenderTodos();
+async function neuAddTodo() {
+    const input = document.getElementById('neuTodoInput');
+    if (!input) return;
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = '';
+    try {
+        await fetch('/api/todos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, owner: 'fish' })
+        });
+        neuRenderTodos();
+    } catch(e) { console.error('添加待办失败', e); }
 }
 
-function neuToggleTodo(i) {
-    const todos = neuLoadTodos();
-    if (todos[i]) { todos[i].done = !todos[i].done; neuSaveTodos(todos); }
-    neuRenderTodos();
+// 回车添加
+function neuTodoInputKey(e) { if (e.key === 'Enter') neuAddTodo(); }
+
+async function neuToggleTodo(id) {
+    try {
+        const data = await neuFetchTodos();
+        const t = data.todos.find(x => x.id === id);
+        if (t) {
+            await fetch('/api/todos/' + id, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ done: !t.done })
+            });
+            neuRenderTodos();
+        }
+    } catch(e) { console.error('切换待办状态失败', e); }
 }
 
-function neuRemoveTodo(i) {
-    const todos = neuLoadTodos();
-    todos.splice(i, 1);
-    neuSaveTodos(todos);
-    neuRenderTodos();
+async function neuDeleteTodo(id) {
+    try {
+        await fetch('/api/todos/' + id, { method: 'DELETE' });
+        neuRenderTodos();
+    } catch(e) { console.error('删除待办失败', e); }
 }
 
 function escHtml(s) {

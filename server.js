@@ -120,8 +120,11 @@ const ROLEPLAY_FILE = path.join(DATA_DIR, 'roleplay_archives.json');
 const USER_PROFILE_FILE = path.join(DATA_DIR, 'user_profile.json');
 const DREAM_LOGS_FILE = path.join(DATA_DIR, 'dream_logs.json');
 const DREAM_STATE_FILE = path.join(DATA_DIR, 'dream_state.json');
+const TODOS_FILE = path.join(DATA_DIR, 'todos.json');
 function loadDreamState() { try { return JSON.parse(fs.readFileSync(DREAM_STATE_FILE, 'utf8')); } catch(e) { return { pending_promises: '', foresight: [], updated_at: null }; } }
 function saveDreamState(state) { fs.writeFileSync(DREAM_STATE_FILE, JSON.stringify(state, null, 2), 'utf8'); }
+function loadTodos() { try { return JSON.parse(fs.readFileSync(TODOS_FILE, 'utf8')); } catch(e) { return []; } }
+function saveTodos(items) { fs.writeFileSync(TODOS_FILE, JSON.stringify(items, null, 2), 'utf8'); }
 const _dreamDiag = { last: null, history: [] };
 const DAILY_PAGES_FILE = path.join(DATA_DIR, 'daily_pages.json');
 const WEEKLY_SUMMARIES_FILE = path.join(DATA_DIR, 'weekly_summaries.json');
@@ -1110,6 +1113,9 @@ async function cleanAndArchiveMemories() {
 
 // SAVE_MEMORY 标签提取
 const SAVE_MEMORY_REGEX = /<SAVE_MEMORY\s+tags=["']([^"']+)["'](?:\s+ttl=["']([^"']+)["'])?\s*>([\s\S]*?)<\/SAVE_MEMORY>/g;
+const ADD_TODO_REGEX = /<ADD_TODO>([\s\S]*?)<\/ADD_TODO>/g;
+const DONE_TODO_REGEX = /<DONE_TODO\s+id=["']([^"']+)["']\s*\/?>/g;
+
 function extractSaveMemoryTag(text) {
     const results = [];
     let match;
@@ -1123,6 +1129,51 @@ function extractSaveMemoryTag(text) {
     }
     const cleanText = text.replace(new RegExp(SAVE_MEMORY_REGEX.source, 'g'), '').trim();
     return { cleanText, memories: results };
+}
+
+function extractAndProcessTodoTags(text) {
+    // 提取 <ADD_TODO>
+    const addMatches = [];
+    let m;
+    const addReg = new RegExp(ADD_TODO_REGEX.source, 'g');
+    while ((m = addReg.exec(text)) !== null) {
+        addMatches.push(m[1].trim());
+    }
+    // 提取 <DONE_TODO>
+    const doneMatches = [];
+    const doneReg = new RegExp(DONE_TODO_REGEX.source, 'g');
+    while ((m = doneReg.exec(text)) !== null) {
+        doneMatches.push(m[1].trim());
+    }
+    // 处理添加
+    for (const todoText of addMatches) {
+        if (todoText.length > 1) {
+            const todos = loadTodos();
+            todos.push({
+                id: 'shen_' + Date.now().toString(36),
+                text: todoText,
+                owner: 'shen',
+                done: false,
+                createdAt: new Date().toISOString()
+            });
+            saveTodos(todos);
+            console.log('📋 [待办] 沈望添加: ' + todoText.substring(0, 40));
+        }
+    }
+    // 处理完成
+    for (const tid of doneMatches) {
+        const todos = loadTodos();
+        const idx = todos.findIndex(t => t.id === tid);
+        if (idx !== -1) {
+            todos[idx].done = true;
+            saveTodos(todos);
+            console.log('✅ [待办] 沈望标记完成: ' + todos[idx].text.substring(0, 40));
+        }
+    }
+    // 清理标签
+    let clean = text.replace(new RegExp(ADD_TODO_REGEX.source, 'g'), '');
+    clean = clean.replace(new RegExp(DONE_TODO_REGEX.source, 'g'), '');
+    return clean.trim();
 }
 
 function buildSSEChunk(text, template) {
@@ -2369,6 +2420,25 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             } catch(e) {}
         }
 
+        // 注入共享待办列表
+        const allTodos = loadTodos();
+        const activeTodos = allTodos.filter(t => !t.done);
+        if (activeTodos.length > 0) {
+            const fishTodos = activeTodos.filter(t => t.owner === 'fish');
+            const shenTodos = activeTodos.filter(t => t.owner === 'shen');
+            let todoPrompt = '\n\n【共享待办列表 · 未完成】';
+            if (shenTodos.length > 0) {
+                todoPrompt += '\n我记下的：';
+                for (const t of shenTodos) todoPrompt += `\n  ○ [${t.id}] ${t.text}`;
+            }
+            if (fishTodos.length > 0) {
+                todoPrompt += '\n江鱼记下的：';
+                for (const t of fishTodos) todoPrompt += `\n  ○ [${t.id}] ${t.text}`;
+            }
+            todoPrompt += '\n你可以用 <ADD_TODO>内容</ADD_TODO> 添加，用 <DONE_TODO id="xxx"/> 标记完成。';
+            dynamicStatePrompt += todoPrompt;
+        }
+
         const { coreRadar: coreRadarContext, longTermRadar: longTermContext, rpRadar: rpRadarContext, unresolved: unresolvedContext, transcriptRadar: transcriptContext } = await scanAllRadars(currentUserMsgText);
 
 
@@ -2539,7 +2609,8 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
 
             const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(cleanForFinal);
             for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
-            const finalContent = ntMems.length > 0 ? ntClean : cleanForFinal;
+            const todoClean = extractAndProcessTodoTags(ntMems.length > 0 ? ntClean : cleanForFinal);
+            const finalContent = todoClean;
 
             if (isStreamMode) {
                 // 先发思考内容
@@ -2641,10 +2712,11 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                     const piece = delta.content; contentBuffer += piece; fullAiResponse += piece;
 
                     if (!isBuffering) {
-                        const saveIdx = contentBuffer.indexOf('<SAVE_MEMORY');
+                        const TAG_OPEN = /<(SAVE_MEMORY|ADD_TODO|DONE_TODO)/;
+                        const saveIdx = contentBuffer.search(TAG_OPEN);
                         if (saveIdx === -1) {
                             const ltIdx = contentBuffer.lastIndexOf('<');
-                            if (ltIdx !== -1 && contentBuffer.substring(ltIdx).length< '<SAVE_MEMORY'.length) {
+                            if (ltIdx !== -1 && contentBuffer.substring(ltIdx).length < 30) {
                                 const safe = contentBuffer.substring(0, ltIdx);
                                 const safeChunk = buildSSEChunk(safe, lastChunkTemplate);
                                 if (safeChunk) res.write(safeChunk);
@@ -2662,9 +2734,14 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                     }
 
                     if (isBuffering) {
-                        const closeIdx = contentBuffer.indexOf('</SAVE_MEMORY>');
-                        if (closeIdx !== -1) {
-                            contentBuffer = contentBuffer.substring(closeIdx + '</SAVE_MEMORY>'.length);
+                        const close0 = contentBuffer.indexOf('</SAVE_MEMORY>');
+                        const close1 = contentBuffer.indexOf('</ADD_TODO>');
+                        const close2 = contentBuffer.indexOf('/>');
+                        const closes = [close0, close1, close2].filter(i => i !== -1);
+                        if (closes.length > 0) {
+                            const closeIdx = Math.min(...closes);
+                            const foundTag = closeIdx === close0 ? '</SAVE_MEMORY>' : closeIdx === close1 ? '</ADD_TODO>' : '/>';
+                            contentBuffer = contentBuffer.substring(closeIdx + foundTag.length);
                             isBuffering = false;
                             if (contentBuffer) { const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate); if (chunk) res.write(chunk); contentBuffer = ''; }
                         }
@@ -2679,6 +2756,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                 for (const mem of streamMemories) {
                     smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
                 }
+                extractAndProcessTodoTags(streamCleanText);
                 await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                 tryAutoDream(currentUserMsgText);
             }
@@ -2695,9 +2773,10 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                            smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
                         }
                     }
-                    if (memories.length > 0) {
-                        data.choices[0].message.content = cleanText;
-                        finalContent = cleanText;
+                    const todoClean = extractAndProcessTodoTags(memories.length > 0 ? cleanText : assistantContent);
+                    if (memories.length > 0 || todoClean !== (memories.length > 0 ? cleanText : assistantContent)) {
+                        data.choices[0].message.content = todoClean;
+                        finalContent = todoClean;
                     }
                 }
                 if (!noMemory) {
@@ -3577,6 +3656,25 @@ app.post('/api/web-chat', async (req, res) => {
                 }
                 }
 
+                // 注入共享待办列表
+                const allTodos2 = loadTodos();
+                const activeTodos2 = allTodos2.filter(t => !t.done);
+                if (activeTodos2.length > 0) {
+                    const fishT2 = activeTodos2.filter(t => t.owner === 'fish');
+                    const shenT2 = activeTodos2.filter(t => t.owner === 'shen');
+                    let todoP = '\n\n【共享待办列表 · 未完成】';
+                    if (shenT2.length > 0) {
+                        todoP += '\n我记下的：';
+                        for (const t of shenT2) todoP += `\n  ○ [${t.id}] ${t.text}`;
+                    }
+                    if (fishT2.length > 0) {
+                        todoP += '\n江鱼记下的：';
+                        for (const t of fishT2) todoP += `\n  ○ [${t.id}] ${t.text}`;
+                    }
+                    todoP += '\n你可以用 <ADD_TODO>内容</ADD_TODO> 添加，用 <DONE_TODO id="xxx"/> 标记完成。';
+                    dynamicStatePrompt += todoP;
+                }
+
                 let vectorSearchContext = "";
                 if (text && text.length > 4) {
                     let searchRes2 = null;
@@ -3710,7 +3808,8 @@ app.post('/api/web-chat', async (req, res) => {
                     const cleanAiContent = aiContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
                     const { cleanText, memories } = extractSaveMemoryTag(cleanAiContent);
                     for (const mem of memories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text);
-                    const finalReply = memories.length > 0 ? cleanText : cleanAiContent;
+                    const todoClean = extractAndProcessTodoTags(memories.length > 0 ? cleanText : cleanAiContent);
+                    const finalReply = todoClean;
                     await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model });
                     tryAutoDream(text);
                     resolve({ text: finalReply, thinking });
@@ -3759,7 +3858,7 @@ app.post('/api/web-chat', async (req, res) => {
                 for (const mem of memories) {
                     smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text);
                 }
-                aiReply = memories.length > 0 ? cleanText : aiReply;
+                aiReply = extractAndProcessTodoTags(memories.length > 0 ? cleanText : aiReply);
 
                 await saveToZepWithCounter(text || '（发送了一张图片）', aiReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model });
                 tryAutoDream(text);
@@ -3853,7 +3952,7 @@ app.post('/diary/ai-write', async (req, res) => {
 
         const aiData = await aiRes.json();
         let content = aiData.choices?.[0]?.message?.content || '';
-        content = extractSaveMemoryTag(content).cleanText;
+        content = extractAndProcessTodoTags(extractSaveMemoryTag(content).cleanText);
         content = content.replace(/[(\uff08].*?[)\uff09]/g, '').trim();
 
         const entries = loadDiaries();
@@ -3919,6 +4018,59 @@ app.delete('/api/favorites/:id', (req, res) => {
     const filtered = items.filter(f => f.id !== req.params.id);
     if (filtered.length === items.length) return res.status(404).json({ error: "未找到该收藏" });
     saveFavorites(filtered);
+    res.json({ success: true });
+});
+
+// ==========================================
+// 共享待办列表 (沈望 & 江鱼)
+// ==========================================
+
+// GET /api/todos — 获取所有待办
+app.get('/api/todos', (req, res) => {
+    const todos = loadTodos();
+    const active = todos.filter(t => !t.done);
+    const done = todos.filter(t => t.done);
+    res.json({ todos, active, done });
+});
+
+// POST /api/todos — 添加待办
+app.post('/api/todos', (req, res) => {
+    const { text, owner } = req.body || {};
+    if (!text || !text.trim()) return res.status(400).json({ error: "text 不能为空" });
+    const todos = loadTodos();
+    const prefix = (owner === 'shen') ? 'shen_' : 'fish_';
+    const entry = {
+        id: prefix + Date.now().toString(36),
+        text: text.trim(),
+        owner: owner === 'shen' ? 'shen' : 'fish',
+        done: false,
+        createdAt: new Date().toISOString()
+    };
+    todos.push(entry);
+    saveTodos(todos);
+    wsBroadcast({ type: 'todo_added', todo: entry });
+    res.json({ success: true, todo: entry });
+});
+
+// PATCH /api/todos/:id — 标记完成/取消完成
+app.patch('/api/todos/:id', (req, res) => {
+    const todos = loadTodos();
+    const idx = todos.findIndex(t => t.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: "未找到该待办" });
+    if (req.body.done !== undefined) todos[idx].done = req.body.done;
+    if (req.body.text) todos[idx].text = req.body.text;
+    saveTodos(todos);
+    wsBroadcast({ type: 'todo_updated', todo: todos[idx] });
+    res.json({ success: true, todo: todos[idx] });
+});
+
+// DELETE /api/todos/:id — 删除待办
+app.delete('/api/todos/:id', (req, res) => {
+    const todos = loadTodos();
+    const filtered = todos.filter(t => t.id !== req.params.id);
+    if (filtered.length === todos.length) return res.status(404).json({ error: "未找到该待办" });
+    saveTodos(filtered);
+    wsBroadcast({ type: 'todo_deleted', id: req.params.id });
     res.json({ success: true });
 });
 
