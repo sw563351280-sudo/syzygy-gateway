@@ -1105,12 +1105,12 @@ body.light-mode .chat-sidebar {
     }
 
     /* ================= 黑夜模式自适应 ================= */
-    body:not(.light-mode) #themeToggleBtn,
-    body:not(.light-mode) .sidebar-title,
-    body:not(.light-mode) .sidebar-new-btn,
-    body:not(.light-mode) .chat-index-btn,
-    body:not(.light-mode) .chat-rename-btn,
-    body:not(.light-mode) .sidebar-list {
+    body:not(.light-mode):not(.neu-mode) #themeToggleBtn,
+    body:not(.light-mode):not(.neu-mode) .sidebar-title,
+    body:not(.light-mode):not(.neu-mode) .sidebar-new-btn,
+    body:not(.light-mode):not(.neu-mode) .chat-index-btn,
+    body:not(.light-mode):not(.neu-mode) .chat-rename-btn,
+    body:not(.light-mode):not(.neu-mode) .sidebar-list {
         background: rgba(12, 16, 28, 0.8) !important;
         box-shadow: 0 4px 15px rgba(0,0,0,0.4) !important;
         color: var(--gold) !important; /* 黑夜里月亮和符号统一变成金色 */
@@ -1470,4 +1470,299 @@ body[data-view="chat"] #themeToggleBtn{display:none!important}
 
 
 .fav-card:hover { border-color: rgba(201,169,97,0.35) !important; background: rgba(201,169,97,0.03) !important; }
+
+/* ═══════════════════════════════════════
+   溯星小屋 v3.0 · 新拟态白天模式 (Neu Day)
+   ═══════════════════════════════════════ */
+
+body.neu-mode {
+    background: #E8EFF7;
+    color: #2D3748;
+    font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    letter-spacing: 0;
+    line-height: 1.6;
+}
+body.neu-mode::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: radial-gradient(ellipse at 15% 85%, rgba(255, 200, 120, 0.06), transparent 60%);
+}
+body.neu-mode::after { opacity: 0 !important; }
+
+/* ── 新拟态阴影卡片 ── */
+body.neu-mode .home-card,
+body.neu-mode .neu-card {
+    background: #E8EFF7;
+    box-shadow: 8px 8px 16px rgba(163, 177, 198, 0.6), -8px -8px 16px rgba(255, 255, 255, 0.8);
+    border-radius: 20px;
+    border: none;
+    transition: all 0.2s ease;
+}
+body.neu-mode .home-card:hover {
+    box-shadow: 6px 6px 12px rgba(163, 177, 198, 0.5), -6px -6px 12px rgba(255, 255, 255, 0.7);
+    transform: translateY(-1px);
+}
+body.neu-mode .home-card:active {
+    box-shadow: inset 3px 3px 6px rgba(163, 177, 198, 0.5), inset -3px -3px 6px rgba(255, 255, 255, 0.7);
+    transform: translateY(0);
+}
+body.neu-mode .home-card-name { color: #2D3748; font-size: 1.05rem; font-weight: 600; }
+body.neu-mode .home-card-desc { color: #718096; font-size: 0.78rem; }
+body.neu-mode .home-title { color: #2D3748; font-weight: 700; }
+body.neu-mode .home-days { color: #718096; }
+body.neu-mode .home-days span { color: #D4A856; }
+
+/* ── 顶栏 ── */
+body.neu-mode .view-topbar {
+    background: rgba(232, 239, 247, 0.9);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(163, 177, 198, 0.3);
+    box-shadow: 0 2px 12px rgba(163, 177, 198, 0.15);
+}
+body.neu-mode .view-back { background: #E8EFF7; color: #5A8FCA; border: none; box-shadow: 4px 4px 8px rgba(163, 177, 198, 0.4), -4px -4px 8px rgba(255, 255, 255, 0.7); border-radius: 12px; }
+body.neu-mode .view-title { color: #2D3748; font-weight: 600; }
+
+/* ── 聊天区 ── */
+body.neu-mode #sec-chat.active { background: #E8EFF7 !important; }
+body.neu-mode .chat-window { background: transparent; }
+body.neu-mode .chat-main-header {
+    background: rgba(232, 239, 247, 0.6);
+    border-bottom: 1px solid rgba(163, 177, 198, 0.2);
+}
+body.neu-mode .chat-bottom-bar {
+    background: rgba(232, 239, 247, 0.9) !important;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(163, 177, 198, 0.3) !important;
+    box-shadow: 0 -4px 16px rgba(163, 177, 198, 0.1);
+}
+body.neu-mode .msg.user {
+    background: #E8EFF7;
+    box-shadow: 6px 6px 12px rgba(163, 177, 198, 0.4), -6px -6px 12px rgba(255, 255, 255, 0.7);
+    border: none;
+    color: #2D3748;
+    border-radius: 18px;
+}
+body.neu-mode .msg.sys {
+    background: #E8EFF7;
+    box-shadow: inset 4px 4px 8px rgba(163, 177, 198, 0.3), inset -4px -4px 8px rgba(255, 255, 255, 0.6);
+    border: none;
+    color: #2D3748;
+    border-radius: 18px;
+}
+body.neu-mode #chatInput {
+    background: #E8EFF7;
+    box-shadow: inset 4px 4px 8px rgba(163, 177, 198, 0.5), inset -4px -4px 8px rgba(255, 255, 255, 0.7);
+    border: none;
+    color: #2D3748;
+    border-radius: 14px;
+    padding: 10px 16px;
+}
+body.neu-mode #chatInput::placeholder { color: #A0AEC0; }
+body.neu-mode #chatInput:focus {
+    box-shadow: inset 3px 3px 6px rgba(163, 177, 198, 0.4), inset -3px -3px 6px rgba(255, 255, 255, 0.6), 0 0 0 3px rgba(90, 143, 202, 0.15);
+    outline: none;
+}
+body.neu-mode .chat-send-btn {
+    background: #E8EFF7 !important;
+    box-shadow: 4px 4px 8px rgba(163, 177, 198, 0.4), -4px -4px 8px rgba(255, 255, 255, 0.7) !important;
+    border: none !important;
+    color: #D4A856 !important;
+    border-radius: 12px;
+}
+body.neu-mode .chat-send-btn:hover {
+    box-shadow: 2px 2px 4px rgba(163, 177, 198, 0.3), -2px -2px 4px rgba(255, 255, 255, 0.6) !important;
+    color: #B38B3A !important;
+}
+body.neu-mode .chat-tool-btn {
+    background: #E8EFF7 !important;
+    box-shadow: 3px 3px 6px rgba(163, 177, 198, 0.3), -3px -3px 6px rgba(255, 255, 255, 0.5) !important;
+    border: none !important;
+    color: #718096 !important;
+    border-radius: 10px;
+}
+body.neu-mode .chat-tool-btn:hover,
+body.neu-mode .chat-tool-btn.open {
+    color: #5A8FCA !important;
+    box-shadow: inset 2px 2px 4px rgba(163, 177, 198, 0.3), inset -2px -2px 4px rgba(255, 255, 255, 0.5) !important;
+}
+
+/* ── 模型选择 ── */
+body.neu-mode .model-select {
+    background: #E8EFF7;
+    box-shadow: inset 3px 3px 6px rgba(163, 177, 198, 0.4), inset -3px -3px 6px rgba(255, 255, 255, 0.6);
+    border: none;
+    color: #2D3748;
+    border-radius: 10px;
+}
+
+/* ── Toast ── */
+body.neu-mode .toast {
+    background: #E8EFF7 !important;
+    box-shadow: 8px 8px 16px rgba(163, 177, 198, 0.5), -8px -8px 16px rgba(255, 255, 255, 0.8) !important;
+    border: none !important;
+    color: #2D3748 !important;
+    border-radius: 16px;
+}
+
+/* ── Think 框 ── */
+body.neu-mode .think-box {
+    background: rgba(90, 143, 202, 0.06);
+    border: 1px solid rgba(90, 143, 202, 0.15);
+    color: #4A5568;
+    border-radius: 12px;
+}
+
+/* ── 按钮 ── */
+body.neu-mode .chat-index-btn,
+body.neu-mode .chat-rename-topbar-btn,
+body.neu-mode .chat-index-topbar-btn,
+body.neu-mode .chat-theme-topbar-btn {
+    background: #E8EFF7;
+    box-shadow: 3px 3px 6px rgba(163, 177, 198, 0.3), -3px -3px 6px rgba(255, 255, 255, 0.5);
+    border: none;
+    color: #718096;
+    border-radius: 8px;
+}
+body.neu-mode .chat-index-btn:hover,
+body.neu-mode .chat-rename-topbar-btn:hover,
+body.neu-mode .chat-index-topbar-btn:hover,
+body.neu-mode .chat-theme-topbar-btn:hover {
+    color: #5A8FCA;
+    box-shadow: 2px 2px 4px rgba(163, 177, 198, 0.2), -2px -2px 4px rgba(255, 255, 255, 0.5);
+}
+
+/* ── 消息元数据 ── */
+body.neu-mode .msg-meta { color: #A0AEC0; }
+body.neu-mode .msg-action-btn:hover { color: #5A8FCA !important; }
+body.neu-mode .msg-retry-btn { background: rgba(196, 83, 74, 0.06); border-color: rgba(196, 83, 74, 0.2); }
+body.neu-mode .ver-btn { border-color: rgba(90, 143, 202, 0.25); color: #718096; background: rgba(232, 239, 247, 0.5); }
+body.neu-mode .ver-btn:hover:not(:disabled) { color: #5A8FCA; border-color: #5A8FCA; background: rgba(90, 143, 202, 0.06); }
+body.neu-mode .ver-label { color: #A0AEC0; }
+body.neu-mode .msg-inline-btn { border-color: rgba(90, 143, 202, 0.3); color: #5A8FCA; background: rgba(90, 143, 202, 0.04); }
+body.neu-mode .msg-inline-btn:hover { color: #fff; border-color: #5A8FCA; background: rgba(90, 143, 202, 0.2); }
+
+/* ── 数据区输入框 ── */
+body.neu-mode #sec-data input[type="text"] {
+    background: #E8EFF7;
+    box-shadow: inset 3px 3px 6px rgba(163, 177, 198, 0.4), inset -3px -3px 6px rgba(255, 255, 255, 0.6);
+    border: none;
+    color: #2D3748;
+    border-radius: 10px;
+}
+body.neu-mode #sec-data input[type="text"]:focus {
+    box-shadow: inset 2px 2px 4px rgba(163, 177, 198, 0.3), inset -2px -2px 4px rgba(255, 255, 255, 0.5), 0 0 0 2px rgba(90, 143, 202, 0.15);
+    outline: none;
+}
+
+/* ── Markdown 内容 ── */
+body.neu-mode .md-content code { background: rgba(90, 143, 202, 0.06); color: #5A8FCA; }
+body.neu-mode .md-content pre { background: #E8EFF7; border-color: rgba(163, 177, 198, 0.4); box-shadow: inset 4px 4px 8px rgba(163, 177, 198, 0.3), inset -4px -4px 8px rgba(255, 255, 255, 0.6); }
+body.neu-mode .md-content pre code { color: #2D3748; }
+body.neu-mode .md-content strong { color: #2D3748; }
+body.neu-mode .md-content blockquote { border-left-color: #D4A856; color: #4A5568; }
+body.neu-mode .md-content th { background: rgba(212, 168, 86, 0.08); color: #2D3748; }
+body.neu-mode .md-content th, body.neu-mode .md-content td { border-color: rgba(163, 177, 198, 0.3); }
+
+/* ── 滚动条 ── */
+body.neu-mode .chat-window::-webkit-scrollbar-thumb,
+body.neu-mode .sidebar-list::-webkit-scrollbar-thumb,
+body.neu-mode .chat-index-list::-webkit-scrollbar-thumb {
+    background: rgba(163, 177, 198, 0.4);
+    border-radius: 3px;
+}
+
+/* ── 侧边栏 ── */
+body.neu-mode .chat-sidebar {
+    background: rgba(232, 239, 247, 0.9);
+    border-right: 1px solid rgba(163, 177, 198, 0.3);
+}
+
+/* ── 导航栏 ── */
+body.neu-mode .home-grid {
+    gap: 16px;
+}
+body.neu-mode .home-card { min-height: auto; }
+
+/* ── 桌面端微调 ── */
+@media(min-width:768px) {
+    body.neu-mode .home-grid { max-width: 480px; gap: 16px; }
+    body.neu-mode .home-card { min-height: 140px; }
+    body.neu-mode .chat-window,
+    body.neu-mode .chat-bottom-bar,
+    body.neu-mode .chat-main-header { max-width: 800px; }
+}
+
+/* ── 新拟态进度条 ── */
+body.neu-mode .neu-progress-track {
+    background: #E8EFF7;
+    box-shadow: inset 4px 4px 8px rgba(163, 177, 198, 0.5), inset -4px -4px 8px rgba(255, 255, 255, 0.7);
+    border-radius: 4px;
+    height: 8px;
+    overflow: hidden;
+}
+body.neu-mode .neu-progress-fill {
+    background: linear-gradient(90deg, #5A8FCA, #D4A856);
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+/* ── 开关按钮 (neu toggle) ── */
+body.neu-mode #themeToggleBtn {
+    background: #E8EFF7 !important;
+    box-shadow: 4px 4px 8px rgba(163, 177, 198, 0.4), -4px -4px 8px rgba(255, 255, 255, 0.7) !important;
+    border: none !important;
+    color: #D4A856 !important;
+    border-radius: 50%;
+}
+body.neu-mode #themeToggleBtn:hover {
+    box-shadow: 2px 2px 4px rgba(163, 177, 198, 0.3), -2px -2px 4px rgba(255, 255, 255, 0.6) !important;
+}
+
+/* ── 工具调用框 ── */
+body.neu-mode .tool-call-box {
+    border-left-color: #5A8FCA;
+    background: rgba(90, 143, 202, 0.06);
+    color: #4A5568;
+}
+
+/* ── 时光信箱/胶囊 ── */
+body.neu-mode .mailbox-container { border-color: rgba(163, 177, 198, 0.4); background: #E8EFF7; box-shadow: 8px 8px 16px rgba(163, 177, 198, 0.4), -8px -8px 16px rgba(255, 255, 255, 0.6); }
+body.neu-mode .mailbox-container:hover { box-shadow: 6px 6px 12px rgba(163, 177, 198, 0.3), -6px -6px 12px rgba(255, 255, 255, 0.5); }
+body.neu-mode .mailbox-desc { color: #718096; }
+body.neu-mode .capsule-btn { background: #E8EFF7; box-shadow: 4px 4px 8px rgba(163, 177, 198, 0.4), -4px -4px 8px rgba(255, 255, 255, 0.7); border: none; color: #D4A856; }
+body.neu-mode .capsule-btn:hover { box-shadow: 2px 2px 4px rgba(163, 177, 198, 0.3), -2px -2px 4px rgba(255, 255, 255, 0.6); color: #B38B3A; }
+body.neu-mode .capsule-result { background: #E8EFF7; box-shadow: inset 3px 3px 6px rgba(163, 177, 198, 0.3), inset -3px -3px 6px rgba(255, 255, 255, 0.5); border: none; color: #2D3748; }
+
+/* ── 聊天索引面板 ── */
+body.neu-mode .chat-index-panel { background: rgba(232, 239, 247, 0.9); border-color: rgba(163, 177, 198, 0.3); }
+body.neu-mode .chat-index-header { border-bottom-color: rgba(163, 177, 198, 0.2); }
+body.neu-mode .chat-index-item:hover { background: rgba(90, 143, 202, 0.06); }
+body.neu-mode .chat-index-item .idx-time { color: #A0AEC0; }
+body.neu-mode .chat-index-item .idx-preview { color: #718096; }
+body.neu-mode .chat-index-item .idx-role-sys { color: #5A8FCA; }
+body.neu-mode .chat-index-item .idx-role-user { color: #D4A856; }
+
+/* ── 亲密网格 ── */
+body.neu-mode .intimacy-grid button {
+    background: #E8EFF7;
+    box-shadow: 4px 4px 8px rgba(163, 177, 198, 0.4), -4px -4px 8px rgba(255, 255, 255, 0.7);
+    border: none;
+    color: #718096;
+}
+body.neu-mode .intimacy-grid button:hover {
+    box-shadow: 2px 2px 4px rgba(163, 177, 198, 0.2), -2px -2px 4px rgba(255, 255, 255, 0.5);
+    color: #5A8FCA;
+}
+body.neu-mode .intimacy-result { color: #2D3748; }
+
+/* ── 引用框 ── */
+body.neu-mode .quote-box .q { color: #4A5568; }
+body.neu-mode .quote-gen-btn { background: #E8EFF7; box-shadow: 3px 3px 6px rgba(163, 177, 198, 0.3), -3px -3px 6px rgba(255, 255, 255, 0.5); border: none; color: #5A8FCA; }
+body.neu-mode .quote-gen-btn:hover { box-shadow: 2px 2px 4px rgba(163, 177, 198, 0.2), -2px -2px 4px rgba(255, 255, 255, 0.4); }
 

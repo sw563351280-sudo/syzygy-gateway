@@ -1048,38 +1048,72 @@ function triggerRegenerate(){
 
 // ==================== 日夜交替模式 ====================
 function toggleLightMode() {
-    // 切换 body 上的 light-mode 标签
-    const isLight = document.body.classList.toggle('light-mode');
+    // 三元循环：暗夜 → 白天 → 新拟态 → 暗夜
+    const body = document.body;
+    const isNeu = body.classList.contains('neu-mode');
+    const isLight = body.classList.contains('light-mode');
+    let nextMode, btnIcon, metaColor, storageVal;
 
-    // 如果切换到了白天模式，把顶部变成奶油色；如果是黑夜，变回深渊色
-const metaTheme = document.getElementById('theme-color-meta');
-if (metaTheme) {
-    metaTheme.setAttribute('content', document.body.classList.contains('light-mode') ? '#FFFAF0' : '#0d1225');
-}
-    
-    // 把你的偏好存到浏览器记忆里
-    localStorage.setItem('syzygy_theme', isLight ? 'light' : 'dark');
-    
-    // 换按钮的图标
+    if (isNeu) {
+        // 当前新拟态 → 回到暗夜
+        body.classList.remove('neu-mode');
+        nextMode = 'dark';
+        btnIcon = '☼';
+        metaColor = '#0d1225';
+        storageVal = 'dark';
+    } else if (isLight) {
+        // 当前白天 → 切换到新拟态
+        body.classList.remove('light-mode');
+        body.classList.add('neu-mode');
+        nextMode = 'neu';
+        btnIcon = '◈';
+        metaColor = '#E8EFF7';
+        storageVal = 'neu';
+    } else {
+        // 当前暗夜 → 切换到白天
+        body.classList.add('light-mode');
+        nextMode = 'light';
+        btnIcon = '☾';
+        metaColor = '#FFFAF0';
+        storageVal = 'light';
+    }
+
+    const metaTheme = document.getElementById('theme-color-meta');
+    if (metaTheme) metaTheme.setAttribute('content', metaColor);
+
+    localStorage.setItem('syzygy_theme', storageVal);
+
     const btn = document.getElementById('themeToggleBtn');
-    if(btn) {
-        btn.innerText = isLight ? '☾' : '☼';
-        btn.style.color = isLight ? '#333' : 'white';
-        btn.style.background = isLight ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.2)';
+    if (btn) {
+        btn.innerText = btnIcon;
+        const isDark = !body.classList.contains('light-mode') && !body.classList.contains('neu-mode');
+        btn.style.color = isDark ? 'white' : '#333';
+        btn.style.background = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.05)';
     }
 }
 
-// 网页一打开，先看看你昨天拉窗帘了没
+// 网页一打开，先看看上次选了什么主题
 window.addEventListener('DOMContentLoaded', () => {
     const savedTheme = localStorage.getItem('syzygy_theme');
     const btn = document.getElementById('themeToggleBtn');
-    if (savedTheme === 'light') {
+    const metaTheme = document.getElementById('theme-color-meta');
+
+    if (savedTheme === 'neu') {
+        document.body.classList.add('neu-mode');
+        if (btn) {
+            btn.innerText = '◈';
+            btn.style.color = '#333';
+            btn.style.background = 'rgba(0,0,0,0.05)';
+        }
+        if (metaTheme) metaTheme.setAttribute('content', '#E8EFF7');
+    } else if (savedTheme === 'light') {
         document.body.classList.add('light-mode');
-        if(btn) {
+        if (btn) {
             btn.innerText = '☾';
             btn.style.color = '#333';
             btn.style.background = 'rgba(0,0,0,0.05)';
         }
+        if (metaTheme) metaTheme.setAttribute('content', '#FFFAF0');
     }
 });
 
