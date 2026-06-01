@@ -401,6 +401,7 @@ function escHtml(s) {
 }
 
 // ═══ 喝水 ═══
+let needsWaterSync = false;
 function neuWaterKey() {
     const d = new Date();
     return 'syzygy_water_' + d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate();
@@ -415,6 +416,7 @@ function neuAddWater() {
     n++;
     neuSaveWater(n);
     neuUpdateWaterUI();
+    needsWaterSync = true;
 }
 function neuUpdateWaterUI() {
     const n = neuLoadWater();
@@ -672,9 +674,16 @@ async function sendChat() {
     const isStream = streamToggle ? streamToggle.checked : true; // 默认开启
 
    // --- 4. 💥 组装请求参数 (带严谨 Base64 格式护盾) ---
-    var userContent = val;
+    // 喝水同步：水量变化后第一条消息携带 [💧 x/8]
+    var actualText = val;
+    if (needsWaterSync) {
+        const waterN = neuLoadWater();
+        actualText = '[💧 ' + waterN + '/8] ' + val;
+        needsWaterSync = false;
+    }
+    var userContent = actualText;
     if (imgsToSend.length > 0) {
-        userContent = [{ type: "text", text: val || "（发送了图片）" }];
+        userContent = [{ type: "text", text: actualText || "（发送了图片）" }];
         for (var i = 0; i < imgsToSend.length; i++) {
             const imgData = imgsToSend[i];
             // 剥离并重新组装标准格式，防止代理站发疯
