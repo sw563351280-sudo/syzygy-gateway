@@ -324,6 +324,7 @@ function neuInitHome() {
     neuLoadWater();
     neuUpdateWaterUI();
     neuUpdateNav();
+    neuRenderPeriod();
 }
 
 function neuRenderWeek() {
@@ -431,6 +432,73 @@ async function neuDeleteTodo(id) {
         await fetch('/api/todos/' + id, { method: 'DELETE' });
         neuRenderTodos();
     } catch(e) { console.error('删除待办失败', e); }
+}
+
+// ═══ 生理期追踪 ═══
+async function neuFetchPeriod() {
+    try { const r = await fetch('/api/period'); return await r.json(); } catch(e) { return null; }
+}
+
+async function neuRenderPeriod() {
+    const data = await neuFetchPeriod();
+    if (!data) return;
+    const statusEl = document.getElementById('neuPeriodStatus');
+    const dotEl = document.getElementById('neuPeriodStatusDot');
+    if (statusEl) statusEl.innerText = data.status.text;
+    if (dotEl) {
+        dotEl.className = 'neu-period-dot ' + (data.status.inPeriod ? 'in-period' : 'not-in-period');
+    }
+    // 日历横条上点彩色圆点 — 有记录就标
+    if (data.allRecords && data.allRecords.length > 0) {
+        const now = new Date();
+        const mon = new Date(now.getFullYear(), now.getMonth(), 1);
+        // 为本周的每个日期打点
+        const strip = document.getElementById('neuWeekStrip');
+        if (strip) {
+            const dots = strip.querySelectorAll('.day-event');
+            for (const dot of dots) {
+                // 清除旧点（会重新由 renderWeek 生成）
+            }
+        }
+    }
+}
+
+async function neuPeriodAction(action) {
+    try {
+        const r = await fetch('/api/period', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action })
+        });
+        const data = await r.json();
+        neuRenderPeriod();
+        toast(data.message || (data.ok ? '已记录' : data.message));
+    } catch(e) { console.error('Period action failed', e); }
+}
+
+function neuShowBackfill() {
+    const d = document.getElementById('neuPeriodBackfill');
+    if (d) d.style.display = d.style.display === 'none' ? 'flex' : 'none';
+}
+
+async function neuPeriodBackfill() {
+    const s = document.getElementById('neuPeriodStart');
+    const e = document.getElementById('neuPeriodEnd');
+    if (!s || !e || !s.value || !e.value) return toast('请选择开始和结束日期');
+    try {
+        const r = await fetch('/api/period', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'backfill', start: s.value, end: e.value })
+        });
+        const data = await r.json();
+        if (data.ok) {
+            document.getElementById('neuPeriodBackfill').style.display = 'none';
+            s.value = ''; e.value = '';
+            neuRenderPeriod();
+        }
+        toast(data.message || data.error || '已补录');
+    } catch(e) { console.error('Backfill failed', e); }
 }
 
 function escHtml(s) {

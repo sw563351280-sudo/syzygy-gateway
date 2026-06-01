@@ -121,10 +121,13 @@ const USER_PROFILE_FILE = path.join(DATA_DIR, 'user_profile.json');
 const DREAM_LOGS_FILE = path.join(DATA_DIR, 'dream_logs.json');
 const DREAM_STATE_FILE = path.join(DATA_DIR, 'dream_state.json');
 const TODOS_FILE = path.join(DATA_DIR, 'todos.json');
+const PERIOD_FILE = path.join(DATA_DIR, 'period_data.json');
 function loadDreamState() { try { return JSON.parse(fs.readFileSync(DREAM_STATE_FILE, 'utf8')); } catch(e) { return { pending_promises: '', foresight: [], updated_at: null }; } }
 function saveDreamState(state) { fs.writeFileSync(DREAM_STATE_FILE, JSON.stringify(state, null, 2), 'utf8'); }
 function loadTodos() { try { return JSON.parse(fs.readFileSync(TODOS_FILE, 'utf8')); } catch(e) { return []; } }
 function saveTodos(items) { fs.writeFileSync(TODOS_FILE, JSON.stringify(items, null, 2), 'utf8'); }
+function loadPeriod() { try { return JSON.parse(fs.readFileSync(PERIOD_FILE, 'utf8')); } catch(e) { return { records: [], current: null }; } }
+function savePeriod(data) { fs.writeFileSync(PERIOD_FILE, JSON.stringify(data, null, 2), 'utf8'); }
 const _dreamDiag = { last: null, history: [] };
 const DAILY_PAGES_FILE = path.join(DATA_DIR, 'daily_pages.json');
 const WEEKLY_SUMMARIES_FILE = path.join(DATA_DIR, 'weekly_summaries.json');
@@ -1174,6 +1177,70 @@ function extractAndProcessTodoTags(text) {
     let clean = text.replace(new RegExp(ADD_TODO_REGEX.source, 'g'), '');
     clean = clean.replace(new RegExp(DONE_TODO_REGEX.source, 'g'), '');
     return clean.trim();
+}
+
+// ==========================================
+// 🩸 生理期追踪（逻辑翻译自 astrbot_plugin_period_tracker）
+// ==========================================
+function parseDate(s) { return new Date(s + 'T00:00:00+08:00'); }
+function todayStr() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+
+function calcCycleDays(records) {
+    const cycles = [];
+    for (let i = 1; i < records.length; i++) {
+        const prevStart = parseDate(records[i-1].start);
+        const currStart = parseDate(records[i].start);
+        const days = Math.round((currStart - prevStart) / 86400000);
+        if (days >= 15 && days <= 60) cycles.push(days);
+    }
+    return cycles;
+}
+
+function avgCycle(records, n = 3) {
+    const cycles = calcCycleDays(records);
+    if (cycles.length === 0) return 28;
+    const recent = cycles.slice(-n);
+    return Math.round(recent.reduce((a,b) => a+b, 0) / recent.length);
+}
+
+function predictNext(data) {
+    const records = data.records || [];
+    const current = data.current;
+    let lastStart;
+    if (current && current.start) lastStart = current.start;
+    else if (records.length > 0) lastStart = records[records.length-1].start;
+    else return null;
+    const avg = avgCycle(records);
+    const predicted = new Date(parseDate(lastStart).getTime() + avg * 86400000);
+    return { date: predicted.getFullYear()+'-'+String(predicted.getMonth()+1).padStart(2,'0')+'-'+String(predicted.getDate()).padStart(2,'0'), avg };
+}
+
+function periodStatusText(data) {
+    const current = data.current;
+    const records = data.records || [];
+    if (current && current.start && !current.end) {
+        const days = Math.round((new Date() - parseDate(current.start)) / 86400000) + 1;
+        let msg = `经期中，从 ${current.start} 开始，今天第 ${days} 天。`;
+        if (days >= 10) msg += '\n⚠️ 时间有点长了，注意身体。';
+        return { inPeriod: true, text: msg, days };
+    }
+    let msg = '';
+    if (records.length > 0) {
+        const last = records[records.length-1];
+        const daysSince = Math.round((new Date() - parseDate(last.end || last.start)) / 86400000);
+        msg = `不在经期。上次结束于 ${last.end || last.start}，已过 ${daysSince} 天。`;
+        const pred = predictNext(data);
+        if (pred) {
+            const predDate = parseDate(pred.date);
+            const daysUntil = Math.round((predDate - new Date()) / 86400000);
+            if (daysUntil > 0) msg += `\n📍 预测下次：${pred.date}（还有 ${daysUntil} 天，平均周期 ${pred.avg} 天）`;
+            else if (daysUntil === 0) msg += `\n📍 预测今天会来。备好热水和退烧药。`;
+            else msg += `\n📍 预测日 ${pred.date} 已过 ${Math.abs(daysUntil)} 天。`;
+        }
+    } else {
+        msg = '还没有记录。';
+    }
+    return { inPeriod: false, text: msg, days: 0 };
 }
 
 function buildSSEChunk(text, template) {
@@ -2439,6 +2506,11 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             dynamicStatePrompt += todoPrompt;
         }
 
+        // 注入生理期状态
+        const periodData = loadPeriod();
+        const periodStat = periodStatusText(periodData);
+        dynamicStatePrompt += `\n\n【江鱼生理期状态】\n${periodStat.text}`;
+
         const { coreRadar: coreRadarContext, longTermRadar: longTermContext, rpRadar: rpRadarContext, unresolved: unresolvedContext, transcriptRadar: transcriptContext } = await scanAllRadars(currentUserMsgText);
 
 
@@ -3674,6 +3746,11 @@ app.post('/api/web-chat', async (req, res) => {
                     dynamicStatePrompt += todoP;
                 }
 
+                // 注入生理期状态
+                const periodData2 = loadPeriod();
+                const periodStat2 = periodStatusText(periodData2);
+                dynamicStatePrompt += `\n\n【江鱼生理期状态】\n${periodStat2.text}`;
+
                 let vectorSearchContext = "";
                 if (text && text.length > 4) {
                     let searchRes2 = null;
@@ -4071,6 +4148,119 @@ app.delete('/api/todos/:id', (req, res) => {
     saveTodos(filtered);
     wsBroadcast({ type: 'todo_deleted', id: req.params.id });
     res.json({ success: true });
+});
+
+// ==========================================
+// 🩸 生理期追踪 API
+// ==========================================
+
+// GET /api/period — 获取状态 + 历史
+app.get('/api/period', (req, res) => {
+    const data = loadPeriod();
+    const status = periodStatusText(data);
+    const records = (data.records || []).slice(-6).reverse();
+    res.json({
+        current: data.current,
+        records,
+        allRecords: data.records || [],
+        status,
+        prediction: predictNext(data)
+    });
+});
+
+// POST /api/period — 记录来了/走了/补录
+app.post('/api/period', (req, res) => {
+    const { action, start, end } = req.body || {};
+    const data = loadPeriod();
+    const today = todayStr();
+
+    // ── 来了 ──
+    if (action === 'start') {
+        if (data.current && data.current.start && !data.current.end) {
+            const days = Math.round((new Date() - parseDate(data.current.start)) / 86400000) + 1;
+            return res.json({ ok: false, message: `已经在记录中了。从 ${data.current.start} 开始，今天第 ${days} 天。` });
+        }
+        data.current = { start: today, end: null };
+        savePeriod(data);
+        let extra = '';
+        if (data.records.length > 0) {
+            const lastStart = data.records[data.records.length-1].start;
+            const gap = Math.round((parseDate(today) - parseDate(lastStart)) / 86400000);
+            extra = ` 距离上次：${gap} 天。`;
+        }
+        wsBroadcast({ type: 'period_updated', status: periodStatusText(data) });
+        return res.json({ ok: true, message: `记录了。${today} 开始。${extra}` });
+    }
+
+    // ── 走了 ──
+    if (action === 'end') {
+        if (!data.current || !data.current.start) {
+            return res.json({ ok: false, message: '没有进行中的记录。先说「来了」。' });
+        }
+        if (data.current.end) {
+            return res.json({ ok: false, message: '已经记录过结束了。' });
+        }
+        const start = data.current.start;
+        data.current.end = today;
+        const duration = Math.round((parseDate(today) - parseDate(start)) / 86400000) + 1;
+        const record = { start, end: today, duration };
+        if (data.records.length > 0) {
+            const prevStart = data.records[data.records.length-1].start;
+            record.cycle = Math.round((parseDate(start) - parseDate(prevStart)) / 86400000);
+        }
+        data.records.push(record);
+        data.current = null;
+        savePeriod(data);
+        const pred = predictNext(data);
+        let predInfo = '';
+        if (pred) predInfo = `\n预测下次：${pred.date}（平均周期 ${pred.avg} 天）`;
+        wsBroadcast({ type: 'period_updated', status: periodStatusText(data) });
+        return res.json({ ok: true, message: `记录了。${start} → ${today}，共 ${duration} 天。${predInfo}` });
+    }
+
+    // ── 补录 ──
+    if (action === 'backfill') {
+        if (!start || !end) return res.status(400).json({ error: '需要 start 和 end 日期' });
+        const startDate = parseDate(start);
+        const endDate = parseDate(end);
+        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime()))
+            return res.status(400).json({ error: '日期格式不对。请使用 YYYY-MM-DD 格式。' });
+        if (endDate <= startDate)
+            return res.status(400).json({ error: '结束日期必须晚于开始日期。' });
+        // 重叠检测
+        const records = data.records || [];
+        for (const r of records) {
+            const rs = parseDate(r.start), re = parseDate(r.end);
+            if (!(endDate < rs || re < startDate))
+                return res.status(400).json({ error: `日期范围与已有记录 ${r.start}→${r.end} 重叠。` });
+        }
+        if (data.current && data.current.start) {
+            const cs = parseDate(data.current.start);
+            const ce = data.current.end ? parseDate(data.current.end) : new Date();
+            if (!(endDate < cs || ce < startDate))
+                return res.status(400).json({ error: `与当前经期（${data.current.start}开始）重叠。` });
+        }
+        const duration = Math.round((endDate - startDate) / 86400000) + 1;
+        const newRecord = { start, end, duration };
+        // 按 start 插入
+        let insertIdx = records.length;
+        for (let i = 0; i < records.length; i++) {
+            if (parseDate(records[i].start) > startDate) { insertIdx = i; break; }
+        }
+        if (insertIdx > 0) {
+            newRecord.cycle = Math.round((startDate - parseDate(records[insertIdx-1].start)) / 86400000);
+        }
+        records.splice(insertIdx, 0, newRecord);
+        if (insertIdx + 1 < records.length) {
+            const next = records[insertIdx+1];
+            next.cycle = Math.round((parseDate(next.start) - startDate) / 86400000);
+        }
+        savePeriod(data);
+        wsBroadcast({ type: 'period_updated', status: periodStatusText(data) });
+        return res.json({ ok: true, message: `✅ 已补录：${start} → ${end}，共 ${duration} 天。` });
+    }
+
+    return res.status(400).json({ error: '未知 action。可用: start, end, backfill' });
 });
 
 // ==========================================

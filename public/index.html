@@ -8,7 +8,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=16">
+    <link rel="stylesheet" href="style.css?v=17">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
@@ -65,6 +65,26 @@
             <span class="neu-water-label">Water · <span id="neuWaterCount">0</span>/8 cups</span>
             <div class="neu-progress-track"><div class="neu-progress-fill" id="neuWaterBar" style="width:0%"></div></div>
             <button class="neu-water-btn" onclick="neuAddWater()">💧</button>
+        </div>
+
+        <!-- 🩸 生理期卡片 -->
+        <div class="neu-card neu-period-card" id="neuPeriodCard">
+            <div class="neu-period-header">
+                <span class="neu-period-title">🩸 Period</span>
+                <span id="neuPeriodStatusDot" class="neu-period-dot"></span>
+            </div>
+            <div id="neuPeriodStatus" class="neu-period-status">加载中…</div>
+            <div class="neu-period-btns">
+                <button class="neu-period-btn start" onclick="neuPeriodAction('start')">来了</button>
+                <button class="neu-period-btn end" onclick="neuPeriodAction('end')">走了</button>
+                <button class="neu-period-btn backfill" onclick="neuShowBackfill()">补录</button>
+            </div>
+            <div id="neuPeriodBackfill" class="neu-period-backfill" style="display:none">
+                <input type="date" id="neuPeriodStart" class="neu-period-date-inp">
+                <span>→</span>
+                <input type="date" id="neuPeriodEnd" class="neu-period-date-inp">
+                <button class="neu-period-btn small" onclick="neuPeriodBackfill()">确认</button>
+            </div>
         </div>
 
         <div class="neu-grid">
@@ -239,7 +259,7 @@
     <div id="favList" style="padding:0 16px 80px 16px;overflow-y:auto;max-height:calc(100vh - 120px);display:flex;flex-direction:column;gap:12px;"></div>
 </div>
 
-	<script src="script.js?v=11"></script>
+	<script src="script.js?v=12"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>
         <div id="menuModel" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🤖 模型: -</div>
