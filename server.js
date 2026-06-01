@@ -119,6 +119,9 @@ const ARCHIVE_FILE = path.join(DATA_DIR, 'deep_archive.json');
 const ROLEPLAY_FILE = path.join(DATA_DIR, 'roleplay_archives.json');
 const USER_PROFILE_FILE = path.join(DATA_DIR, 'user_profile.json');
 const DREAM_LOGS_FILE = path.join(DATA_DIR, 'dream_logs.json');
+const DREAM_STATE_FILE = path.join(DATA_DIR, 'dream_state.json');
+function loadDreamState() { try { return JSON.parse(fs.readFileSync(DREAM_STATE_FILE, 'utf8')); } catch(e) { return { pending_promises: '', foresight: [], updated_at: null }; } }
+function saveDreamState(state) { fs.writeFileSync(DREAM_STATE_FILE, JSON.stringify(state, null, 2), 'utf8'); }
 const _dreamDiag = { last: null, history: [] };
 const DAILY_PAGES_FILE = path.join(DATA_DIR, 'daily_pages.json');
 const WEEKLY_SUMMARIES_FILE = path.join(DATA_DIR, 'weekly_summaries.json');
@@ -1960,12 +1963,20 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
             console.log(`🔮 [Dream·生长层] AI前瞻洞察: ${summaryJson.foresight.map(f => f.substring(0,30)).join(' | ')}`);
         }
 
+        // 持久化 pending_promises 到本地（Zep 已废弃）
+        saveDreamState({
+            pending_promises: summaryJson.pending_promises || '无更新',
+            foresight: summaryJson.foresight || [],
+            updated_at: new Date().toISOString()
+        });
+        console.log('📋 [Dream·状态] pending_promises已保存到本地');
+
         const summaryMeta = { current_state: summaryJson };
-        await fetch(`${ZEP_URL}/api/v1/sessions/${sessionId}`, {
+        fetch(`${ZEP_URL}/api/v1/sessions/${sessionId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ metadata: summaryMeta })
-        });
+        }).catch(() => {});
         updateUserProfile().catch(e => console.log('🖼️ [用户画像] 后台更新异常:', e.message));
     } catch (e) { console.error("🌙 [Dream·固化层] 失败:", e.message); diag.errors.push(`固化层异常: ${e.message}`); }
 
@@ -2340,16 +2351,22 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         }
 
         let dynamicStatePrompt = "";
+        const safeStr = (val) => typeof val === 'object' ? JSON.stringify(val) : (val || '无');
+        // 从本地 dream_state.json 读取 pending_promises（Zep 已废弃）
+        const dreamState = loadDreamState();
+        if (dreamState.pending_promises && dreamState.pending_promises !== '无更新') {
+            dynamicStatePrompt += `\n\n【活跃状态备忘录 — 未完成的待办约定】\n${dreamState.pending_promises}`;
+        }
+        // Zep 仍尝试读取，成功则补充其他字段
         if (sessionRes && sessionRes.ok) {
-            const sessionData = await sessionRes.json();
-            if (sessionData.metadata?.current_state) {
-                const state = sessionData.metadata.current_state;
-                const safeStr = (val) => typeof val === 'object' ? JSON.stringify(val) : (val || '无');
-                dynamicStatePrompt = `\n\n【活跃状态备忘录 (绝不包含RP内容)】
-当前习惯与偏好：${safeStr(state.new_preferences)}
-近期情感与状态：${safeStr(state.relationship_turning_points)}
-未完成的待办约定：${safeStr(state.pending_promises)}`;
-            }
+            try {
+                const sessionData = await sessionRes.json();
+                if (sessionData.metadata?.current_state) {
+                    const state = sessionData.metadata.current_state;
+                    dynamicStatePrompt += `\n当前习惯与偏好：${safeStr(state.new_preferences)}`;
+                    dynamicStatePrompt += `\n近期情感与状态：${safeStr(state.relationship_turning_points)}`;
+                }
+            } catch(e) {}
         }
 
         const { coreRadar: coreRadarContext, longTermRadar: longTermContext, rpRadar: rpRadarContext, unresolved: unresolvedContext, transcriptRadar: transcriptContext } = await scanAllRadars(currentUserMsgText);
@@ -3359,14 +3376,7 @@ app.get('/api/longterm-page-data', async (req, res) => {
     const counts = { all: activeMemories.length, manual: activeMemories.filter(m => m.source === 'manual').length, ai_active: activeMemories.filter(m => m.source === 'ai_active').length, butler_summary: activeMemories.filter(m => m.source === 'butler_summary').length, archived: archivedMemories.length, roleplay: rpMemories.length };
     let heatHigh = 0, heatMid = 0, heatLow = 0;
     for (const m of allMems) { if (m.category !== 'active') continue; if (m.liveHeat > 0.7) heatHigh++; else if (m.liveHeat >= 0.3) heatMid++; else heatLow++; }
-    let pendingPromises = '';
-    try {
-        const sRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`);
-        if (sRes.ok) {
-            const sData = await sRes.json();
-            pendingPromises = sData.metadata?.current_state?.pending_promises || '';
-        }
-    } catch(e) {}
+    const pendingPromises = (loadDreamState().pending_promises !== '无更新' ? loadDreamState().pending_promises : '');
     const weeklies = loadWeeklySummaries().sort((a, b) => b.week.localeCompare(a.week)).slice(0, 5);
     const monthlies = loadMonthlySummaries().sort((a, b) => b.month.localeCompare(a.month)).slice(0, 3);
     res.json({ memories: allMems, counts, heatStats: { high: heatHigh, mid: heatMid, low: heatLow }, profile, dreamLogs, pendingPromises, weeklies, monthlies });
@@ -3550,16 +3560,21 @@ app.post('/api/web-chat', async (req, res) => {
                 }
 
                 let dynamicStatePrompt = "";
+                const dreamState2 = loadDreamState();
+                if (dreamState2.pending_promises && dreamState2.pending_promises !== '无更新') {
+                    dynamicStatePrompt += `\n\n【活跃状态备忘录 — 未完成的待办约定】\n${dreamState2.pending_promises}`;
+                }
                 if (sessionRes && sessionRes.ok) {
-                    const sessionData = await sessionRes.json();
-                    if (sessionData.metadata?.current_state) {
-                        const state = sessionData.metadata.current_state;
-                        const safeStr = (val) => typeof val === 'object' ? JSON.stringify(val) : (val || '无');
-                        dynamicStatePrompt = `\n\n【活跃状态备忘录 (绝不包含RP内容)】
-当前习惯与偏好：${safeStr(state.new_preferences)}
-近期情感与状态：${safeStr(state.relationship_turning_points)}
-未完成的待办约定：${safeStr(state.pending_promises)}`;
-                    }
+                    try {
+                        const sessionData = await sessionRes.json();
+                        if (sessionData.metadata?.current_state) {
+                            const state = sessionData.metadata.current_state;
+                            const safeStr = (val) => typeof val === 'object' ? JSON.stringify(val) : (val || '无');
+                            dynamicStatePrompt += `\n当前习惯与偏好：${safeStr(state.new_preferences)}`;
+                            dynamicStatePrompt += `\n近期情感与状态：${safeStr(state.relationship_turning_points)}`;
+                        }
+                    } catch(e) {}
+                }
                 }
 
                 let vectorSearchContext = "";
