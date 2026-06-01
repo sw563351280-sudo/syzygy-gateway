@@ -8,7 +8,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=17">
+    <link rel="stylesheet" href="style.css?v=18">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
@@ -61,30 +61,13 @@
 
         <div class="neu-card neu-week-strip" id="neuWeekStrip"></div>
 
+        <!-- 距下次月经倒计时 -->
+        <div id="neuPeriodCountdown" class="neu-period-countdown"></div>
+
         <div class="neu-card neu-water-tracker">
             <span class="neu-water-label">Water · <span id="neuWaterCount">0</span>/8 cups</span>
             <div class="neu-progress-track"><div class="neu-progress-fill" id="neuWaterBar" style="width:0%"></div></div>
             <button class="neu-water-btn" onclick="neuAddWater()">💧</button>
-        </div>
-
-        <!-- 🩸 生理期卡片 -->
-        <div class="neu-card neu-period-card" id="neuPeriodCard">
-            <div class="neu-period-header">
-                <span class="neu-period-title">🩸 Period</span>
-                <span id="neuPeriodStatusDot" class="neu-period-dot"></span>
-            </div>
-            <div id="neuPeriodStatus" class="neu-period-status">加载中…</div>
-            <div class="neu-period-btns">
-                <button class="neu-period-btn start" onclick="neuPeriodAction('start')">来了</button>
-                <button class="neu-period-btn end" onclick="neuPeriodAction('end')">走了</button>
-                <button class="neu-period-btn backfill" onclick="neuShowBackfill()">补录</button>
-            </div>
-            <div id="neuPeriodBackfill" class="neu-period-backfill" style="display:none">
-                <input type="date" id="neuPeriodStart" class="neu-period-date-inp">
-                <span>→</span>
-                <input type="date" id="neuPeriodEnd" class="neu-period-date-inp">
-                <button class="neu-period-btn small" onclick="neuPeriodBackfill()">确认</button>
-            </div>
         </div>
 
         <div class="neu-grid">
@@ -116,9 +99,9 @@
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
                 <span>记录</span>
             </div>
-            <div class="neu-card neu-grid-card" onclick="openMailbox()">
+            <div class="neu-card neu-grid-card" onclick="goView('flo')">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 7L2 7"/></svg>
-                <span>信箱</span>
+                <span>Flo</span>
             </div>
         </div>
 
@@ -259,7 +242,46 @@
     <div id="favList" style="padding:0 16px 80px 16px;overflow-y:auto;max-height:calc(100vh - 120px);display:flex;flex-direction:column;gap:12px;"></div>
 </div>
 
-	<script src="script.js?v=12"></script>
+<div class="section" id="sec-flo">
+    <div class="view-topbar" id="floTopbar">
+        <button class="view-back" onclick="goView('home')">←</button>
+        <span class="view-title">月经周期历史</span>
+    </div>
+
+    <!-- 筛选栏 -->
+    <div class="flo-filter-bar">
+        <button class="flo-filter-btn active" onclick="floSetFilter('all', this)">全部</button>
+        <button class="flo-filter-btn" onclick="floSetFilter('recent3', this)">最近3个周期</button>
+        <button class="flo-filter-btn" onclick="floSetFilter('recent6', this)">最近6个周期</button>
+    </div>
+
+    <!-- 图例 -->
+    <div class="flo-legend">
+        <span class="flo-legend-dot" style="background:#F28B82"></span> 月经期
+        <span class="flo-legend-dot" style="background:#7ECEC6"></span> 怀孕窗口期
+        <span class="flo-legend-dot" style="background:#2BAB9E"></span> 排卵期
+    </div>
+
+    <!-- 操作按钮 -->
+    <div class="flo-action-bar">
+        <button class="flo-action-btn" onclick="floPeriodAction('start')">来了 🩸</button>
+        <button class="flo-action-btn" onclick="floPeriodAction('end')">走了 ✓</button>
+        <button class="flo-action-btn" onclick="floShowBackfill()">补录 +</button>
+    </div>
+
+    <!-- 补录日期选择器 -->
+    <div id="floBackfillRow" class="flo-backfill-row" style="display:none">
+        <input type="date" id="floBackfillStart" class="flo-date-inp">
+        <span style="color:#a8b8e7">→</span>
+        <input type="date" id="floBackfillEnd" class="flo-date-inp">
+        <button class="flo-action-btn small" onclick="floDoBackfill()">确认</button>
+    </div>
+
+    <!-- 列表区域 -->
+    <div id="floList" class="flo-list"></div>
+</div>
+
+	<script src="script.js?v=13"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>
         <div id="menuModel" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🤖 模型: -</div>

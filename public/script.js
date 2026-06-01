@@ -269,13 +269,14 @@ function toast(msg){
 
 function goView(viewId) {
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites' };
+    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', flo:'sec-flo' };
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
     if (viewId === 'chat') setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 100);
-    if (viewId === 'home') updateDays && updateDays();
+    if (viewId === 'home') { updateDays && updateDays(); if (document.body.classList.contains('neu-mode')) neuInitHome(); }
     if (viewId === 'favorites') loadAndRenderFavorites();
+    if (viewId === 'flo') floRender();
     if (document.body.classList.contains('neu-mode')) neuUpdateNav();
 }
 function openStarCrossing() {
@@ -324,7 +325,7 @@ function neuInitHome() {
     neuLoadWater();
     neuUpdateWaterUI();
     neuUpdateNav();
-    neuRenderPeriod();
+    neuRenderPeriodCountdown();
 }
 
 function neuRenderWeek() {
@@ -434,71 +435,195 @@ async function neuDeleteTodo(id) {
     } catch(e) { console.error('删除待办失败', e); }
 }
 
-// ═══ 生理期追踪 ═══
-async function neuFetchPeriod() {
+// ═══ Flo 生理期详情页 ═══
+let floFilter = 'all'; // 'all' | 'recent3' | 'recent6'
+
+async function floFetchPeriod() {
     try { const r = await fetch('/api/period'); return await r.json(); } catch(e) { return null; }
 }
 
-async function neuRenderPeriod() {
-    const data = await neuFetchPeriod();
-    if (!data) return;
-    const statusEl = document.getElementById('neuPeriodStatus');
-    const dotEl = document.getElementById('neuPeriodStatusDot');
-    if (statusEl) statusEl.innerText = data.status.text;
-    if (dotEl) {
-        dotEl.className = 'neu-period-dot ' + (data.status.inPeriod ? 'in-period' : 'not-in-period');
-    }
-    // 日历横条上点彩色圆点 — 有记录就标
-    if (data.allRecords && data.allRecords.length > 0) {
-        const now = new Date();
-        const mon = new Date(now.getFullYear(), now.getMonth(), 1);
-        // 为本周的每个日期打点
-        const strip = document.getElementById('neuWeekStrip');
-        if (strip) {
-            const dots = strip.querySelectorAll('.day-event');
-            for (const dot of dots) {
-                // 清除旧点（会重新由 renderWeek 生成）
-            }
-        }
+// 首页 — 倒计时文字
+async function neuRenderPeriodCountdown() {
+    const el = document.getElementById('neuPeriodCountdown');
+    if (!el) return;
+    const data = await floFetchPeriod();
+    if (!data) { el.innerText = ''; return; }
+    if (data.status.inPeriod) {
+        el.innerText = '经期第 ' + data.status.days + ' 天';
+    } else if (data.prediction) {
+        const predDate = new Date(data.prediction.date + 'T00:00:00+08:00');
+        const daysUntil = Math.round((predDate - new Date()) / 86400000);
+        if (daysUntil > 0) el.innerText = '距下次月经还有 ' + daysUntil + ' 天';
+        else if (daysUntil === 0) el.innerText = '预测今天会来';
+        else el.innerText = '预测日已过 ' + Math.abs(daysUntil) + ' 天';
+    } else {
+        el.innerText = '暂无生理期数据';
     }
 }
 
-async function neuPeriodAction(action) {
+// 排卵日 = 下一个周期开始日 - 14天。如果不知道下一个周期开始日，用预测日
+function floCalcOvulationDay(record, nextStartStr, prediction) {
+    if (nextStartStr) {
+        const d = new Date(nextStartStr + 'T00:00:00+08:00');
+        d.setDate(d.getDate() - 14);
+        return d;
+    }
+    // fallback: 用预测
+    if (prediction && prediction.date) {
+        const d = new Date(prediction.date + 'T00:00:00+08:00');
+        d.setDate(d.getDate() - 14);
+        return d;
+    }
+    return null;
+}
+
+function floBuildDotRow(record, nextStartStr, prediction, isCurrent) {
+    const start = new Date(record.start + 'T00:00:00+08:00');
+    const end = isCurrent ? new Date() : new Date(record.end + 'T00:00:00+08:00');
+    const ovulationDay = floCalcOvulationDay(record, nextStartStr, prediction);
+
+    let html = '<div class="flo-dot-row">';
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate()+1)) {
+        let cls = '#D8DCE6'; // 普通日
+        const isPeriod = d >= start && d <= new Date(record.end ? record.end + 'T00:00:00+08:00' : new Date());
+        if (isPeriod && !isCurrent) {
+            cls = '#F28B82';
+        } else if (isCurrent) {
+            if (d <= end) cls = '#F28B82';
+        }
+        // 排卵相关（非经期时）
+        if (!isPeriod || isCurrent) {
+            if (ovulationDay) {
+                const od = ovulationDay;
+                const winStart = new Date(od); winStart.setDate(od.getDate() - 5);
+                const winEnd = new Date(od); winEnd.setDate(od.getDate() + 1);
+                if (d.toDateString() === od.toDateString()) cls = '#2BAB9E';
+                else if (d >= winStart && d <= winEnd) cls = '#7ECEC6';
+            }
+        }
+        // 覆盖：如果在 records 的 start-end 内，一定是红色
+        const rs = new Date(record.start + 'T00:00:00+08:00');
+        const re = isCurrent ? new Date() : new Date(record.end + 'T00:00:00+08:00');
+        if (d >= rs && d <= re) cls = '#F28B82';
+
+        html += '<span class="flo-dot" style="background:' + cls + '"></span>';
+    }
+    html += '</div>';
+    return html;
+}
+
+function floFormatDate(yyyymmdd) {
+    const d = new Date(yyyymmdd + 'T00:00:00+08:00');
+    return (d.getMonth()+1) + '月' + d.getDate() + '日';
+}
+
+async function floRender() {
+    const data = await floFetchPeriod();
+    if (!data) return;
+    const list = document.getElementById('floList');
+    if (!list) return;
+
+    const allRecords = data.allRecords || [];
+    const current = data.current;
+
+    // 筛选
+    let shown = [...allRecords];
+    if (floFilter === 'recent3') shown = shown.slice(-3);
+    if (floFilter === 'recent6') shown = shown.slice(-6);
+
+    // 按年份分组
+    const groups = {};
+    // 把当前经期也放进去
+    const allItems = [...shown];
+    if (current && current.start) {
+        allItems.push({ ...current, isCurrent: true, id: 'current' });
+    }
+    allItems.sort((a,b) => new Date(a.start) - new Date(b.start));
+
+    for (const rec of allItems) {
+        const y = new Date(rec.start + 'T00:00:00+08:00').getFullYear();
+        if (!groups[y]) groups[y] = [];
+        groups[y].push(rec);
+    }
+
+    let html = '';
+    for (const [year, records] of Object.entries(groups).reverse()) {
+        html += '<div class="flo-year-title">' + year + '</div>';
+        for (let i = 0; i < records.length; i++) {
+            const rec = records[i];
+            const isCurrent = rec.isCurrent;
+            // 找下一个开始日（用于算排卵日）
+            let nextStart = null;
+            if (i + 1 < records.length) nextStart = records[i+1].start;
+            else {
+                // 在所有记录里找紧挨着的下一条
+                const idx = allRecords.findIndex(r => r.start === rec.start && !r.isCurrent);
+                if (idx !== -1 && idx + 1 < allRecords.length) nextStart = allRecords[idx+1].start;
+            }
+
+            const days = isCurrent
+                ? (Math.round((new Date() - new Date(rec.start + 'T00:00:00+08:00')) / 86400000) + 1)
+                : (rec.duration || (Math.round((new Date(rec.end + 'T00:00:00+08:00') - new Date(rec.start + 'T00:00:00+08:00')) / 86400000) + 1));
+
+            const dateRange = isCurrent
+                ? '开始于 ' + floFormatDate(rec.start)
+                : floFormatDate(rec.start) + ' – ' + floFormatDate(rec.end);
+
+            html += '<div class="flo-cycle-card">';
+            html += '<div class="flo-cycle-header">';
+            html += '<span class="flo-cycle-days">' + (isCurrent ? '当前月经周期：' + days + ' 天' : days + ' 天') + '</span>';
+            html += '<span class="flo-cycle-arrow">›</span>';
+            html += '</div>';
+            html += '<div class="flo-date-range">' + dateRange + '</div>';
+            html += floBuildDotRow(rec, nextStart, data.prediction, isCurrent);
+            html += '</div>';
+        }
+    }
+    if (!html) html = '<div style="text-align:center;color:#a8b8e7;padding:40px;">还没有生理期记录。\n点「来了」记录第一次吧。</div>';
+    list.innerHTML = html;
+}
+
+function floSetFilter(filter, btn) {
+    floFilter = filter;
+    document.querySelectorAll('.flo-filter-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    floRender();
+}
+
+async function floPeriodAction(action) {
     try {
         const r = await fetch('/api/period', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action })
         });
         const data = await r.json();
-        neuRenderPeriod();
-        toast(data.message || (data.ok ? '已记录' : data.message));
-    } catch(e) { console.error('Period action failed', e); }
+        floRender();
+        toast(data.message || '已记录');
+    } catch(e) { console.error(e); }
 }
 
-function neuShowBackfill() {
-    const d = document.getElementById('neuPeriodBackfill');
+function floShowBackfill() {
+    const d = document.getElementById('floBackfillRow');
     if (d) d.style.display = d.style.display === 'none' ? 'flex' : 'none';
 }
 
-async function neuPeriodBackfill() {
-    const s = document.getElementById('neuPeriodStart');
-    const e = document.getElementById('neuPeriodEnd');
-    if (!s || !e || !s.value || !e.value) return toast('请选择开始和结束日期');
+async function floDoBackfill() {
+    const s = document.getElementById('floBackfillStart');
+    const e = document.getElementById('floBackfillEnd');
+    if (!s || !e || !s.value || !e.value) return toast('请选择日期');
     try {
         const r = await fetch('/api/period', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'backfill', start: s.value, end: e.value })
         });
         const data = await r.json();
         if (data.ok) {
-            document.getElementById('neuPeriodBackfill').style.display = 'none';
+            document.getElementById('floBackfillRow').style.display = 'none';
             s.value = ''; e.value = '';
-            neuRenderPeriod();
+            floRender();
         }
         toast(data.message || data.error || '已补录');
-    } catch(e) { console.error('Backfill failed', e); }
+    } catch(e) { console.error(e); }
 }
 
 function escHtml(s) {
