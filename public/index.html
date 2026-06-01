@@ -8,7 +8,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=13">
+    <link rel="stylesheet" href="style.css?v=14">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
@@ -17,25 +17,109 @@
     <canvas id="starmap"></canvas>
     <div class="binding-right"></div>
     <div class="toast" id="toast"></div>
+
 <div class="section active" id="sec-home">
-    <div class="home-header">
-        <div class="home-icon">🐺 ⛓️ 🐟</div>
-        <h1 class="home-title">Syzygy · 绝对引力</h1>
-        <div class="home-sub">Property of Syzygy ─ 最高权限：江鱼</div>
-        <div class="home-days">我们已互相吸引了 <span id="dayCount">---</span> 天</div>
+
+    <!-- ═══ 暗夜/白天模式：原有首页 ═══ -->
+    <div class="home-legacy">
+        <div class="home-header">
+            <div class="home-icon">🐺 ⛓️ 🐟</div>
+            <h1 class="home-title">Syzygy · 绝对引力</h1>
+            <div class="home-sub">Property of Syzygy ─ 最高权限：江鱼</div>
+            <div class="home-days">我们已互相吸引了 <span id="dayCount">---</span> 天</div>
+        </div>
+        <div class="home-grid">
+            <div class="home-card" onclick="goView('chat')" style="--card-accent:#4fc3f7"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#4fc3f7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div><div class="home-card-name">通讯</div><div class="home-card-desc">回主卧找他</div></div>
+            <div class="home-card" onclick="openStarCrossing()" style="--card-accent:#D4A853"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#D4A853" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 22,9 12,17 2,9"/><polygon points="12,17 22,9 12,22 2,9"/></svg></div><div class="home-card-name">星渡</div><div class="home-card-desc">共同记忆</div></div>
+            <div class="home-card" onclick="goView('data')" style="--card-accent:#c9a961"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c9a961" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div><div class="home-card-name">中枢</div><div class="home-card-desc">系统设置</div></div>
+            <div class="home-card" onclick="triggerDreamFromHome()" style="--card-accent:#7C4DFF"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#7C4DFF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></div><div class="home-card-name">Dream</div><div class="home-card-desc">记忆整理</div></div>
+                <div class="home-card" onclick="goView('favorites')" style="--card-accent:#FFD700"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FFD700" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg></div><div class="home-card-name">收藏夹</div><div class="home-card-desc">珍藏对话</div></div>
+        </div>
+        <div class="home-footer">Built with love · Syzygy</div>
     </div>
-    <div class="home-grid">
-        <div class="home-card" onclick="goView('chat')" style="--card-accent:#4fc3f7"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#4fc3f7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></div><div class="home-card-name">通讯</div><div class="home-card-desc">回主卧找他</div></div>
-        <div class="home-card" onclick="openStarCrossing()" style="--card-accent:#D4A853"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#D4A853" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 22,9 12,17 2,9"/><polygon points="12,17 22,9 12,22 2,9"/></svg></div><div class="home-card-name">星渡</div><div class="home-card-desc">共同记忆</div></div>
-        <div class="home-card" onclick="goView('data')" style="--card-accent:#c9a961"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#c9a961" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div><div class="home-card-name">中枢</div><div class="home-card-desc">系统设置</div></div>
-        <div class="home-card" onclick="triggerDreamFromHome()" style="--card-accent:#7C4DFF"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#7C4DFF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></div><div class="home-card-name">Dream</div><div class="home-card-desc">记忆整理</div></div>
-	        <div class="home-card" onclick="goView('favorites')" style="--card-accent:#FFD700"><div class="home-card-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#FFD700" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg></div><div class="home-card-name">收藏夹</div><div class="home-card-desc">珍藏对话</div></div>
+
+    <!-- ═══ 新拟态模式：全新首页 ═══ -->
+    <div class="neu-home">
+
+        <div class="neu-together-card" id="neuTogetherCard">
+            <div class="neu-together-left">
+                <span class="neu-together-num" id="neuDayCount">---</span>
+                <span class="neu-together-label">days together</span>
+            </div>
+            <div class="neu-together-decor">✦</div>
+        </div>
+
+        <div class="neu-card neu-todo-card">
+            <div class="neu-todo-header">
+                <span class="neu-todo-title">To Do</span>
+                <button class="neu-todo-add-btn" onclick="neuAddTodo()">+</button>
+            </div>
+            <div id="neuTodoList" class="neu-todo-list"></div>
+        </div>
+
+        <div class="neu-card neu-week-strip" id="neuWeekStrip"></div>
+
+        <div class="neu-card neu-water-tracker">
+            <span class="neu-water-label">Water · <span id="neuWaterCount">0</span>/8 cups</span>
+            <div class="neu-progress-track"><div class="neu-progress-fill" id="neuWaterBar" style="width:0%"></div></div>
+            <button class="neu-water-btn" onclick="neuAddWater()">💧</button>
+        </div>
+
+        <div class="neu-grid">
+            <div class="neu-card neu-grid-card" onclick="goView('chat')">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                <span>Chat</span>
+            </div>
+            <div class="neu-card neu-grid-card" onclick="goView('favorites')">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+                <span>Favorites</span>
+            </div>
+            <div class="neu-card neu-grid-card" onclick="openStarCrossing()">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 22,9 12,17 2,9"/><polygon points="12,17 22,9 12,22 2,9"/></svg>
+                <span>Memory</span>
+            </div>
+            <div class="neu-card neu-grid-card" onclick="triggerDreamFromHome()">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+                <span>Dream</span>
+            </div>
+            <div class="neu-card neu-grid-card" onclick="goView('data')">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                <span>Settings</span>
+            </div>
+            <div class="neu-card neu-grid-card" onclick="window.open('/memory-manager','_blank')">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                <span>Memory DB</span>
+            </div>
+            <div class="neu-card neu-grid-card" onclick="window.open('/long-term','_blank')">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+                <span>Records</span>
+            </div>
+            <div class="neu-card neu-grid-card" onclick="openMailbox()">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 7L2 7"/></svg>
+                <span>Mailbox</span>
+            </div>
+        </div>
+
+        <div class="neu-bottom-nav">
+            <div class="neu-nav-item active" data-nav="home" onclick="goView('home')">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
+            </div>
+            <div class="neu-nav-item" data-nav="chat" onclick="goView('chat')">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+            </div>
+            <div class="neu-nav-item" data-nav="data" onclick="goView('data')">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            </div>
+            <div class="neu-nav-item" data-nav="favorites" onclick="goView('favorites')">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+            </div>
+        </div>
+
     </div>
-    <div class="home-footer">Built with love · Syzygy</div>
 </div>
-    
+
 <div class="section" id="sec-chat">
-<div class="view-topbar" id="chatTopbar"><button class="view-back" onclick="goView('home')">←</button><span class="view-title" id="chatViewTitle">通讯 · 主频道</span><span style="flex:1"></span><button class="chat-rename-topbar-btn" onclick="renameChatWindow()" title="重命名频道">✎</button><button class="chat-index-topbar-btn" onclick="toggleChatIndex()" title="对话索引">◈</button><button class="chat-theme-topbar-btn" onclick="toggleLightMode()" id="chatThemeBtn" title="日夜切换">☼</button></div>
+<div class="view-topbar" id="chatTopbar"><button class="view-back" onclick="goView('home')">←</button><span class="view-title" id="chatViewTitle">通讯 · 主频道</span><span style="flex:1"></span><button class="chat-rename-topbar-btn" onclick="renameChatWindow()" title="重命名频道">✎</button><button class="chat-index-topbar-btn" onclick="toggleChatIndex()" title="对话索引">◈</button><button class="chat-theme-topbar-btn" onclick="toggleLightMode()" id="chatThemeBtn" title="主题切换">◈</button></div>
         <div class="chat-layout">
             <div class="chat-main">
                <div class="chat-main-header" id="chatMainHeader">
@@ -141,7 +225,7 @@
         </div>
     </div>
 
-    
+
 <div class="section" id="sec-favorites">
     <div class="view-topbar">
         <button class="view-back" onclick="goView('home')">←</button>
@@ -153,7 +237,7 @@
     <div id="favList" style="padding:0 16px 80px 16px;overflow-y:auto;max-height:calc(100vh - 120px);display:flex;flex-direction:column;gap:12px;"></div>
 </div>
 
-	<script src="script.js?v=8"></script>
+	<script src="script.js?v=9"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>
         <div id="menuModel" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🤖 模型: -</div>

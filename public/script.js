@@ -276,6 +276,7 @@ function goView(viewId) {
     if (viewId === 'chat') setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 100);
     if (viewId === 'home') updateDays && updateDays();
     if (viewId === 'favorites') loadAndRenderFavorites();
+    if (document.body.classList.contains('neu-mode')) neuUpdateNav();
 }
 function openStarCrossing() {
     const pwd = new URLSearchParams(location.search).get('pwd') || localStorage.getItem('memoryPwd') || '';
@@ -316,14 +317,122 @@ if (document.readyState === 'loading') { document.addEventListener('DOMContentLo
 
 function egg(pos){}
 
-// ==================== 溯星主页 ====================
-function updateDays(){
-    const start = new Date(START_DATE);
-    const diff  = Math.floor((new Date() - start) / (1000 * 60 * 60 * 24));
-    const dayEl = document.getElementById('dayCount');
-    if(dayEl) dayEl.innerText = diff >= 0 ? diff : '∞';
+// ==================== 新拟态首页 ====================
+function neuInitHome() {
+    neuRenderWeek();
+    neuRenderTodos();
+    neuLoadWater();
+    neuUpdateWaterUI();
+    neuUpdateNav();
 }
-updateDays();
+
+function neuRenderWeek() {
+    const strip = document.getElementById('neuWeekStrip');
+    if (!strip) return;
+    const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const now = new Date();
+    const today = now.getDay(); // 0=Sun
+    // 找到本周一
+    const mon = new Date(now);
+    mon.setDate(now.getDate() - (today === 0 ? 6 : today - 1));
+
+    let html = '';
+    for (let i = 0; i < 7; i++) {
+        const d = new Date(mon);
+        d.setDate(mon.getDate() + i);
+        const dayNum = d.getDay();
+        const isToday = dayNum === today && Math.abs(d.getDate() - now.getDate()) < 1;
+        html += '<div class="neu-week-day' + (isToday ? ' today' : '') + '">'
+            + '<span class="day-dot">' + d.getDate() + '</span>'
+            + days[i]
+            + '<span class="day-event"></span>'
+            + '</div>';
+    }
+    strip.innerHTML = html;
+}
+
+// ═══ To Do ═══
+function neuLoadTodos() {
+    try { return JSON.parse(localStorage.getItem('syzygy_todos') || '[]'); } catch(e) { return []; }
+}
+function neuSaveTodos(todos) { localStorage.setItem('syzygy_todos', JSON.stringify(todos)); }
+
+function neuRenderTodos() {
+    const list = document.getElementById('neuTodoList');
+    if (!list) return;
+    const todos = neuLoadTodos();
+    if (todos.length === 0) {
+        list.innerHTML = '<div style="color:#A0AEC0;font-size:13px;padding:4px 0;">No tasks yet — tap + to add</div>';
+        return;
+    }
+    list.innerHTML = todos.map((t, i) =>
+        '<div class="neu-todo-item' + (t.done ? ' done' : '') + '">'
+        + '<input type="checkbox" ' + (t.done ? 'checked' : '') + ' onchange="neuToggleTodo(' + i + ')">'
+        + '<span>' + escHtml(t.text) + '</span>'
+        + '<button class="neu-todo-rm-btn" onclick="neuRemoveTodo(' + i + ')">×</button>'
+        + '</div>'
+    ).join('');
+}
+
+function neuAddTodo() {
+    const text = prompt('New task:');
+    if (!text || !text.trim()) return;
+    const todos = neuLoadTodos();
+    todos.push({ text: text.trim(), done: false });
+    neuSaveTodos(todos);
+    neuRenderTodos();
+}
+
+function neuToggleTodo(i) {
+    const todos = neuLoadTodos();
+    if (todos[i]) { todos[i].done = !todos[i].done; neuSaveTodos(todos); }
+    neuRenderTodos();
+}
+
+function neuRemoveTodo(i) {
+    const todos = neuLoadTodos();
+    todos.splice(i, 1);
+    neuSaveTodos(todos);
+    neuRenderTodos();
+}
+
+function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ═══ 喝水 ═══
+function neuWaterKey() {
+    const d = new Date();
+    return 'syzygy_water_' + d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate();
+}
+function neuLoadWater() {
+    try { return parseInt(localStorage.getItem(neuWaterKey()) || '0'); } catch(e) { return 0; }
+}
+function neuSaveWater(n) { localStorage.setItem(neuWaterKey(), String(n)); }
+function neuAddWater() {
+    let n = neuLoadWater();
+    if (n >= 8) return;
+    n++;
+    neuSaveWater(n);
+    neuUpdateWaterUI();
+}
+function neuUpdateWaterUI() {
+    const n = neuLoadWater();
+    const cnt = document.getElementById('neuWaterCount');
+    const bar = document.getElementById('neuWaterBar');
+    if (cnt) cnt.innerText = n;
+    if (bar) bar.style.width = Math.min(n / 8 * 100, 100) + '%';
+}
+
+// ═══ 底部导航高亮 ═══
+function neuUpdateNav() {
+    const view = document.querySelector('.section.active')?.id || 'sec-home';
+    const map = { 'sec-home': 'home', 'sec-chat': 'chat', 'sec-data': 'data', 'sec-favorites': 'favorites' };
+    const active = map[view] || 'home';
+    document.querySelectorAll('.neu-nav-item').forEach(el => {
+        el.classList.toggle('active', el.dataset.nav === active);
+    });
+}
 
 let hbInterval;
 // ==================== 核心对话中枢 ====================
@@ -1069,6 +1178,7 @@ function toggleLightMode() {
         btnIcon = '◈';
         metaColor = '#E8EFF7';
         storageVal = 'neu';
+        neuInitHome();
     } else {
         // 当前暗夜 → 切换到白天
         body.classList.add('light-mode');
@@ -1124,7 +1234,12 @@ window.addEventListener('DOMContentLoaded', () => {
 
 
 // ==================== 终极点火装置 ====================
-async function startSystem() { await syncFromCloud(); updateDays(); document.body.dataset.view = "home"; }
+async function startSystem() {
+    await syncFromCloud();
+    updateDays();
+    document.body.dataset.view = "home";
+    if (document.body.classList.contains('neu-mode')) neuInitHome();
+}
 startSystem();
 
 // ==================== 对话索引 ====================

@@ -1766,3 +1766,129 @@ body.neu-mode .quote-box .q { color: #4A5568; }
 body.neu-mode .quote-gen-btn { background: #E8EFF7; box-shadow: 3px 3px 6px rgba(163, 177, 198, 0.3), -3px -3px 6px rgba(255, 255, 255, 0.5); border: none; color: #5A8FCA; }
 body.neu-mode .quote-gen-btn:hover { box-shadow: 2px 2px 4px rgba(163, 177, 198, 0.2), -2px -2px 4px rgba(255, 255, 255, 0.4); }
 
+/* ═══ 新拟态首页布局 ═══ */
+body:not(.neu-mode) .neu-home { display: none; }
+body.neu-mode .home-legacy { display: none; }
+body.neu-mode #sec-home { max-width: 430px; margin: 0 auto; padding: 20px 16px 100px 16px; }
+body.neu-mode .home-footer { display: none; }
+
+/* Together 天数大卡 */
+.neu-together-card {
+    display: flex; justify-content: space-between; align-items: center;
+    background: #E8EFF7;
+    box-shadow: 8px 8px 16px rgba(163, 177, 198, 0.6), -8px -8px 16px rgba(255, 255, 255, 0.8);
+    border-radius: 20px; padding: 24px; margin-bottom: 16px;
+    transition: all 0.2s ease;
+}
+.neu-together-left { display: flex; flex-direction: column; }
+.neu-together-num { font-size: 48px; font-weight: 700; color: #2D3748; line-height: 1; }
+.neu-together-label { font-size: 14px; color: #718096; margin-top: 4px; }
+.neu-together-decor { font-size: 20px; color: #D4A856; }
+
+/* To Do 卡片 */
+.neu-todo-card { padding: 16px 20px; margin-bottom: 16px; }
+.neu-todo-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.neu-todo-title { font-size: 16px; font-weight: 600; color: #2D3748; }
+.neu-todo-add-btn {
+    background: #E8EFF7; border: none; color: #D4A856; font-size: 20px; font-weight: 600;
+    width: 32px; height: 32px; border-radius: 50%; cursor: pointer;
+    box-shadow: 3px 3px 6px rgba(163, 177, 198, 0.3), -3px -3px 6px rgba(255, 255, 255, 0.5);
+    transition: all 0.2s ease;
+}
+.neu-todo-add-btn:active { box-shadow: inset 2px 2px 4px rgba(163, 177, 198, 0.3), inset -2px -2px 4px rgba(255, 255, 255, 0.5); }
+.neu-todo-list { display: flex; flex-direction: column; gap: 8px; }
+.neu-todo-item { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #2D3748; }
+.neu-todo-item.done span { text-decoration: line-through; color: #A0AEC0; }
+.neu-todo-item input[type="checkbox"] { accent-color: #D4A856; }
+.neu-todo-rm-btn {
+    background: none; border: none; color: #A0AEC0; font-size: 14px; cursor: pointer;
+    margin-left: auto; padding: 2px 6px;
+}
+.neu-todo-new-input {
+    width: 100%; border: none; background: transparent; font-size: 14px; color: #2D3748;
+    padding: 4px 0; outline: none; font-family: inherit;
+}
+
+/* 周历横条 */
+.neu-week-strip {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; margin-bottom: 16px;
+}
+.neu-week-day { font-size: 12px; color: #718096; text-align: center; flex: 1; padding: 4px 0; }
+.neu-week-day .day-dot {
+    display: block; width: 32px; height: 32px; line-height: 32px; margin: 0 auto 2px;
+    border-radius: 50%; font-size: 13px; font-weight: 500;
+}
+.neu-week-day.today .day-dot { background: #D4A856; color: #fff; }
+.neu-week-day .day-event { width: 4px; height: 4px; background: #5A8FCA; border-radius: 50%; margin: 0 auto; }
+
+/* 喝水横条 */
+.neu-water-tracker {
+    display: flex; align-items: center; gap: 12px;
+    padding: 16px 20px; margin-bottom: 20px;
+}
+.neu-water-label { font-size: 14px; color: #2D3748; white-space: nowrap; min-width: 120px; }
+.neu-progress-track {
+    background: #E8EFF7; flex: 1; height: 8px; border-radius: 4px; overflow: hidden;
+    box-shadow: inset 4px 4px 8px rgba(163, 177, 198, 0.5), inset -4px -4px 8px rgba(255, 255, 255, 0.7);
+}
+.neu-progress-fill {
+    background: linear-gradient(90deg, #5A8FCA, #D4A856);
+    height: 100%; border-radius: 4px; transition: width 0.3s ease;
+}
+.neu-water-btn {
+    background: #E8EFF7; border: none; font-size: 20px; cursor: pointer;
+    width: 36px; height: 36px; border-radius: 50%;
+    box-shadow: 4px 4px 8px rgba(163, 177, 198, 0.4), -4px -4px 8px rgba(255, 255, 255, 0.7);
+    transition: all 0.2s ease;
+    display: flex; align-items: center; justify-content: center;
+}
+.neu-water-btn:active { box-shadow: inset 2px 2px 4px rgba(163, 177, 198, 0.3), inset -2px -2px 4px rgba(255, 255, 255, 0.5); }
+
+/* 功能网格 2×4 */
+.neu-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 80px;
+}
+.neu-grid-card {
+    aspect-ratio: 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; padding: 14px 8px; cursor: pointer;
+}
+.neu-grid-card span { font-size: 11px; color: #718096; font-weight: 500; }
+
+/* 底部胶囊导航 */
+.neu-bottom-nav {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    width: calc(100% - 48px); max-width: 382px;
+    background: rgba(232, 239, 247, 0.95);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border-radius: 30px;
+    display: flex; justify-content: space-around; align-items: center;
+    padding: 10px 8px;
+    box-shadow: 8px 8px 16px rgba(163, 177, 198, 0.6), -8px -8px 16px rgba(255, 255, 255, 0.8);
+    z-index: 100;
+}
+.neu-nav-item {
+    display: flex; align-items: center; justify-content: center;
+    width: 48px; height: 48px; border-radius: 50%;
+    color: #718096; cursor: pointer; transition: all 0.2s ease;
+    position: relative;
+}
+.neu-nav-item svg { width: 24px; height: 24px; }
+.neu-nav-item.active { color: #D4A856; }
+.neu-nav-item.active::after {
+    content: ''; position: absolute; bottom: 4px; width: 4px; height: 4px;
+    background: #D4A856; border-radius: 50%;
+}
+.neu-nav-item:active { transform: scale(0.92); }
+
+@media(max-width:374px) {
+    body.neu-mode #sec-home { padding: 16px 12px 90px 12px; }
+    .neu-grid { gap: 10px; }
+    .neu-grid-card { padding: 10px 4px; }
+    .neu-together-num { font-size: 40px; }
+}
+
