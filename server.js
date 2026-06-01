@@ -3654,7 +3654,6 @@ app.post('/api/web-chat', async (req, res) => {
                         }
                     } catch(e) {}
                 }
-                }
 
                 // 注入共享待办列表
                 const allTodos2 = loadTodos();
