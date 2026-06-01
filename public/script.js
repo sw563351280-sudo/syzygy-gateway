@@ -461,50 +461,40 @@ async function neuRenderPeriodCountdown() {
     }
 }
 
-// 排卵日 = 下一个周期开始日 - 14天。如果不知道下一个周期开始日，用预测日
-function floCalcOvulationDay(record, nextStartStr, prediction) {
-    if (nextStartStr) {
-        const d = new Date(nextStartStr + 'T00:00:00+08:00');
-        d.setDate(d.getDate() - 14);
-        return d;
-    }
-    // fallback: 用预测
-    if (prediction && prediction.date) {
-        const d = new Date(prediction.date + 'T00:00:00+08:00');
-        d.setDate(d.getDate() - 14);
-        return d;
-    }
-    return null;
+// 排卵日 = 下一个周期开始日 - 14天
+function floCalcOvulationDay(nextStartStr) {
+    if (!nextStartStr) return null;
+    const d = new Date(nextStartStr + 'T00:00:00+08:00');
+    d.setDate(d.getDate() - 14);
+    return d;
 }
 
-function floBuildDotRow(record, nextStartStr, prediction, isCurrent) {
-    const start = new Date(record.start + 'T00:00:00+08:00');
-    const end = isCurrent ? new Date() : new Date(record.end + 'T00:00:00+08:00');
-    const ovulationDay = floCalcOvulationDay(record, nextStartStr, prediction);
+function floBuildDotRow(record, nextStartStr, isCurrent) {
+    // 圆点条：本次开始 → 下次开始前1天（显示完整周期）
+    const cycleStart = new Date(record.start + 'T00:00:00+08:00');
+    const cycleEnd = nextStartStr
+        ? new Date(new Date(nextStartStr + 'T00:00:00+08:00').getTime() - 86400000)  // 下次开始前1天
+        : (isCurrent ? new Date() : new Date(record.end + 'T00:00:00+08:00'));
+
+    const periodEnd = isCurrent ? new Date() : new Date(record.end + 'T00:00:00+08:00');
+    const ovulationDay = floCalcOvulationDay(nextStartStr);
 
     let html = '<div class="flo-dot-row">';
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate()+1)) {
-        let cls = '#D8DCE6'; // 普通日
-        const isPeriod = d >= start && d <= new Date(record.end ? record.end + 'T00:00:00+08:00' : new Date());
-        if (isPeriod && !isCurrent) {
+    for (let d = new Date(cycleStart); d <= cycleEnd; d.setDate(d.getDate()+1)) {
+        let cls = '#D8DCE6';
+
+        // 经期（红色）
+        if (d >= cycleStart && d <= periodEnd) {
             cls = '#F28B82';
-        } else if (isCurrent) {
-            if (d <= end) cls = '#F28B82';
         }
-        // 排卵相关（非经期时）
-        if (!isPeriod || isCurrent) {
-            if (ovulationDay) {
-                const od = ovulationDay;
-                const winStart = new Date(od); winStart.setDate(od.getDate() - 5);
-                const winEnd = new Date(od); winEnd.setDate(od.getDate() + 1);
-                if (d.toDateString() === od.toDateString()) cls = '#2BAB9E';
-                else if (d >= winStart && d <= winEnd) cls = '#7ECEC6';
-            }
+        // 排卵相关
+        if (d > periodEnd && ovulationDay) {
+            const od = ovulationDay;
+            const winStart = new Date(od); winStart.setDate(od.getDate() - 5);
+            const winEnd = new Date(od); winEnd.setDate(od.getDate() + 1);
+            if (d.toDateString() === od.toDateString()) cls = '#1E8A7E';
+            else if (d >= winStart && d <= winEnd) cls = '#5A9E96';
         }
-        // 覆盖：如果在 records 的 start-end 内，一定是红色
-        const rs = new Date(record.start + 'T00:00:00+08:00');
-        const re = isCurrent ? new Date() : new Date(record.end + 'T00:00:00+08:00');
-        if (d >= rs && d <= re) cls = '#F28B82';
 
         html += '<span class="flo-dot" style="background:' + cls + '"></span>';
     }
@@ -531,16 +521,25 @@ async function floRender() {
     if (floFilter === 'recent3') shown = shown.slice(-3);
     if (floFilter === 'recent6') shown = shown.slice(-6);
 
+    // 合并完整时间线：shown records + current，按 start 排序
+    const timeline = [...shown];
+    if (current && current.start) timeline.push({ ...current, isCurrent: true, id: 'current' });
+    timeline.sort((a,b) => new Date(a.start) - new Date(b.start));
+
+    // 为每个条目算 nextStart（完整时间线中下一条的 start，current 没有则用预测）
+    const nextMap = {};
+    for (let i = 0; i < timeline.length; i++) {
+        if (i + 1 < timeline.length) {
+            nextMap[timeline[i].id || timeline[i].start] = timeline[i+1].start;
+        } else if (timeline[i].isCurrent) {
+            // 最后一条是 current → 用预测日
+            if (data.prediction) nextMap[timeline[i].id || timeline[i].start] = data.prediction.date;
+        }
+    }
+
     // 按年份分组
     const groups = {};
-    // 把当前经期也放进去
-    const allItems = [...shown];
-    if (current && current.start) {
-        allItems.push({ ...current, isCurrent: true, id: 'current' });
-    }
-    allItems.sort((a,b) => new Date(a.start) - new Date(b.start));
-
-    for (const rec of allItems) {
+    for (const rec of timeline) {
         const y = new Date(rec.start + 'T00:00:00+08:00').getFullYear();
         if (!groups[y]) groups[y] = [];
         groups[y].push(rec);
@@ -549,33 +548,53 @@ async function floRender() {
     let html = '';
     for (const [year, records] of Object.entries(groups).reverse()) {
         html += '<div class="flo-year-title">' + year + '</div>';
-        for (let i = 0; i < records.length; i++) {
-            const rec = records[i];
+        for (const rec of records) {
             const isCurrent = rec.isCurrent;
-            // 找下一个开始日（用于算排卵日）
-            let nextStart = null;
-            if (i + 1 < records.length) nextStart = records[i+1].start;
-            else {
-                // 在所有记录里找紧挨着的下一条
-                const idx = allRecords.findIndex(r => r.start === rec.start && !r.isCurrent);
-                if (idx !== -1 && idx + 1 < allRecords.length) nextStart = allRecords[idx+1].start;
+
+            // 在 current 上方插入预测卡片
+            if (isCurrent && data.prediction) {
+                const predDate = new Date(data.prediction.date + 'T00:00:00+08:00');
+                html += '<div class="flo-cycle-card flo-predict-card">';
+                html += '<div class="flo-cycle-header">';
+                html += '<span class="flo-cycle-days" style="color:#a8b8e7;">预测周期：' + floFormatDate(data.prediction.date) + ' 开始</span>';
+                html += '<span class="flo-cycle-arrow" style="color:#a8b8e7;">›</span>';
+                html += '</div>';
+                html += '<div class="flo-date-range" style="color:#a8b8e7;">平均周期 ' + data.prediction.avg + ' 天</div>';
+                // 预测卡片的圆点：从预测日开始，显示约28天（一个标准周期）
+                const predStart = new Date(data.prediction.date + 'T00:00:00+08:00');
+                const predEnd = new Date(predStart); predEnd.setDate(predEnd.getDate() + 28);
+                const fakeRecord = { start: data.prediction.date, end: data.prediction.date };
+                html += '<div class="flo-dot-row">';
+                for (let d = new Date(predStart); d <= predEnd; d.setDate(d.getDate()+1)) {
+                    const diffFromStart = Math.round((d - predStart) / 86400000);
+                    // 前5天是经期（预测），其余用浅色点
+                    const c = diffFromStart < 5 ? '#F28B82' : '#D8DCE6';
+                    html += '<span class="flo-dot" style="background:' + c + ';opacity:0.4;"></span>';
+                }
+                html += '</div>';
+                html += '</div>';
             }
 
+            const nextStart = nextMap[rec.id || rec.start] || null;
             const days = isCurrent
                 ? (Math.round((new Date() - new Date(rec.start + 'T00:00:00+08:00')) / 86400000) + 1)
                 : (rec.duration || (Math.round((new Date(rec.end + 'T00:00:00+08:00') - new Date(rec.start + 'T00:00:00+08:00')) / 86400000) + 1));
 
+            // 当前经期：显示"当前周期：开始于 X月X日"；已结束：显示"X 天"
+            const titleText = isCurrent
+                ? '当前周期：开始于 ' + floFormatDate(rec.start)
+                : days + ' 天';
             const dateRange = isCurrent
-                ? '开始于 ' + floFormatDate(rec.start)
+                ? ''
                 : floFormatDate(rec.start) + ' – ' + floFormatDate(rec.end);
 
             html += '<div class="flo-cycle-card">';
             html += '<div class="flo-cycle-header">';
-            html += '<span class="flo-cycle-days">' + (isCurrent ? '当前月经周期：' + days + ' 天' : days + ' 天') + '</span>';
+            html += '<span class="flo-cycle-days">' + titleText + '</span>';
             html += '<span class="flo-cycle-arrow">›</span>';
             html += '</div>';
-            html += '<div class="flo-date-range">' + dateRange + '</div>';
-            html += floBuildDotRow(rec, nextStart, data.prediction, isCurrent);
+            if (dateRange) html += '<div class="flo-date-range">' + dateRange + '</div>';
+            html += floBuildDotRow(rec, nextStart, isCurrent);
             html += '</div>';
         }
     }
