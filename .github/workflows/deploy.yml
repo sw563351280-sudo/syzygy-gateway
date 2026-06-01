@@ -54,6 +54,11 @@ jobs:
             # 将当前 transcript_buffer 归档到当月文件，防止未满6轮的消息丢失
             node archive_buffer.js || echo "⚠️ buffer 归档失败"
 
+            # 导入生理期历史数据（仅首次，如果 period_data.json 不存在）
+            if [ ! -f data/period_data.json ]; then
+                node import_period.js && echo "📋 生理期数据已导入"
+            fi
+
             systemctl restart syzygy.service
             echo "=== DEPLOY OK ==="
           '
