@@ -434,6 +434,17 @@ function neuUpdateNav() {
     });
 }
 
+// ═══ Together 天数 ═══
+function updateDays(){
+    const start = new Date(START_DATE);
+    const diff  = Math.floor((new Date() - start) / (1000 * 60 * 60 * 24));
+    const dayEl = document.getElementById('dayCount');
+    if(dayEl) dayEl.innerText = diff >= 0 ? diff : '∞';
+    const neuDay = document.getElementById('neuDayCount');
+    if(neuDay) neuDay.innerText = diff >= 0 ? diff : '∞';
+}
+updateDays();
+
 let hbInterval;
 // ==================== 核心对话中枢 ====================
 // ==================== 核心对话中枢 ====================

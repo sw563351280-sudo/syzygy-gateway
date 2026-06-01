@@ -43,10 +43,9 @@
 
         <div class="neu-together-card" id="neuTogetherCard">
             <div class="neu-together-left">
-                <span class="neu-together-num" id="neuDayCount">---</span>
+                <span class="neu-together-num"><span class="neu-together-star">✦</span> <span id="neuDayCount">---</span></span>
                 <span class="neu-together-label">days together</span>
             </div>
-            <div class="neu-together-decor">✦</div>
         </div>
 
         <div class="neu-card neu-todo-card">
@@ -68,35 +67,35 @@
         <div class="neu-grid">
             <div class="neu-card neu-grid-card" onclick="goView('chat')">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-                <span>Chat</span>
+                <span>通讯</span>
             </div>
             <div class="neu-card neu-grid-card" onclick="goView('favorites')">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
-                <span>Favorites</span>
+                <span>收藏夹</span>
             </div>
             <div class="neu-card neu-grid-card" onclick="openStarCrossing()">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 22,9 12,17 2,9"/><polygon points="12,17 22,9 12,22 2,9"/></svg>
-                <span>Memory</span>
+                <span>星渡</span>
             </div>
             <div class="neu-card neu-grid-card" onclick="triggerDreamFromHome()">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
-                <span>Dream</span>
+                <span>梦境</span>
             </div>
             <div class="neu-card neu-grid-card" onclick="goView('data')">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-                <span>Settings</span>
+                <span>中枢</span>
             </div>
             <div class="neu-card neu-grid-card" onclick="window.open('/memory-manager','_blank')">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-                <span>Memory DB</span>
+                <span>记忆库</span>
             </div>
             <div class="neu-card neu-grid-card" onclick="window.open('/long-term','_blank')">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
-                <span>Records</span>
+                <span>记录</span>
             </div>
             <div class="neu-card neu-grid-card" onclick="openMailbox()">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 7L2 7"/></svg>
-                <span>Mailbox</span>
+                <span>信箱</span>
             </div>
         </div>
 
