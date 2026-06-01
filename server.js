@@ -2530,8 +2530,8 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
         const newMessages = [...cleanMessages];
         const mpConfig = getModelPromptConfig(body.model || '');
-        if (mpConfig.prepend) newMessages.unshift({ role: mpConfig.role, content: mpConfig.prepend });
         newMessages.unshift({ role: 'system', content: finalSystemPrompt });
+        if (mpConfig.prepend) newMessages.unshift({ role: mpConfig.role, content: mpConfig.prepend });
         console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${mpConfig.prepend ? mpConfig.prepend.length + '字' : '无'}`);
 
         if (memoryContext.trim().length > 0) {
