@@ -1149,7 +1149,7 @@ try {
             mainTextDiv.innerHTML = renderMarkdown(fullReply);
         }
 
-        // --- 5. 存入云端记忆，然后重建聊天气泡（确保按钮/时间/模型都渲染完整）---
+        // --- 5. 存入云端，追加功能按钮到现有气泡（不重建DOM，避免思考框消失）---
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
         const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() }], activeVersion: 0 };
         session.messages.push(assistantMsg);
@@ -1157,7 +1157,21 @@ try {
         clearTimeout(silenceTimer);
         if (window._coreStreamEnd) window._coreStreamEnd();
         triggerStarEffects(val, fullReply);
-        renderChatMessages();
+
+        // 追加操作按钮到现有气泡（不动思考框）
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'msg-meta';
+        metaDiv.innerText = timeStr + (selectedModel ? ' · ' + selectedModel : '');
+        sDiv.appendChild(metaDiv);
+
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'msg-actions';
+        const msgIndex = session.messages.length - 1;
+        actionsDiv.innerHTML = '<button class="msg-inline-btn" onclick="regenerateAt(' + msgIndex + ')" title="重新生成">↻</button><button class="msg-inline-btn fav-star" id="favBtn_' + msgIndex + '" onclick="openFavDialog(' + msgIndex + ')" title="收藏">★</button>';
+        sDiv.appendChild(actionsDiv);
+
+        actionBtn.style.visibility = 'visible';
+        actionBtn.onclick = (e) => showContextMenu(e.clientX, e.clientY, { content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() });
 
     } catch (err) {
         clearTimeout(silenceTimer);
