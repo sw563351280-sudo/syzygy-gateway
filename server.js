@@ -3556,10 +3556,9 @@ app.post('/api/fetch-models', async (req, res) => {
         let targetUrl;
         const viaMatch = (baseUrl || '').match(/\/via\/(\w+)/);
         if (viaMatch) {
-            // 直接查上游 URL，不走内部代理
             const upstream = API_ROUTES[viaMatch[1]] || API_ROUTES['msui'];
             targetUrl = upstream.replace(/chat\/completions$/, 'models');
-        } else if (baseUrl) {
+        } else if (baseUrl && !baseUrl.includes('syrenth.uk')) {
             targetUrl = `${baseUrl.replace(/\/+$/, '')}/models`;
         } else {
             targetUrl = 'https://www.msuicode.com/v1/models';
