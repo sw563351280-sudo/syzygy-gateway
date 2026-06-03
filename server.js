@@ -2591,7 +2591,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
             if (hasGitHub) { forceToolChoice = { type: "function", function: { name: "fetch_github" } }; console.log('🎯 [工具强制] GitHub URL → 强制 fetch_github'); }
             else if (hasUrl) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
         }
-        const filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
+        let filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
         console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
         console.log(`🔧 [MCP] TOOLS_ENABLED.mcp=${TOOLS_ENABLED.mcp}, mcp工具数=${mcpTools.length}, 筛选后MCP=${filteredTools.filter(t=>t._mcp).map(t=>t.function?.name||t.name).join(',') || '(无)'}`);
         _mcpDiag.last = { at: new Date().toISOString(), mcpEnabled: TOOLS_ENABLED.mcp, totalTools: enabledTools.length, filteredTools: filteredTools.length, mcpFilteredIn: filteredTools.filter(t=>t._mcp).map(t=>t.function?.name||t.name), userText: (currentUserMsgText||'').substring(0, 100) };
