@@ -2594,6 +2594,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         }
         const filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
         console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
+        console.log(`🔧 [MCP] TOOLS_ENABLED.mcp=${TOOLS_ENABLED.mcp}, mcp工具数=${mcpTools.length}, 筛选后MCP=${filteredTools.filter(t=>t._mcp).map(t=>t.function?.name||t.name).join(',') || '(无)'}`);
         // 只有轻量工具 → 不启动工具循环，直接走流式
         // 只有轻量工具且无强制触发 → 日常聊天无需工具，直接流式
         const lightOnly = filteredTools.length > 0 && filteredTools.every(t => LIGHT_TOOLS.has(t.function?.name));
