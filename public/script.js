@@ -1085,30 +1085,35 @@ try {
                                 clearTimeout(toolHintTimer2);
                                 sDiv.classList.remove('msg-loading');
                             }
-                            const chunk = delta.content;
-
-                            // 暴力判断深思标签，做打字机切换
-                            if (chunk.includes('<think>')) {
-                                inThinking = true;
-                                thinkBox.style.display = 'block';
-                                const afterTag = chunk.split('<think>').slice(1).join('<think>');
-                                if (afterTag) { thinkContent += afterTag; thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>'); }
-                                continue;
+                            // 状态机解析 <think> 标签，每次扫描整段 chunk
+                            let chunk = delta.content;
+                            let pos = 0;
+                            while (pos < chunk.length) {
+                                if (!inThinking) {
+                                    const tagStart = chunk.indexOf('<think>', pos);
+                                    if (tagStart !== -1) {
+                                        fullReply += chunk.substring(pos, tagStart);
+                                        pos = tagStart + 7; // 跳过 '<think>'
+                                        inThinking = true;
+                                        thinkBox.style.display = 'block';
+                                    } else {
+                                        fullReply += chunk.substring(pos);
+                                        break;
+                                    }
+                                } else {
+                                    const tagEnd = chunk.indexOf('</think>', pos);
+                                    if (tagEnd !== -1) {
+                                        thinkContent += chunk.substring(pos, tagEnd);
+                                        pos = tagEnd + 8; // 跳过 '</think>'
+                                        inThinking = false;
+                                    } else {
+                                        thinkContent += chunk.substring(pos);
+                                        break;
+                                    }
+                                }
                             }
-                            if (chunk.includes('</think>')) {
-                                inThinking = false;
-                                const beforeTag = chunk.split('</think>')[0];
-                                if (beforeTag) { thinkContent += beforeTag; thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>'); }
-                                continue;
-                            }
-
-                            if (inThinking) {
-                                thinkContent += chunk;
-                                thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
-                            } else {
-                                fullReply += chunk;
-                                mainTextDiv.innerHTML = fullReply.replace(/\n/g, '<br>') + '<span class="typing-cursor"></span>';
-                            }
+                            if (thinkContent) thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
+                            if (fullReply) mainTextDiv.innerHTML = fullReply.replace(/\n/g, '<br>') + '<span class="typing-cursor"></span>';
                             win.scrollTop = win.scrollHeight;
                         }
                     } catch (e) {
