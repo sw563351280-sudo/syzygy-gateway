@@ -3553,11 +3553,12 @@ app.post('/api/fetch-models', async (req, res) => {
     const { baseUrl, apiKey } = req.body;
     if (!apiKey) return res.status(400).json({ error: "API Key 不能为空" });
     try {
-        // 如果 baseUrl 是自己的 /via/xxx 路由 → 走本地代理
         let targetUrl;
         const viaMatch = (baseUrl || '').match(/\/via\/(\w+)/);
         if (viaMatch) {
-            targetUrl = `/via/${viaMatch[1]}/v1/models`;
+            // 直接查上游 URL，不走内部代理
+            const upstream = API_ROUTES[viaMatch[1]] || API_ROUTES['msui'];
+            targetUrl = upstream.replace(/chat\/completions$/, 'models');
         } else if (baseUrl) {
             targetUrl = `${baseUrl.replace(/\/+$/, '')}/models`;
         } else {
