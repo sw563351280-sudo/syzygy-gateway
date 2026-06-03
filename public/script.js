@@ -1091,10 +1091,14 @@ try {
                             if (chunk.includes('<think>')) {
                                 inThinking = true;
                                 thinkBox.style.display = 'block';
+                                const afterTag = chunk.split('<think>').slice(1).join('<think>');
+                                if (afterTag) { thinkContent += afterTag; thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>'); }
                                 continue;
                             }
                             if (chunk.includes('</think>')) {
                                 inThinking = false;
+                                const beforeTag = chunk.split('</think>')[0];
+                                if (beforeTag) { thinkContent += beforeTag; thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>'); }
                                 continue;
                             }
 
@@ -1145,17 +1149,15 @@ try {
             mainTextDiv.innerHTML = renderMarkdown(fullReply);
         }
 
-        // --- 5. 存入云端记忆和按钮绑定 ---
+        // --- 5. 存入云端记忆，然后重建聊天气泡（确保按钮/时间/模型都渲染完整）---
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-       const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() }], activeVersion: 0 };
+        const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() }], activeVersion: 0 };
         session.messages.push(assistantMsg);
         saveToCloud();
         clearTimeout(silenceTimer);
         if (window._coreStreamEnd) window._coreStreamEnd();
         triggerStarEffects(val, fullReply);
-
-        actionBtn.style.visibility = 'visible'; // 亮出按键！
-        actionBtn.onclick = (e) => showContextMenu(e.clientX, e.clientY, assistantMsg);
+        renderChatMessages();
 
     } catch (err) {
         clearTimeout(silenceTimer);
@@ -1442,11 +1444,12 @@ function triggerRegenerate(){
         saveToCloud(); renderChatMessages();
 
         const input = document.getElementById('chatInput');
-        if(input) input.value = userMsg.content;
-        
+        const uv = getActiveVersion(userMsg);
+        if(input) input.value = typeof uv.content === 'string' ? uv.content : '';
+
         // 💥 重新生成时，把历史消息里的图片重新塞回新相册
-        if(userMsg.image){
-            currentImgBase64List = [userMsg.image];
+        if(uv.image){
+            currentImgBase64List = [uv.image];
             updateImagePreview();
         }
         toast('时光倒流...'); sendChat();
