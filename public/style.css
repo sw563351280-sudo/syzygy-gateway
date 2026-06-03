@@ -1802,7 +1802,14 @@ body.neu-mode .home-footer { display: none; }
 .neu-together-left { display: flex; flex-direction: column; position: relative; z-index: 1; }
 .neu-together-num { font-size: 48px; color: #2D3748; line-height: 1; font-family: 'Great Vibes', cursive; letter-spacing: 1px; }
 .neu-together-deco { position: absolute; right: -20px; top: 50%; transform: translateY(-50%); width: 70%; pointer-events: none; }
-.neu-together-label { font-family: 'Great Vibes', cursive; font-size: 1.3rem; color: #718096; margin-top: 8px; letter-spacing: 4px; }
+.neu-together-label { font-family: 'Great Vibes', cursive; font-size: 1.3rem; color: #718096; margin-top: 8px; letter-spacing: 4px; position: relative; display: inline-block; }
+.neu-together-label::after {
+    content: '';
+    position: absolute; bottom: -2px; left: 0; width: 120%;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(200,169,110,0.3) 0%, rgba(200,169,110,0.15) 40%, rgba(200,169,110,0) 100%);
+    pointer-events: none;
+}
 
 /* To Do 卡片 */
 .neu-todo-card { padding: 16px 20px; margin-bottom: 16px; }
