@@ -1,16 +1,19 @@
 /* 1. 引入本地的喜脉喜欢体 */
 @font-face {
     font-family: 'ximai';
-    src: url('./ximai.ttf') format('truetype'); 
+    src: url('./ximai.ttf') format('truetype');
     font-weight: normal;
     font-style: normal;
     font-display: swap;
 }
-
-/* 2. 引入谷歌的英文手写体 Caveat */
+/* 2. 引入本地的 Great Vibes — 天数计数器 */
+@font-face {
+    font-family: 'Great Vibes';
+    src: url('./fonts/GreatVibes-Regular.ttf') format('truetype');
+    font-display: swap;
+}
+/* 3. 引入谷歌的英文手写体 Caveat */
 @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@500&display=swap');
-/* 3. Cormorant Garamond — 天数计数器专用 */
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@700&display=swap');
 
 /* ============================================
    溯星手账 · 星墨美学系统
@@ -1205,7 +1208,7 @@ body.light-mode .msg-inline-btn:hover { color: #fff; border-color: #5C4033; back
 .home-title{font-size:1.3rem;font-weight:300;color:rgba(255,255,255,0.9);letter-spacing:3px}
 .home-sub{font-size:.75rem;color:rgba(201,169,97,0.5);margin-top:6px;letter-spacing:1px}
 .home-days{margin-top:20px;font-size:.85rem;color:rgba(255,255,255,0.6)}
-.home-days span{color:rgba(201,169,97,0.9);font-weight:600;font-size:1.1rem;font-family:'Cormorant Garamond',serif;letter-spacing:-1px}
+.home-days span{color:rgba(201,169,97,0.9);font-size:1.3rem;font-family:'Great Vibes',cursive;letter-spacing:1px}
 .home-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:30px 20px 20px;max-width:400px;margin:0 auto}
 .home-card{background:rgba(42,42,42,0.5);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(201,169,97,0.12);border-radius:16px;padding:24px 16px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;cursor:pointer;transition:all .2s ease;position:relative;overflow:hidden;min-height:120px}
 .home-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--card-accent,rgba(201,169,97,0.5));opacity:.8}
@@ -1797,7 +1800,7 @@ body.neu-mode .home-footer { display: none; }
     transform: translateY(-1px);
 }
 .neu-together-left { display: flex; flex-direction: column; }
-.neu-together-num { font-size: 48px; font-weight: 700; color: #2D3748; line-height: 1; font-family: 'Cormorant Garamond', serif; letter-spacing: -2px; }
+.neu-together-num { font-size: 48px; color: #2D3748; line-height: 1; font-family: 'Great Vibes', cursive; letter-spacing: 1px; }
 .neu-together-num .neu-together-star { font-size: 16px; color: #D4A856; margin-right: 6px; vertical-align: middle; display: inline-block; }
 .neu-together-label { font-size: 14px; color: #718096; margin-top: 4px; }
 .neu-together-decor { font-size: 20px; color: #D4A856; }
