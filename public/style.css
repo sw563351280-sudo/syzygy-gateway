@@ -2052,3 +2052,18 @@ body.neu-mode #sec-flo .view-title { color: #2e3b69; font-size: 16px; }
     .neu-together-num { font-size: 40px; }
 }
 
+/* ── 供应商编辑按钮 ── */
+.sup-edit-btn {
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15);
+    color: #aaa; padding: 4px 10px; border-radius: 6px; cursor: pointer;
+    font-size: 0.75em; margin-right: 4px; font-family: inherit;
+}
+.sup-edit-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.sup-del-btn {
+    background: transparent; border: 1px solid rgba(229,57,53,0.3);
+    color: #e53935; padding: 4px 10px; border-radius: 6px; cursor: pointer;
+    font-size: 0.75em; font-family: inherit;
+}
+.sup-del-btn:hover { background: rgba(229,57,53,0.1); }
+
+

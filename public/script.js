@@ -1174,9 +1174,38 @@ function renderSuppliers(){
                 <div class="sup-name ${i === activeSupIndex ? 'active-name' : ''}">${s.name}</div>
                 <div class="sup-url">${s.url}</div>
             </div>
+            <button class="sup-edit-btn" onclick="editSupplier(${i})">编辑</button>
             <button class="sup-del-btn" onclick="deleteSupplier(${i})">删除</button>
         </div>
+        <div class="supplier-edit-row" id="supEdit-${i}" style="display:none;padding:8px 12px;border-radius:8px;margin-bottom:6px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);">
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <input id="supEditName-${i}" placeholder="名称" value="${s.name}" style="padding:8px;border-radius:6px;border:1px solid var(--glass-border);background:rgba(0,0,0,0.2);color:white;">
+                <input id="supEditUrl-${i}" placeholder="API Base URL" value="${s.url}" style="padding:8px;border-radius:6px;border:1px solid var(--glass-border);background:rgba(0,0,0,0.2);color:white;">
+                <input id="supEditKey-${i}" placeholder="API Key" value="${s.key}" style="padding:8px;border-radius:6px;border:1px solid var(--glass-border);background:rgba(0,0,0,0.2);color:white;">
+                <div style="display:flex;gap:8px;">
+                    <button onclick="saveEditSupplier(${i})" style="padding:6px 14px;border-radius:6px;background:#4CAF50;color:white;border:none;cursor:pointer;">保存</button>
+                    <button onclick="cancelEditSupplier(${i})" style="padding:6px 14px;border-radius:6px;background:rgba(255,255,255,0.1);color:white;border:1px solid var(--glass-border);cursor:pointer;">取消</button>
+                </div>
+            </div>
+        </div>
     `).join('');
+}
+
+function editSupplier(index){
+    document.getElementById('supEdit-' + index).style.display = 'block';
+}
+
+function cancelEditSupplier(index){
+    document.getElementById('supEdit-' + index).style.display = 'none';
+}
+
+function saveEditSupplier(index){
+    const name = document.getElementById('supEditName-' + index).value.trim();
+    const url  = document.getElementById('supEditUrl-' + index).value.trim();
+    const key  = document.getElementById('supEditKey-' + index).value.trim();
+    if(!name || !url) return toast('名称和URL不能为空');
+    suppliers[index] = { name, url, key };
+    saveToCloud(); renderSuppliers(); toast('已保存'); fetchModels();
 }
 
 function addSupplier(){
