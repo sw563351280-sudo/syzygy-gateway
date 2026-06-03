@@ -1788,22 +1788,21 @@ body.neu-mode .home-footer { display: none; }
 
 /* Together 天数大卡 */
 .neu-together-card {
+    position: relative; overflow: hidden;
     display: flex; justify-content: space-between; align-items: center;
     background: #E8EFF7;
     box-shadow: 8px 8px 16px rgba(163, 177, 198, 0.6), -8px -8px 16px rgba(255, 255, 255, 0.8);
     border-radius: 20px; padding: 24px; margin-bottom: 16px;
     transition: all 0.2s ease;
-    position: relative;
 }
 .neu-together-card:hover {
     box-shadow: 6px 6px 12px rgba(163, 177, 198, 0.5), -6px -6px 12px rgba(255, 255, 255, 0.7);
     transform: translateY(-1px);
 }
-.neu-together-left { display: flex; flex-direction: column; }
+.neu-together-left { display: flex; flex-direction: column; position: relative; z-index: 1; }
 .neu-together-num { font-size: 48px; color: #2D3748; line-height: 1; font-family: 'Great Vibes', cursive; letter-spacing: 1px; }
-.neu-together-deco { position: absolute; right: 0; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.neu-together-deco { position: absolute; right: -20px; top: 50%; transform: translateY(-50%); width: 70%; pointer-events: none; }
 .neu-together-label { font-family: 'Great Vibes', cursive; font-size: 1.3rem; color: #718096; margin-top: 8px; letter-spacing: 4px; }
-.neu-together-decor { font-size: 20px; color: #D4A856; }
 
 /* To Do 卡片 */
 .neu-todo-card { padding: 16px 20px; margin-bottom: 16px; }
