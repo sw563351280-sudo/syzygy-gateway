@@ -3551,13 +3551,24 @@ app.get(['/v1/models', '/via/:platform/v1/models'], async (req, res) => {
 // ==========================================
 app.post('/api/fetch-models', async (req, res) => {
     const { baseUrl, apiKey } = req.body;
-    if (!baseUrl || !apiKey) return res.status(400).json({ error: "配置不全" });
+    if (!apiKey) return res.status(400).json({ error: "API Key 不能为空" });
     try {
-        const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`, {
+        // 如果 baseUrl 是自己的 /via/xxx 路由 → 走本地代理
+        let targetUrl;
+        const viaMatch = (baseUrl || '').match(/\/via\/(\w+)/);
+        if (viaMatch) {
+            targetUrl = `/via/${viaMatch[1]}/v1/models`;
+        } else if (baseUrl) {
+            targetUrl = `${baseUrl.replace(/\/+$/, '')}/models`;
+        } else {
+            targetUrl = 'https://www.msuicode.com/v1/models';
+        }
+        const response = await fetch(targetUrl, {
             headers: { 'Authorization': `Bearer ${apiKey}` }
         });
-        res.json(await response.json());
-    } catch (error) { res.status(500).json({ error: "无法连接供应商" }); }
+        const data = await response.json();
+        res.json(data);
+    } catch (error) { res.status(500).json({ error: "无法连接供应商: " + error.message }); }
 });
 
 // ==========================================
