@@ -1012,6 +1012,7 @@ try {
 
         let fullReply = "";
         let thinkContent = "";
+        let thinkBox = null, thinkTextDiv = null;
 
         // ==========================================
         resetSilenceTimer();
@@ -1025,11 +1026,11 @@ try {
 
             // 创建两个用于装文字的框框
             sDiv.innerHTML = '';
-            const thinkBox = document.createElement('div');
+            thinkBox = document.createElement('div');
             thinkBox.className = 'think-box';
             thinkBox.style.display = 'none'; // 默认隐藏，如果有内容再显示
             thinkBox.innerHTML = `<div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none"></div>`;
-            const thinkTextDiv = thinkBox.querySelector('.think-content');
+            thinkTextDiv = thinkBox.querySelector('.think-content');
             sDiv.appendChild(thinkBox);
             
             const mainTextDiv = document.createElement('div');
@@ -1181,7 +1182,7 @@ try {
 
         // --- 5. 存入云端，思考链从 DOM 取（避免流解析丢数据）---
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-        const domThinking = thinkTextDiv && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || '');
+        const domThinking = thinkTextDiv && thinkBox && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || '');
         const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() }], activeVersion: 0 };
         session.messages.push(assistantMsg);
         saveToCloud();
