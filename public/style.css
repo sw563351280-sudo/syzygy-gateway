@@ -1207,7 +1207,7 @@ body.light-mode .msg-inline-btn:hover { color: #fff; border-color: #5C4033; back
 .home-icon{font-size:1.5rem;letter-spacing:8px;margin-bottom:12px}
 .home-title{font-size:1.3rem;font-weight:300;color:rgba(255,255,255,0.9);letter-spacing:3px}
 .home-sub{font-size:.75rem;color:rgba(201,169,97,0.5);margin-top:6px;letter-spacing:1px}
-.home-days{margin-top:20px;font-size:.85rem;color:rgba(255,255,255,0.6)}
+.home-days{font-family:'Great Vibes',cursive;font-size:.95rem;margin-top:20px;color:rgba(255,255,255,0.6)}
 .home-days span{color:rgba(201,169,97,0.9);font-size:1.3rem;font-family:'Great Vibes',cursive;letter-spacing:1px}
 .home-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:30px 20px 20px;max-width:400px;margin:0 auto}
 .home-card{background:rgba(42,42,42,0.5);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(201,169,97,0.12);border-radius:16px;padding:24px 16px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;cursor:pointer;transition:all .2s ease;position:relative;overflow:hidden;min-height:120px}
@@ -1802,7 +1802,7 @@ body.neu-mode .home-footer { display: none; }
 .neu-together-left { display: flex; flex-direction: column; }
 .neu-together-num { font-size: 48px; color: #2D3748; line-height: 1; font-family: 'Great Vibes', cursive; letter-spacing: 1px; }
 .neu-together-num .neu-together-star { font-size: 16px; color: #D4A856; margin-right: 6px; vertical-align: middle; display: inline-block; }
-.neu-together-label { font-size: 14px; color: #718096; margin-top: 4px; }
+.neu-together-label { font-family: 'Great Vibes', cursive; font-size: 18px; color: #718096; margin-top: 4px; letter-spacing: 0.5px; }
 .neu-together-decor { font-size: 20px; color: #D4A856; }
 
 /* To Do 卡片 */
