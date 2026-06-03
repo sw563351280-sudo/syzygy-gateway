@@ -2001,7 +2001,10 @@ async function confirmFavorite() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                messages: [{ role: 'user', content: userContent || '（发送了图片）' }, { role: 'assistant', content: aiV.content || '' }],
+                messages: [
+                    { role: 'user', content: userContent || '（发送了图片）' },
+                    { role: 'assistant', content: aiV.content || '', thinking: aiV.thinking || '' }
+                ],
                 note, tags
             })
         });
@@ -2075,12 +2078,14 @@ function viewFavDetail(fi) {
     const dt = new Date(f.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
     const userC = f.messages[0]?.content || '';
     const aiC = f.messages[1]?.content || '';
+    const aiThinking = f.messages[1]?.thinking || '';
     const tagsHtml = (f.tags || []).map(t => '<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(201,169,97,0.12);color:var(--gold);font-size:0.8em;margin-right:4px;">' + t.replace(/</g,'&lt;') + '</span>').join('');
     const detail = document.getElementById('favDetail');
     const body = document.getElementById('favDetailBody');
     body.innerHTML = '<div style="margin-bottom:12px;color:var(--dim);font-size:0.85em;">🕒 ' + dt + (tagsHtml ? ' &nbsp;' + tagsHtml : '') + '</div>'
         + '<div style="margin-bottom:10px;color:var(--dim);font-size:0.85em;">👤 江鱼：</div>'
         + '<div style="margin-bottom:16px;padding:10px 14px;background:rgba(79,195,247,0.06);border-left:2px solid #4fc3f7;border-radius:4px;white-space:pre-wrap;line-height:1.7;">' + escapeHtml(userC) + '</div>'
+        + (aiThinking ? '<div class="think-box" style="margin-bottom:12px;"><div class="think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">' + aiThinking.replace(/\n/g,'<br>') + '</div></div>' : '')
         + '<div style="margin-bottom:10px;color:var(--dim);font-size:0.85em;">🤖 沈望：</div>'
         + '<div style="margin-bottom:16px;padding:10px 14px;background:rgba(201,169,97,0.06);border-left:2px solid var(--gold);border-radius:4px;white-space:pre-wrap;line-height:1.7;">' + escapeHtml(aiC) + '</div>'
         + (f.note ? '<div style="font-size:0.85em;color:var(--gold-dim);padding:8px 12px;border-left:2px solid rgba(201,169,97,0.2);">📝 ' + escapeHtml(f.note) + '</div>' : '');
