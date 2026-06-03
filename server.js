@@ -2617,7 +2617,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
             toolBody.stream = false;
             toolBody.tools = filteredTools.map(t => { const { _mcp, ...clean } = t; return clean; });
             const isGeminiModel = (body.model || '').toLowerCase().includes('gemini');
-            if (forceToolChoice && maxToolRounds === 7) {
+            if (forceToolChoice && toolRound === 1) {
                 toolBody.tool_choice = isGeminiModel ? "required" : forceToolChoice;
                 console.log(`🎯 [工具强制] 第一轮 → ${isGeminiModel ? 'required(强制调工具)' : forceToolChoice.function.name}`);
             } else if (isGeminiModel) { delete toolBody.tool_choice; }
