@@ -1122,7 +1122,32 @@ try {
                 }
             }
             
-            // 接收完毕，渲染 Markdown
+            // 接收完毕 — 先清空 SSE buffer 残留，再渲染 Markdown
+            if (buffer.trim()) {
+                const lastLine = buffer.replace(/^data: /, '').trim();
+                if (lastLine && lastLine !== '[DONE]' && !lastLine.startsWith('[ERROR]')) {
+                    try {
+                        const parsed = JSON.parse(lastLine);
+                        if (parsed.choices?.[0]?.delta?.content) {
+                            const rest = parsed.choices[0].delta.content;
+                            // 用状态机处理残留
+                            let pos = 0;
+                            while (pos < rest.length) {
+                                if (!inThinking) {
+                                    const ts = rest.indexOf('<think>', pos);
+                                    if (ts !== -1) { fullReply += rest.substring(pos, ts); pos = ts + 7; inThinking = true; thinkBox.style.display = 'block'; }
+                                    else { fullReply += rest.substring(pos); break; }
+                                } else {
+                                    const te = rest.indexOf('</think>', pos);
+                                    if (te !== -1) { thinkContent += rest.substring(pos, te); pos = te + 8; inThinking = false; }
+                                    else { thinkContent += rest.substring(pos); break; }
+                                }
+                            }
+                            if (thinkContent) thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
+                        }
+                    } catch(e) {}
+                }
+            }
             mainTextDiv.innerHTML = renderMarkdown(fullReply);
 
         } else {
@@ -1154,9 +1179,10 @@ try {
             mainTextDiv.innerHTML = renderMarkdown(fullReply);
         }
 
-        // --- 5. 存入云端，追加功能按钮到现有气泡（不重建DOM，避免思考框消失）---
+        // --- 5. 存入云端，思考链从 DOM 取（避免流解析丢数据）---
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-        const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() }], activeVersion: 0 };
+        const domThinking = thinkTextDiv && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || '');
+        const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() }], activeVersion: 0 };
         session.messages.push(assistantMsg);
         saveToCloud();
         clearTimeout(silenceTimer);
