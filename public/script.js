@@ -171,9 +171,9 @@ async function syncFromCloud() {
 }
 
 let _saveTimer = null;
-function saveToCloud() {
+function saveToCloud(immediate) {
     clearTimeout(_saveTimer);
-    _saveTimer = setTimeout(async () => {
+    const doSave = async () => {
         try {
             const sessionsToSave = JSON.parse(JSON.stringify(chatSessions));
             for (const s of sessionsToSave) {
@@ -193,7 +193,8 @@ function saveToCloud() {
                 body: JSON.stringify({ suppliers, chatSessions: sessionsToSave, activeSupIndex, activeChatId })
             });
         } catch(e) { console.log(e); }
-    }, 500);
+    };
+    if (immediate) doSave(); else _saveTimer = setTimeout(doSave, 500);
 }
 
 // 💥 焕然一新的模型图标：发光彩色小星星 (Gemini) + 官方原版小菊花 (Claude)
@@ -1269,7 +1270,7 @@ function addSupplier(){
 }
 
 function setActiveSupplier(index){
-    activeSupIndex = index; saveToCloud(); renderSuppliers(); toast('已切换'); fetchModels();
+    activeSupIndex = index; saveToCloud(true); renderSuppliers(); toast('已切换'); fetchModels();
 }
 
 function deleteSupplier(index){
