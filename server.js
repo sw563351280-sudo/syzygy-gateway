@@ -1685,38 +1685,37 @@ const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_git
 const CODE_TOOLS = new Set(['read_file', 'write_file', 'edit_file', 'search_files', 'list_directory']);
 
 function filterRelevantTools(allTools, userText, forceToolChoice) {
-    const allBuiltins = new Set([...LIGHT_TOOLS, ...CODE_TOOLS]);
-    // MCP工具 = 不在 allBuiltins 里的
     const alwaysTools = allTools.filter(t => LIGHT_TOOLS.has(t.function?.name));
     const optionalTools = allTools.filter(t => !LIGHT_TOOLS.has(t.function?.name));
     const textLower = (userText || '').toLowerCase();
-    const hasCodeKW = /文件|代码|server|prompt|json|改|修|写|替换|编辑|读一下|看一下|查一下/.test(textLower);
-    const looksCommand = /帮我|请你|能不能|搜一下|用.+工具|调用/.test(textLower);
+    const hasCodeKW = /文件|代码|server|prompt|json|改|修|写|替换|编辑|读一下|看一下|查一下|帮我|请你/.test(textLower);
+
+    // MCP 开启时，始终携带只读型文件工具（不触发工具循环，但模型可按需调用）
+    const MCP_READ_ONLY = new Set(['read_file', 'read_text_file', 'list_directory', 'search_files', 'get_file_info', 'list_allowed_directories']);
+    const mcpAlways = TOOLS_ENABLED.mcp ? optionalTools.filter(t => MCP_READ_ONLY.has(t.function?.name)) : [];
 
     if (forceToolChoice) {
-        const result = [...alwaysTools, ...allTools.filter(t => CODE_TOOLS.has(t.function?.name))];
+        const result = [...alwaysTools, ...mcpAlways, ...allTools.filter(t => CODE_TOOLS.has(t.function?.name))];
         console.log(`🔧 [工具筛选] 强制模式→${result.length}个工具`);
         return result;
     }
 
-    // 收集可选工具（代码 + MCP），按关键词评分
-    const scored = optionalTools.map(t => {
+    // 剩余可选工具按关键词评分
+    const remaining = optionalTools.filter(t => !MCP_READ_ONLY.has(t.function?.name));
+    const scored = remaining.map(t => {
         const name = (t.function?.name || '').toLowerCase();
         const desc = (t.function?.description || '').toLowerCase();
         let score = 0;
-        if (CODE_TOOLS.has(t.function?.name)) score = hasCodeKW ? 5 : (looksCommand ? 3 : 0);
+        if (CODE_TOOLS.has(t.function?.name)) score = hasCodeKW ? 5 : 0;
         const words = textLower.split(/[\s,，。！？、]+/).filter(w => w.length >= 2);
         for (const w of words) { if (name.includes(w)) score += 3; if (desc.includes(w)) score += 1; }
         return { tool: t, score };
     });
     const relevant = scored.filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, 8).map(s => s.tool);
 
-    if (relevant.length === 0) {
-        console.log(`🔧 [工具筛选] 日常对话→${alwaysTools.length}个轻量工具`);
-        return alwaysTools;
-    }
-    console.log(`🔧 [工具筛选] ${alwaysTools.length}轻量 + ${relevant.length}可选: ${relevant.map(t => t.function?.name).join(',')}`);
-    return [...alwaysTools, ...relevant];
+    const result = [...alwaysTools, ...mcpAlways, ...relevant];
+    console.log(`🔧 [工具筛选] ${alwaysTools.length}轻量 + ${mcpAlways.length}MCP只读 + ${relevant.length}可选: ${relevant.map(t => t.function?.name).join(',') || '(无)'}`);
+    return result;
 }
 
 // MCP Server 配置：{ name, command, args[], env? }
@@ -2596,13 +2595,13 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
         console.log(`🔧 [MCP] TOOLS_ENABLED.mcp=${TOOLS_ENABLED.mcp}, mcp工具数=${mcpTools.length}, 筛选后MCP=${filteredTools.filter(t=>t._mcp).map(t=>t.function?.name||t.name).join(',') || '(无)'}`);
         _mcpDiag.last = { at: new Date().toISOString(), mcpEnabled: TOOLS_ENABLED.mcp, totalTools: enabledTools.length, filteredTools: filteredTools.length, mcpFilteredIn: filteredTools.filter(t=>t._mcp).map(t=>t.function?.name||t.name), userText: (currentUserMsgText||'').substring(0, 100) };
-        // 只有轻量工具 → 不启动工具循环，直接走流式
-        // 只有轻量工具且无强制触发 → 日常聊天无需工具，直接流式
-        const lightOnly = filteredTools.length > 0 && filteredTools.every(t => LIGHT_TOOLS.has(t.function?.name));
-        const hasPhoneKeywords = /查.*手机|手机.*记录|看.*app|推送|bark|发.*通知|app.*使用/.test((currentUserMsgText || '').toLowerCase());
-        if (lightOnly && !forceToolChoice && !hasPhoneKeywords) {
-            console.log(`🔧 [工具] 日常聊天，跳过工具走纯流式`);
-            filteredTools.length = 0;
+        // 只有轻量+MCP只读工具 → 日常聊天保留工具但跳过工具循环
+        const LIGHT_OR_MCP_READ = new Set([...LIGHT_TOOLS, ...['read_file','read_text_file','list_directory','search_files','get_file_info','list_allowed_directories']]);
+        const needsToolLoop = filteredTools.some(t => !LIGHT_OR_MCP_READ.has(t.function?.name));
+        if (!needsToolLoop && !forceToolChoice) {
+            console.log(`🔧 [工具] 日常聊天，保留MCP只读工具供按需调用`);
+            // 只保留 MCP 只读工具，去掉轻量工具（不需要工具循环）
+            filteredTools = filteredTools.filter(t => t._mcp);
         }
         let maxToolRounds = 5, toolRound = 0, lastToolSig = '', fileModified = false;
         const isStreamMode = body.stream;
