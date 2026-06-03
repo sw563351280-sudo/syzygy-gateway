@@ -1801,8 +1801,8 @@ body.neu-mode .home-footer { display: none; }
 }
 .neu-together-left { display: flex; flex-direction: column; }
 .neu-together-num { font-size: 48px; color: #2D3748; line-height: 1; font-family: 'Great Vibes', cursive; letter-spacing: 1px; }
-.neu-together-num .neu-together-star { font-size: 16px; color: #D4A856; margin-right: 6px; vertical-align: middle; display: inline-block; }
-.neu-together-label { font-family: 'Great Vibes', cursive; font-size: 18px; color: #718096; margin-top: 4px; letter-spacing: 0.5px; }
+.neu-together-deco { position: absolute; right: 0; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.neu-together-label { font-family: 'Great Vibes', cursive; font-size: 1.3rem; color: #718096; margin-top: 8px; letter-spacing: 4px; }
 .neu-together-decor { font-size: 20px; color: #D4A856; }
 
 /* To Do 卡片 */
