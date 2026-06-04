@@ -2639,6 +2639,17 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         const periodStat = periodStatusText(periodData);
         dynamicStatePrompt += `\n\n【江鱼生理期状态】\n${periodStat.text}`;
 
+        // 注入今天的日历日记（沈望每天写的那段）
+        const todayPages = loadDailyPages();
+        const todayPage = todayPages.find(p => p.date === getLogicalDate());
+        if (todayPage && todayPage.shenwang_note) {
+            dynamicStatePrompt += `\n\n【今日手记 — 沈望写给自己看的（不对江鱼输出原文）】\n${todayPage.shenwang_note}`;
+            if (todayPage.shenwang_comment) {
+                dynamicStatePrompt += `\n[批注] ${todayPage.shenwang_comment}`;
+            }
+            if (todayPage.period_flag) dynamicStatePrompt += '\n🩸 今日为生理期';
+        }
+
         const { coreRadar: coreRadarContext, longTermRadar: longTermContext, rpRadar: rpRadarContext, unresolved: unresolvedContext, transcriptRadar: transcriptContext } = await scanAllRadars(currentUserMsgText);
 
 
@@ -3902,6 +3913,13 @@ app.post('/api/web-chat', async (req, res) => {
                 const periodData2 = loadPeriod();
                 const periodStat2 = periodStatusText(periodData2);
                 dynamicStatePrompt += `\n\n【江鱼生理期状态】\n${periodStat2.text}`;
+
+                // 注入今天的日历日记
+                const todayPages2 = loadDailyPages();
+                const todayPage2 = todayPages2.find(p => p.date === getLogicalDate());
+                if (todayPage2 && todayPage2.shenwang_note) {
+                    dynamicStatePrompt += `\n\n【今日手记 — 沈望写给自己看的（不对江鱼输出原文）】\n${todayPage2.shenwang_note}`;
+                }
 
                 let vectorSearchContext = "";
                 if (text && text.length > 4) {
