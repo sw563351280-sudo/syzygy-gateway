@@ -1240,7 +1240,7 @@ body.light-mode .view-back{background:rgba(0,0,0,0.05);color:rgba(201,169,97,0.9
 body.light-mode .view-title{color:rgba(0,0,0,0.8)}
 
 /* ═══ 聊天区核心布局（全尺寸通用） ═══ */
-#sec-chat .view-topbar { flex-shrink:0;padding-top:max(0px,env(safe-area-inset-top,0px))!important }
+#sec-chat .view-topbar { flex-shrink:0;padding-top:0!important }
 .chat-layout { flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden }
 .chat-main { flex:1;display:flex;flex-direction:column;position:relative;overflow:hidden;min-height:0 }
 .chat-main-header { flex-shrink:0;display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(201,169,97,0.08);background:rgba(10,14,26,0.5) }
