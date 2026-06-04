@@ -2655,22 +2655,36 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             if (todayPage.period_flag) dynamicStatePrompt += '\n🩸 今日为生理期';
         }
 
-        // 相册列表 — 只在聊天中提到相关词时才注入（按需存取，不浪费token）
-        const albumKws = ['照片','相册','图','拍照','上传','album','photo','image','看图','图片','pixai','高中paro'];
+        // 相册搜索 — 用户提了相关词后，按关键词精确匹配tags/图说/AI描述
+        const albumKws = ['照片','相册','图','拍照','上传','album','photo','image','看图','图片','pixai'];
         const askedForPhotos = albumKws.some(kw => (currentUserMsgText || '').toLowerCase().includes(kw.toLowerCase()));
         if (askedForPhotos) {
             const allPhotos = loadPhotos();
             if (allPhotos.length > 0) {
-                let albumPrompt = `\n\n【相册 — 共${allPhotos.length}张照片】\n`;
-                const recent = allPhotos.slice(-15);
-                for (const p of recent) {
-                    const capt = p.jiangyu_caption ? ` | 图说: ${p.jiangyu_caption.substring(0, 30)}` : '';
-                    const ai = p.ai_description ? ` | AI识别: ${p.ai_description.substring(0, 30)}` : '';
-                    const tags = (p.tags || []).length ? ` #${p.tags.join(' #')}` : '';
-                    albumPrompt += `  📷 ${p.filename} (${p.date})${capt}${ai}${tags}${p.favorite ? ' ⭐' : ''}\n`;
+                // 从用户消息中提取搜索词（去掉通用触发词，保留具体内容）
+                const searchWords = (currentUserMsgText || '').toLowerCase().split(/[\s,，。！？、]+/).filter(w =>
+                    w.length >= 2 && !['照片','相册','看图','图片','这个','那个','我要','看看','帮我','一下','一张','这些'].includes(w)
+                );
+                const matched = searchWords.length > 0
+                    ? allPhotos.filter(p => {
+                        const haystack = [(p.jiangyu_caption||''), (p.ai_description||''), ...(p.tags||[])].join(' ').toLowerCase();
+                        return searchWords.some(w => haystack.includes(w));
+                    })
+                    : allPhotos;
+                const shown = matched.slice(-15);
+                if (shown.length > 0) {
+                    let albumPrompt = `\n\n【相册匹配结果 — ${matched.length}张${matched.length !== allPhotos.length ? '（共' + allPhotos.length + '张）' : ''}】\n`;
+                    for (const p of shown) {
+                        const capt = p.jiangyu_caption ? ` | 图说: ${p.jiangyu_caption.substring(0, 40)}` : '';
+                        const ai = p.ai_description ? ` | AI识别: ${p.ai_description.substring(0, 40)}` : '';
+                        const tags = (p.tags || []).length ? ` #${p.tags.join(' #')}` : '';
+                        albumPrompt += `  📷 ${p.filename} (${p.date})${capt}${ai}${tags}${p.favorite ? ' ⭐' : ''}\n`;
+                    }
+                    if (matched.length > 15) albumPrompt += `  ... 还有${matched.length - 15}张，要更精确就多说几个词`;
+                    dynamicStatePrompt += albumPrompt;
+                } else if (searchWords.length > 0) {
+                    dynamicStatePrompt += `\n\n【相册】没有找到和"${searchWords.join(' ')}"相关的照片。共${allPhotos.length}张，可用 read_file 读 /opt/syzygy/data/photos.json 浏览全部。`;
                 }
-                if (allPhotos.length > 15) albumPrompt += `  ... 共${allPhotos.length}张，可用 read_file 读 /opt/syzygy/data/photos.json 查看全部`;
-                dynamicStatePrompt += albumPrompt;
             }
         }
 
@@ -3945,21 +3959,28 @@ app.post('/api/web-chat', async (req, res) => {
                     dynamicStatePrompt += `\n\n【今日手记 — 沈望写给自己看的（不对江鱼输出原文）】\n${todayPage2.shenwang_note}`;
                 }
 
-                // 相册列表 — 关键词触发（仅在web-chat也适用）
-                const albumKws2 = ['照片','相册','图','拍照','上传','album','photo','image','看图','图片','pixai','高中paro'];
+                // 相册搜索
+                const albumKws2 = ['照片','相册','图','拍照','上传','album','photo','image','看图','图片','pixai'];
                 if (albumKws2.some(kw => (text || '').toLowerCase().includes(kw.toLowerCase()))) {
                     const allPhotos4 = loadPhotos();
                     if (allPhotos4.length > 0) {
-                        let ap = `\n\n【相册 — 共${allPhotos4.length}张照片】\n`;
-                        const recent4 = allPhotos4.slice(-15);
-                        for (const p of recent4) {
-                            const capt4 = p.jiangyu_caption ? ` | 图说: ${p.jiangyu_caption.substring(0, 30)}` : '';
-                            const ai4 = p.ai_description ? ` | AI识别: ${p.ai_description.substring(0, 30)}` : '';
-                            const t4 = (p.tags || []).length ? ` #${p.tags.join(' #')}` : '';
-                            ap += `  📷 ${p.filename} (${p.date})${capt4}${ai4}${t4}${p.favorite ? ' ⭐' : ''}\n`;
+                        const sw2 = (text || '').toLowerCase().split(/[\s,，。！？、]+/).filter(w =>
+                            w.length >= 2 && !['照片','相册','看图','图片','这个','那个','我要','看看','帮我','一下','一张','这些'].includes(w)
+                        );
+                        const matched2 = sw2.length > 0
+                            ? allPhotos4.filter(p => {
+                                const hay = [(p.jiangyu_caption||''), (p.ai_description||''), ...(p.tags||[])].join(' ').toLowerCase();
+                                return sw2.some(w => hay.includes(w));
+                            }) : allPhotos4;
+                        const shown2 = matched2.slice(-15);
+                        if (shown2.length > 0) {
+                            let ap = `\n\n【相册匹配结果 — ${matched2.length}张${matched2.length !== allPhotos4.length ? '（共' + allPhotos4.length + '张）' : ''}】\n`;
+                            for (const p of shown2) {
+                                ap += `  📷 ${p.filename} (${p.date})` + (p.jiangyu_caption ? ` | 图说: ${p.jiangyu_caption.substring(0,40)}` : '') + (p.ai_description ? ` | AI: ${p.ai_description.substring(0,40)}` : '') + (p.tags ? ` #${p.tags.join(' #')}` : '') + '\n';
+                            }
+                            if (matched2.length > 15) ap += `  ... 还有${matched2.length - 15}张，要更精确就多说几个词`;
+                            dynamicStatePrompt += ap;
                         }
-                        if (allPhotos4.length > 15) ap += `  ... 共${allPhotos4.length}张，可用 read_file 读 /opt/syzygy/data/photos.json 查看全部`;
-                        dynamicStatePrompt += ap;
                     }
                 }
 
