@@ -131,6 +131,7 @@ function saveTodos(items) { fs.writeFileSync(TODOS_FILE, JSON.stringify(items, n
 function loadPeriod() { try { return JSON.parse(fs.readFileSync(PERIOD_FILE, 'utf8')); } catch(e) { return { records: [], current: null }; } }
 function savePeriod(data) { fs.writeFileSync(PERIOD_FILE, JSON.stringify(data, null, 2), 'utf8'); }
 const _dreamDiag = { last: null, history: [] };
+const _boom = { last: null };
 const DAILY_PAGES_FILE = path.join(DATA_DIR, 'daily_pages.json');
 const WEEKLY_SUMMARIES_FILE = path.join(DATA_DIR, 'weekly_summaries.json');
 const MONTHLY_SUMMARIES_FILE = path.join(DATA_DIR, 'monthly_summaries.json');
@@ -2982,8 +2983,15 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                 res.status(response.status).json(data);
             } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
         }
-    } catch (error) { console.error('大门重组异常:', error.stack?.substring(0, 300)); res.status(500).json({ error: "大门重组异常：" + error.message }); }
+    } catch (error) {
+        _boom.last = { at: new Date().toISOString(), error: error.message, stack: (error.stack || '').substring(0, 600), model: req.body?.model };
+        console.error('大门重组异常:', error.stack?.substring(0, 300));
+        res.status(500).json({ error: "大门重组异常：" + error.message });
+    }
 });
+
+// 崩溃诊断
+app.get('/debug-boom', (req, res) => { res.json(_boom.last || { note: '无记录' }); });
 
 // ==========================================
 // 🌟 长期记忆 CRUD 接口
