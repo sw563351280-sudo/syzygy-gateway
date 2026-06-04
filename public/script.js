@@ -1879,8 +1879,7 @@ async function regenerateSend(aiMsgIndex) {
     const win = document.getElementById('chatWindow');
     let userText = '';
     for (let i = aiMsgIndex - 1; i >= 0; i--) { if (session.messages[i].role === 'user') { userText = getActiveVersion(session.messages[i]).content || ''; break; } }
-    const rows = win.querySelectorAll('.msg-row');
-    const targetRow = rows[aiMsgIndex];
+    const targetRow = win.querySelector('.msg-row[data-msg-index="' + aiMsgIndex + '"]');
     if (!targetRow) return;
     const sDiv = targetRow.querySelector('.msg.sys');
     if (!sDiv) return;

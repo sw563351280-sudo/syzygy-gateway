@@ -606,8 +606,8 @@ body.light-mode #imgPreviewWrap img {
 }
 
 /* ============ 聊天页专属修复 ============ */
-#sec-chat.active { display:flex!important;flex-direction:column!important;min-height:100vh }
-#sec-chat.active .chat-bottom-bar { position:sticky;bottom:0;padding-bottom:max(10px,env(safe-area-inset-bottom))!important }
+#sec-chat.active { display:flex!important;flex-direction:column!important;height:100vh;overflow:hidden }
+#sec-chat.active .chat-bottom-bar { padding-bottom:max(10px,env(safe-area-inset-bottom))!important }
 
 
 
