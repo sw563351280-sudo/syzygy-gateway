@@ -2253,14 +2253,15 @@ body.dark-gold-mode .neu-card,body.dark-gold-mode .neu-together-card,body.dark-g
 body.dark-gold-mode .neu-card:hover,body.dark-gold-mode .neu-together-card:hover,body.dark-gold-mode .neu-todo-card:hover,body.dark-gold-mode .neu-week-strip:hover,body.dark-gold-mode .neu-water-tracker:hover,body.dark-gold-mode .neu-grid-card:hover{ background:rgba(40,34,30,0.7);border-color:rgba(228,212,199,0.12);transform:translateY(-1px) }
 body.dark-gold-mode .neu-card:active{ background:rgba(25,22,20,0.7);transform:translateY(0) }
 /* ── V3 首页文字 ── */
-body.dark-gold-mode .neu-together-num{color:#e4d4c7}
+body.dark-gold-mode .neu-together-num{color:#ffe026}
 body.dark-gold-mode .neu-together-label{color:#8c7a65}
 body.dark-gold-mode .neu-together-deco *{stroke:#8c7a65 !important}
-body.dark-gold-mode .neu-together-deco text{fill:#8c7a65 !important}
-body.dark-gold-mode .neu-todo-title{color:#e4d4c7}
-body.dark-gold-mode .neu-todo-item{color:#c4b8ab}
-body.dark-gold-mode .neu-todo-new-input{color:#e4d4c7}
+body.dark-gold-mode .neu-together-deco text{fill:#faff9a !important}
+body.dark-gold-mode .neu-todo-title{color:#ffe026}
+body.dark-gold-mode .neu-todo-item{color:#ffe026}
+body.dark-gold-mode .neu-todo-new-input{color:#ffe026}
 body.dark-gold-mode .neu-todo-new-input::placeholder{color:#584b38}
+body.dark-gold-mode .neu-todo-empty{color:#ffe026}
 body.dark-gold-mode .neu-todo-add-btn{background:rgba(212,160,74,0.12);color:#D4A04A;box-shadow:none}
 body.dark-gold-mode .neu-todo-new-row{border-top-color:rgba(228,212,199,0.08)}
 body.dark-gold-mode .neu-week-day{color:#8c7a65}

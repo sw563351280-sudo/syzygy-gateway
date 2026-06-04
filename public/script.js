@@ -395,7 +395,7 @@ async function neuRenderTodos() {
     const data = await neuFetchTodos();
     const active = data.active || [];
     if (active.length === 0) {
-        list.innerHTML = '<div style="color:#A0AEC0;font-size:13px;padding:4px 0;">暂无待办 — 点 + 添加</div>';
+        list.innerHTML = '<div class="neu-todo-empty" style="font-size:13px;padding:4px 0;">暂无待办 — 点 + 添加</div>';
         return;
     }
     const shenItems = active.filter(t => t.owner === 'shen');
