@@ -27,6 +27,7 @@ const API_ROUTES = {
     'ekan':   'https://api.ekan8.com/v1/chat/completions',
      'orange':   'https://i.orangepie.org/v1/chat/completions',
     '68886868':   'https://api.68886868.xyz/v1/chat/completions',
+    'tree':   'https://api.treegpt.cc/v1/chat/completions',
 
 };
 
