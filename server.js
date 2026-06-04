@@ -695,8 +695,7 @@ async function generateMonthlySummary() {
 let _lastNoteDate = null;
 
 async function generateDailyNoteIfNeeded(recentMessages) {
-    const cfg = loadToolsConfig() || {};
-    if (!cfg.calendar_enabled) return;
+    if (!calendarEnabled()) return;
 
     const logicalDate = getLogicalDate();
     if (_lastNoteDate === logicalDate) return;  // 今天已检查过，幂等
@@ -4200,7 +4199,7 @@ app.get('/capsule/add', (req, res) => {
 // 🗓️ 日历功能
 // ==========================================
 
-function calendarEnabled() { return !!(loadToolsConfig() || {}).calendar_enabled; }
+function calendarEnabled() { return (loadToolsConfig() || {}).calendar_enabled !== false; }
 
 // GET /api/calendar?month=YYYY-MM
 app.get('/api/calendar', (req, res) => {
