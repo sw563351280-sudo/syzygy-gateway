@@ -2655,7 +2655,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             if (todayPage.period_flag) dynamicStatePrompt += '\n🩸 今日为生理期';
         }
 
-        // 相册列表 — 沈望知道每张照片的 filename、标签和描述
+        // 相册列表 — 每轮注入，沈望随时知道有什么照片
         const allPhotos = loadPhotos();
         if (allPhotos.length > 0) {
             let albumPrompt = `\n\n【相册 — 共${allPhotos.length}张照片】\n`;
