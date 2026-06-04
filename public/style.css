@@ -2247,8 +2247,9 @@ body.dark-gold-mode .home-footer{display:none}
 body.dark-gold-mode .neu-home{display:block}
 body.dark-gold-mode #sec-home{max-width:430px;margin:0 auto;padding:20px 16px 100px 16px}
 body.dark-gold-mode #sec-chat.active{background:transparent!important}
+body.dark-gold-mode #sec-chat{ max-width:800px; margin:0 auto }
 body.dark-gold-mode .chat-window{background:transparent}
-body.dark-gold-mode .chat-main-header{background:rgba(30,26,24,0.4);border-bottom:1px solid rgba(228,212,199,0.06)}
+body.dark-gold-mode .chat-main-header{background:rgba(30,26,24,0.4);border-bottom:1px solid rgba(228,212,199,0.06);display:block!important}
 body.dark-gold-mode .chat-bottom-bar{background:rgba(20,18,17,0.85)!important;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid rgba(228,212,199,0.08)!important}
 body.dark-gold-mode .chat-send-btn{background:rgba(212,160,74,0.12)!important;border:1px solid rgba(212,160,74,0.25)!important;color:#D4A04A!important;border-radius:12px}
 /* ── 黑玻璃卡片 ── */
