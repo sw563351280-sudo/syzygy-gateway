@@ -513,7 +513,7 @@ function floBuildDotRow(record, nextStartStr, isCurrent) {
             const winStart = new Date(od); winStart.setDate(od.getDate() - 5);
             const winEnd = new Date(od); winEnd.setDate(od.getDate() + 1);
             if (d.toDateString() === od.toDateString()) cls = '#1E8A7E';
-            else if (d >= winStart && d <= winEnd) cls = '#5A9E96';
+            else if (d >= winStart && d <= winEnd) cls = '#B39DDB';
         }
 
         html += '<span class="flo-dot" style="background:' + cls + '"></span>';
