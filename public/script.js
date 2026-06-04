@@ -794,7 +794,10 @@ function renderChatMessages(){
     const session = getActiveSession();
     if(!session || !session.messages) return;
 
-    session.messages.forEach((m, index) => {
+    // 手机端限制渲染最近 50 条，防止大量 base64 图片/长消息 DOM 触发 Safari 崩溃
+    const msgs = session.messages.slice(-50);
+    msgs.forEach((m, subIndex) => {
+        const index = session.messages.length - msgs.length + subIndex;
         const v = getActiveVersion(m);
         const vCount = getVersionCount(m);
         const vIdx = getActiveVersionIndex(m);
