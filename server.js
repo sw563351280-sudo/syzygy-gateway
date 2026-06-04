@@ -699,13 +699,13 @@ async function generateDailyNoteIfNeeded(recentMessages) {
     if (!calendarEnabled()) return;
 
     const logicalDate = getLogicalDate();
-    if (_lastNoteDate === logicalDate) return;  // 今天已检查过，幂等
+    if (_lastNoteDate === logicalDate) return;
 
-    _lastNoteDate = logicalDate;
     const pages = loadDailyPages();
     const existing = pages.find(p => p.date === logicalDate);
-    if (existing && existing.shenwang_note && existing.shenwang_note.trim()) {
-        console.log('[Calendar] 今日已有note，跳过:', logicalDate);
+    if (existing && existing.shenwang_note && existing.shenwang_note.trim() && existing.shenwang_note.trim().length >= 20) {
+        _lastNoteDate = logicalDate;
+        console.log('[Calendar] 今日已有完整note，跳过:', logicalDate);
         return;
     }
 
@@ -798,6 +798,7 @@ ${script}`;
             pages.push(newPage);
         }
         saveDailyPages(pages);
+        _lastNoteDate = logicalDate;
         console.log('[Calendar] 日页生成成功:', logicalDate, '字数:', note.length, '在一起:', td, '天');
     } catch(e) { console.error('[Calendar] 生成失败:', e.message); }
 }
