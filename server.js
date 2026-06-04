@@ -2979,7 +2979,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                 res.status(response.status).json(data);
             } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
         }
-    } catch (error) { res.status(500).json({ error: "大门重组异常：" + error.message }); }
+    } catch (error) { console.error('大门重组异常:', error.stack?.substring(0, 300)); res.status(500).json({ error: "大门重组异常：" + error.message }); }
 });
 
 // ==========================================
