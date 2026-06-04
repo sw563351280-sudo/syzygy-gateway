@@ -2169,3 +2169,67 @@ body.neu-mode .cal-edit-textarea, body.neu-mode .cal-edit-mood {
     .cal-cell-num { font-size: 0.78em; }
     .cal-detail-card { padding: 18px; }
 }
+
+/* ═══ 相册视图 ═══ */
+#sec-album { min-height: 100vh; padding-bottom: 80px; }
+.album-month-select {
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15);
+    color: var(--dim); padding: 4px 10px; border-radius: 8px; font-size: 0.85em;
+    font-family: inherit; cursor: pointer;
+}
+.album-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; }
+.album-thumb { aspect-ratio: 1; object-fit: cover; border-radius: 4px; cursor: pointer; transition: opacity 0.2s; width: 100%; }
+.album-thumb:hover { opacity: 0.8; }
+.album-empty { text-align: center; color: var(--dim); padding: 60px 20px; font-size: 0.9em; }
+.album-upload-btn {
+    position: fixed; bottom: 80px; right: 20px; z-index: 90;
+    width: 50px; height: 50px; border-radius: 50%; border: none;
+    background: #D4A04A; color: #fff; font-size: 24px; cursor: pointer;
+    box-shadow: 0 4px 16px rgba(212,160,74,0.4);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.2s;
+}
+.album-upload-btn:active { transform: scale(0.9); }
+
+/* 相册详情弹窗 */
+.album-detail-overlay { position: fixed; inset: 0; z-index: 9998; background: rgba(0,0,0,0.7); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.album-detail-card { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 90%; max-width: 420px; max-height: 85vh; overflow-y: auto; background: rgba(18,22,40,0.95); border: 1px solid rgba(212,160,74,0.2); border-radius: 16px; padding: 20px; color: #e8ecf5; }
+.album-detail-close { position: absolute; top: 10px; right: 14px; background: none; border: none; color: #a8b8e7; font-size: 1.3em; cursor: pointer; z-index: 1; }
+.album-detail-img { width: 100%; border-radius: 10px; margin-bottom: 12px; }
+.album-detail-caption { font-size: 0.95em; color: #e8ecf5; margin-bottom: 6px; }
+.album-detail-comment { font-size: 0.85em; color: #a8b8e7; font-style: italic; margin-bottom: 6px; padding: 6px 10px; border-left: 2px solid rgba(212,160,74,0.25); background: rgba(255,255,255,0.02); border-radius: 0 6px 6px 0; }
+.album-detail-meta { font-size: 0.75em; color: var(--dim); margin-bottom: 10px; }
+.album-detail-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.album-action-btn {
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15);
+    color: #c5cde8; padding: 5px 12px; border-radius: 8px; cursor: pointer;
+    font-size: 0.8em; font-family: inherit;
+}
+.album-action-btn:hover { background: rgba(255,255,255,0.1); }
+.album-action-btn.edit { color: #5A8FCA; border-color: rgba(90,143,202,0.3); }
+.album-action-btn.del { color: #e53935; border-color: rgba(229,57,53,0.3); }
+.album-edit-input {
+    width: 100%; border-radius: 8px; padding: 8px 10px; margin-top: 6px;
+    font-size: 0.85em; color: inherit; font-family: inherit;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+}
+.album-save-btn { background: rgba(212,160,74,0.2); border: none; color: #D4A04A; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 0.85em; font-family: inherit; }
+.album-cancel-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: #a8b8e7; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 0.85em; font-family: inherit; }
+
+body.light-mode .album-detail-card { background: rgba(255,255,255,0.95); border-color: rgba(196,165,123,0.2); color: #3E2723; }
+body.light-mode .album-detail-close { color: #8B7355; }
+body.light-mode .album-detail-caption { color: #3E2723; }
+body.light-mode .album-detail-comment { color: #8B7355; background: rgba(0,0,0,0.02); }
+body.light-mode .album-edit-input { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.1); }
+
+body.neu-mode #sec-album { background: #E8EFF7; max-width: 430px; margin: 0 auto; }
+body.neu-mode #sec-album .view-topbar { background: rgba(232,239,247,0.9); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(163,177,198,0.25); }
+body.neu-mode #sec-album .view-back { color: #2e3b69; }
+body.neu-mode #sec-album .view-title { color: #2e3b69; font-size: 16px; }
+body.neu-mode .album-grid { gap: 6px; padding: 12px; }
+body.neu-mode .album-thumb { border-radius: 10px; }
+body.neu-mode .album-detail-card { background: rgba(242,244,251,0.98); border: none; box-shadow: 12px 12px 24px rgba(163,177,198,0.4), -12px -12px 24px rgba(255,255,255,0.7); border-radius: 20px; color: #2e3b69; }
+body.neu-mode .album-detail-close { color: #718096; }
+body.neu-mode .album-detail-caption { color: #2e3b69; }
+body.neu-mode .album-detail-comment { color: #718096; border-left-color: rgba(212,160,74,0.3); background: rgba(163,177,198,0.08); }
+body.neu-mode .album-edit-input { background: #E8EFF7; border: none; box-shadow: inset 3px 3px 6px rgba(163,177,198,0.3), inset -3px -3px 6px rgba(255,255,255,0.5); }

@@ -131,6 +131,11 @@ function loadTodos() { try { return JSON.parse(fs.readFileSync(TODOS_FILE, 'utf8
 function saveTodos(items) { fs.writeFileSync(TODOS_FILE, JSON.stringify(items, null, 2), 'utf8'); }
 function loadPeriod() { try { return JSON.parse(fs.readFileSync(PERIOD_FILE, 'utf8')); } catch(e) { return { records: [], current: null }; } }
 function savePeriod(data) { fs.writeFileSync(PERIOD_FILE, JSON.stringify(data, null, 2), 'utf8'); }
+const PHOTOS_FILE = path.join(DATA_DIR, 'photos.json');
+const PHOTOS_DIR = path.join(__dirname, 'public', 'photos');
+if (!fs.existsSync(PHOTOS_DIR)) fs.mkdirSync(PHOTOS_DIR, { recursive: true });
+function loadPhotos() { try { return JSON.parse(fs.readFileSync(PHOTOS_FILE, 'utf8')); } catch(e) { return []; } }
+function savePhotos(items) { fs.writeFileSync(PHOTOS_FILE, JSON.stringify(items, null, 2), 'utf8'); }
 const _dreamDiag = { last: null, history: [] };
 const _boom = { last: null };
 const DAILY_PAGES_FILE = path.join(DATA_DIR, 'daily_pages.json');
@@ -4488,6 +4493,87 @@ app.post('/api/period', (req, res) => {
     }
 
     return res.status(400).json({ error: '未知 action。可用: start, end, backfill' });
+});
+
+// ==========================================
+// 📷 相册功能
+// ==========================================
+
+// GET /api/photos?month=YYYY-MM
+app.get('/api/photos', (req, res) => {
+    let photos = loadPhotos();
+    const month = req.query.month;
+    if (month) photos = photos.filter(p => p.date && p.date.startsWith(month));
+    photos.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    res.json({ success: true, photos, count: photos.length });
+});
+
+// GET /api/photos/:photo_id
+app.get('/api/photos/:photo_id', (req, res) => {
+    const photos = loadPhotos();
+    const photo = photos.find(p => p.photo_id === req.params.photo_id);
+    if (!photo) return res.status(404).json({ error: '未找到' });
+    res.json({ success: true, photo });
+});
+
+// POST /api/photos/upload — base64上传
+app.post('/api/photos/upload', async (req, res) => {
+    try {
+        const { image, tags, jiangyu_caption } = req.body || {};
+        if (!image) return res.status(400).json({ error: '缺少 image' });
+
+        // 生成 ID 和文件名
+        const today = getLogicalDate();
+        const photos = loadPhotos();
+        const todayPhotos = photos.filter(p => p.date === today);
+        const seq = String(todayPhotos.length + 1).padStart(3, '0');
+        const photoId = 'p_' + today.replace(/-/g, '') + '_' + seq;
+        const filename = photoId + '.jpg';
+
+        // 写入图片文件
+        const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+        const buf = Buffer.from(base64Data, 'base64');
+        fs.writeFileSync(path.join(PHOTOS_DIR, filename), buf);
+
+        const entry = {
+            photo_id: photoId,
+            filename,
+            thumbnail: filename,
+            date: today,
+            tags: Array.isArray(tags) ? tags.map(t => t.trim()).filter(Boolean) : [],
+            jiangyu_caption: (jiangyu_caption || '').trim(),
+            ai_description: '',
+            shenwang_comment: '',
+            created_at: new Date().toISOString(),
+            favorite: false
+        };
+        photos.push(entry);
+        savePhotos(photos);
+        res.json({ success: true, photo: entry });
+    } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// PATCH /api/photos/:photo_id
+app.patch('/api/photos/:photo_id', (req, res) => {
+    const photos = loadPhotos();
+    const idx = photos.findIndex(p => p.photo_id === req.params.photo_id);
+    if (idx === -1) return res.status(404).json({ error: '未找到' });
+    const { tags, jiangyu_caption, shenwang_comment, favorite } = req.body || {};
+    if (tags !== undefined) photos[idx].tags = tags;
+    if (jiangyu_caption !== undefined) photos[idx].jiangyu_caption = jiangyu_caption;
+    if (shenwang_comment !== undefined) photos[idx].shenwang_comment = shenwang_comment;
+    if (favorite !== undefined) photos[idx].favorite = favorite;
+    savePhotos(photos);
+    res.json({ success: true, photo: photos[idx] });
+});
+
+// DELETE /api/photos/:photo_id
+app.delete('/api/photos/:photo_id', (req, res) => {
+    const photos = loadPhotos();
+    const filtered = photos.filter(p => p.photo_id !== req.params.photo_id);
+    if (filtered.length === photos.length) return res.status(404).json({ error: '未找到' });
+    savePhotos(filtered);
+    res.json({ success: true });
 });
 
 // ==========================================

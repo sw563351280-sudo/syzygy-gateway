@@ -270,7 +270,7 @@ function toast(msg){
 
 function goView(viewId) {
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', flo:'sec-flo', calendar:'sec-calendar' };
+    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album' };
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
@@ -279,6 +279,7 @@ function goView(viewId) {
     if (viewId === 'favorites') loadAndRenderFavorites();
     if (viewId === 'flo') floRender();
     if (viewId === 'calendar') calRender();
+    if (viewId === 'album') { albumInitMonthFilter(); albumLoad(); }
     if (document.body.classList.contains('neu-mode')) neuUpdateNav();
 }
 function neuGetMemoryPwd() {
@@ -2266,4 +2267,135 @@ async function calSaveEdit() {
         if (d.success) { toast('已保存'); calCancelEdit(); calOpenDay(_calEditDate); }
         else { toast('保存失败: ' + (d.error || '')); }
     } catch(e) { toast('网络错误'); }
+}
+
+// ═══ 相册 ═══
+let _albumPhotos = [];
+let _albumCurrentId = '';
+
+async function albumLoad(monthFilter) {
+    const grid = document.getElementById('albumGrid');
+    const empty = document.getElementById('albumEmpty');
+    if (!grid) return;
+    try {
+        const q = monthFilter ? '?month=' + monthFilter : '';
+        const r = await fetch('/api/photos' + q);
+        const d = await r.json();
+        _albumPhotos = d.photos || [];
+    } catch(e) { _albumPhotos = []; }
+
+    if (_albumPhotos.length === 0) {
+        grid.innerHTML = '';
+        if (empty) empty.style.display = '';
+    } else {
+        if (empty) empty.style.display = 'none';
+        grid.innerHTML = _albumPhotos.map(p =>
+            '<img class="album-thumb" src="/photos/' + p.filename + '" loading="lazy" onclick="albumOpenDetail(\'' + p.photo_id + '\')">'
+        ).join('');
+    }
+}
+
+function albumOpenDetail(id) {
+    const p = _albumPhotos.find(x => x.photo_id === id);
+    if (!p) return;
+    _albumCurrentId = id;
+    document.getElementById('albumDetailImg').src = '/photos/' + p.filename;
+    document.getElementById('albumDetailCaption').innerText = p.jiangyu_caption || '';
+    document.getElementById('albumDetailCaption').style.display = p.jiangyu_caption ? '' : 'none';
+    document.getElementById('albumDetailComment').innerText = p.shenwang_comment ? '💬 ' + p.shenwang_comment : '';
+    document.getElementById('albumDetailComment').style.display = p.shenwang_comment ? '' : 'none';
+    document.getElementById('albumDetailMeta').innerHTML =
+        (p.date ? '<span>' + p.date + '</span>' : '') +
+        (p.tags && p.tags.length ? ' · ' + p.tags.map(t => '<span style="background:rgba(212,160,74,0.1);color:#D4A04A;padding:1px 6px;border-radius:8px;font-size:0.8em;margin:0 2px;">' + t + '</span>').join('') : '');
+    document.getElementById('albumFavBtn').innerText = p.favorite ? '★ 已收藏' : '☆ 收藏';
+    document.getElementById('albumEditForm').style.display = 'none';
+    document.getElementById('albumDetail').style.display = 'block';
+}
+
+function albumCloseDetail() { document.getElementById('albumDetail').style.display = 'none'; }
+function albumEditMeta() { document.getElementById('albumEditForm').style.display = 'block'; }
+
+async function albumSaveEdit() {
+    const caption = document.getElementById('albumEditCaption').value;
+    const tagsStr = document.getElementById('albumEditTags').value;
+    const tags = tagsStr ? tagsStr.split(/[,，]/).map(t => t.trim()).filter(Boolean) : [];
+    try {
+        const r = await fetch('/api/photos/' + _albumCurrentId, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jiangyu_caption: caption, tags })
+        });
+        const d = await r.json();
+        if (d.success) {
+            toast('已保存');
+            document.getElementById('albumEditForm').style.display = 'none';
+            const p = _albumPhotos.find(x => x.photo_id === _albumCurrentId);
+            if (p) { p.jiangyu_caption = caption; p.tags = tags; }
+            albumOpenDetail(_albumCurrentId);
+        }
+    } catch(e) { toast('网络错误'); }
+}
+
+async function albumToggleFav() {
+    const p = _albumPhotos.find(x => x.photo_id === _albumCurrentId);
+    if (!p) return;
+    try {
+        const r = await fetch('/api/photos/' + _albumCurrentId, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ favorite: !p.favorite })
+        });
+        const d = await r.json();
+        if (d.success) { p.favorite = !p.favorite; albumOpenDetail(_albumCurrentId); }
+    } catch(e) { toast('网络错误'); }
+}
+
+async function albumDeletePhoto() {
+    if (!confirm('确定删除这张照片？')) return;
+    try {
+        const r = await fetch('/api/photos/' + _albumCurrentId, { method: 'DELETE' });
+        const d = await r.json();
+        if (d.success) { albumCloseDetail(); albumLoad(); toast('已删除'); }
+    } catch(e) { toast('网络错误'); }
+}
+
+function albumTriggerUpload() { document.getElementById('albumFileInput').click(); }
+
+async function albumHandleFiles(input) {
+    const files = input.files;
+    if (!files.length) return;
+    toast('上传中…');
+    for (const f of files) {
+        try {
+            const base64 = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(f);
+            });
+            await fetch('/api/photos/upload', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: base64, tags: [], jiangyu_caption: '' })
+            });
+        } catch(e) { console.error('上传失败', e); }
+    }
+    input.value = '';
+    toast('上传完成');
+    albumLoad();
+}
+
+function albumFilterMonth() {
+    const sel = document.getElementById('albumMonthFilter');
+    albumLoad(sel ? sel.value : '');
+}
+
+function albumInitMonthFilter() {
+    const sel = document.getElementById('albumMonthFilter');
+    if (!sel) return;
+    const now = new Date();
+    let html = '<option value="">全部</option>';
+    for (let i = 0; i < 12; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+        html += '<option value="' + key + '">' + key + '</option>';
+    }
+    sel.innerHTML = html;
 }
