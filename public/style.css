@@ -606,7 +606,7 @@ body.light-mode #imgPreviewWrap img {
 }
 
 /* ============ 聊天页专属修复 ============ */
-#sec-chat.active { padding:0!important;height:100dvh;overflow:hidden;display:flex;flex-direction:column }
+#sec-chat.active { padding:0!important;height:100vh;overflow:hidden;display:flex;flex-direction:column }
 
 /* 手机端输入框高度收紧 */
 @media(max-width: 600px) {
@@ -732,7 +732,7 @@ body.light-mode #imgPreviewWrap img {
 }
 
 /* 聊天页不需要 section 的默认 padding */
-#sec-chat.active { padding:0!important;height:100dvh;overflow:hidden;display:flex;flex-direction:column }
+#sec-chat.active { padding:0!important;height:100vh;overflow:hidden;display:flex;flex-direction:column }
 
 /* 手机端输入框高度锁死，不允许无限长高 */
 @media(max-width: 600px) {
@@ -1404,8 +1404,8 @@ body.light-mode #sec-data input[type="text"]:focus{border-color:rgba(196,165,123
 .msg{max-width:92%}
 
 /* ═══ 聊天页锁定框架 ═══ */
-body[data-view="chat"] { overflow:hidden!important;height:100dvh!important;position:fixed!important;width:100%!important;top:0!important;left:0!important }
-#sec-chat.active { position:fixed!important;top:0;left:0;width:100%!important;height:100dvh!important;padding:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;background:#0d1225!important }
+body[data-view="chat"] { overflow:hidden!important;height:100vh!important;position:fixed!important;width:100%!important;top:0!important;left:0!important }
+#sec-chat.active { position:fixed!important;top:0;left:0;width:100%!important;height:100vh!important;padding:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;background:#0d1225!important }
 body.light-mode #sec-chat.active { background:#FFFAF0!important }
 
 /* ═══ 顶栏工具按钮 ═══ */
