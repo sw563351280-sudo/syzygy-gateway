@@ -609,7 +609,8 @@ body.light-mode #imgPreviewWrap img {
 body[data-view="chat"] { overflow:hidden!important;position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;height:100%!important;width:100%!important }
 #sec-chat.active { display:flex!important;flex-direction:column!important;height:100%!important;overflow:hidden!important }
 #sec-chat.active .chat-bottom-bar { padding-bottom:max(10px,env(safe-area-inset-bottom))!important;margin-bottom:3vh }
-#sec-chat.active .chat-main-header { position:absolute;top:0;left:0;right:0;z-index:10;margin-top:-22vh }
+#sec-chat.active .chat-main-header { margin-top:calc(-1 * var(--chat-header-shift, 18vh)) }
+:root { --chat-header-shift: 18vh; }
 
 
 
