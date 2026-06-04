@@ -2667,7 +2667,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 );
                 const matched = searchWords.length > 0
                     ? allPhotos.filter(p => {
-                        const haystack = [(p.jiangyu_caption||''), (p.ai_description||''), ...(p.tags||[])].join(' ').toLowerCase();
+                        const haystack = [p.filename, (p.jiangyu_caption||''), (p.ai_description||''), ...(p.tags||[])].join(' ').toLowerCase();
                         return searchWords.some(w => haystack.includes(w));
                     })
                     : allPhotos;
@@ -2680,10 +2680,9 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                         const tags = (p.tags || []).length ? ` #${p.tags.join(' #')}` : '';
                         albumPrompt += `  📷 ${p.filename} (${p.date})${capt}${ai}${tags}${p.favorite ? ' ⭐' : ''}\n`;
                     }
-                    if (matched.length > 15) albumPrompt += `  ... 还有${matched.length - 15}张，要更精确就多说几个词`;
                     dynamicStatePrompt += albumPrompt;
                 } else if (searchWords.length > 0) {
-                    dynamicStatePrompt += `\n\n【相册】没有找到和"${searchWords.join(' ')}"相关的照片。共${allPhotos.length}张，可用 read_file 读 /opt/syzygy/data/photos.json 浏览全部。`;
+                    dynamicStatePrompt += `\n\n【相册】没有找到和"${searchWords.join(' ')}"相关的照片。`;
                 }
             }
         }
@@ -3969,7 +3968,7 @@ app.post('/api/web-chat', async (req, res) => {
                         );
                         const matched2 = sw2.length > 0
                             ? allPhotos4.filter(p => {
-                                const hay = [(p.jiangyu_caption||''), (p.ai_description||''), ...(p.tags||[])].join(' ').toLowerCase();
+                                const hay = [p.filename, (p.jiangyu_caption||''), (p.ai_description||''), ...(p.tags||[])].join(' ').toLowerCase();
                                 return sw2.some(w => hay.includes(w));
                             }) : allPhotos4;
                         const shown2 = matched2.slice(-15);
