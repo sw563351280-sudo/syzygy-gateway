@@ -280,12 +280,12 @@ function goView(viewId) {
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
     if (viewId === 'chat') setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 100);
-    if (viewId === 'home') { updateDays && updateDays(); if (document.body.classList.contains('neu-mode')) neuInitHome(); }
+    if (viewId === 'home') { updateDays && updateDays(); if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuInitHome(); }
     if (viewId === 'favorites') loadAndRenderFavorites();
     if (viewId === 'flo') floRender();
     if (viewId === 'calendar') calRender();
     if (viewId === 'album') { albumInitMonthFilter(); albumLoad(); }
-    if (document.body.classList.contains('neu-mode')) neuUpdateNav();
+    if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuUpdateNav();
 }
 function neuGetMemoryPwd() {
     let pwd = localStorage.getItem('memoryPwd') || '';
@@ -1530,21 +1530,28 @@ function triggerRegenerate(){
 
 // ==================== 日夜交替模式 ====================
 function toggleLightMode() {
-    // 三元循环：暗夜 → 白天 → 新拟态 → 暗夜
+    // 四元循环：暗夜 → 白天 → 新拟态 → 暗金 → 暗夜
     const body = document.body;
+    const isDarkGold = body.classList.contains('dark-gold-mode');
     const isNeu = body.classList.contains('neu-mode');
     const isLight = body.classList.contains('light-mode');
     let nextMode, btnIcon, metaColor, storageVal;
 
-    if (isNeu) {
-        // 当前新拟态 → 回到暗夜
-        body.classList.remove('neu-mode');
+    if (isDarkGold) {
+        body.classList.remove('dark-gold-mode');
         nextMode = 'dark';
-        btnIcon = '☼';
+        btnIcon = '🌙';
         metaColor = '#0d1225';
         storageVal = 'dark';
+    } else if (isNeu) {
+        body.classList.remove('neu-mode');
+        body.classList.add('dark-gold-mode');
+        nextMode = 'dark-gold';
+        btnIcon = '✦';
+        metaColor = '#141211';
+        storageVal = 'dark-gold';
+        neuInitHome();
     } else if (isLight) {
-        // 当前白天 → 切换到新拟态
         body.classList.remove('light-mode');
         body.classList.add('neu-mode');
         nextMode = 'neu';
@@ -1553,26 +1560,19 @@ function toggleLightMode() {
         storageVal = 'neu';
         neuInitHome();
     } else {
-        // 当前暗夜 → 切换到白天
         body.classList.add('light-mode');
         nextMode = 'light';
-        btnIcon = '☾';
+        btnIcon = '☼';
         metaColor = '#FFFAF0';
         storageVal = 'light';
     }
 
     const metaTheme = document.getElementById('theme-color-meta');
     if (metaTheme) metaTheme.setAttribute('content', metaColor);
-
     localStorage.setItem('syzygy_theme', storageVal);
 
     const btn = document.getElementById('themeToggleBtn');
-    if (btn) {
-        btn.innerText = btnIcon;
-        const isDark = !body.classList.contains('light-mode') && !body.classList.contains('neu-mode');
-        btn.style.color = isDark ? 'white' : '#333';
-        btn.style.background = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.05)';
-    }
+    if (btn) { btn.innerText = btnIcon; }
 }
 
 // 网页一打开，先看看上次选了什么主题
@@ -1581,21 +1581,17 @@ window.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('themeToggleBtn');
     const metaTheme = document.getElementById('theme-color-meta');
 
-    if (savedTheme === 'neu') {
+    if (savedTheme === 'dark-gold') {
+        document.body.classList.add('dark-gold-mode');
+        if (btn) btn.innerText = '✦';
+        if (metaTheme) metaTheme.setAttribute('content', '#141211');
+    } else if (savedTheme === 'neu') {
         document.body.classList.add('neu-mode');
-        if (btn) {
-            btn.innerText = '◈';
-            btn.style.color = '#333';
-            btn.style.background = 'rgba(0,0,0,0.05)';
-        }
+        if (btn) btn.innerText = '◈';
         if (metaTheme) metaTheme.setAttribute('content', '#E8EFF7');
     } else if (savedTheme === 'light') {
         document.body.classList.add('light-mode');
-        if (btn) {
-            btn.innerText = '☾';
-            btn.style.color = '#333';
-            btn.style.background = 'rgba(0,0,0,0.05)';
-        }
+        if (btn) btn.innerText = '☼';
         if (metaTheme) metaTheme.setAttribute('content', '#FFFAF0');
     }
 });
@@ -1611,7 +1607,7 @@ async function startSystem() {
     await syncFromCloud();
     updateDays();
     document.body.dataset.view = "home";
-    if (document.body.classList.contains('neu-mode')) neuInitHome();
+    if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuInitHome();
 }
 startSystem();
 
