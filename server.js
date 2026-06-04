@@ -815,7 +815,10 @@ function formatTimeContext() {
         const key = getDateKey(d);
         const page = pages.find(p => p.date === key);
         const label = i === 0 ? '今天' : i === 1 ? '昨天' : '前天';
-        if (page) parts.push(`📅 ${label}(${key.slice(5)})：${page.summary.substring(0, 120)}`);
+        if (page) {
+            const summary = page.summary || page.shenwang_note || '';
+            if (summary) parts.push(`📅 ${label}(${key.slice(5)})：${summary.substring(0, 120)}`);
+        }
     }
 
     const weekliesSorted = weeklies.sort((a, b) => b.week.localeCompare(a.week));
