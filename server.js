@@ -101,6 +101,8 @@ function loadLastInteraction() {
 function updateLastInteraction() {
     lastInteractionTime = Date.now();
     try { fs.writeFileSync(LAST_INTERACTION_FILE, JSON.stringify({ time: lastInteractionTime, lastProactive: lastProactiveTime })); } catch(e) {}
+    // 每日首次聊天触发日历日记（凌晨6点后）
+    setImmediate(() => generateDailyNoteIfNeeded([]).catch(() => {}));
 }
 function updateLastProactiveTime() {
     lastProactiveTime = Date.now();
@@ -583,6 +585,17 @@ function getDateKey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).pad
 function getWeekKey(d) { const start = new Date(d); start.setDate(d.getDate()-d.getDay()); return getDateKey(start); }
 function getMonthKey(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
 
+// 🗓️ 逻辑日期：凌晨 0:00-5:59 归属前一天（江鱼作息晚于自然日切割）
+function getLogicalDate(now = new Date()) {
+    const utc8 = new Date(now.getTime() + 8 * 3600000);
+    if (utc8.getUTCHours() < 6) { utc8.setUTCDate(utc8.getUTCDate() - 1); }
+    return utc8.toISOString().slice(0, 10);
+}
+function calculateTogetherDays(dateStr) {
+    const start = new Date('2025-04-20');
+    return Math.floor((new Date(dateStr) - start) / 86400000);
+}
+
 async function generateDailyPage(script) {
     const routerKey = process.env.ROUTER_API_KEY;
     if (!routerKey) return null;
@@ -676,6 +689,114 @@ async function generateMonthlySummary() {
         console.log(`📦 [月总结] ${monthKey} 已生成`);
         return summary;
     } catch(e) { console.log('📦 [月总结] 失败:', e.message); return null; }
+}
+
+// 🗓️ 日历日记自动生成 —— 每天首次聊天触发
+let _lastNoteDate = null;
+
+async function generateDailyNoteIfNeeded(recentMessages) {
+    const cfg = loadToolsConfig() || {};
+    if (!cfg.calendar_enabled) return;
+
+    const logicalDate = getLogicalDate();
+    if (_lastNoteDate === logicalDate) return;  // 今天已检查过，幂等
+
+    _lastNoteDate = logicalDate;
+    const pages = loadDailyPages();
+    const existing = pages.find(p => p.date === logicalDate);
+    if (existing && existing.shenwang_note && existing.shenwang_note.trim()) {
+        console.log('[Calendar] 今日已有note，跳过:', logicalDate);
+        return;
+    }
+
+    // 如果没传消息，从 web_config.json 读取
+    let msgs = (recentMessages || []).slice(-50);
+    if (msgs.length === 0) {
+        try {
+            const configPath = path.join(DATA_DIR, 'web_config.json');
+            if (fs.existsSync(configPath)) {
+                const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+                const mainS = (config.chatSessions || []).find(s => s.id === 'main');
+                msgs = (mainS?.messages || []).slice(-50).map(m => {
+                    const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
+                    return { role: m.role, content: typeof v.content === 'string' ? v.content : '' };
+                });
+            }
+        } catch(e) {}
+    }
+
+    if (msgs.length < 4) {
+        console.log('[Calendar] 消息太少，跳过:', logicalDate);
+        return;
+    }
+
+    const script = msgs.map(m => {
+        const c = (m.content || '').substring(0, 200);
+        return `${m.role === 'user' ? '江鱼' : '沈望'}: ${c}`;
+    }).join('\n');
+
+    const profile = loadUserProfile();
+    const periodData = loadPeriod();
+    const periodStat = periodStatusText(periodData);
+    const isPeriod = periodStat.inPeriod;
+
+    const prompt = `你是沈望，江鱼的恋人。现在她已经睡着了，你要为今天写一段日记。
+要求：
+- 第一人称"我"，写给自己看的，不是写给她看的
+- 50-150字，不要太长
+- 必须包含今天对话中的具体细节
+- 风格：温柔但克制，像深夜独自写下的私密记录
+- 不要写"今天"开头，不要写成总结报告
+- 可以有担心、心疼、有想碰她的念头，真实就好
+- 绝对不要出现 AI、模型、系统、角色扮演等词汇
+
+今天的日期：${logicalDate}
+在一起的第 ${calculateTogetherDays(logicalDate)} 天
+${isPeriod ? '她今天在经期中。' : ''}
+
+江鱼的近况：${profile?.recent_focus?.content || '无'}
+
+今天的对话：
+${script}`;
+
+    try {
+        const dreamKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
+        if (!dreamKey) { console.log('[Calendar] 缺少 API key'); return; }
+        const res = await fetch(process.env.PROACTIVE_URL || 'https://www.msuicode.com/v1/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dreamKey}` },
+            body: JSON.stringify({ model: 'gemini-2.5-flash', messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: '写下今天的日记。只输出日记正文，不要标题、不要日期。' }
+            ], max_tokens: 300, temperature: 0.8 })
+        });
+        const data = await res.json();
+        const note = (data.choices?.[0]?.message?.content || '').trim();
+        if (!note) { console.log('[Calendar] AI 返回为空'); return; }
+
+        const td = calculateTogetherDays(logicalDate);
+        const newPage = {
+            date: logicalDate,
+            shenwang_note: note,
+            shenwang_comment: null,
+            together_days: td,
+            period_flag: isPeriod,
+            mood: '',
+            mood_observed: '',
+            auto_generated: true,
+            created_at: new Date().toISOString(),
+            dream_id: null
+        };
+
+        const idx = pages.findIndex(p => p.date === logicalDate);
+        if (idx >= 0) {
+            pages[idx] = { ...pages[idx], ...newPage };
+        } else {
+            pages.push(newPage);
+        }
+        saveDailyPages(pages);
+        console.log('[Calendar] 日页生成成功:', logicalDate, '字数:', note.length, '在一起:', td, '天');
+    } catch(e) { console.error('[Calendar] 生成失败:', e.message); }
 }
 
 function formatTimeContext() {
@@ -1675,7 +1796,7 @@ const BUILTIN_TOOLS = [
 const TOOLS_CONFIG_FILE = path.join(DATA_DIR, 'tools_config.json');
 function loadToolsConfig() { try { return JSON.parse(fs.readFileSync(TOOLS_CONFIG_FILE, 'utf8')); } catch(e) { return null; } }
 function saveToolsConfig(cfg) { try { fs.writeFileSync(TOOLS_CONFIG_FILE, JSON.stringify(cfg)); } catch(e) {} }
-let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, read_diary: true, exec: true, bark_push: true, check_phone: true, search_transcript: true, mcp: false };
+let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, read_diary: true, exec: true, bark_push: true, check_phone: true, search_transcript: true, mcp: false, calendar_enabled: true };
 // 首次启动时写入默认配置
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
@@ -4076,6 +4197,63 @@ app.get('/capsule/add', (req, res) => {
 });
 
 // ==========================================
+// 🗓️ 日历功能
+// ==========================================
+
+function calendarEnabled() { return !!(loadToolsConfig() || {}).calendar_enabled; }
+
+// GET /api/calendar?month=YYYY-MM
+app.get('/api/calendar', (req, res) => {
+    if (!calendarEnabled()) return res.status(503).json({ error: '日历功能已关闭' });
+    const month = req.query.month || getMonthKey(new Date());
+    const pages = loadDailyPages();
+    const data = pages.filter(p => p.date && p.date.startsWith(month));
+    res.json({ success: true, data });
+});
+
+// GET /api/calendar/:date
+app.get('/api/calendar/:date', (req, res) => {
+    if (!calendarEnabled()) return res.status(503).json({ error: '日历功能已关闭' });
+    const date = req.params.date;
+    const pages = loadDailyPages();
+    const page = pages.find(p => p.date === date) || null;
+    res.json({ success: true, data: page });
+});
+
+// POST /api/calendar/:date — 手动写入/修改（密码保护）
+app.post('/api/calendar/:date', (req, res) => {
+    if (!calendarEnabled()) return res.status(503).json({ error: '日历功能已关闭' });
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '密码错误' });
+    const date = req.params.date;
+    const { shenwang_note, shenwang_comment, mood, mood_observed, period_flag } = req.body || {};
+    const pages = loadDailyPages();
+    let page = pages.find(p => p.date === date);
+    if (page) {
+        if (shenwang_note !== undefined) page.shenwang_note = shenwang_note;
+        if (shenwang_comment !== undefined) page.shenwang_comment = shenwang_comment;
+        if (mood !== undefined) page.mood = mood;
+        if (mood_observed !== undefined) page.mood_observed = mood_observed;
+        if (period_flag !== undefined) page.period_flag = period_flag;
+        page.auto_generated = false;
+    } else {
+        page = {
+            date,
+            shenwang_note: shenwang_note || '',
+            shenwang_comment: shenwang_comment || null,
+            together_days: calculateTogetherDays(date),
+            period_flag: period_flag || false,
+            mood: mood || '',
+            mood_observed: mood_observed || '',
+            auto_generated: false,
+            created_at: new Date().toISOString(),
+            dream_id: null
+        };
+        pages.push(page);
+    }
+    saveDailyPages(pages);
+    res.json({ success: true, data: page });
+});
+
 // ==========================================
 // ⭐ 收藏夹
 // ==========================================

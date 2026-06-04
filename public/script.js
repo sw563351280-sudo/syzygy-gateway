@@ -270,7 +270,7 @@ function toast(msg){
 
 function goView(viewId) {
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', flo:'sec-flo' };
+    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', flo:'sec-flo', calendar:'sec-calendar' };
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
@@ -278,6 +278,7 @@ function goView(viewId) {
     if (viewId === 'home') { updateDays && updateDays(); if (document.body.classList.contains('neu-mode')) neuInitHome(); }
     if (viewId === 'favorites') loadAndRenderFavorites();
     if (viewId === 'flo') floRender();
+    if (viewId === 'calendar') calRender();
     if (document.body.classList.contains('neu-mode')) neuUpdateNav();
 }
 function openStarCrossing() {
@@ -2152,3 +2153,62 @@ async function deleteFavorite(id) {
         else { toast('删除失败'); }
     } catch(e) { toast('网络错误'); }
 }
+
+// ═══ 日历视图 ═══
+let calYear = new Date().getFullYear();
+let calMonth = new Date().getMonth() + 1;
+
+function calYearMonth() { return calYear + '-' + String(calMonth).padStart(2, '0'); }
+function calPrevMonth() { calMonth--; if (calMonth < 1) { calMonth = 12; calYear--; } calRender(); }
+function calNextMonth() { calMonth++; if (calMonth > 12) { calMonth = 1; calYear++; } calRender(); }
+
+async function calRender() {
+    const title = document.getElementById('calTitle');
+    const grid = document.getElementById('calGrid');
+    if (!title || !grid) return;
+    title.innerText = calYear + '年' + calMonth + '月';
+    let data = [];
+    try { const r = await fetch('/api/calendar?month=' + calYearMonth()); const j = await r.json(); data = j.success ? (j.data||[]) : []; } catch(e) {}
+    const pageMap = {}; data.forEach(p => { if (p.date) pageMap[p.date] = p; });
+    const firstDay = new Date(calYear, calMonth-1, 1);
+    const daysInMonth = new Date(calYear, calMonth, 0).getDate();
+    const startDow = firstDay.getDay();
+    const leadingEmpty = startDow === 0 ? 6 : startDow - 1;
+    const today = new Date();
+    const todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+    let html = '';
+    for (let i = 0; i < leadingEmpty; i++) html += '<div class="cal-cell empty"></div>';
+    for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = calYear+'-'+String(calMonth).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+        const page = pageMap[dateStr];
+        const isToday = dateStr === todayStr;
+        html += '<div class="cal-cell' + (isToday?' today':'') + (page&&page.shenwang_note?' has-note':'') + '" onclick="calOpenDay(\''+dateStr+'\')">';
+        html += '<span class="cal-cell-num">'+d+'</span>';
+        if (page && page.shenwang_note) html += '<span class="cal-cell-dot"></span>';
+        if (page && page.period_flag) html += '<span class="cal-cell-period"></span>';
+        html += '</div>';
+    }
+    grid.innerHTML = html;
+}
+
+async function calOpenDay(dateStr) {
+    let page = null;
+    try { const r = await fetch('/api/calendar/'+dateStr); const j = await r.json(); page = j.success ? j.data : null; } catch(e) {}
+    const d = new Date(dateStr+'T00:00:00+08:00');
+    document.getElementById('calDetailDate').innerText = d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日';
+    const de = document.getElementById('calDetailDays');
+    if (page && page.together_days) { de.innerText = '在一起的第 '+page.together_days+' 天'; de.style.display=''; } else de.style.display='none';
+    const ne = document.getElementById('calDetailNote');
+    if (page && page.shenwang_note) { ne.innerText = page.shenwang_note; ne.className = 'cal-detail-note'; ne.style.display=''; }
+    else { ne.innerText = '这一天还没有留下记录'; ne.className = 'cal-detail-note empty'; ne.style.display=''; }
+    const ce = document.getElementById('calDetailComment');
+    if (page && page.shenwang_comment) { ce.innerText = '💬 '+page.shenwang_comment; ce.style.display=''; } else ce.style.display='none';
+    const te = document.getElementById('calDetailTags');
+    let t = '';
+    if (page && page.period_flag) t += '<span class="cal-tag period">🩸 生理期</span>';
+    if (page && page.mood) t += '<span class="cal-tag mood">'+page.mood+'</span>';
+    te.innerHTML = t || ''; te.style.display = t ? '' : 'none';
+    document.getElementById('calDetail').style.display = 'block';
+}
+
+function closeCalDetail() { document.getElementById('calDetail').style.display = 'none'; }

@@ -2073,4 +2073,67 @@ body.neu-mode #sec-flo .view-title { color: #2e3b69; font-size: 16px; }
 }
 .sup-del-btn:hover { background: rgba(229,57,53,0.1); }
 
+/* ═══ 日历视图 ═══ */
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; padding: 8px 16px; }
+.cal-weekday { text-align: center; font-size: 0.75em; color: var(--dim); padding: 8px 0; }
+.cal-cell { aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 8px; cursor: pointer; position: relative; transition: background 0.15s; }
+.cal-cell:hover { background: rgba(255,255,255,0.05); }
+.cal-cell.empty { cursor: default; background: none !important; }
+.cal-cell.today { border: 1px solid rgba(212,160,74,0.5); }
+.cal-cell.has-note { background: rgba(212,160,74,0.08); }
+.cal-cell-num { font-size: 0.9em; color: var(--dim); }
+.cal-cell.today .cal-cell-num { color: #D4A04A; font-weight: 600; }
+.cal-cell-dot { width: 4px; height: 4px; border-radius: 50%; background: #D4A04A; position: absolute; bottom: 6px; }
+.cal-cell-period { width: 5px; height: 5px; border-radius: 50%; background: #F28B82; position: absolute; top: 5px; right: 5px; }
+
+/* 日历详情弹窗 */
+.cal-detail-overlay { position: fixed; inset: 0; z-index: 9998; background: rgba(0,0,0,0.6); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.cal-detail-card { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 88%; max-width: 400px; background: rgba(18,22,40,0.95); border: 1px solid rgba(212,160,74,0.25); border-radius: 16px; padding: 24px; color: #e8ecf5; }
+.cal-detail-close { position: absolute; top: 12px; right: 16px; background: none; border: none; color: #a8b8e7; font-size: 1.3em; cursor: pointer; }
+.cal-detail-date { font-size: 1.1em; color: #e8ecf5; margin-bottom: 4px; }
+.cal-detail-days { font-size: 0.85em; color: #D4A04A; margin-bottom: 14px; }
+.cal-detail-note { font-size: 0.95em; color: #c5cde8; line-height: 1.7; white-space: pre-wrap; margin-bottom: 10px; }
+.cal-detail-note.empty { color: #a8b8e7; font-style: italic; }
+.cal-detail-comment { font-size: 0.85em; color: #a8b8e7; font-style: italic; margin-bottom: 10px; padding: 8px 12px; border-left: 2px solid rgba(212,160,74,0.25); background: rgba(255,255,255,0.02); border-radius: 0 6px 6px 0; }
+.cal-tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; margin-right: 4px; }
+.cal-tag.period { background: rgba(242,139,130,0.12); color: #F28B82; }
+.cal-tag.mood { background: rgba(212,160,74,0.1); color: #D4A04A; }
+
+/* 白天模式日历 */
+body.light-mode .cal-detail-card { background: rgba(255,255,255,0.95); border-color: rgba(196,165,123,0.2); color: #3E2723; }
+body.light-mode .cal-detail-date { color: #3E2723; }
+body.light-mode .cal-detail-close { color: #8B7355; }
+body.light-mode .cal-detail-note { color: #5C4033; }
+body.light-mode .cal-detail-note.empty { color: #8B7355; }
+body.light-mode .cal-detail-comment { color: #8B7355; border-left-color: rgba(196,165,123,0.25); }
+body.light-mode .cal-cell:hover { background: rgba(0,0,0,0.04); }
+body.light-mode .cal-cell.has-note { background: rgba(212,160,74,0.1); }
+body.light-mode .cal-cell-num { color: #8B7355; }
+body.light-mode .cal-cell.today .cal-cell-num { color: #8B6914; }
+
+/* 新拟态模式日历 */
+body.neu-mode #sec-calendar { background: #E8EFF7; min-height: 100vh; max-width: 430px; margin: 0 auto; padding-bottom: 40px; }
+body.neu-mode #sec-calendar .view-topbar { background: rgba(232,239,247,0.9); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(163,177,198,0.25); }
+body.neu-mode #sec-calendar .view-back { color: #2e3b69; }
+body.neu-mode #sec-calendar .view-title { color: #2e3b69; font-size: 16px; }
+body.neu-mode .cal-grid { padding: 8px 16px; }
+body.neu-mode .cal-weekday { color: #718096; }
+body.neu-mode .cal-cell-num { color: #4A5568; }
+body.neu-mode .cal-cell:hover { background: rgba(163,177,198,0.15); }
+body.neu-mode .cal-cell.today { border-color: #D4A04A; background: rgba(212,160,74,0.08); }
+body.neu-mode .cal-cell.today .cal-cell-num { color: #B38B3A; }
+body.neu-mode .cal-cell.has-note { background: rgba(212,160,74,0.1); }
+body.neu-mode .cal-detail-card { background: rgba(242,244,251,0.98); border: none; box-shadow: 12px 12px 24px rgba(163,177,198,0.4), -12px -12px 24px rgba(255,255,255,0.7); border-radius: 20px; color: #2e3b69; }
+body.neu-mode .cal-detail-date { color: #2e3b69; }
+body.neu-mode .cal-detail-days { color: #B38B3A; }
+body.neu-mode .cal-detail-close { color: #718096; }
+body.neu-mode .cal-detail-note { color: #4A5568; }
+body.neu-mode .cal-detail-note.empty { color: #A0AEC0; }
+body.neu-mode .cal-detail-comment { color: #718096; border-left-color: rgba(212,160,74,0.3); background: rgba(163,177,198,0.08); }
+
+@media(max-width:480px) {
+    .cal-grid { gap: 1px; padding: 4px 8px; }
+    .cal-cell-num { font-size: 0.78em; }
+    .cal-detail-card { padding: 18px; }
+}
 
