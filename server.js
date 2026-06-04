@@ -764,10 +764,10 @@ ${script}`;
         const res = await fetch(process.env.PROACTIVE_URL || 'https://www.msuicode.com/v1/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dreamKey}` },
-            body: JSON.stringify({ model: 'gemini-2.5-flash', messages: [
+            body: JSON.stringify({ model: 'gemini-2.5-pro-thinking', messages: [
                 { role: 'system', content: prompt },
                 { role: 'user', content: '写下今天的日记。只输出日记正文，不要标题、不要日期。' }
-            ], max_tokens: 300, temperature: 0.8 })
+            ], temperature: 0.8 })
         });
         const data = await res.json();
         const note = (data.choices?.[0]?.message?.content || '').trim();
