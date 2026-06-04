@@ -1404,8 +1404,8 @@ body.light-mode #sec-data input[type="text"]:focus{border-color:rgba(196,165,123
 .msg{max-width:92%}
 
 /* ═══ 聊天页锁定框架 ═══ */
-body[data-view="chat"] { overflow:hidden!important;position:relative!important }
-#sec-chat.active { position:absolute!important;top:0;left:0;width:100%!important;height:100%!important;padding:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;background:#0d1225!important }
+body[data-view="chat"] { overflow:hidden!important }
+#sec-chat.active { position:static!important;width:100%!important;height:calc(100vh - 1px)!important;padding:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;background:#0d1225!important }
 body.light-mode #sec-chat.active { background:#FFFAF0!important }
 
 /* ═══ 顶栏工具按钮 ═══ */
