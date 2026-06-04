@@ -4550,6 +4550,40 @@ app.post('/api/photos/upload', async (req, res) => {
         photos.push(entry);
         savePhotos(photos);
         res.json({ success: true, photo: entry });
+
+        // 后台调用视觉模型生成 ai_description
+        setImmediate(async () => {
+            try {
+                const dreamKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
+                if (!dreamKey) return;
+                const aiRes = await fetch('https://www.msuicode.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dreamKey}` },
+                    body: JSON.stringify({
+                        model: 'gemini-3-flash-preview-thinking',
+                        messages: [{
+                            role: 'user',
+                            content: [
+                                { type: 'text', text: '请用中文描述这张照片的内容。包括：画面里有什么、场景、氛围、颜色、人物（如果有的话）在做什么。50-100字，不要加任何前缀或格式标记。' },
+                                { type: 'image_url', image_url: { url: image } }
+                            ]
+                        }],
+                        max_tokens: 300
+                    })
+                });
+                const aiData = await aiRes.json();
+                const desc = (aiData.choices?.[0]?.message?.content || '').trim();
+                if (desc) {
+                    const allPhotos = loadPhotos();
+                    const idx = allPhotos.findIndex(p => p.photo_id === photoId);
+                    if (idx !== -1) {
+                        allPhotos[idx].ai_description = desc;
+                        savePhotos(allPhotos);
+                        console.log('[Photo] AI描述已生成:', photoId, desc.substring(0, 40));
+                    }
+                }
+            } catch(e) { console.error('[Photo] AI描述失败:', e.message); }
+        });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
