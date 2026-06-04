@@ -2279,10 +2279,10 @@ body.dark-gold-mode .neu-nav-item.active{color:#D4A04A}
 body.dark-gold-mode .neu-nav-item.active::after{background:#D4A04A}
 body.dark-gold-mode .neu-period-countdown{color:#8c7a65}
 /* ── 聊天 ── */
-body.dark-gold-mode .view-title{color:#e19602}
-body.dark-gold-mode .chat-win-title{color:#e19602}
-body.dark-gold-mode .msg.user{background:rgba(228,212,199,0.08);border:1px solid rgba(228,212,199,0.08);color:#e19602;border-radius:14px}
-body.dark-gold-mode .msg.sys{background:rgba(30,26,24,0.6);backdrop-filter:blur(8px);border:1px solid rgba(228,212,199,0.06);color:#e19602;border-radius:14px}
+body.dark-gold-mode .view-title{color:#fcf84c}
+body.dark-gold-mode .chat-win-title{color:#fcf84c}
+body.dark-gold-mode .msg.user{background:rgba(228,212,199,0.08);border:1px solid rgba(228,212,199,0.08);color:#fcf84c;border-radius:14px}
+body.dark-gold-mode .msg.sys{background:rgba(30,26,24,0.6);backdrop-filter:blur(8px);border:1px solid rgba(228,212,199,0.06);color:#fcf84c;border-radius:14px}
 body.dark-gold-mode #chatInput{background:rgba(30,26,24,0.6);backdrop-filter:blur(8px);border:1px solid rgba(228,212,199,0.08);color:#e4d4c7;border-radius:10px}
 body.dark-gold-mode #chatInput::placeholder{color:#584b38}
 body.dark-gold-mode #chatInput:focus{border-color:rgba(212,160,74,0.3);background:rgba(40,34,30,0.7)}
