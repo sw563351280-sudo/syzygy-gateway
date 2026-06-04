@@ -2279,14 +2279,18 @@ body.dark-gold-mode .neu-nav-item.active{color:#D4A04A}
 body.dark-gold-mode .neu-nav-item.active::after{background:#D4A04A}
 body.dark-gold-mode .neu-period-countdown{color:#8c7a65}
 /* ── 聊天 ── */
-body.dark-gold-mode .msg.user{background:rgba(228,212,199,0.08);border:1px solid rgba(228,212,199,0.08);color:#d4c5b8;border-radius:14px}
-body.dark-gold-mode .msg.sys{background:rgba(30,26,24,0.6);backdrop-filter:blur(8px);border:1px solid rgba(228,212,199,0.06);color:#d4c5b8;border-radius:14px}
+body.dark-gold-mode .view-title{color:#e19602}
+body.dark-gold-mode .chat-win-title{color:#e19602}
+body.dark-gold-mode .msg.user{background:rgba(228,212,199,0.08);border:1px solid rgba(228,212,199,0.08);color:#e19602;border-radius:14px}
+body.dark-gold-mode .msg.sys{background:rgba(30,26,24,0.6);backdrop-filter:blur(8px);border:1px solid rgba(228,212,199,0.06);color:#e19602;border-radius:14px}
 body.dark-gold-mode #chatInput{background:rgba(30,26,24,0.6);backdrop-filter:blur(8px);border:1px solid rgba(228,212,199,0.08);color:#e4d4c7;border-radius:10px}
 body.dark-gold-mode #chatInput::placeholder{color:#584b38}
 body.dark-gold-mode #chatInput:focus{border-color:rgba(212,160,74,0.3);background:rgba(40,34,30,0.7)}
 body.dark-gold-mode .chat-tool-btn{background:rgba(30,26,24,0.6)!important;border:1px solid rgba(228,212,199,0.08)!important;color:#8c7a65!important}
 body.dark-gold-mode .chat-tool-btn:hover{color:#D4A04A!important;background:rgba(212,160,74,0.1)!important}
 body.dark-gold-mode .model-select{background:rgba(30,26,24,0.6);border:1px solid rgba(228,212,199,0.08);color:#e4d4c7;border-radius:8px}
+body.dark-gold-mode .chat-main-header .chat-index-btn,
+body.dark-gold-mode .chat-main-header .chat-rename-btn{display:none!important}
 body.dark-gold-mode .toast{background:rgba(20,18,17,0.9)!important;backdrop-filter:blur(12px);border:1px solid rgba(212,160,74,0.2)!important;color:#e4d4c7!important}
 body.dark-gold-mode .think-box{background:rgba(212,160,74,0.04);border:1px solid rgba(212,160,74,0.1);color:#c4b8ab}
 body.dark-gold-mode .msg-meta{color:#584b38}
