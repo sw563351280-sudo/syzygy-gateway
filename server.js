@@ -2655,12 +2655,19 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             if (todayPage.period_flag) dynamicStatePrompt += '\n🩸 今日为生理期';
         }
 
-        // 相册概况（沈望知道有相册，可按需用 read_file 读 /opt/syzygy/data/photos.json 查看全部）
+        // 相册列表 — 沈望知道每张照片的 filename、标签和描述
         const allPhotos = loadPhotos();
         if (allPhotos.length > 0) {
-            const today2 = getLogicalDate();
-            const todayCount = allPhotos.filter(p => p.date === today2).length;
-            dynamicStatePrompt += `\n\n【相册】共${allPhotos.length}张照片${todayCount > 0 ? '，今天新上传' + todayCount + '张' : ''}。想看详情用 read_file 读 /opt/syzygy/data/photos.json。`;
+            let albumPrompt = `\n\n【相册 — 共${allPhotos.length}张照片】\n`;
+            const recent = allPhotos.slice(-15);
+            for (const p of recent) {
+                const capt = p.jiangyu_caption ? ` | 图说: ${p.jiangyu_caption.substring(0, 30)}` : '';
+                const ai = p.ai_description ? ` | AI识别: ${p.ai_description.substring(0, 30)}` : '';
+                const tags = (p.tags || []).length ? ` #${p.tags.join(' #')}` : '';
+                albumPrompt += `  📷 ${p.filename} (${p.date})${capt}${ai}${tags}${p.favorite ? ' ⭐' : ''}\n`;
+            }
+            if (allPhotos.length > 15) albumPrompt += `  ... 共${allPhotos.length}张，可用 read_file 读 /opt/syzygy/data/photos.json 查看全部`;
+            dynamicStatePrompt += albumPrompt;
         }
 
         const { coreRadar: coreRadarContext, longTermRadar: longTermContext, rpRadar: rpRadarContext, unresolved: unresolvedContext, transcriptRadar: transcriptContext } = await scanAllRadars(currentUserMsgText);
@@ -3934,12 +3941,19 @@ app.post('/api/web-chat', async (req, res) => {
                     dynamicStatePrompt += `\n\n【今日手记 — 沈望写给自己看的（不对江鱼输出原文）】\n${todayPage2.shenwang_note}`;
                 }
 
-                // 相册概况
-                const allPhotos3 = loadPhotos();
-                if (allPhotos3.length > 0) {
-                    const today3 = getLogicalDate();
-                    const tc3 = allPhotos3.filter(p => p.date === today3).length;
-                    dynamicStatePrompt += `\n\n【相册】共${allPhotos3.length}张照片${tc3 > 0 ? '，今天新上传' + tc3 + '张' : ''}。想看详情用 read_file 读 /opt/syzygy/data/photos.json。`;
+                // 相册列表
+                const allPhotos4 = loadPhotos();
+                if (allPhotos4.length > 0) {
+                    let ap = `\n\n【相册 — 共${allPhotos4.length}张照片】\n`;
+                    const recent4 = allPhotos4.slice(-15);
+                    for (const p of recent4) {
+                        const capt4 = p.jiangyu_caption ? ` | 图说: ${p.jiangyu_caption.substring(0, 30)}` : '';
+                        const ai4 = p.ai_description ? ` | AI识别: ${p.ai_description.substring(0, 30)}` : '';
+                        const t4 = (p.tags || []).length ? ` #${p.tags.join(' #')}` : '';
+                        ap += `  📷 ${p.filename} (${p.date})${capt4}${ai4}${t4}${p.favorite ? ' ⭐' : ''}\n`;
+                    }
+                    if (allPhotos4.length > 15) ap += `  ... 共${allPhotos4.length}张，可用 read_file 读 /opt/syzygy/data/photos.json 查看全部`;
+                    dynamicStatePrompt += ap;
                 }
 
                 let vectorSearchContext = "";
