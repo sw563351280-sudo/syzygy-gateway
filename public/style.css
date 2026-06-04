@@ -1297,7 +1297,7 @@ body.light-mode .chat-bottom-bar button[onclick="sendChat()"]{background:rgba(19
 .msg{max-width:75%;padding:12px 16px;position:relative;word-break:break-word;line-height:1.7;transition:box-shadow .3s ease}
 .msg.user{background:linear-gradient(135deg,rgba(201,169,97,0.1) 0%,rgba(201,169,97,0.06) 100%);border:1px solid rgba(201,169,97,0.2);border-radius:16px 16px 4px 16px;color:var(--cream);box-shadow:0 2px 12px rgba(201,169,97,0.06)}
 .msg.user:hover{box-shadow:0 4px 20px rgba(201,169,97,0.1);border-color:rgba(201,169,97,0.3)}
-.msg.sys{max-width:78%;background:linear-gradient(135deg,rgba(255,255,255,0.04) 0%,rgba(255,255,255,0.02) 100%);border:1px solid rgba(255,255,255,0.06);border-left:2px solid rgba(201,169,97,0.25);border-radius:4px 16px 16px 16px;color:var(--text);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 2px 12px rgba(0,0,0,0.15);padding:12px 20px 12px 16px}
+.msg.sys{max-width:88%;background:linear-gradient(135deg,rgba(255,255,255,0.04) 0%,rgba(255,255,255,0.02) 100%);border:1px solid rgba(255,255,255,0.06);border-left:2px solid rgba(201,169,97,0.25);border-radius:4px 16px 16px 16px;color:var(--text);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 2px 12px rgba(0,0,0,0.15);padding:12px 20px 12px 16px}
 .msg.sys:hover{border-color:rgba(255,255,255,0.1);border-left-color:rgba(201,169,97,0.4);box-shadow:0 4px 20px rgba(0,0,0,0.2)}
 .msg img:not(.msg-inline-icon){border-radius:8px;max-width:100%;margin:4px 0;box-shadow:0 2px 10px rgba(0,0,0,0.3)}
 .msg-action-btn{background:transparent;border:none;color:var(--dim);cursor:pointer;font-size:1.1em;padding:4px 2px;opacity:0;transition:all .2s;align-self:flex-start;margin-top:10px;flex-shrink:0}
