@@ -281,6 +281,24 @@ function goView(viewId) {
     if (viewId === 'calendar') calRender();
     if (document.body.classList.contains('neu-mode')) neuUpdateNav();
 }
+function neuGetMemoryPwd() {
+    let pwd = localStorage.getItem('memoryPwd') || '';
+    if (!pwd) {
+        pwd = prompt('管理密码:');
+
+        if (pwd) localStorage.setItem('memoryPwd', pwd);
+    }
+    return pwd;
+}
+function neuOpenMemoryManager() {
+    const pwd = neuGetMemoryPwd();
+    if (pwd) window.open('/memory-manager?pwd=' + encodeURIComponent(pwd), '_blank');
+}
+function neuOpenLongTerm() {
+    const pwd = neuGetMemoryPwd();
+    if (pwd) window.open('/long-term?pwd=' + encodeURIComponent(pwd), '_blank');
+}
+
 function openStarCrossing() {
     const pwd = new URLSearchParams(location.search).get('pwd') || localStorage.getItem('memoryPwd') || '';
     if (pwd) window.location.href = '/memory.html?pwd=' + encodeURIComponent(pwd);
