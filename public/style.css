@@ -1013,7 +1013,7 @@ body.light-mode .chat-sidebar {
     .chat-main .chat-window { padding-top: 20px !important; }
 
     /* 💥 杀掉所有原生边框、背景、线条和多余文字 */
-    .chat-sidebar, .chat-main-header, .sidebar-header, body.light-mode .chat-sidebar {
+    .chat-sidebar, .chat-main-header, .sidebar-header, body.light-mode .chat-sidebar, body.dark-gold-mode .chat-sidebar {
         background: transparent !important;
         border: none !important; border-bottom: none !important;
         box-shadow: none !important;
@@ -1110,12 +1110,12 @@ body.light-mode .chat-sidebar {
     }
 
     /* ================= 黑夜模式自适应 ================= */
-    body:not(.light-mode):not(.neu-mode) #themeToggleBtn,
-    body:not(.light-mode):not(.neu-mode) .sidebar-title,
-    body:not(.light-mode):not(.neu-mode) .sidebar-new-btn,
-    body:not(.light-mode):not(.neu-mode) .chat-index-btn,
-    body:not(.light-mode):not(.neu-mode) .chat-rename-btn,
-    body:not(.light-mode):not(.neu-mode) .sidebar-list {
+    body:not(.light-mode):not(.neu-mode):not(.dark-gold-mode) #themeToggleBtn,
+    body:not(.light-mode):not(.neu-mode):not(.dark-gold-mode) .sidebar-title,
+    body:not(.light-mode):not(.neu-mode):not(.dark-gold-mode) .sidebar-new-btn,
+    body:not(.light-mode):not(.neu-mode):not(.dark-gold-mode) .chat-index-btn,
+    body:not(.light-mode):not(.neu-mode):not(.dark-gold-mode) .chat-rename-btn,
+    body:not(.light-mode):not(.neu-mode):not(.dark-gold-mode) .sidebar-list {
         background: rgba(12, 16, 28, 0.8) !important;
         box-shadow: 0 4px 15px rgba(0,0,0,0.4) !important;
         color: var(--gold) !important; /* 黑夜里月亮和符号统一变成金色 */
