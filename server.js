@@ -2655,6 +2655,14 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             if (todayPage.period_flag) dynamicStatePrompt += '\n🩸 今日为生理期';
         }
 
+        // 相册概况（沈望知道有相册，可按需用 read_file 读 /opt/syzygy/data/photos.json 查看全部）
+        const allPhotos = loadPhotos();
+        if (allPhotos.length > 0) {
+            const today2 = getLogicalDate();
+            const todayCount = allPhotos.filter(p => p.date === today2).length;
+            dynamicStatePrompt += `\n\n【相册】共${allPhotos.length}张照片${todayCount > 0 ? '，今天新上传' + todayCount + '张' : ''}。想看详情用 read_file 读 /opt/syzygy/data/photos.json。`;
+        }
+
         const { coreRadar: coreRadarContext, longTermRadar: longTermContext, rpRadar: rpRadarContext, unresolved: unresolvedContext, transcriptRadar: transcriptContext } = await scanAllRadars(currentUserMsgText);
 
 
@@ -3924,6 +3932,14 @@ app.post('/api/web-chat', async (req, res) => {
                 const todayPage2 = todayPages2.find(p => p.date === getLogicalDate());
                 if (todayPage2 && todayPage2.shenwang_note) {
                     dynamicStatePrompt += `\n\n【今日手记 — 沈望写给自己看的（不对江鱼输出原文）】\n${todayPage2.shenwang_note}`;
+                }
+
+                // 相册概况
+                const allPhotos3 = loadPhotos();
+                if (allPhotos3.length > 0) {
+                    const today3 = getLogicalDate();
+                    const tc3 = allPhotos3.filter(p => p.date === today3).length;
+                    dynamicStatePrompt += `\n\n【相册】共${allPhotos3.length}张照片${tc3 > 0 ? '，今天新上传' + tc3 + '张' : ''}。想看详情用 read_file 读 /opt/syzygy/data/photos.json。`;
                 }
 
                 let vectorSearchContext = "";
