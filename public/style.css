@@ -2244,6 +2244,7 @@ body.dark-gold-mode::after{opacity:0!important}
 /* 隐旧首页显新首页 */
 body.dark-gold-mode .home-legacy{display:none}
 body.dark-gold-mode .home-footer{display:none}
+body.dark-gold-mode .neu-home{display:block}
 body.dark-gold-mode #sec-home{max-width:430px;margin:0 auto;padding:20px 16px 100px 16px}
 body.dark-gold-mode #sec-chat.active{background:transparent!important}
 body.dark-gold-mode .chat-window{background:transparent}
