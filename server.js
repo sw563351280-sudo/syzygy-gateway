@@ -131,7 +131,6 @@ function saveTodos(items) { fs.writeFileSync(TODOS_FILE, JSON.stringify(items, n
 function loadPeriod() { try { return JSON.parse(fs.readFileSync(PERIOD_FILE, 'utf8')); } catch(e) { return { records: [], current: null }; } }
 function savePeriod(data) { fs.writeFileSync(PERIOD_FILE, JSON.stringify(data, null, 2), 'utf8'); }
 const _dreamDiag = { last: null, history: [] };
-const _crashDiag = { last: null, history: [] };
 const DAILY_PAGES_FILE = path.join(DATA_DIR, 'daily_pages.json');
 const WEEKLY_SUMMARIES_FILE = path.join(DATA_DIR, 'weekly_summaries.json');
 const MONTHLY_SUMMARIES_FILE = path.join(DATA_DIR, 'monthly_summaries.json');
@@ -731,7 +730,10 @@ async function generateDailyNoteIfNeeded(recentMessages) {
     }
 
     const script = msgs.map(m => {
-        const c = (m.content || '').substring(0, 200);
+        let raw = m.content || '';
+        if (Array.isArray(raw)) raw = raw.map(p => p.text || '').join(' ');
+        if (typeof raw !== 'string') raw = '';
+        const c = raw.substring(0, 200);
         return `${m.role === 'user' ? '江鱼' : '沈望'}: ${c}`;
     }).join('\n');
 
@@ -2980,14 +2982,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                 res.status(response.status).json(data);
             } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
         }
-    } catch (error) {
-        const crashEntry = { at: new Date().toISOString(), error: error.message, stack: (error.stack||'').substring(0, 500), path: req.path, model: body?.model };
-        _crashDiag.last = crashEntry;
-        _crashDiag.history.push(crashEntry);
-        if (_crashDiag.history.length > 20) _crashDiag.history.shift();
-        console.error('大门重组异常:', error.stack?.substring(0, 300));
-        res.status(500).json({ error: "大门重组异常：" + error.message });
-    }
+    } catch (error) { console.error('大门重组异常:', error.stack?.substring(0, 300)); res.status(500).json({ error: "大门重组异常：" + error.message }); }
 });
 
 // ==========================================
@@ -3291,9 +3286,6 @@ app.get('/debug-dream', (req, res) => {
 });
 app.get('/debug-mcp', (req, res) => {
     res.json(_mcpDiag.last || { note: '尚未发送过含MCP的消息' });
-});
-app.get('/debug-crash', (req, res) => {
-    res.json(_crashDiag.last || { note: '没有记录到崩溃' });
 });
 
 app.post('/api/tools-toggle', (req, res) => {
