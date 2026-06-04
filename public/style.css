@@ -2241,15 +2241,20 @@ body.neu-mode .album-detail-comment { color: #718096; border-left-color: rgba(21
 body.dark-gold-mode{ background: linear-gradient(160deg, #141211 0%, #100d0b 40%, #0b0706 100%); color: #e4d4c7; font-family:'Inter','PingFang SC','Microsoft YaHei',sans-serif; letter-spacing:0; line-height:1.6; padding-bottom:0!important }
 body.dark-gold-mode::before{ content:'';position:fixed;inset:0;pointer-events:none;z-index:0; background: radial-gradient(ellipse at 15% 85%, rgba(212,160,74,0.04), transparent 60%) }
 body.dark-gold-mode::after{opacity:0!important}
+/* 隐旧首页显新首页 */
+body.dark-gold-mode .home-legacy{display:none}
+body.dark-gold-mode .home-footer{display:none}
 body.dark-gold-mode #sec-home{max-width:430px;margin:0 auto;padding:20px 16px 100px 16px}
 body.dark-gold-mode #sec-chat.active{background:transparent!important}
 body.dark-gold-mode .chat-window{background:transparent}
 body.dark-gold-mode .chat-main-header{background:rgba(30,26,24,0.4);border-bottom:1px solid rgba(228,212,199,0.06)}
 body.dark-gold-mode .chat-bottom-bar{background:rgba(20,18,17,0.85)!important;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid rgba(228,212,199,0.08)!important}
 body.dark-gold-mode .chat-send-btn{background:rgba(212,160,74,0.12)!important;border:1px solid rgba(212,160,74,0.25)!important;color:#D4A04A!important;border-radius:12px}
+/* ── 黑玻璃卡片 ── */
 body.dark-gold-mode .neu-card,body.dark-gold-mode .neu-together-card,body.dark-gold-mode .neu-todo-card,body.dark-gold-mode .neu-week-strip,body.dark-gold-mode .neu-water-tracker,body.dark-gold-mode .neu-grid-card,body.dark-gold-mode .neu-period-card{ background:rgba(30,26,24,0.6);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(228,212,199,0.06);box-shadow:none;border-radius:18px;transition:all 0.2s ease }
 body.dark-gold-mode .neu-card:hover,body.dark-gold-mode .neu-together-card:hover,body.dark-gold-mode .neu-todo-card:hover,body.dark-gold-mode .neu-week-strip:hover,body.dark-gold-mode .neu-water-tracker:hover,body.dark-gold-mode .neu-grid-card:hover{ background:rgba(40,34,30,0.7);border-color:rgba(228,212,199,0.12);transform:translateY(-1px) }
 body.dark-gold-mode .neu-card:active{ background:rgba(25,22,20,0.7);transform:translateY(0) }
+/* ── V3 首页文字 ── */
 body.dark-gold-mode .neu-together-num{color:#e4d4c7}
 body.dark-gold-mode .neu-together-label{color:#8c7a65}
 body.dark-gold-mode .neu-together-deco *{stroke:#8c7a65 !important}
@@ -2273,11 +2278,8 @@ body.dark-gold-mode .neu-bottom-nav{ background:rgba(20,18,17,0.85);backdrop-fil
 body.dark-gold-mode .neu-nav-item{color:#8c7a65}
 body.dark-gold-mode .neu-nav-item.active{color:#D4A04A}
 body.dark-gold-mode .neu-nav-item.active::after{background:#D4A04A}
-body.dark-gold-mode .neu-period-title{color:#e4d4c7}
-body.dark-gold-mode .neu-period-status{color:#8c7a65}
-body.dark-gold-mode .neu-period-btn{background:rgba(212,160,74,0.08);color:#D4A04A;box-shadow:none;border:1px solid rgba(212,160,74,0.15)}
-body.dark-gold-mode .neu-period-btn:active{background:rgba(212,160,74,0.15)}
 body.dark-gold-mode .neu-period-countdown{color:#8c7a65}
+/* ── 聊天 ── */
 body.dark-gold-mode .msg.user{background:rgba(228,212,199,0.08);border:1px solid rgba(228,212,199,0.08);color:#d4c5b8;border-radius:14px}
 body.dark-gold-mode .msg.sys{background:rgba(30,26,24,0.6);backdrop-filter:blur(8px);border:1px solid rgba(228,212,199,0.06);color:#d4c5b8;border-radius:14px}
 body.dark-gold-mode #chatInput{background:rgba(30,26,24,0.6);backdrop-filter:blur(8px);border:1px solid rgba(228,212,199,0.08);color:#e4d4c7;border-radius:10px}
@@ -2294,6 +2296,7 @@ body.dark-gold-mode .view-topbar{background:rgba(20,18,17,0.85);backdrop-filter:
 body.dark-gold-mode .view-back{color:#8c7a65}
 body.dark-gold-mode .view-title{color:#e4d4c7}
 body.dark-gold-mode .chat-index-btn,body.dark-gold-mode .chat-rename-btn{background:rgba(212,160,74,0.08);border:1px solid rgba(212,160,74,0.15);color:#D4A04A}
+/* ── 日历 ── */
 body.dark-gold-mode #sec-calendar{background:transparent;max-width:430px;margin:0 auto;padding-bottom:40px}
 body.dark-gold-mode #sec-calendar .view-topbar{background:rgba(20,18,17,0.85)}
 body.dark-gold-mode #sec-calendar .view-back{color:#8c7a65}
@@ -2311,6 +2314,7 @@ body.dark-gold-mode .cal-detail-close{color:#8c7a65}
 body.dark-gold-mode .cal-detail-note{color:#c4b8ab}
 body.dark-gold-mode .cal-detail-note.empty{color:#584b38}
 body.dark-gold-mode .cal-detail-comment{color:#8c7a65;border-left-color:rgba(212,160,74,0.2);background:rgba(255,255,255,0.02)}
+/* ── Flo ── */
 body.dark-gold-mode #sec-flo{background:transparent;color:#e4d4c7;max-width:430px;margin:0 auto;padding-bottom:40px}
 body.dark-gold-mode #sec-flo .view-topbar{background:rgba(20,18,17,0.85);border-bottom:1px solid rgba(228,212,199,0.06)}
 body.dark-gold-mode #sec-flo .view-back{color:#8c7a65}
@@ -2326,6 +2330,7 @@ body.dark-gold-mode .flo-date-range{color:#8c7a65}
 body.dark-gold-mode .flo-cycle-card{border-bottom-color:rgba(228,212,199,0.06)}
 body.dark-gold-mode .flo-cycle-arrow{color:#8c7a65}
 body.dark-gold-mode .flo-date-inp{background:rgba(30,26,24,0.6);border:1px solid rgba(228,212,199,0.08);color:#e4d4c7}
+/* ── 相册 ── */
 body.dark-gold-mode #sec-album{background:transparent;max-width:430px;margin:0 auto}
 body.dark-gold-mode #sec-album .view-topbar{background:rgba(20,18,17,0.85);border-bottom:1px solid rgba(228,212,199,0.06)}
 body.dark-gold-mode #sec-album .view-back{color:#8c7a65}
@@ -2336,6 +2341,7 @@ body.dark-gold-mode .album-detail-card{background:rgba(20,18,17,0.95);backdrop-f
 body.dark-gold-mode .album-detail-close{color:#8c7a65}
 body.dark-gold-mode .album-detail-caption{color:#e4d4c7}
 body.dark-gold-mode .album-detail-comment{color:#8c7a65;border-left-color:rgba(212,160,74,0.2);background:rgba(255,255,255,0.02)}
+/* ── 中枢 + 编辑器 ── */
 body.dark-gold-mode #sec-data input[type="text"]{background:rgba(30,26,24,0.6);border:1px solid rgba(228,212,199,0.08);color:#e4d4c7;backdrop-filter:blur(8px)}
 body.dark-gold-mode .glass{background:rgba(30,26,24,0.6);backdrop-filter:blur(8px);border:1px solid rgba(228,212,199,0.06)}
 body.dark-gold-mode #themeToggleBtn{background:rgba(30,26,24,0.8)!important;backdrop-filter:blur(8px);border:1px solid rgba(212,160,74,0.2)!important;color:#D4A04A!important}
