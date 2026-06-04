@@ -279,13 +279,7 @@ function goView(viewId) {
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
-    // 手机端聊天页高度用 JS pixel 值，避开 CSS vh/dvh 崩溃
-    if (viewId === 'chat') {
-        target.style.height = window.innerHeight + 'px';
-        setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 100);
-    } else {
-        target.style.height = '';
-    }
+    if (viewId === 'chat') setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 100);
     if (viewId === 'home') { updateDays && updateDays(); if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuInitHome(); }
     if (viewId === 'favorites') loadAndRenderFavorites();
     if (viewId === 'flo') floRender();
