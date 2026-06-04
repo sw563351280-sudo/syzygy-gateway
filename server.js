@@ -2655,34 +2655,44 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             if (todayPage.period_flag) dynamicStatePrompt += '\n🩸 今日为生理期';
         }
 
-        // 相册搜索 — 用户提了相关词后，按关键词精确匹配tags/图说/AI描述
-        const albumKws = ['照片','相册','图','拍照','上传','album','photo','image','看图','图片','pixai'];
+        // 相册搜索 — 关键词匹配标签/图说/AI描述/文件名，最多把3张匹配图以 base64 注入消息
+        const albumKws = ['照片','相册','图','拍照','上传','album','photo','image','看图','图片','pixai','高中paro'];
         const askedForPhotos = albumKws.some(kw => (currentUserMsgText || '').toLowerCase().includes(kw.toLowerCase()));
+        const _albumPhotoBlocks = [];
         if (askedForPhotos) {
             const allPhotos = loadPhotos();
             if (allPhotos.length > 0) {
-                // 从用户消息中提取搜索词（去掉通用触发词，保留具体内容）
                 const searchWords = (currentUserMsgText || '').toLowerCase().split(/[\s,，。！？、]+/).filter(w =>
                     w.length >= 2 && !['照片','相册','看图','图片','这个','那个','我要','看看','帮我','一下','一张','这些'].includes(w)
                 );
                 const matched = searchWords.length > 0
                     ? allPhotos.filter(p => {
-                        const haystack = [p.filename, (p.jiangyu_caption||''), (p.ai_description||''), ...(p.tags||[])].join(' ').toLowerCase();
-                        return searchWords.some(w => haystack.includes(w));
+                        const hay = [p.filename, (p.jiangyu_caption||''), (p.ai_description||''), (p.shenwang_comment||''), ...(p.tags||[])].join(' ').toLowerCase();
+                        return searchWords.some(w => hay.includes(w));
                     })
                     : allPhotos;
-                const shown = matched.slice(-15);
+                const shown = matched.slice(0, 3);
                 if (shown.length > 0) {
                     let albumPrompt = `\n\n【相册匹配结果 — ${matched.length}张${matched.length !== allPhotos.length ? '（共' + allPhotos.length + '张）' : ''}】\n`;
                     for (const p of shown) {
                         const capt = p.jiangyu_caption ? ` | 图说: ${p.jiangyu_caption.substring(0, 40)}` : '';
                         const ai = p.ai_description ? ` | AI识别: ${p.ai_description.substring(0, 40)}` : '';
+                        const sc = p.shenwang_comment ? ` | 💬评论: ${p.shenwang_comment.substring(0, 40)}` : '';
                         const tags = (p.tags || []).length ? ` #${p.tags.join(' #')}` : '';
-                        albumPrompt += `  📷 ${p.filename} (${p.date})${capt}${ai}${tags}${p.favorite ? ' ⭐' : ''}\n`;
+                        albumPrompt += `  📷 ${p.filename} (${p.date})${capt}${ai}${sc}${tags}${p.favorite ? ' ⭐' : ''}\n`;
+                        // 读图片文件转 base64，注入为 image_url 块
+                        try {
+                            const photoPath = path.join(PHOTOS_DIR, p.filename);
+                            if (fs.existsSync(photoPath)) {
+                                const buf = fs.readFileSync(photoPath);
+                                const mime = p.filename.endsWith('.png') ? 'image/png' : p.filename.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+                                _albumPhotoBlocks.push({ type: 'image_url', image_url: { url: `data:${mime};base64,${buf.toString('base64')}` } });
+                            }
+                        } catch(e) {}
                     }
                     dynamicStatePrompt += albumPrompt;
                 } else if (searchWords.length > 0) {
-                    dynamicStatePrompt += `\n\n【相册】没有找到和"${searchWords.join(' ')}"相关的照片。`;
+                    dynamicStatePrompt += `\n\n【相册】没有找到和"${searchWords.join(' ')}"相关的照片。共${allPhotos.length}张。`;
                 }
             }
         }
@@ -2709,6 +2719,20 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         newMessages.unshift({ role: 'system', content: finalSystemPrompt });
         if (mpConfig.prepend) newMessages.unshift({ role: mpConfig.role, content: mpConfig.prepend });
         console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${mpConfig.prepend ? mpConfig.prepend.length + '字' : '无'}`);
+
+        // 把匹配到的照片 base64 注入到最后一条用户消息中
+        if (_albumPhotoBlocks.length > 0) {
+            const lastIdx = newMessages.length - 1;
+            const lastC = newMessages[lastIdx].content;
+            if (Array.isArray(lastC)) {
+                lastC.push(..._albumPhotoBlocks);
+            } else {
+                newMessages[lastIdx].content = [
+                    { type: 'text', text: typeof lastC === 'string' ? lastC : '' },
+                    ..._albumPhotoBlocks
+                ];
+            }
+        }
 
         if (memoryContext.trim().length > 0) {
     const lastMsgIndex = newMessages.length - 1;
