@@ -54,6 +54,9 @@ jobs:
             # 将当前 transcript_buffer 归档到当月文件，防止未满6轮的消息丢失
             node archive_buffer.js || echo "⚠️ buffer 归档失败"
 
+            # 从对话原文恢复可能被旧标签页覆盖的消息
+            node restore_transcript_to_chat.js || echo "⚠️ 恢复脚本失败"
+
             systemctl restart syzygy.service
             echo "=== DEPLOY OK ==="
           '

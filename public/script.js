@@ -133,10 +133,12 @@ let activeSupIndex = 0;
 let chatSessions = [];
 let activeChatId = 'main';
 
+let _dataVersion = 0;
 async function syncFromCloud() {
     try {
         const r = await fetch('/api/sync-config');
         const data = await r.json();
+        _dataVersion = data._version || 0;
 
         suppliers = (data.suppliers && data.suppliers.length) ? data.suppliers : [{ name: "默认接口", url: "https://api.dzzi.ai/v1", key: "" }];
         chatSessions = (data.chatSessions && data.chatSessions.length) ? data.chatSessions : [{ id: 'main', name: '主频道', messages: [] }];
@@ -187,11 +189,14 @@ function saveToCloud(immediate) {
                     delete m._zepDirty;
                 }
             }
-            await fetch('/api/sync-config', {
+            const r = await fetch('/api/sync-config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ suppliers, chatSessions: sessionsToSave, activeSupIndex, activeChatId })
+                body: JSON.stringify({ suppliers, chatSessions: sessionsToSave, activeSupIndex, activeChatId, _version: _dataVersion })
             });
+            const d = await r.json();
+            if (d._version) _dataVersion = d._version;
+            if (d._rejected) { console.warn('🛡️ [版本落后] 本次保存被拒绝，请刷新页面'); }
         } catch(e) { console.log(e); }
     };
     if (immediate) doSave(); else _saveTimer = setTimeout(doSave, 500);
