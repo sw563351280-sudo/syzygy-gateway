@@ -2131,9 +2131,41 @@ body.neu-mode .cal-detail-note { color: #4A5568; }
 body.neu-mode .cal-detail-note.empty { color: #A0AEC0; }
 body.neu-mode .cal-detail-comment { color: #718096; border-left-color: rgba(212,160,74,0.3); background: rgba(163,177,198,0.08); }
 
+/* 日历编辑表单 */
+.cal-detail-actions { margin-top: 12px; }
+.cal-edit-btn {
+    background: rgba(212,160,74,0.12); border: 1px solid rgba(212,160,74,0.3);
+    color: #D4A04A; padding: 6px 14px; border-radius: 8px; cursor: pointer;
+    font-size: 0.8em; font-family: inherit;
+}
+.cal-edit-btn:hover { background: rgba(212,160,74,0.2); }
+.cal-edit-textarea {
+    width: 100%; min-height: 60px; border-radius: 8px; padding: 10px;
+    font-size: 0.9em; color: inherit; resize: vertical; font-family: inherit;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); margin-top: 8px;
+}
+.cal-edit-comment { min-height: 40px; }
+.cal-edit-mood {
+    flex: 1; border-radius: 8px; padding: 6px 10px;
+    font-size: 0.85em; color: inherit; font-family: inherit;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+}
+.cal-save-btn {
+    background: rgba(212,160,74,0.2); border: none; color: #D4A04A;
+    padding: 6px 16px; border-radius: 8px; cursor: pointer; font-size: 0.85em; font-family: inherit;
+}
+.cal-cancel-btn {
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15);
+    color: #a8b8e7; padding: 6px 16px; border-radius: 8px; cursor: pointer; font-size: 0.85em; font-family: inherit;
+}
+body.light-mode .cal-edit-textarea, body.light-mode .cal-edit-mood { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.1); }
+body.neu-mode .cal-edit-textarea, body.neu-mode .cal-edit-mood {
+    background: #E8EFF7; border: none;
+    box-shadow: inset 3px 3px 6px rgba(163,177,198,0.3), inset -3px -3px 6px rgba(255,255,255,0.5);
+}
+
 @media(max-width:480px) {
     .cal-grid { gap: 1px; padding: 4px 8px; }
     .cal-cell-num { font-size: 0.78em; }
     .cal-detail-card { padding: 18px; }
 }
-

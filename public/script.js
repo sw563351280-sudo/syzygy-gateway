@@ -2226,7 +2226,44 @@ async function calOpenDay(dateStr) {
     if (page && page.period_flag) t += '<span class="cal-tag period">🩸 生理期</span>';
     if (page && page.mood) t += '<span class="cal-tag mood">'+page.mood+'</span>';
     te.innerHTML = t || ''; te.style.display = t ? '' : 'none';
+    // 填充编辑表单
+    _calEditDate = dateStr;
+    document.getElementById('calEditNote').value = (page && page.shenwang_note) || '';
+    document.getElementById('calEditComment').value = (page && page.shenwang_comment) || '';
+    document.getElementById('calEditMood').value = (page && page.mood) || '';
+    document.getElementById('calEditPeriod').checked = !!(page && page.period_flag);
+    document.getElementById('calEditForm').style.display = 'none';
+    document.getElementById('calEditBtn').style.display = '';
+
     document.getElementById('calDetail').style.display = 'block';
 }
 
-function closeCalDetail() { document.getElementById('calDetail').style.display = 'none'; }
+let _calEditDate = '';
+function closeCalDetail() { document.getElementById('calDetail').style.display = 'none'; document.getElementById('calEditForm').style.display='none'; document.getElementById('calEditBtn').style.display=''; }
+
+function calStartEdit() {
+    document.getElementById('calEditBtn').style.display = 'none';
+    document.getElementById('calEditForm').style.display = 'block';
+}
+function calCancelEdit() {
+    document.getElementById('calEditBtn').style.display = '';
+    document.getElementById('calEditForm').style.display = 'none';
+}
+async function calSaveEdit() {
+    const pwd = localStorage.getItem('memoryPwd') || '';
+    if (!pwd) { toast('请先通过星渡页面输入管理密码'); return; }
+    const note = document.getElementById('calEditNote').value;
+    const comment = document.getElementById('calEditComment').value;
+    const mood = document.getElementById('calEditMood').value;
+    const period = document.getElementById('calEditPeriod').checked;
+    try {
+        const r = await fetch('/api/calendar/' + _calEditDate + '?pwd=' + encodeURIComponent(pwd), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shenwang_note: note, shenwang_comment: comment || null, mood, period_flag: period })
+        });
+        const d = await r.json();
+        if (d.success) { toast('已保存'); calCancelEdit(); calOpenDay(_calEditDate); }
+        else { toast('保存失败: ' + (d.error || '')); }
+    } catch(e) { toast('网络错误'); }
+}

@@ -8,7 +8,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=27">
+    <link rel="stylesheet" href="style.css?v=28">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
@@ -321,10 +321,25 @@
         <div class="cal-detail-note" id="calDetailNote"></div>
         <div class="cal-detail-comment" id="calDetailComment"></div>
         <div class="cal-detail-tags" id="calDetailTags"></div>
+        <div class="cal-detail-actions" id="calDetailActions">
+            <button class="cal-edit-btn" id="calEditBtn" onclick="calStartEdit()">编辑</button>
+            <div id="calEditForm" style="display:none">
+                <textarea id="calEditNote" class="cal-edit-textarea" placeholder="沈望的日记正文…"></textarea>
+                <textarea id="calEditComment" class="cal-edit-textarea cal-edit-comment" placeholder="批注…（可选）"></textarea>
+                <div style="display:flex;gap:6px;margin-top:8px">
+                    <input id="calEditMood" class="cal-edit-mood" placeholder="心情（可选）">
+                    <label style="display:flex;align-items:center;gap:4px;font-size:0.8em;color:#a8b8e7;cursor:pointer"><input type="checkbox" id="calEditPeriod"> 生理期</label>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:8px">
+                    <button class="cal-save-btn" onclick="calSaveEdit()">保存</button>
+                    <button class="cal-cancel-btn" onclick="calCancelEdit()">取消</button>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
-	<script src="script.js?v=23"></script>
+	<script src="script.js?v=24"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>
         <div id="menuModel" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🤖 模型: -</div>
