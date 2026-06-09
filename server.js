@@ -2757,8 +2757,19 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
     }
 }
 
-        body.messages = newMessages;
-        
+        // 四层上下文注入
+        try {
+            const liveCtx = await buildLiveStatePrompt();
+            const sumCtx = buildLatestSummaryPrompt('main');
+            const memCtx = await scanMemoryRadar(currentUserMsgText);
+            let txCtx = '';
+            if (shouldScanTranscript(currentUserMsgText)) txCtx = await scanTranscriptRadar(currentUserMsgText, 2);
+            const parts = [liveCtx, sumCtx, memCtx, txCtx].filter(Boolean);
+            const dctx = parts.join('\n\n').substring(0, 12000);
+            if (dctx) body.messages = injectAfterSystem(newMessages, { role: 'system', content: dctx });
+            else body.messages = newMessages;
+        } catch(e) { body.messages = newMessages; }
+
 const totalChars = JSON.stringify(newMessages).length;
 const estimatedTokens = Math.round(totalChars / 4);
 console.log(`🔬 [X光] 最终发给API: ${newMessages.length}条消息, ${totalChars}字符 ≈ ${estimatedTokens} tokens`);
