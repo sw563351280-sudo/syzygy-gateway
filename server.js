@@ -4408,13 +4408,28 @@ function appendMoodSnapshotToDiary(snapshot = {}) {
     return entry;
 }
 
+function tryParseJsonFromText(raw) {
+    if (!raw) return null;
+    let text = String(raw).trim();
+    // 剥离 markdown 代码块和反引号
+    text = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
+    // 找到第一个 { 和匹配的 }
+    let depth = 0, start = -1;
+    for (let i = 0; i < text.length; i++) {
+        if (text[i] === '{') { if (depth === 0) start = i; depth++; }
+        else if (text[i] === '}') { depth--; if (depth === 0 && start >= 0) { try { const parsed = JSON.parse(text.substring(start, i + 1)); if (parsed && typeof parsed === 'object') return parsed; } catch(e) {} start = -1; } }
+    }
+    return null;
+}
+
 function extractMoodSnapshotTags(content) {
     if (!content || typeof content !== 'string') return { cleanContent: content, snapshots: [] };
     const snapshots = [];
     let clean = content;
-    // Support both <MOOD_SNAPSHOT> and [[MOOD_SNAPSHOT]] formats
-    clean = clean.replace(/<MOOD_SNAPSHOT>([\s\S]*?)<\/MOOD_SNAPSHOT>/g, (match, jsonText) => { try { const p = JSON.parse(jsonText.trim()); if (p && typeof p === 'object') snapshots.push(p); } catch(e) { moodLog('[MOOD ERROR] parse <MOOD> tag:', e.message); } return ''; });
-    clean = clean.replace(/\[\[MOOD_SNAPSHOT\]\]([\s\S]*?)\[\[MOOD_SNAPSHOT\]\]/g, (match, jsonText) => { try { const p = JSON.parse(jsonText.trim()); if (p && typeof p === 'object') snapshots.push(p); } catch(e) { moodLog('[MOOD ERROR] parse [[MOOD]] tag:', e.message); } return ''; });
+    // <MOOD_SNAPSHOT>...</MOOD_SNAPSHOT>
+    clean = clean.replace(/<MOOD_SNAPSHOT>([\s\S]*?)<\/MOOD_SNAPSHOT>/g, (match, raw) => { const p = tryParseJsonFromText(raw); if (p) snapshots.push(p); else moodLog('[MOOD ERROR] parse <MOOD> tag: no valid JSON found in', raw.substring(0, 100)); return ''; });
+    // [[MOOD_SNAPSHOT]]...[[MOOD_SNAPSHOT]]
+    clean = clean.replace(/\[\[MOOD_SNAPSHOT\]\]([\s\S]*?)\[\[MOOD_SNAPSHOT\]\]/g, (match, raw) => { const p = tryParseJsonFromText(raw); if (p) snapshots.push(p); else moodLog('[MOOD ERROR] parse [[MOOD]] tag: no valid JSON found in', raw.substring(0, 100)); return ''; });
     return { cleanContent: clean.trim(), snapshots };
 }
 function handleMoodSnapshotsFromAssistantContent(content) {
