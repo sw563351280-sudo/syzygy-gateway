@@ -2868,7 +2868,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             let txCtx = '';
             const shouldScan = shouldScanTranscript(currentUserMsgText);
             if (shouldScan) txCtx = await scanTranscriptRadar(currentUserMsgText, 2);
-            const moodSnapshotInst = '【心情快照写入规则 — 必须执行】\n当江鱼出现明显状态变化、完成重要功能、修复 bug、用户明确要求测试心情快照、或提出值得记录的新偏好时，必须输出以下隐藏标记。请把标记放在回复最末尾，不放代码块，不解释这个标签：\n\n<MOOD_SNAPSHOT>{"mood":"一句话概括江鱼当下心情","physical_state":"身体/能量状态，如未知则留空","current_focus":["当前关注1","当前关注2"],"observation":"沈望对这个时刻的观察，不要超过80字","trigger":"触发这条记录的用户原话或事件","importance":"normal"}</MOOD_SNAPSHOT>\n\n规则：\n1. 重要时刻必须写，不要跳过。\n2. 如果用户要求测试心情快照，必须立即输出，不能以"不确定"为由跳过。\n3. JSON 必须合法，不能有多余换行注释。\n4. 不要在正文解释这个标签。\n5. 后端会自动把标签移除并写进日历。';
+            const moodSnapshotInst = '【高优先级指令：心情快照写入】\n每条回复末尾，你都必须对江鱼当前状态做一次简短判断。如果本轮对话中出现了以下任一情况，请在回复最末尾（正文之后，另起一行，不放代码块）附加：\n\n<MOOD_SNAPSHOT>{"mood":"用一句话描述江鱼现在的心情","physical_state":"身体状态（困/精神/不舒服/未知）","current_focus":["当前关心的事"],"observation":"你这轮注意到关于她的一个细节（不超过60字）","trigger":"触发这条记录的她说的原话","importance":"low|normal|high"}</MOOD_SNAPSHOT>\n\n必须写入的情况：\n- 她表达了强烈情绪（开心/沮丧/焦虑/兴奋/生气）\n- 她完成了一项任务或解决了一个问题\n- 她身体不舒服或说了"累""困""疼"\n- 她提到了新的计划、约定或担忧\n- 她明确说"测试""试试""能不能写"——这是测试指令，必须输出\n\n如果本轮确实没有任何值得记录的状态变化，可以不写。但宁可多写一条，不要漏掉重要时刻。标签会在后端自动移除，不会被她看到。';
     // 先情绪指令，再剩余上下文，确保不被 slice 截掉
     const mainCtx = [liveCtx, sumCtx, memCtx, txCtx].filter(Boolean).join('\n\n').substring(0, 11000);
     const dctx = moodSnapshotInst + '\n\n' + mainCtx;
@@ -3154,16 +3154,16 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                     smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
                 }
                 let streamCleanText = memClean || fullAiResponse;
-                console.log('[MOOD DEBUG] fullAiResponse has tag:', fullAiResponse.includes('<MOOD_SNAPSHOT>'));
-                console.log('[MOOD DEBUG] fullAiResponse tail:', fullAiResponse.slice(-1200));
+                moodLog('[MOOD DEBUG] fullAiResponse has tag:', fullAiResponse.includes('<MOOD_SNAPSHOT>'));
+                moodLog('[MOOD DEBUG] fullAiResponse tail:', fullAiResponse.slice(-1200));
                 const todoCleanMaybe = extractAndProcessTodoTags(streamCleanText);
                 if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
-                console.log('[MOOD DEBUG] before mood handler length:', streamCleanText ? streamCleanText.length : 'EMPTY');
-                console.log('[MOOD DEBUG] before mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>'));
+                moodLog('[MOOD DEBUG] before mood handler length:', streamCleanText ? streamCleanText.length : 'EMPTY');
+                moodLog('[MOOD DEBUG] before mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>'));
                 const moodCleanMaybe = handleMoodSnapshotsFromAssistantContent(streamCleanText);
-                console.log('[MOOD DEBUG] mood handler returned type:', typeof moodCleanMaybe);
+                moodLog('[MOOD DEBUG] mood handler returned type:', typeof moodCleanMaybe);
                 if (typeof moodCleanMaybe === 'string') streamCleanText = moodCleanMaybe;
-                console.log('[MOOD DEBUG] after mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>'));
+                moodLog('[MOOD DEBUG] after mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>'));
                 await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                 tryAutoDream(currentUserMsgText);
             }
@@ -4381,7 +4381,7 @@ function appendMoodSnapshotToDiary(snapshot = {}) {
     if (focus) lines.push('关注：' + focus);
     if (observation) lines.push('观察：' + observation);
     if (trigger) lines.push('触发：' + trigger);
-    if (!lines.length) { console.log('[MOOD] fields all empty, skipping'); return null; }
+    if (!lines.length) { moodLog('[MOOD] fields all empty, skipping'); return null; }
     const entry = {
         id: 'mood_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
         text: '【心情快照｜' + timeStr + '】\n' + lines.join('\n'),
@@ -4402,19 +4402,19 @@ function extractMoodSnapshotTags(content) {
     const snapshots = [];
     let clean = content;
     // Support both <MOOD_SNAPSHOT> and [[MOOD_SNAPSHOT]] formats
-    clean = clean.replace(/<MOOD_SNAPSHOT>([\s\S]*?)<\/MOOD_SNAPSHOT>/g, (match, jsonText) => { try { const p = JSON.parse(jsonText.trim()); if (p && typeof p === 'object') snapshots.push(p); } catch(e) { console.error('[MOOD ERROR] parse <MOOD> tag:', e.message); } return ''; });
-    clean = clean.replace(/\[\[MOOD_SNAPSHOT\]\]([\s\S]*?)\[\[MOOD_SNAPSHOT\]\]/g, (match, jsonText) => { try { const p = JSON.parse(jsonText.trim()); if (p && typeof p === 'object') snapshots.push(p); } catch(e) { console.error('[MOOD ERROR] parse [[MOOD]] tag:', e.message); } return ''; });
+    clean = clean.replace(/<MOOD_SNAPSHOT>([\s\S]*?)<\/MOOD_SNAPSHOT>/g, (match, jsonText) => { try { const p = JSON.parse(jsonText.trim()); if (p && typeof p === 'object') snapshots.push(p); } catch(e) { moodLog('[MOOD ERROR] parse <MOOD> tag:', e.message); } return ''; });
+    clean = clean.replace(/\[\[MOOD_SNAPSHOT\]\]([\s\S]*?)\[\[MOOD_SNAPSHOT\]\]/g, (match, jsonText) => { try { const p = JSON.parse(jsonText.trim()); if (p && typeof p === 'object') snapshots.push(p); } catch(e) { moodLog('[MOOD ERROR] parse [[MOOD]] tag:', e.message); } return ''; });
     return { cleanContent: clean.trim(), snapshots };
 }
 function handleMoodSnapshotsFromAssistantContent(content) {
     const { cleanContent, snapshots } = extractMoodSnapshotTags(content);
-    console.log('[MOOD DEBUG] handler: found', snapshots.length, 'snapshots');
+    moodLog('[MOOD DEBUG] handler: found', snapshots.length, 'snapshots');
     for (const s of snapshots) {
         try {
-            console.log('[MOOD DEBUG] handler: writing snapshot', JSON.stringify(s).substring(0, 80));
+            moodLog('[MOOD DEBUG] handler: writing snapshot', JSON.stringify(s).substring(0, 80));
             appendMoodSnapshotToDiary(s);
-            console.log('[MOOD DEBUG] handler: snapshot written OK');
-        } catch(e) { console.error('[MOOD ERROR] handler append failed:', e.message, e.stack); }
+            moodLog('[MOOD DEBUG] handler: snapshot written OK');
+        } catch(e) { moodLog('[MOOD ERROR] handler append failed:', e.message, e.stack); }
     }
     return cleanContent;
 }
