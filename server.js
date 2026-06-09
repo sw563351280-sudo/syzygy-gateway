@@ -4412,6 +4412,15 @@ app.post('/api/mood-snapshot', (req, res) => {
     } catch(e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
+app.post('/api/debug-mood-snapshot', (req, res) => {
+    try {
+        const payload = req.body || {};
+        const text = '测试正文<MOOD_SNAPSHOT>' + JSON.stringify(payload) + '</MOOD_SNAPSHOT>测试结束';
+        const clean = handleMoodSnapshotsFromAssistantContent(text);
+        res.json({ success: true, clean, user_state: loadUserState(), diary_tail: loadDiaries().slice(-5) });
+    } catch(e) { res.status(500).json({ success: false, error: e.message, stack: e.stack }); }
+});
+
 app.get('/diary/add', (req, res) => {
     const { text, author } = req.query;
     if (!text) return res.status(400).json({ error: '内容不能为空' });
