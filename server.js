@@ -3012,31 +3012,32 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
             const finalContent = todoClean;
 
             if (isStreamMode) {
-                // 先发思考内容
                 if (finalThink) {
                     res.write(`data: ${JSON.stringify({ id: 'think', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { reasoning_content: finalThink }, finish_reason: null }] })}\n\n`);
                 }
-                // 再把最终回复切成 SSE chunks
-                const chunkId = toolData.id || 'chatcmpl-tool';
-                const created = Math.floor(Date.now()/1000);
                 const chars = finalContent.split('');
                 for (let i = 0; i < chars.length; i += 8) {
                     const delta = chars.slice(i, i + 8).join('');
-                    res.write(`data: ${JSON.stringify({ id: chunkId, object: 'chat.completion.chunk', created, model: body.model, choices: [{ index: 0, delta: { content: delta }, finish_reason: null }] })}\n\n`);
+                    res.write(`data: ${JSON.stringify({ id: toolData.id || 'chatcmpl-tool', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { content: delta }, finish_reason: null }] })}\n\n`);
                 }
-                res.write(`data: ${JSON.stringify({ id: chunkId, object: 'chat.completion.chunk', created, model: body.model, choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }] })}\n\n`);
+                res.write(`data: ${JSON.stringify({ id: toolData.id || 'chatcmpl-tool', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }] })}\n\n`);
                 res.write('data: [DONE]\n\n');
                 res.end();
+                // 工具路径也需要 MOOD_SNAPSHOT
+                moodLog('[MOOD DEBUG] tool-path stream finalContent has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
+                const moodCleaned = handleMoodSnapshotsFromAssistantContent(finalContent);
                 if (!noMemory) {
-                    await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
+                    await saveToZepWithCounter(currentUserMsgText, moodCleaned, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);
                 }
                 return;
             } else {
                 if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
                 if (finalThink) toolData.choices[0].message.reasoning_content = finalThink;
+                const moodCleaned = handleMoodSnapshotsFromAssistantContent(finalContent);
+                moodLog('[MOOD DEBUG] tool-path non-stream finalContent has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
                 if (!noMemory) {
-                    await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
+                    await saveToZepWithCounter(currentUserMsgText, moodCleaned, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);
                 }
                 return res.status(200).json(toolData);
