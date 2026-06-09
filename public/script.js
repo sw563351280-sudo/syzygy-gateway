@@ -279,6 +279,9 @@ function goView(viewId) {
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
+    const VIEWS = ['home','chat','data','favorites','flo','calendar','album'];
+    document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
+    document.body.classList.add('view-' + viewId);
     if (viewId === 'chat') {
         target.style.height = window.innerHeight + 'px';
         setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300);
