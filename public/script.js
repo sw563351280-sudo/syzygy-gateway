@@ -52,7 +52,7 @@ function renderMarkdown(text) { if (!text) return ''; if (typeof marked !== 'und
 
 // ==================== 版本化消息辅助函数 ====================
 function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; return v; } return msg; }
-function normalizeMessageVersionFields(msg) { if (!msg) return msg; if (msg.versions && msg.versions.length > 0) { if (msg.content !== undefined) { const v = msg.versions[msg.activeVersion||0] || msg.versions[0]; if (v && v.content === undefined) v.content = msg.content; if (v && v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; } } else { ensureVersioned(msg); } return msg; }
+function normalizeMessageVersionFields(msg) { if (!msg) return msg; if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0]; if (!v) return msg; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; return msg; } ensureVersioned(msg); return msg; }
 function extractThinkingFromContent(content) { if (!content) return {thinking:'',visibleContent:''}; const m=[...content.matchAll(/<thinking>([\s\S]*?)<\/thinking>/g)]; const t=m.map(x=>x[1].trim()).filter(Boolean).join('\n\n'); const v=content.replace(/<thinking>[\s\S]*?<\/thinking>/g,'').trim(); return {thinking:t,visibleContent:v}; }
 function getVersionCount(msg) { return (msg.versions && msg.versions.length) ? msg.versions.length : 1; }
 function getActiveVersionIndex(msg) { if (msg.versions && msg.versions.length > 0) return msg.activeVersion || 0; return 0; }
@@ -1055,6 +1055,8 @@ try {
 
         let fullReply = "";
         let thinkContent = "";
+        let reasoningContent = "";  // delta.reasoning_content
+        let rawAssistantText = "";   // 未清洗的原始返回
         let thinkBox = null, thinkTextDiv = null;
 
         // ==========================================
@@ -1116,6 +1118,7 @@ try {
                         // 1. 处理推理内容 (reasoning_content) - 如果模型支持
                         if (delta.reasoning_content) {
                             thinkContent += delta.reasoning_content;
+                            reasoningContent += delta.reasoning_content;
                             thinkBox.style.display = 'block'; // 显示思考框
                             thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
                             win.scrollTop = win.scrollHeight;
@@ -1129,6 +1132,7 @@ try {
                                 clearTimeout(toolHintTimer2);
                                 sDiv.classList.remove('msg-loading');
                             }
+                            rawAssistantText += delta.content;
                             // 状态机解析 <think> 标签，每次扫描整段 chunk
                             let chunk = delta.content;
                             let pos = 0;
@@ -1200,7 +1204,9 @@ try {
             // ==========================================
             const data = await response.json();
             fullReply = data.choices[0].message.content || "";
-            
+            rawAssistantText = fullReply;
+            reasoningContent = data.choices[0].message.reasoning_content || '';
+
             // 处理思考过程
             if (fullReply.includes('<think>')) {
                 const match = fullReply.match(/<think>([\s\S]*?)<\/think>/);
@@ -1226,7 +1232,7 @@ try {
         // --- 5. 存入云端，思考链从 DOM 取（避免流解析丢数据）---
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
         const domThinking = thinkTextDiv && thinkBox && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || '');
-        const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() }], activeVersion: 0 };
+        const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '' }], activeVersion: 0 };
         session.messages.push(assistantMsg);
         saveToCloud();
         clearTimeout(silenceTimer);

@@ -207,7 +207,10 @@ async function appendToTranscript(userMsg, aiMsg, metadata = {}) {
         const buf = loadTranscriptBuffer();
         const now = new Date().toISOString();
         if (!buf.started_at) buf.started_at = now;
-        buf.messages.push({ role: 'user', content: userMsg, time: now }, { role: 'assistant', content: aiMsg, time: now });
+        buf.messages.push(
+            { role: 'user', content: userMsg, time: now },
+            { role: 'assistant', content: aiMsg, thinking: metadata.thinking || '', reasoning: metadata.reasoning || '', rawContent: metadata.rawContent || '', time: now }
+        );
         const rounds = buf.messages.length / 2;
         const shouldSplit = rounds >= 6 || (rounds >= 3 && detectTopicShift(buf.messages));
         if (shouldSplit) {
