@@ -147,6 +147,7 @@ function loadPhotos() { try { return JSON.parse(fs.readFileSync(PHOTOS_FILE, 'ut
 function savePhotos(items) { fs.writeFileSync(PHOTOS_FILE, JSON.stringify(items, null, 2), 'utf8'); }
 const _dreamDiag = { last: null, history: [] };
 const _boom = { last: null };
+const _ctxDiag = { last: null };
 const DAILY_PAGES_FILE = path.join(DATA_DIR, 'daily_pages.json');
 const WEEKLY_SUMMARIES_FILE = path.join(DATA_DIR, 'weekly_summaries.json');
 const MONTHLY_SUMMARIES_FILE = path.join(DATA_DIR, 'monthly_summaries.json');
@@ -2862,12 +2863,14 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             const sumCtx = buildLatestSummaryPrompt(activeChatId);
             const memCtx = await scanMemoryRadar(currentUserMsgText);
             let txCtx = '';
-            if (shouldScanTranscript(currentUserMsgText)) txCtx = await scanTranscriptRadar(currentUserMsgText, 2);
+            const shouldScan = shouldScanTranscript(currentUserMsgText);
+            if (shouldScan) txCtx = await scanTranscriptRadar(currentUserMsgText, 2);
             const parts = [liveCtx, sumCtx, memCtx, txCtx].filter(Boolean);
             const dctx = parts.join('\n\n').substring(0, 12000);
             if (dctx) body.messages = injectAfterSystem(newMessages, { role: 'system', content: dctx });
             else body.messages = newMessages;
-        } catch(e) { body.messages = newMessages; }
+            _ctxDiag.last = { at: new Date().toISOString(), scanTranscript: shouldScan, transcriptLen: txCtx.length, liveStateLen: (liveCtx||'').length, summaryLen: (sumCtx||'').length, memoryLen: (memCtx||'').length, totalCtxLen: dctx.length, userText: (currentUserMsgText||'').substring(0, 120) };
+        } catch(e) { body.messages = newMessages; _ctxDiag.last = { at: new Date().toISOString(), error: e.message, userText: (currentUserMsgText||'').substring(0, 120) }; }
 
 const totalChars = JSON.stringify(newMessages).length;
 const estimatedTokens = Math.round(totalChars / 4);
@@ -3485,6 +3488,9 @@ app.get('/debug-dream', (req, res) => {
 });
 app.get('/debug-mcp', (req, res) => {
     res.json(_mcpDiag.last || { note: '尚未发送过含MCP的消息' });
+});
+app.get('/debug-ctx', (req, res) => {
+    res.json(_ctxDiag.last || { note: '尚未发送过消息' });
 });
 
 app.post('/api/tools-toggle', (req, res) => {
