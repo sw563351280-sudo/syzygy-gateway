@@ -1571,7 +1571,7 @@ async function updateRollingSummaries(chatSessions) {
         if (!messages.length) continue;
         const state = states[sessionId] || { segments: [], summary_until_index: 0, updated_at: null };
         if (state.summary_until_index > messages.length) {
-            console.log('🧾 [摘要] ' + sessionId + ': 消息被截断, 跳过');
+            console.log('🧾 [摘要] ' + sessionId + ': 检测到消息数组被截断，暂停基于 chatSessions 的摘要。summary_until_index=' + state.summary_until_index + ', messages.length=' + messages.length);
             states[sessionId] = state;
             continue;
         }
@@ -4830,6 +4830,7 @@ app.post('/api/sync-config', (req, res) => {
     const { suppliers, chatSessions, activeSupIndex, activeChatId } = req.body;
     const newVersion = serverVersion + 1;
     const data = {
+        ...(existingData || {}),
         _version: newVersion,
         suppliers: suppliers || [],
         chatSessions: chatSessions || [],
