@@ -115,6 +115,14 @@ function loadCounters() { try { return JSON.parse(fs.readFileSync(COUNTER_FILE, 
 function saveCounter(sessionId, count) { const counters = loadCounters(); counters[sessionId] = count; fs.writeFileSync(COUNTER_FILE, JSON.stringify(counters, null, 2), 'utf8'); }
 function getCounter(sessionId) { return loadCounters()[sessionId] || 0; }
 
+const USER_STATE_FILE = path.join(DATA_DIR, 'user_state.json');
+const CONTEXT_SUMMARIES_FILE = path.join(DATA_DIR, 'context_summaries.json');
+function loadUserState() { try { return JSON.parse(fs.readFileSync(USER_STATE_FILE, 'utf8')); } catch(e) { return { recent_mood: '', physical_state: '', current_focus: [], updated_at: null }; } }
+function saveUserState(state) { fs.writeFileSync(USER_STATE_FILE, JSON.stringify(state, null, 2), 'utf8'); }
+function loadContextSummaries() { try { return JSON.parse(fs.readFileSync(CONTEXT_SUMMARIES_FILE, 'utf8')); } catch(e) { return {}; } }
+function saveContextSummaries(data) { fs.writeFileSync(CONTEXT_SUMMARIES_FILE, JSON.stringify(data, null, 2), 'utf8'); }
+function getActiveVersionForServer(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; return msg.versions[idx] || msg.versions[0] || {}; } return msg || {}; }
+
 // ==========================================
 // 🧠 核心记忆引擎
 // ==========================================
@@ -222,7 +230,12 @@ async function appendToTranscript(userMsg, aiMsg, metadata = {}) {
     } catch(e) { console.log('📜 [原文存储] 异常:', e.message); }
 }
 
-async function scanTranscriptRadar(userText) {
+function shouldScanTranscript(userText) {
+    if (!userText) return false;
+    return /之前|以前|上次|刚才|前面|还记得|那天|昨天|前天|历史|旧消息|找回来|恢复|又|还是不行|没改好|你说过|我们说|当时|那会儿/.test(userText);
+}
+
+async function scanTranscriptRadar(userText, topK = 2) {
     if (!userText || userText.length < 4) return "";
     const now = new Date();
     let allChunks = [];
@@ -253,7 +266,7 @@ async function scanTranscriptRadar(userText) {
         allChunks = allChunks.concat(loadTranscriptMonth(d));
     }
     if (allChunks.length === 0) return "";
-    const results = await rrfMergeSearch(userText, allChunks, 3);
+    const results = await rrfMergeSearch(userText, allChunks, topK);
     if (results.length === 0) return "";
     const lines = results.map(r => {
         const c = r.memory;
@@ -1522,6 +1535,89 @@ function getBeijingTime() {
 
 function buildEnvContext(body) {
     return `\n\n==========\n【系统环境参数实时同步】\n当前真实时间：${getBeijingTime()}\n当前物理位置：中国\n${body}\n==========\n`;
+}
+
+
+// 🧾 滚动摘要
+const SUMMARY_SEGMENT_SIZE = 30;
+
+async function summarizeMessageSegment({ segmentId, messages, previousContext, sessionId, start, end }) {
+    const text = messages.map((m, i) => {
+        const v = getActiveVersionForServer(m);
+        return '#' + (start + i + 1) + ' ' + (m.role === 'user' ? '江鱼' : '沈望') + ': ' + (v.content || m.content || '');
+    }).join('\n\n');
+    const contextStr = previousContext ? '【前一段摘要背景】\n' + previousContext + '\n\n' : '';
+    const prompt = '你在为长期对话做分段摘要。这是第 ' + segmentId + ' 段（消息 ' + (start + 1) + '-' + end + '）。\n\n' + contextStr + '【本段新增内容】\n' + text + '\n\n任务：1.假设读者知道前面的故事；2.只总结本段新增内容、关键决策、待办、承诺、情绪转折；3.删除无意义寒暄；4.技术内容保留文件名、函数名、错误原因、最终方案；5.关系/亲密内容只概括关系进展和偏好，不写露骨细节；6.输出600-800字中文。\n\n输出格式：【本段主题】...\n【关键事件】...\n【技术决策】（如有）...\n【承诺/待办】...';
+    const key = process.env.DREAM_API_KEY || process.env.ROUTER_API_KEY || '';
+    const auth = key.startsWith('Bearer ') ? key : 'Bearer ' + key;
+    const r = await fetch('https://www.msuicode.com/v1/chat/completions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': auth },
+        body: JSON.stringify({ model: 'gemini-3-flash-preview-thinking', messages: [
+            { role: 'system', content: '你负责压缩长期对话上下文，只输出摘要正文。' },
+            { role: 'user', content: prompt }
+        ], temperature: 0.2, max_tokens: 1200 })
+    });
+    if (!r.ok) throw new Error('摘要模型失败 ' + r.status);
+    const data = await r.json();
+    return (data.choices?.[0]?.message?.content || '').trim();
+}
+
+async function updateRollingSummaries(chatSessions) {
+    const states = loadContextSummaries();
+    for (const session of (chatSessions || [])) {
+        const sessionId = session.id || 'main';
+        const messages = session.messages || [];
+        if (!messages.length) continue;
+        const state = states[sessionId] || { segments: [], summary_until_index: 0, updated_at: null };
+        if (state.summary_until_index > messages.length) {
+            console.log('🧾 [摘要] ' + sessionId + ': 消息被截断, 跳过');
+            states[sessionId] = state;
+            continue;
+        }
+        while (messages.length - state.summary_until_index >= SUMMARY_SEGMENT_SIZE) {
+            const start = state.summary_until_index;
+            const end = start + SUMMARY_SEGMENT_SIZE;
+            const segmentId = state.segments.length + 1;
+            const slice = messages.slice(start, end);
+            let previousContext = '';
+            if (state.segments.length > 0) previousContext = state.segments[state.segments.length - 1].summary || '';
+            const newSummary = await summarizeMessageSegment({ segmentId, messages: slice, previousContext, sessionId, start, end });
+            state.segments.push({ segment_id: segmentId, message_range: [start, end], summary: newSummary, created_at: new Date().toISOString(), previous_context: previousContext });
+            state.summary_until_index = end;
+            state.updated_at = new Date().toISOString();
+            console.log('🧾 [摘要] ' + sessionId + ': Segment ' + segmentId + ' (' + start + '-' + end + ')');
+        }
+        states[sessionId] = state;
+    }
+    saveContextSummaries(states);
+}
+
+// 📡 实时状态 prompt
+async function buildLiveStatePrompt() {
+    const parts = [];
+    try { const pd = loadPeriod(); const ps = periodStatusText(pd); parts.push('【江鱼生理期状态】\n' + ps.text); } catch(e) {}
+    try { const todos = loadTodos().filter(t => !t.done).slice(0, 8); if (todos.length) parts.push('【江鱼当前待办】\n' + todos.map(t => '- ' + (t.text || t.task || t.title || '')).join('\n')); } catch(e) {}
+    try { const phone = await getPhoneActivity(4); if (phone && phone.records && phone.records.length) { parts.push('【江鱼手机活动近况】\n' + phone.records.slice(0, 5).map(r => '- ' + (r.app_name || r.package_name || 'unknown') + '：' + (r.opened_at || '')).join('\n')); } } catch(e) {}
+    try { const us = loadUserState(); const lines = []; if (us.recent_mood) lines.push('最近心情：' + us.recent_mood); if (us.physical_state) lines.push('身体状态：' + us.physical_state); if (Array.isArray(us.current_focus) && us.current_focus.length) lines.push('当前关注：' + us.current_focus.join(' / ')); if (lines.length) parts.push('【江鱼实时状态】\n' + lines.join('\n')); } catch(e) {}
+    return parts.length ? parts.join('\n\n') : '';
+}
+
+function buildLatestSummaryPrompt(activeChatId) {
+    const states = loadContextSummaries();
+    const state = states[activeChatId || 'main'] || states.main;
+    if (!state || !state.segments || !state.segments.length) return '';
+    const latest = state.segments[state.segments.length - 1];
+    return latest && latest.summary ? '【当前频道最新背景摘要|第' + latest.segment_id + '段】\n' + latest.summary : '';
+}
+
+function injectAfterSystem(messages, injected) {
+    if (!messages || !messages.length) return [injected];
+    const arr = [...messages];
+    let lastSystemIndex = -1;
+    for (let i = 0; i < arr.length; i++) { if (arr[i].role === 'system') lastSystemIndex = i; }
+    if (lastSystemIndex >= 0) arr.splice(lastSystemIndex + 1, 0, injected);
+    else arr.unshift(injected);
+    return arr;
 }
 
 function buildFinalSystemPrompt(injectionQueue) {
@@ -4739,6 +4835,17 @@ app.post('/api/sync-config', (req, res) => {
     };
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2));
     res.json({ success: true, _version: newVersion });
+    setImmediate(() => { updateRollingSummaries(data.chatSessions).catch(e => console.log('rolling summary failed:', e.message)); });
+});
+
+app.get('/api/user-state', (req, res) => { res.json({ success: true, user_state: loadUserState() }); });
+
+app.post('/api/user-state', (req, res) => {
+    const old = loadUserState();
+    const patch = req.body || {};
+    const next = { ...old, ...patch, updated_at: new Date().toISOString() };
+    saveUserState(next);
+    res.json({ success: true, user_state: next });
 });
 
 app.get('/test-interact', async (req, res) => {
