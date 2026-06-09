@@ -4412,6 +4412,7 @@ app.post('/api/mood-snapshot', (req, res) => {
     } catch(e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
+app.get('/api/debug-mood-snapshot', (req, res) => { res.json({ ok: true, note: '请用POST方法测试' }); });
 app.post('/api/debug-mood-snapshot', (req, res) => {
     try {
         const payload = req.body || {};
