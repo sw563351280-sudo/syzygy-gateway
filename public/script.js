@@ -2241,7 +2241,7 @@ async function calRender() {
     title.innerText = calYear + '年' + calMonth + '月';
     let data = [];
     try { const [calRes] = await Promise.all([fetch('/api/calendar?month=' + calYearMonth()), calLoadMoodSnapshots()]); const j = await calRes.json(); data = j.success ? (j.data||[]) : []; } catch(e) { console.log('日历加载失败',e); }
-    const pageMap = {}; data.forEach(p => { if (p.date) pageMap[p.date] = p; });
+    const pageMap = {}; data.forEach(p => { if (p.date) pageMap[calLooseDateKey(p.date)] = p; });
     const firstDay = new Date(calYear, calMonth-1, 1);
     const daysInMonth = new Date(calYear, calMonth, 0).getDate();
     const startDow = firstDay.getDay();
@@ -2252,7 +2252,7 @@ async function calRender() {
     for (let i = 0; i < leadingEmpty; i++) html += '<div class="cal-cell empty"></div>';
     for (let d = 1; d <= daysInMonth; d++) {
         const dateStr = calYear+'-'+String(calMonth).padStart(2,'0')+'-'+String(d).padStart(2,'0');
-        const page = pageMap[dateStr];
+        const page = pageMap[calLooseDateKey(dateStr)];
         const isToday = dateStr === todayStr;
         const mKey = calLooseDateKey(dateStr);
         const hasMood = !!(_calMoodSnapshotsByDate[mKey] && _calMoodSnapshotsByDate[mKey].length);
@@ -2288,16 +2288,16 @@ function calRenderInlineDetail(dateStr, page) {
     const key = calLooseDateKey(dateStr);
     const snapshots = _calMoodSnapshotsByDate[key] || [];
     let html = '<div class="cal-inline-card">';
-    html += '<div class="cal-inline-header"><div><div class="cal-inline-date">' + calFormatDisplayDate(dateStr) + '</div><div class="cal-inline-subtitle">这一天留下的痕迹</div></div>';
+    html += '<div class="cal-inline-header"><div><div class="cal-inline-date">' + escapeHtml(calFormatDisplayDate(dateStr)) + '</div><div class="cal-inline-subtitle">这一天留下的痕迹</div></div>';
     html += '<button class="cal-inline-add-btn" onclick="calQuickMoodSnapshot()">＋快照</button></div>';
     if (snapshots.length) {
         html += '<div class="cal-inline-section-title">心情快照</div>';
-        for (const s of snapshots) { const time = calFormatTimeFromISO(s.datetime); html += '<div class="cal-snapshot-item"><div class="cal-snapshot-time">' + (time||'') + '</div><div class="cal-snapshot-text">' + (s.text||'').replace(/\n/g,'<br>') + '</div></div>'; }
+        for (const s of snapshots) { const time = calFormatTimeFromISO(s.datetime); html += '<div class="cal-snapshot-item"><div class="cal-snapshot-time">' + escapeHtml(time||'') + '</div><div class="cal-snapshot-text">' + escapeHtml(s.text||'').replace(/\n/g,'<br>') + '</div></div>'; }
     }
     if (page && (page.mood || page.shenwang_note || page.shenwang_comment || page.period_flag)) {
         html += '<div class="cal-inline-section-title">日历记录</div>';
         if (page.mood) html += '<div class="cal-page-line"><span>心情</span><p>' + (page.mood||'').replace(/</g,'&lt;') + '</p></div>';
-        if (page.period_flag) html += '<div class="cal-page-line"><span>生理期</span><p>🩸</p></div>';
+        if (page.period_flag) html += '<div class="cal-page-line"><span>生理期</span><p>是</p></div>';
         if (page.shenwang_note) html += '<div class="cal-page-line"><span>沈望手记</span><p>' + (page.shenwang_note||'').replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</p></div>';
         if (page.shenwang_comment) html += '<div class="cal-page-line"><span>沈望点评</span><p>' + (page.shenwang_comment||'').replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</p></div>';
     }
