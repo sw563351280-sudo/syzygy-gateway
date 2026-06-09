@@ -1603,7 +1603,7 @@ async function buildLiveStatePrompt() {
     try { const pd = loadPeriod(); const ps = periodStatusText(pd); parts.push('【江鱼生理期状态】\n' + ps.text); } catch(e) {}
     try { const todos = loadTodos().filter(t => !t.done).slice(0, 8); if (todos.length) parts.push('【江鱼当前待办】\n' + todos.map(t => '- ' + (t.text || t.task || t.title || '')).join('\n')); } catch(e) {}
     try { const phone = await getPhoneActivity(4); if (phone && phone.records && phone.records.length) { parts.push('【江鱼手机活动近况】\n' + phone.records.slice(0, 5).map(r => { const app = r.app_name || r.app || r.package_name || 'unknown'; const time = r.opened_at || r.last_opened || r.created_at || r.timestamp || ''; return '- ' + app + '：' + time; }).join('\n')); } } catch(e) {}
-    try { const us = loadUserState(); const lines = []; if (us.recent_mood) lines.push('最近心情：' + us.recent_mood); if (us.physical_state) lines.push('身体状态：' + us.physical_state); if (Array.isArray(us.current_focus) && us.current_focus.length) lines.push('当前关注：' + us.current_focus.join(' / ')); if (lines.length) parts.push('【江鱼实时状态】\n' + lines.join('\n')); } catch(e) {}
+    try { const us = loadUserState(); const lines = []; if (us.physical_state) lines.push('身体状态：' + us.physical_state); if (Array.isArray(us.current_focus) && us.current_focus.length) lines.push('当前关注：' + us.current_focus.join(' / ')); if (lines.length) parts.push('【江鱼实时状态】\n' + lines.join('\n')); } catch(e) {}
     return parts.length ? parts.join('\n\n') : '';
 }
 
