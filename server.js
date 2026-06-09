@@ -2928,7 +2928,9 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
             filteredTools = filteredTools.filter(t => t._mcp);
         }
         let maxToolRounds = 5, toolRound = 0, lastToolSig = '', fileModified = false;
-        const isStreamMode = body.stream;
+        const isStreamMode = body.stream === true;
+        moodLog('[MOOD DEBUG] route entered body.stream: ' + body.stream + ' type: ' + typeof body.stream + ' isStream: ' + isStreamMode);
+        if (isStreamMode) { moodLog('[MOOD DEBUG] entering STREAM branch'); } else { moodLog('[MOOD DEBUG] entering NON-STREAM branch'); }
         let streamingSetup = false;
         while (maxToolRounds-- > 0 && filteredTools.length > 0) {
             if (isStreamMode && !streamingSetup) {
@@ -3186,12 +3188,16 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                         finalContent = todoClean;
                     }
                 }
+                // 非流式：先处理 MOOD_SNAPSHOT，再保存
+                moodLog('[MOOD DEBUG] non-stream content has tag before: ' + String(finalContent || '').includes('<MOOD_SNAPSHOT>'));
+                if (finalContent) {
+                    finalContent = handleMoodSnapshotsFromAssistantContent(finalContent);
+                    moodLog('[MOOD DEBUG] non-stream after mood handler has tag: ' + finalContent.includes('<MOOD_SNAPSHOT>'));
+                }
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);
                 }
-                // 非流式：在返回前处理 MOOD_SNAPSHOT 标签
-                try { const msg = data?.choices?.[0]?.message; if (msg && typeof msg.content === 'string') msg.content = handleMoodSnapshotsFromAssistantContent(msg.content); } catch(e) {}
                 res.status(response.status).json(data);
             } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
         }
