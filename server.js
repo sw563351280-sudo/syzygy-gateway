@@ -3144,13 +3144,21 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
             res.end();
 
             if (!noMemory) {
-                const { cleanText: streamCleanText, memories: streamMemories } = extractSaveMemoryTag(fullAiResponse);
+                const { cleanText: memClean, memories: streamMemories } = extractSaveMemoryTag(fullAiResponse);
                 for (const mem of streamMemories) {
                     smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
                 }
-                let todoAndMoodClean = extractAndProcessTodoTags(streamCleanText);
-                if (typeof todoAndMoodClean === 'string') streamCleanText = todoAndMoodClean;
-                streamCleanText = handleMoodSnapshotsFromAssistantContent(streamCleanText);
+                let streamCleanText = memClean || fullAiResponse;
+                console.log('[MOOD DEBUG] fullAiResponse has tag:', fullAiResponse.includes('<MOOD_SNAPSHOT>'));
+                console.log('[MOOD DEBUG] fullAiResponse tail:', fullAiResponse.slice(-500));
+                const todoCleanMaybe = extractAndProcessTodoTags(streamCleanText);
+                if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
+                console.log('[MOOD DEBUG] before mood handler length:', streamCleanText ? streamCleanText.length : 'EMPTY');
+                console.log('[MOOD DEBUG] before mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>'));
+                const moodCleanMaybe = handleMoodSnapshotsFromAssistantContent(streamCleanText);
+                console.log('[MOOD DEBUG] mood handler returned type:', typeof moodCleanMaybe);
+                if (typeof moodCleanMaybe === 'string') streamCleanText = moodCleanMaybe;
+                console.log('[MOOD DEBUG] after mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>'));
                 await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                 tryAutoDream(currentUserMsgText);
             }
