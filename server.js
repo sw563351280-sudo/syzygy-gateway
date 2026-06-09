@@ -4373,7 +4373,7 @@ function appendMoodSnapshotToDiary(snapshot = {}) {
     if (focus) lines.push('关注：' + focus);
     if (observation) lines.push('观察：' + observation);
     if (trigger) lines.push('触发：' + trigger);
-    if (!lines.length) throw new Error('心情快照内容为空');
+    if (!lines.length) { console.log('[MOOD] fields all empty, skipping'); return null; }
     const entry = {
         id: 'mood_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
         text: '【心情快照｜' + timeStr + '】\n' + lines.join('\n'),
@@ -4422,12 +4422,12 @@ app.post('/api/mood-snapshot', (req, res) => {
 app.get('/api/debug-mood-snapshot', (req, res) => { res.json({ ok: true, note: '请用POST方法测试' }); });
 app.post('/api/debug-mood-snapshot', (req, res) => {
     try {
-        const payload = req.body || {};
-        const tagText = '测试正文<MOOD_SNAPSHOT>' + JSON.stringify(payload) + '</MOOD_SNAPSHOT>测试结束';
+        const payload = (req.body && Object.keys(req.body).length > 0) ? req.body : { mood: '自测心情', physical_state: '自测身体', current_focus: ['自测关注'], observation: '自测观察', trigger: 'debug自测', importance: 'normal' };
+        const jsonIn = JSON.stringify(payload);
+        const tagText = '正文前缀<MOOD_SNAPSHOT>' + jsonIn + '</MOOD_SNAPSHOT>正文后缀';
         const { cleanContent, snapshots } = extractMoodSnapshotTags(tagText);
         const afterHandle = handleMoodSnapshotsFromAssistantContent(tagText);
-        const entry = appendMoodSnapshotToDiary(payload);
-        res.json({ success: true, snapshots_found: snapshots.length, clean: cleanContent, afterHandle, entry, diary_tail: loadDiaries().slice(-5) });
+        res.json({ success: true, json_used: jsonIn, snapshots_found: snapshots.length, clean: cleanContent, afterHandle, diary_tail: loadDiaries().slice(-5) });
     } catch(e) { res.status(500).json({ success: false, error: e.message, stack: e.stack }); }
 });
 
