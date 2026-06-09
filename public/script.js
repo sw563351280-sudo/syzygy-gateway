@@ -51,7 +51,9 @@ if (typeof marked !== 'undefined') { marked.setOptions({ breaks: true, gfm: true
 function renderMarkdown(text) { if (!text) return ''; if (typeof marked !== 'undefined') { try { return marked.parse(text); } catch(e) { return text; } } return text.replace(/\n/g, '<br>'); }
 
 // ==================== 版本化消息辅助函数 ====================
-function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; return v; } return msg; }
+function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; return v; } return msg; }
+function normalizeMessageVersionFields(msg) { if (!msg) return msg; if (msg.versions && msg.versions.length > 0) { if (msg.content !== undefined) { const v = msg.versions[msg.activeVersion||0] || msg.versions[0]; if (v && v.content === undefined) v.content = msg.content; if (v && v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; } } else { ensureVersioned(msg); } return msg; }
+function extractThinkingFromContent(content) { if (!content) return {thinking:'',visibleContent:''}; const m=[...content.matchAll(/<thinking>([\s\S]*?)<\/thinking>/g)]; const t=m.map(x=>x[1].trim()).filter(Boolean).join('\n\n'); const v=content.replace(/<thinking>[\s\S]*?<\/thinking>/g,'').trim(); return {thinking:t,visibleContent:v}; }
 function getVersionCount(msg) { return (msg.versions && msg.versions.length) ? msg.versions.length : 1; }
 function getActiveVersionIndex(msg) { if (msg.versions && msg.versions.length > 0) return msg.activeVersion || 0; return 0; }
 function ensureVersioned(msg) { if (msg.versions) return; const { role, ...rest } = msg; msg.versions = [rest]; msg.activeVersion = 0; delete msg.content; delete msg.thinking; delete msg.time; delete msg.model; delete msg.fullTime; delete msg.image; }
@@ -148,6 +150,9 @@ async function syncFromCloud() {
         if (!chatSessions.find(s => s.id === activeChatId)) {
             activeChatId = chatSessions[0].id;
         }
+
+        // 迁移旧消息：把顶层thinking/reasoning迁入active version
+        for (const s of chatSessions) { if (!s.messages) continue; for (const m of s.messages) { normalizeMessageVersionFields(m); } }
 
         renderSuppliers();
         renderChatSidebar();
@@ -814,11 +819,17 @@ function renderChatMessages(){
 
         let htmlContent = '';
         if(v.image) htmlContent += '<img src="' + v.image + '" style="max-width:200px;border-radius:8px;margin-bottom:5px;box-shadow:0 2px 10px rgba(0,0,0,0.3);display:block;">';
-        if(v.thinking) htmlContent += '<div class="think-box"><div class="think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">' + v.thinking.replace(/\n/g,'<br>') + '</div></div>';
+        const rawThinking = v.thinking || v.reasoning || m.thinking || m.reasoning || '';
+        // 兼容正文里混入 <thinking>...</thinking> 或 <think>...</think> 的旧格式
+        let displayContent = v.content || '';
+        let extractedThink = extractThinkingFromContent(displayContent);
+        if (extractedThink.thinking) { displayContent = extractedThink.visibleContent; }
+        const finalThinking = rawThinking || extractedThink.thinking || '';
+        if(finalThinking) htmlContent += '<div class="think-box"><div class="think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">' + finalThinking.replace(/\n/g,'<br>') + '</div></div>';
         if (m.role === 'user') {
-            htmlContent += '<div>' + (v.content || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
+            htmlContent += '<div>' + (displayContent || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
         } else {
-            htmlContent += '<div class="md-content">' + renderMarkdown(v.content || '') + '</div>';
+            htmlContent += '<div class="md-content">' + renderMarkdown(displayContent || '') + '</div>';
         }
 
         const timeStr = v.fullTime ? new Date(v.fullTime).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) : (v.time || '');
