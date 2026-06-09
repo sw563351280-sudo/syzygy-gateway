@@ -2213,10 +2213,25 @@ function calFormatTimeFromISO(iso) { if (!iso) return ''; try { return new Date(
 
 async function calLoadMoodSnapshots() {
     _calMoodSnapshotsByDate = {};
-    try { const r = await fetch('/diary-logs'); const entries = await r.json(); if (!Array.isArray(entries)) return;
-        for (const e of entries) { if (e.type !== 'mood_snapshot') continue; const key = calLooseDateKey(e.date||(e.datetime?e.datetime.slice(0,10):'')); if (!key) continue; if (!_calMoodSnapshotsByDate[key]) _calMoodSnapshotsByDate[key] = []; _calMoodSnapshotsByDate[key].push(e); }
-        for (const key of Object.keys(_calMoodSnapshotsByDate)) { _calMoodSnapshotsByDate[key].sort((a,b)=>new Date(a.datetime||0)-new Date(b.datetime||0)); }
-    } catch(e) { console.log('日历心情快照加载失败',e); }
+    try {
+        const r = await fetch('/diary-logs');
+        const raw = await r.json();
+        const entries = Array.isArray(raw) ? raw : (raw.entries || raw.data || raw.logs || []);
+        if (!Array.isArray(entries)) { console.log('日历心情快照格式不兼容', raw); return; }
+        for (const e of entries) {
+            const type = e.type || '';
+            const text = e.text || '';
+            const isMoodSnapshot = type === 'mood_snapshot' || text.includes('【心情快照');
+            if (!isMoodSnapshot) continue;
+            const rawDate = e.date || e.day || e.dateStr || (e.datetime ? e.datetime.slice(0,10) : '');
+            const key = calLooseDateKey(rawDate);
+            if (!key) continue;
+            if (!_calMoodSnapshotsByDate[key]) _calMoodSnapshotsByDate[key] = [];
+            _calMoodSnapshotsByDate[key].push(e);
+        }
+        for (const key of Object.keys(_calMoodSnapshotsByDate)) { _calMoodSnapshotsByDate[key].sort((a,b) => new Date(a.datetime||a.time||0) - new Date(b.datetime||b.time||0)); }
+        console.log('日历心情快照加载完成', _calMoodSnapshotsByDate);
+    } catch(e) { console.log('日历心情快照加载失败', e); }
 }
 
 async function calRender() {
