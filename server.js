@@ -3148,7 +3148,9 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                 for (const mem of streamMemories) {
                     smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
                 }
-                extractAndProcessTodoTags(streamCleanText);
+                let todoAndMoodClean = extractAndProcessTodoTags(streamCleanText);
+                if (typeof todoAndMoodClean === 'string') streamCleanText = todoAndMoodClean;
+                streamCleanText = handleMoodSnapshotsFromAssistantContent(streamCleanText);
                 await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                 tryAutoDream(currentUserMsgText);
             }
@@ -3175,7 +3177,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                     await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);
                 }
-                // TODO: stream 模式下的 MOOD_SNAPSHOT 需要做 buffer transform，第一版先只支持非流式。
+                // 非流式：在返回前处理 MOOD_SNAPSHOT 标签
                 try { const msg = data?.choices?.[0]?.message; if (msg && typeof msg.content === 'string') msg.content = handleMoodSnapshotsFromAssistantContent(msg.content); } catch(e) {}
                 res.status(response.status).json(data);
             } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
