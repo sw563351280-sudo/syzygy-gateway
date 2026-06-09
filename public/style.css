@@ -606,11 +606,16 @@ body.light-mode #imgPreviewWrap img {
 }
 
 /* ============ 聊天页专属修复 ============ */
-body[data-view="chat"] { overflow:hidden!important;position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;height:100%!important;width:100%!important }
+body[data-view="chat"] { overflow:hidden!important;position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;height:100dvh!important;width:100%!important }
 #sec-chat.active { display:flex!important;flex-direction:column!important;height:100%!important;overflow:hidden!important }
-#sec-chat.active .chat-bottom-bar { padding-bottom:max(10px,env(safe-area-inset-bottom))!important }
+#sec-chat.section { padding-top:0!important;padding-bottom:0!important;height:100dvh!important;overflow:hidden!important }
 body.view-chat #themeToggleBtn { display:none!important }
-#sec-chat.section { padding-top:0!important }
+/* 输入栏贴合底部安全区：只用padding-bottom吃safe-area */
+#sec-chat .chat-bottom-bar { bottom:0!important;padding-bottom:calc(10px + env(safe-area-inset-bottom, 0px))!important }
+/* 消息列表底部留空间给输入栏 */
+#sec-chat .chat-window { padding-bottom:calc(80px + env(safe-area-inset-bottom, 0px))!important }
+/* 顶栏用padding-top吃刘海，不加section的20px */
+#sec-chat .view-topbar { padding-top:env(safe-area-inset-top,0px)!important }
 
 
 
@@ -1400,7 +1405,6 @@ body.light-mode #sec-data input[type="text"]:focus{border-color:rgba(196,165,123
 
 /* ═══ 顶栏/底栏安全区适配 ═══ */
 .view-topbar{padding-top:max(14px,env(safe-area-inset-top,14px))}
-.chat-bottom-bar{padding-bottom:max(12px,env(safe-area-inset-bottom,12px))!important}
 
 /* ═══ 聊天文字缩小、气泡加宽 ═══ */
 .chat-window .msg{font-size:.78em!important;line-height:1.7!important}

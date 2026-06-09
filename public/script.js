@@ -282,12 +282,7 @@ function goView(viewId) {
     const VIEWS = ['home','chat','data','favorites','flo','calendar','album'];
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);
-    if (viewId === 'chat') {
-        target.style.height = window.innerHeight + 'px';
-        setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300);
-    } else {
-        target.style.height = '';
-    }
+    if (viewId === 'chat') setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300);
     if (viewId === 'home') { updateDays && updateDays(); if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuInitHome(); }
     if (viewId === 'favorites') loadAndRenderFavorites();
     if (viewId === 'flo') floRender();
