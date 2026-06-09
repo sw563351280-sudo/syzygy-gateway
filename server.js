@@ -3012,10 +3012,13 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
             const finalContent = todoClean;
 
             if (isStreamMode) {
+                // 先剥离 MOOD_SNAPSHOT 标签再发送前端
+                moodLog('[MOOD DEBUG] tool-path stream before strip has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
+                const visibleContent = handleMoodSnapshotsFromAssistantContent(finalContent);
                 if (finalThink) {
                     res.write(`data: ${JSON.stringify({ id: 'think', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { reasoning_content: finalThink }, finish_reason: null }] })}\n\n`);
                 }
-                const chars = finalContent.split('');
+                const chars = visibleContent.split('');
                 for (let i = 0; i < chars.length; i += 8) {
                     const delta = chars.slice(i, i + 8).join('');
                     res.write(`data: ${JSON.stringify({ id: toolData.id || 'chatcmpl-tool', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { content: delta }, finish_reason: null }] })}\n\n`);
@@ -3023,11 +3026,8 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                 res.write(`data: ${JSON.stringify({ id: toolData.id || 'chatcmpl-tool', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }] })}\n\n`);
                 res.write('data: [DONE]\n\n');
                 res.end();
-                // 工具路径也需要 MOOD_SNAPSHOT
-                moodLog('[MOOD DEBUG] tool-path stream finalContent has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
-                const moodCleaned = handleMoodSnapshotsFromAssistantContent(finalContent);
                 if (!noMemory) {
-                    await saveToZepWithCounter(currentUserMsgText, moodCleaned, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
+                    await saveToZepWithCounter(currentUserMsgText, visibleContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);
                 }
                 return;
@@ -3112,7 +3112,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                     const piece = delta.content; contentBuffer += piece; fullAiResponse += piece;
 
                     if (!isBuffering) {
-                        const TAG_OPEN = /<(SAVE_MEMORY|ADD_TODO|DONE_TODO)/;
+                        const TAG_OPEN = /<(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT)/;
                         const saveIdx = contentBuffer.search(TAG_OPEN);
                         if (saveIdx === -1) {
                             const ltIdx = contentBuffer.lastIndexOf('<');
@@ -3136,11 +3136,12 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                     if (isBuffering) {
                         const close0 = contentBuffer.indexOf('</SAVE_MEMORY>');
                         const close1 = contentBuffer.indexOf('</ADD_TODO>');
-                        const close2 = contentBuffer.indexOf('/>');
-                        const closes = [close0, close1, close2].filter(i => i !== -1);
+                        const close2 = contentBuffer.indexOf('</MOOD_SNAPSHOT>');
+                        const close3 = contentBuffer.indexOf('/>');
+                        const closes = [close0, close1, close2, close3].filter(i => i !== -1);
                         if (closes.length > 0) {
                             const closeIdx = Math.min(...closes);
-                            const foundTag = closeIdx === close0 ? '</SAVE_MEMORY>' : closeIdx === close1 ? '</ADD_TODO>' : '/>';
+                            const foundTag = closeIdx === close0 ? '</SAVE_MEMORY>' : closeIdx === close1 ? '</ADD_TODO>' : closeIdx === close2 ? '</MOOD_SNAPSHOT>' : '/>';
                             contentBuffer = contentBuffer.substring(closeIdx + foundTag.length);
                             isBuffering = false;
                             if (contentBuffer) { const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate); if (chunk) res.write(chunk); contentBuffer = ''; }
