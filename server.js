@@ -2868,7 +2868,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             let txCtx = '';
             const shouldScan = shouldScanTranscript(currentUserMsgText);
             if (shouldScan) txCtx = await scanTranscriptRadar(currentUserMsgText, 2);
-            const moodSnapshotInst = '【心情快照输出规则】\n正文结束后必须输出一行：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n\n严禁使用 [[ ]] 双括号格式。严禁在标签内写文字解释。只允许纯 JSON。无事可写时 JSON 填 {"mood":"","physical_state":"","current_focus":[],"observation":"","trigger":"","importance":"low"}。';
+            const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
     // 先情绪指令，再剩余上下文，确保不被 slice 截掉
     const mainCtx = [liveCtx, sumCtx, memCtx, txCtx].filter(Boolean).join('\n\n').substring(0, 11000);
     const dctx = moodSnapshotInst + '\n\n' + mainCtx;
@@ -4381,12 +4381,18 @@ function getChinaDateString(date = new Date()) { const p = getChinaDateParts(dat
 function getChinaTimeString(date = new Date()) { const p = getChinaDateParts(date); return p.hour + ':' + p.minute; }
 
 function appendMoodSnapshotToDiary(snapshot = {}) {
+    const mood = String(snapshot.mood || '').trim(), physical = String(snapshot.physical_state || '').trim();
+    const observation = String(snapshot.observation || '').trim(), trigger = String(snapshot.trigger || '').trim(), importance = (snapshot.importance || 'normal').trim();
+    const focusArr = Array.isArray(snapshot.current_focus) ? snapshot.current_focus.filter(Boolean) : [];
+
+    // 空快照/low重要性：不写入日历
+    if (!mood && !physical && !observation && !trigger && !focusArr.length) { console.log('🗓️ [心情快照] 空内容，跳过写入'); return null; }
+    if (importance === 'low') { console.log('🗓️ [心情快照] low importance，跳过写入'); return null; }
+
     const now = new Date(), timeStr = getChinaTimeString(now);
     let dateStr = getChinaDateString(now);
     if (snapshot.date) { const dp = String(snapshot.date).split('-').map(x => parseInt(x,10)); if (dp.length >= 3 && !dp.some(isNaN)) dateStr = dp[0] + '-' + dp[1] + '-' + dp[2]; }
-    const mood = String(snapshot.mood || '').trim(), physical = String(snapshot.physical_state || '').trim();
-    const focus = Array.isArray(snapshot.current_focus) ? snapshot.current_focus.filter(Boolean).join(' / ') : String(snapshot.current_focus || '').trim();
-    const observation = String(snapshot.observation || '').trim(), trigger = String(snapshot.trigger || '').trim(), importance = snapshot.importance || 'normal';
+    const focus = focusArr.join(' / ');
     const lines = [];
     if (mood) lines.push('心情：' + mood);
     if (physical) lines.push('身体：' + physical);
