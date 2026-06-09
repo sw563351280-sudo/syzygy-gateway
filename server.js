@@ -148,6 +148,9 @@ function savePhotos(items) { fs.writeFileSync(PHOTOS_FILE, JSON.stringify(items,
 const _dreamDiag = { last: null, history: [] };
 const _boom = { last: null };
 const _ctxDiag = { last: null };
+const _moodLog = [];  // ring buffer for MOOD debug
+
+function moodLog(msg) { _moodLog.push(new Date().toISOString() + ' ' + msg); if (_moodLog.length > 100) _moodLog.shift(); console.log(msg); }
 const DAILY_PAGES_FILE = path.join(DATA_DIR, 'daily_pages.json');
 const WEEKLY_SUMMARIES_FILE = path.join(DATA_DIR, 'weekly_summaries.json');
 const MONTHLY_SUMMARIES_FILE = path.join(DATA_DIR, 'monthly_summaries.json');
@@ -2876,7 +2879,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
 const totalChars = JSON.stringify(newMessages).length;
 const estimatedTokens = Math.round(totalChars / 4);
-console.log('[MOOD DEBUG] messages has instruction:', JSON.stringify(body.messages).includes('MOOD_SNAPSHOT'));
+moodLog('[MOOD DEBUG] messages has instruction: ' + JSON.stringify(body.messages).includes('MOOD_SNAPSHOT'));
 console.log(`🔬 [X光] 最终发给API: ${newMessages.length}条消息, ${totalChars}字符 ≈ ${estimatedTokens} tokens`);
 newMessages.forEach((m, i) => {
     const len = JSON.stringify(m.content).length;
@@ -3506,6 +3509,9 @@ app.get('/debug-mcp', (req, res) => {
 });
 app.get('/debug-ctx', (req, res) => {
     res.json(_ctxDiag.last || { note: '尚未发送过消息' });
+});
+app.get('/debug-mood-logs', (req, res) => {
+    res.json({ logs: _moodLog.slice(-50), count: _moodLog.length });
 });
 
 app.post('/api/tools-toggle', (req, res) => {
