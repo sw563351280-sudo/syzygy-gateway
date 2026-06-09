@@ -4391,12 +4391,19 @@ function appendMoodSnapshotToDiary(snapshot = {}) {
 
 function extractMoodSnapshotTags(content) {
     if (!content || typeof content !== 'string') return { cleanContent: content, snapshots: [] };
-    const snapshots = [], cleanContent = content.replace(/<MOOD_SNAPSHOT>([\s\S]*?)<\/MOOD_SNAPSHOT>/g, (match, jsonText) => { try { const p = JSON.parse(jsonText.trim()); if (p && typeof p === 'object') snapshots.push(p); } catch(e) {} return ''; }).trim();
+    const snapshots = [], cleanContent = content.replace(/<MOOD_SNAPSHOT>([\s\S]*?)<\/MOOD_SNAPSHOT>/g, (match, jsonText) => { try { const p = JSON.parse(jsonText.trim()); if (p && typeof p === 'object') snapshots.push(p); } catch(e) { console.error('[MOOD ERROR] parse tag:', e.message); } return ''; }).trim();
     return { cleanContent, snapshots };
 }
 function handleMoodSnapshotsFromAssistantContent(content) {
     const { cleanContent, snapshots } = extractMoodSnapshotTags(content);
-    for (const s of snapshots) { try { appendMoodSnapshotToDiary(s); } catch(e) {} }
+    console.log('[MOOD DEBUG] handler: found', snapshots.length, 'snapshots');
+    for (const s of snapshots) {
+        try {
+            console.log('[MOOD DEBUG] handler: writing snapshot', JSON.stringify(s).substring(0, 80));
+            appendMoodSnapshotToDiary(s);
+            console.log('[MOOD DEBUG] handler: snapshot written OK');
+        } catch(e) { console.error('[MOOD ERROR] handler append failed:', e.message, e.stack); }
+    }
     return cleanContent;
 }
 
