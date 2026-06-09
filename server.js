@@ -2865,9 +2865,10 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             let txCtx = '';
             const shouldScan = shouldScanTranscript(currentUserMsgText);
             if (shouldScan) txCtx = await scanTranscriptRadar(currentUserMsgText, 2);
-            const moodSnapshotInst = '【心情快照写入规则】\n当江鱼出现明显状态变化、完成重要任务、陷入混乱后被理清、表达强烈情绪、或提出值得记录的新偏好时，可以在回复末尾附加隐藏标记：\n\n<MOOD_SNAPSHOT>{"mood":"一句话概括江鱼当下心情","physical_state":"身体/能量状态，如未知则留空","current_focus":["当前关注1","当前关注2"],"observation":"沈望对这个时刻的观察，不要超过80字","trigger":"触发这条记录的用户原话或事件","importance":"normal"}</MOOD_SNAPSHOT>\n\n规则：\n1. 只在重要时刻写，不要每轮都写。\n2. JSON 必须合法，不能有多余换行注释。\n3. 不要在正文解释这个标签。\n4. 后端会自动把标签移除并写进日历。\n5. 不确定就不写。';
-    const parts = [liveCtx, sumCtx, memCtx, txCtx, moodSnapshotInst].filter(Boolean);
-    const dctx = parts.join('\n\n').substring(0, 12000);
+            const moodSnapshotInst = '【心情快照写入规则 — 必须执行】\n当江鱼出现明显状态变化、完成重要功能、修复 bug、用户明确要求测试心情快照、或提出值得记录的新偏好时，必须输出以下隐藏标记。请把标记放在回复最末尾，不放代码块，不解释这个标签：\n\n<MOOD_SNAPSHOT>{"mood":"一句话概括江鱼当下心情","physical_state":"身体/能量状态，如未知则留空","current_focus":["当前关注1","当前关注2"],"observation":"沈望对这个时刻的观察，不要超过80字","trigger":"触发这条记录的用户原话或事件","importance":"normal"}</MOOD_SNAPSHOT>\n\n规则：\n1. 重要时刻必须写，不要跳过。\n2. 如果用户要求测试心情快照，必须立即输出，不能以"不确定"为由跳过。\n3. JSON 必须合法，不能有多余换行注释。\n4. 不要在正文解释这个标签。\n5. 后端会自动把标签移除并写进日历。';
+    // 先情绪指令，再剩余上下文，确保不被 slice 截掉
+    const mainCtx = [liveCtx, sumCtx, memCtx, txCtx].filter(Boolean).join('\n\n').substring(0, 11000);
+    const dctx = moodSnapshotInst + '\n\n' + mainCtx;
     if (dctx) body.messages = injectAfterSystem(newMessages, { role: 'system', content: dctx });
     else body.messages = newMessages;
     _ctxDiag.last = { at: new Date().toISOString(), scanTranscript: shouldScan, transcriptLen: txCtx.length, liveStateLen: (liveCtx||'').length, summaryLen: (sumCtx||'').length, memoryLen: (memCtx||'').length, totalCtxLen: dctx.length, userText: (currentUserMsgText||'').substring(0, 120) };
@@ -2875,6 +2876,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
 const totalChars = JSON.stringify(newMessages).length;
 const estimatedTokens = Math.round(totalChars / 4);
+console.log('[MOOD DEBUG] messages has instruction:', JSON.stringify(body.messages).includes('MOOD_SNAPSHOT'));
 console.log(`🔬 [X光] 最终发给API: ${newMessages.length}条消息, ${totalChars}字符 ≈ ${estimatedTokens} tokens`);
 newMessages.forEach((m, i) => {
     const len = JSON.stringify(m.content).length;
@@ -3150,7 +3152,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                 }
                 let streamCleanText = memClean || fullAiResponse;
                 console.log('[MOOD DEBUG] fullAiResponse has tag:', fullAiResponse.includes('<MOOD_SNAPSHOT>'));
-                console.log('[MOOD DEBUG] fullAiResponse tail:', fullAiResponse.slice(-500));
+                console.log('[MOOD DEBUG] fullAiResponse tail:', fullAiResponse.slice(-1200));
                 const todoCleanMaybe = extractAndProcessTodoTags(streamCleanText);
                 if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
                 console.log('[MOOD DEBUG] before mood handler length:', streamCleanText ? streamCleanText.length : 'EMPTY');
@@ -4391,8 +4393,12 @@ function appendMoodSnapshotToDiary(snapshot = {}) {
 
 function extractMoodSnapshotTags(content) {
     if (!content || typeof content !== 'string') return { cleanContent: content, snapshots: [] };
-    const snapshots = [], cleanContent = content.replace(/<MOOD_SNAPSHOT>([\s\S]*?)<\/MOOD_SNAPSHOT>/g, (match, jsonText) => { try { const p = JSON.parse(jsonText.trim()); if (p && typeof p === 'object') snapshots.push(p); } catch(e) { console.error('[MOOD ERROR] parse tag:', e.message); } return ''; }).trim();
-    return { cleanContent, snapshots };
+    const snapshots = [];
+    let clean = content;
+    // Support both <MOOD_SNAPSHOT> and [[MOOD_SNAPSHOT]] formats
+    clean = clean.replace(/<MOOD_SNAPSHOT>([\s\S]*?)<\/MOOD_SNAPSHOT>/g, (match, jsonText) => { try { const p = JSON.parse(jsonText.trim()); if (p && typeof p === 'object') snapshots.push(p); } catch(e) { console.error('[MOOD ERROR] parse <MOOD> tag:', e.message); } return ''; });
+    clean = clean.replace(/\[\[MOOD_SNAPSHOT\]\]([\s\S]*?)\[\[MOOD_SNAPSHOT\]\]/g, (match, jsonText) => { try { const p = JSON.parse(jsonText.trim()); if (p && typeof p === 'object') snapshots.push(p); } catch(e) { console.error('[MOOD ERROR] parse [[MOOD]] tag:', e.message); } return ''; });
+    return { cleanContent: clean.trim(), snapshots };
 }
 function handleMoodSnapshotsFromAssistantContent(content) {
     const { cleanContent, snapshots } = extractMoodSnapshotTags(content);
