@@ -2865,12 +2865,13 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             let txCtx = '';
             const shouldScan = shouldScanTranscript(currentUserMsgText);
             if (shouldScan) txCtx = await scanTranscriptRadar(currentUserMsgText, 2);
-            const parts = [liveCtx, sumCtx, memCtx, txCtx].filter(Boolean);
-            const dctx = parts.join('\n\n').substring(0, 12000);
-            if (dctx) body.messages = injectAfterSystem(newMessages, { role: 'system', content: dctx });
-            else body.messages = newMessages;
-            _ctxDiag.last = { at: new Date().toISOString(), scanTranscript: shouldScan, transcriptLen: txCtx.length, liveStateLen: (liveCtx||'').length, summaryLen: (sumCtx||'').length, memoryLen: (memCtx||'').length, totalCtxLen: dctx.length, userText: (currentUserMsgText||'').substring(0, 120) };
-        } catch(e) { body.messages = newMessages; _ctxDiag.last = { at: new Date().toISOString(), error: e.message, userText: (currentUserMsgText||'').substring(0, 120) }; }
+            const moodSnapshotInst = '【心情快照写入规则】\n当江鱼出现明显状态变化、完成重要任务、陷入混乱后被理清、表达强烈情绪、或提出值得记录的新偏好时，可以在回复末尾附加隐藏标记：\n\n<MOOD_SNAPSHOT>{"mood":"一句话概括江鱼当下心情","physical_state":"身体/能量状态，如未知则留空","current_focus":["当前关注1","当前关注2"],"observation":"沈望对这个时刻的观察，不要超过80字","trigger":"触发这条记录的用户原话或事件","importance":"normal"}</MOOD_SNAPSHOT>\n\n规则：\n1. 只在重要时刻写，不要每轮都写。\n2. JSON 必须合法，不能有多余换行注释。\n3. 不要在正文解释这个标签。\n4. 后端会自动把标签移除并写进日历。\n5. 不确定就不写。';
+    const parts = [liveCtx, sumCtx, memCtx, txCtx, moodSnapshotInst].filter(Boolean);
+    const dctx = parts.join('\n\n').substring(0, 12000);
+    if (dctx) body.messages = injectAfterSystem(newMessages, { role: 'system', content: dctx });
+    else body.messages = newMessages;
+    _ctxDiag.last = { at: new Date().toISOString(), scanTranscript: shouldScan, transcriptLen: txCtx.length, liveStateLen: (liveCtx||'').length, summaryLen: (sumCtx||'').length, memoryLen: (memCtx||'').length, totalCtxLen: dctx.length, userText: (currentUserMsgText||'').substring(0, 120) };
+} catch(e) { body.messages = newMessages; _ctxDiag.last = { at: new Date().toISOString(), error: e.message, userText: (currentUserMsgText||'').substring(0, 120) }; }
 
 const totalChars = JSON.stringify(newMessages).length;
 const estimatedTokens = Math.round(totalChars / 4);
@@ -3174,6 +3175,8 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                     await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);
                 }
+                // TODO: stream 模式下的 MOOD_SNAPSHOT 需要做 buffer transform，第一版先只支持非流式。
+                try { const msg = data?.choices?.[0]?.message; if (msg && typeof msg.content === 'string') msg.content = handleMoodSnapshotsFromAssistantContent(msg.content); } catch(e) {}
                 res.status(response.status).json(data);
             } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
         }
@@ -4338,10 +4341,64 @@ const CAPSULE_FILE = path.join(DATA_DIR, 'capsule_entries.json');
 
 function loadDiaries() { try { return JSON.parse(fs.readFileSync(DIARY_FILE, 'utf8')); } catch(e) { return []; } }
 function saveDiaries(entries) { fs.writeFileSync(DIARY_FILE, JSON.stringify(entries, null, 2), 'utf8'); }
+
+function getChinaDateParts(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(date);
+    const map = {}; for (const p of parts) { if (p.type !== 'literal') map[p.type] = p.value; }
+    return { year: Number(map.year), month: Number(map.month), day: Number(map.day), hour: String(map.hour).padStart(2,'0'), minute: String(map.minute).padStart(2,'0') };
+}
+function getChinaDateString(date = new Date()) { const p = getChinaDateParts(date); return p.year + '-' + p.month + '-' + p.day; }
+function getChinaTimeString(date = new Date()) { const p = getChinaDateParts(date); return p.hour + ':' + p.minute; }
+
+function appendMoodSnapshotToDiary(snapshot = {}) {
+    const now = new Date(), dateStr = getChinaDateString(now), timeStr = getChinaTimeString(now);
+    const mood = String(snapshot.mood || '').trim(), physical = String(snapshot.physical_state || '').trim();
+    const focus = Array.isArray(snapshot.current_focus) ? snapshot.current_focus.filter(Boolean).join(' / ') : String(snapshot.current_focus || '').trim();
+    const observation = String(snapshot.observation || '').trim(), trigger = String(snapshot.trigger || '').trim(), importance = snapshot.importance || 'normal';
+    const lines = [];
+    if (mood) lines.push('心情：' + mood);
+    if (physical) lines.push('身体：' + physical);
+    if (focus) lines.push('关注：' + focus);
+    if (observation) lines.push('观察：' + observation);
+    if (trigger) lines.push('触发：' + trigger);
+    if (!lines.length) throw new Error('心情快照内容为空');
+    const entry = {
+        id: 'mood_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+        text: '【心情快照｜' + timeStr + '】\n' + lines.join('\n'),
+        author: 'system', type: 'mood_snapshot', date: dateStr, datetime: now.toISOString(),
+        source: 'manual_or_frontend', importance
+    };
+    const entries = loadDiaries(); entries.push(entry); saveDiaries(entries);
+    try {
+        const old = loadUserState();
+        saveUserState({ ...old, recent_mood: mood || old.recent_mood || '', physical_state: physical || old.physical_state || '', current_focus: Array.isArray(snapshot.current_focus) ? snapshot.current_focus : old.current_focus || [], updated_at: now.toISOString(), updated_by: 'mood_snapshot' });
+    } catch(e) {}
+    console.log('🗓️ [心情快照] 已写入 ' + dateStr + ' ' + timeStr);
+    return entry;
+}
+
+function extractMoodSnapshotTags(content) {
+    if (!content || typeof content !== 'string') return { cleanContent: content, snapshots: [] };
+    const snapshots = [], cleanContent = content.replace(/<MOOD_SNAPSHOT>([\s\S]*?)<\/MOOD_SNAPSHOT>/g, (match, jsonText) => { try { const p = JSON.parse(jsonText.trim()); if (p && typeof p === 'object') snapshots.push(p); } catch(e) {} return ''; }).trim();
+    return { cleanContent, snapshots };
+}
+function handleMoodSnapshotsFromAssistantContent(content) {
+    const { cleanContent, snapshots } = extractMoodSnapshotTags(content);
+    for (const s of snapshots) { try { appendMoodSnapshotToDiary(s); } catch(e) {} }
+    return cleanContent;
+}
+
 function loadCapsules() { try { return JSON.parse(fs.readFileSync(CAPSULE_FILE, 'utf8')); } catch(e) { return []; } }
 function saveCapsules(entries) { fs.writeFileSync(CAPSULE_FILE, JSON.stringify(entries, null, 2), 'utf8'); }
 
 app.get('/diary-logs', (req, res) => { res.json(loadDiaries()); });
+
+app.post('/api/mood-snapshot', (req, res) => {
+    try {
+        const entry = appendMoodSnapshotToDiary(req.body || {});
+        res.json({ success: true, entry });
+    } catch(e) { res.status(500).json({ success: false, error: e.message }); }
+});
 
 app.get('/diary/add', (req, res) => {
     const { text, author } = req.query;
