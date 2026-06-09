@@ -4423,9 +4423,11 @@ app.get('/api/debug-mood-snapshot', (req, res) => { res.json({ ok: true, note: '
 app.post('/api/debug-mood-snapshot', (req, res) => {
     try {
         const payload = req.body || {};
-        const text = '测试正文<MOOD_SNAPSHOT>' + JSON.stringify(payload) + '</MOOD_SNAPSHOT>测试结束';
-        const clean = handleMoodSnapshotsFromAssistantContent(text);
-        res.json({ success: true, clean, user_state: loadUserState(), diary_tail: loadDiaries().slice(-5) });
+        const tagText = '测试正文<MOOD_SNAPSHOT>' + JSON.stringify(payload) + '</MOOD_SNAPSHOT>测试结束';
+        const { cleanContent, snapshots } = extractMoodSnapshotTags(tagText);
+        const afterHandle = handleMoodSnapshotsFromAssistantContent(tagText);
+        const entry = appendMoodSnapshotToDiary(payload);
+        res.json({ success: true, snapshots_found: snapshots.length, clean: cleanContent, afterHandle, entry, diary_tail: loadDiaries().slice(-5) });
     } catch(e) { res.status(500).json({ success: false, error: e.message, stack: e.stack }); }
 });
 
