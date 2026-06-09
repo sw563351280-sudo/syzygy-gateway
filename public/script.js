@@ -2200,10 +2200,24 @@ async function deleteFavorite(id) {
 // ═══ 日历视图 ═══
 let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth() + 1;
+let _calSelectedDate = null;
+let _calSelectedPage = null;
+let _calMoodSnapshotsByDate = {};
 
 function calYearMonth() { return calYear + '-' + String(calMonth).padStart(2, '0'); }
 function calPrevMonth() { calMonth--; if (calMonth < 1) { calMonth = 12; calYear--; } calRender(); }
 function calNextMonth() { calMonth++; if (calMonth > 12) { calMonth = 1; calYear++; } calRender(); }
+function calLooseDateKey(dateStr) { if (!dateStr) return ''; const parts = String(dateStr).split('-').map(x => parseInt(x,10)); if (parts.length<3||parts.some(isNaN)) return String(dateStr); return parts[0]+'-'+parts[1]+'-'+parts[2]; }
+function calFormatDisplayDate(dateStr) { const p = calLooseDateKey(dateStr).split('-'); if (p.length<3) return dateStr; return p[1]+'月'+p[2]+'日'; }
+function calFormatTimeFromISO(iso) { if (!iso) return ''; try { return new Date(iso).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false}); } catch(e) { return ''; } }
+
+async function calLoadMoodSnapshots() {
+    _calMoodSnapshotsByDate = {};
+    try { const r = await fetch('/diary-logs'); const entries = await r.json(); if (!Array.isArray(entries)) return;
+        for (const e of entries) { if (e.type !== 'mood_snapshot') continue; const key = calLooseDateKey(e.date||(e.datetime?e.datetime.slice(0,10):'')); if (!key) continue; if (!_calMoodSnapshotsByDate[key]) _calMoodSnapshotsByDate[key] = []; _calMoodSnapshotsByDate[key].push(e); }
+        for (const key of Object.keys(_calMoodSnapshotsByDate)) { _calMoodSnapshotsByDate[key].sort((a,b)=>new Date(a.datetime||0)-new Date(b.datetime||0)); }
+    } catch(e) { console.log('日历心情快照加载失败',e); }
+}
 
 async function calRender() {
     const title = document.getElementById('calTitle');
@@ -2211,7 +2225,7 @@ async function calRender() {
     if (!title || !grid) return;
     title.innerText = calYear + '年' + calMonth + '月';
     let data = [];
-    try { const r = await fetch('/api/calendar?month=' + calYearMonth()); const j = await r.json(); data = j.success ? (j.data||[]) : []; } catch(e) {}
+    try { const [calRes] = await Promise.all([fetch('/api/calendar?month=' + calYearMonth()), calLoadMoodSnapshots()]); const j = await calRes.json(); data = j.success ? (j.data||[]) : []; } catch(e) { console.log('日历加载失败',e); }
     const pageMap = {}; data.forEach(p => { if (p.date) pageMap[p.date] = p; });
     const firstDay = new Date(calYear, calMonth-1, 1);
     const daysInMonth = new Date(calYear, calMonth, 0).getDate();
@@ -2225,42 +2239,71 @@ async function calRender() {
         const dateStr = calYear+'-'+String(calMonth).padStart(2,'0')+'-'+String(d).padStart(2,'0');
         const page = pageMap[dateStr];
         const isToday = dateStr === todayStr;
-        html += '<div class="cal-cell' + (isToday?' today':'') + (page&&page.shenwang_note?' has-note':'') + '" onclick="calOpenDay(\''+dateStr+'\')">';
-        html += '<span class="cal-cell-num">'+d+'</span>';
+        const mKey = calLooseDateKey(dateStr);
+        const hasMood = !!(_calMoodSnapshotsByDate[mKey] && _calMoodSnapshotsByDate[mKey].length);
+        const selected = _calSelectedDate && calLooseDateKey(dateStr) === calLooseDateKey(_calSelectedDate);
+        let cls = 'cal-cell';
+        if (isToday) cls += ' today';
+        if (selected) cls += ' selected';
+        if (page && page.shenwang_note) cls += ' has-note';
+        if (hasMood) cls += ' has-mood-snapshot';
+        html += '<div class="' + cls + '" data-date="' + dateStr + '" onclick="calOpenDay(\'' + dateStr + '\')">';
+        html += '<span class="cal-cell-num">' + d + '</span>';
         if (page && page.shenwang_note) html += '<span class="cal-cell-dot"></span>';
         if (page && page.period_flag) html += '<span class="cal-cell-period"></span>';
+        if (hasMood && !(page && page.shenwang_note)) html += '<span class="cal-mood-dot"></span>';
         html += '</div>';
     }
     grid.innerHTML = html;
+    if (_calSelectedDate) { calRenderInlineDetail(_calSelectedDate, _calSelectedPage); }
 }
 
 async function calOpenDay(dateStr) {
+    _calSelectedDate = dateStr;
     let page = null;
-    try { const r = await fetch('/api/calendar/'+dateStr); const j = await r.json(); page = j.success ? j.data : null; } catch(e) {}
-    const d = new Date(dateStr+'T00:00:00+08:00');
-    document.getElementById('calDetailDate').innerText = d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日';
-    const de = document.getElementById('calDetailDays');
-    if (page && page.together_days) { de.innerText = '在一起的第 '+page.together_days+' 天'; de.style.display=''; } else de.style.display='none';
-    const ne = document.getElementById('calDetailNote');
-    if (page && page.shenwang_note) { ne.innerText = page.shenwang_note; ne.className = 'cal-detail-note'; ne.style.display=''; }
-    else { ne.innerText = '这一天还没有留下记录'; ne.className = 'cal-detail-note empty'; ne.style.display=''; }
-    const ce = document.getElementById('calDetailComment');
-    if (page && page.shenwang_comment) { ce.innerText = '💬 '+page.shenwang_comment; ce.style.display=''; } else ce.style.display='none';
-    const te = document.getElementById('calDetailTags');
-    let t = '';
-    if (page && page.period_flag) t += '<span class="cal-tag period">🩸 生理期</span>';
-    if (page && page.mood) t += '<span class="cal-tag mood">'+page.mood+'</span>';
-    te.innerHTML = t || ''; te.style.display = t ? '' : 'none';
-    // 填充编辑表单
-    _calEditDate = dateStr;
-    document.getElementById('calEditNote').value = (page && page.shenwang_note) || '';
-    document.getElementById('calEditComment').value = (page && page.shenwang_comment) || '';
-    document.getElementById('calEditMood').value = (page && page.mood) || '';
-    document.getElementById('calEditPeriod').checked = !!(page && page.period_flag);
-    document.getElementById('calEditForm').style.display = 'none';
-    document.getElementById('calEditBtn').style.display = '';
+    try { const r = await fetch('/api/calendar/' + dateStr); const j = await r.json(); page = j.success ? j.data : null; } catch(e) { console.log('读取日期详情失败', e); }
+    _calSelectedPage = page;
+    calRenderInlineDetail(dateStr, page);
+    document.querySelectorAll('.cal-cell').forEach(el => el.classList.toggle('selected', calLooseDateKey(el.dataset.date) === calLooseDateKey(dateStr)));
+}
 
-    document.getElementById('calDetail').style.display = 'block';
+function calRenderInlineDetail(dateStr, page) {
+    const box = document.getElementById('calInlineDetail');
+    if (!box) return;
+    const key = calLooseDateKey(dateStr);
+    const snapshots = _calMoodSnapshotsByDate[key] || [];
+    let html = '<div class="cal-inline-card">';
+    html += '<div class="cal-inline-header"><div><div class="cal-inline-date">' + calFormatDisplayDate(dateStr) + '</div><div class="cal-inline-subtitle">这一天留下的痕迹</div></div>';
+    html += '<button class="cal-inline-add-btn" onclick="calQuickMoodSnapshot()">＋快照</button></div>';
+    if (snapshots.length) {
+        html += '<div class="cal-inline-section-title">心情快照</div>';
+        for (const s of snapshots) { const time = calFormatTimeFromISO(s.datetime); html += '<div class="cal-snapshot-item"><div class="cal-snapshot-time">' + (time||'') + '</div><div class="cal-snapshot-text">' + (s.text||'').replace(/\n/g,'<br>') + '</div></div>'; }
+    }
+    if (page && (page.mood || page.shenwang_note || page.shenwang_comment || page.period_flag)) {
+        html += '<div class="cal-inline-section-title">日历记录</div>';
+        if (page.mood) html += '<div class="cal-page-line"><span>心情</span><p>' + (page.mood||'').replace(/</g,'&lt;') + '</p></div>';
+        if (page.period_flag) html += '<div class="cal-page-line"><span>生理期</span><p>🩸</p></div>';
+        if (page.shenwang_note) html += '<div class="cal-page-line"><span>沈望手记</span><p>' + (page.shenwang_note||'').replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</p></div>';
+        if (page.shenwang_comment) html += '<div class="cal-page-line"><span>沈望点评</span><p>' + (page.shenwang_comment||'').replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</p></div>';
+    }
+    if (!snapshots.length && !(page && (page.mood || page.shenwang_note || page.shenwang_comment || page.period_flag))) { html += '<div class="cal-inline-empty">这一天还没有记录。</div>'; }
+    html += '</div>';
+    box.innerHTML = html;
+}
+
+async function calQuickMoodSnapshot() {
+    if (!_calSelectedDate) return toast('先选一天');
+    const mood = prompt('现在的心情：');
+    if (mood === null) return;
+    const physical = prompt('身体状态：') || '';
+    const focusRaw = prompt('当前关注，用 / 分隔：') || '';
+    const focus = focusRaw.split('/').map(s => s.trim()).filter(Boolean);
+    try {
+        const r = await fetch('/api/mood-snapshot', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ date: calLooseDateKey(_calSelectedDate), mood, physical_state: physical, current_focus: focus, observation:'', trigger:'日历页手动记录', importance:'normal' }) });
+        const j = await r.json();
+        if (j.success) { toast('已写入心情快照'); await calLoadMoodSnapshots(); calOpenDay(_calSelectedDate); calRender(); }
+        else toast('写入失败：' + (j.error||'未知错误'));
+    } catch(e) { toast('写入失败'); console.log(e); }
 }
 
 let _calEditDate = '';

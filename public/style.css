@@ -2168,10 +2168,44 @@ body.neu-mode .cal-edit-textarea, body.neu-mode .cal-edit-mood {
     box-shadow: inset 3px 3px 6px rgba(163,177,198,0.3), inset -3px -3px 6px rgba(255,255,255,0.5);
 }
 
+/* ── 日历内联详情 ── */
+.cal-inline-detail { width:100%;padding:18px 24px 40px;box-sizing:border-box }
+.cal-inline-card { border-radius:28px;padding:18px 18px 20px;background:rgba(255,255,255,0.32);border:1px solid rgba(255,255,255,0.32);box-shadow:10px 10px 24px rgba(163,177,198,0.18),-10px -10px 24px rgba(255,255,255,0.65) }
+.cal-inline-header { display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px }
+.cal-inline-date { font-size:20px;font-weight:700;color:#2e3b69;letter-spacing:0.04em }
+.cal-inline-subtitle { margin-top:4px;font-size:12px;color:#8b9ac1 }
+.cal-inline-add-btn { border:none;border-radius:18px;padding:8px 12px;background:rgba(212,160,74,0.14);color:#D4A04A;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit }
+.cal-inline-section-title { margin:16px 0 10px;font-size:13px;font-weight:700;color:#D4A04A }
+.cal-snapshot-item { position:relative;padding:12px 12px 12px 44px;margin-bottom:10px;border-radius:18px;background:rgba(255,255,255,0.28);box-shadow:inset 3px 3px 8px rgba(163,177,198,0.1),inset -3px -3px 8px rgba(255,255,255,0.45) }
+.cal-snapshot-time { position:absolute;left:12px;top:13px;font-size:11px;color:#D4A04A;font-weight:700 }
+.cal-snapshot-text { font-size:13px;line-height:1.7;color:#45546f;word-break:break-word }
+.cal-page-line { padding:12px 0;border-top:1px solid rgba(99,127,190,0.12) }
+.cal-page-line span { display:block;margin-bottom:5px;font-size:12px;color:#8b9ac1 }
+.cal-page-line p { margin:0;font-size:14px;line-height:1.7;color:#45546f }
+.cal-inline-empty { padding:24px 10px;text-align:center;font-size:13px;color:#9aa8c7 }
+.cal-mood-dot { display:inline-block;width:7px;height:7px;border-radius:50%;background:#F28B82;margin-left:4px;box-shadow:0 0 8px rgba(242,139,130,0.45);position:absolute;bottom:4px;right:6px }
+.cal-cell.has-mood-snapshot { background:rgba(242,139,130,0.05) }
+.cal-cell.selected { outline:2px solid #D4A04A;outline-offset:-2px }
+
+body.neu-mode .cal-inline-card { background:#E8EFF7;border:1px solid rgba(255,255,255,0.4);box-shadow:12px 12px 28px rgba(163,177,198,0.24),-12px -12px 28px rgba(255,255,255,0.8) }
+body.neu-mode .cal-snapshot-item { background:#E8EFF7;box-shadow:inset 5px 5px 10px rgba(163,177,198,0.18),inset -5px -5px 10px rgba(255,255,255,0.75) }
+
+body.light-mode .cal-inline-date { color:#3E2723 }
+body.light-mode .cal-inline-card { background:rgba(255,255,255,0.6);border:1px solid rgba(196,165,123,0.15) }
+body.light-mode .cal-snapshot-item { background:rgba(255,255,255,0.5);box-shadow:inset 2px 2px 6px rgba(196,165,123,0.08) }
+body.light-mode .cal-snapshot-text, body.light-mode .cal-page-line p { color:#5C4033 }
+
+body.dark-gold-mode .cal-inline-card { background:rgba(30,26,24,0.62);border:1px solid rgba(228,212,199,0.08);box-shadow:0 12px 30px rgba(0,0,0,0.28) }
+body.dark-gold-mode .cal-inline-date { color:#e4d4c7 }
+body.dark-gold-mode .cal-inline-subtitle,body.dark-gold-mode .cal-page-line span,body.dark-gold-mode .cal-inline-empty { color:rgba(228,212,199,0.45) }
+body.dark-gold-mode .cal-snapshot-item { background:rgba(20,18,17,0.55);box-shadow:inset 0 0 0 1px rgba(228,212,199,0.06) }
+body.dark-gold-mode .cal-snapshot-text,body.dark-gold-mode .cal-page-line p { color:rgba(228,212,199,0.82) }
+
 @media(max-width:480px) {
     .cal-grid { gap: 1px; padding: 4px 8px; }
     .cal-cell-num { font-size: 0.78em; }
     .cal-detail-card { padding: 18px; }
+    .cal-inline-detail { padding: 14px 16px 40px; }
 }
 
 /* ═══ 相册视图 ═══ */

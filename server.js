@@ -4351,7 +4351,9 @@ function getChinaDateString(date = new Date()) { const p = getChinaDateParts(dat
 function getChinaTimeString(date = new Date()) { const p = getChinaDateParts(date); return p.hour + ':' + p.minute; }
 
 function appendMoodSnapshotToDiary(snapshot = {}) {
-    const now = new Date(), dateStr = getChinaDateString(now), timeStr = getChinaTimeString(now);
+    const now = new Date(), timeStr = getChinaTimeString(now);
+    let dateStr = getChinaDateString(now);
+    if (snapshot.date) { const dp = String(snapshot.date).split('-').map(x => parseInt(x,10)); if (dp.length >= 3 && !dp.some(isNaN)) dateStr = dp[0] + '-' + dp[1] + '-' + dp[2]; }
     const mood = String(snapshot.mood || '').trim(), physical = String(snapshot.physical_state || '').trim();
     const focus = Array.isArray(snapshot.current_focus) ? snapshot.current_focus.filter(Boolean).join(' / ') : String(snapshot.current_focus || '').trim();
     const observation = String(snapshot.observation || '').trim(), trigger = String(snapshot.trigger || '').trim(), importance = snapshot.importance || 'normal';
