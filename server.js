@@ -150,7 +150,7 @@ const _boom = { last: null };
 const _ctxDiag = { last: null };
 const _moodLog = [];  // ring buffer for MOOD debug
 
-function moodLog(msg) { _moodLog.push(new Date().toISOString() + ' ' + msg); if (_moodLog.length > 100) _moodLog.shift(); console.log(msg); }
+function moodLog(...args) { const msg = args.map(a => { if (typeof a === 'string') return a; try { return JSON.stringify(a); } catch(e) { return String(a); } }).join(' '); _moodLog.push(new Date().toISOString() + ' ' + msg); if (_moodLog.length > 100) _moodLog.shift(); console.log(msg); }
 const DAILY_PAGES_FILE = path.join(DATA_DIR, 'daily_pages.json');
 const WEEKLY_SUMMARIES_FILE = path.join(DATA_DIR, 'weekly_summaries.json');
 const MONTHLY_SUMMARIES_FILE = path.join(DATA_DIR, 'monthly_summaries.json');
@@ -3075,7 +3075,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         }
 
         // 流式与非流式处理
-        if (body.stream) {
+        if (isStreamMode) {
             if (!streamingSetup) {
                 res.setHeader('Content-Type', 'text/event-stream');
                 res.setHeader('Cache-Control', 'no-cache');
@@ -3150,25 +3150,29 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
             if (sseBuffer.trim()) res.write(sseBuffer + '\n');
             res.end();
 
-            if (!noMemory) {
-                const { cleanText: memClean, memories: streamMemories } = extractSaveMemoryTag(fullAiResponse);
-                for (const mem of streamMemories) {
-                    smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
-                }
-                let streamCleanText = memClean || fullAiResponse;
-                moodLog('[MOOD DEBUG] fullAiResponse has tag:', fullAiResponse.includes('<MOOD_SNAPSHOT>'));
-                moodLog('[MOOD DEBUG] fullAiResponse tail:', fullAiResponse.slice(-1200));
-                const todoCleanMaybe = extractAndProcessTodoTags(streamCleanText);
-                if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
-                moodLog('[MOOD DEBUG] before mood handler length:', streamCleanText ? streamCleanText.length : 'EMPTY');
-                moodLog('[MOOD DEBUG] before mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>'));
-                const moodCleanMaybe = handleMoodSnapshotsFromAssistantContent(streamCleanText);
-                moodLog('[MOOD DEBUG] mood handler returned type:', typeof moodCleanMaybe);
-                if (typeof moodCleanMaybe === 'string') streamCleanText = moodCleanMaybe;
-                moodLog('[MOOD DEBUG] after mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>'));
-                await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
-                tryAutoDream(currentUserMsgText);
+            let streamFinalized = false;
+            async function finalizeStreamAssistant() {
+                if (streamFinalized) return;
+                streamFinalized = true;
+                try {
+                    moodLog('[MOOD DEBUG] stream finalize start, full length:', fullAiResponse ? fullAiResponse.length : 0);
+                    moodLog('[MOOD DEBUG] fullAiResponse has tag:', fullAiResponse.includes('<MOOD_SNAPSHOT>') || fullAiResponse.includes('[[MOOD_SNAPSHOT]]'));
+                    moodLog('[MOOD DEBUG] fullAiResponse tail:', fullAiResponse.slice(-1200));
+                    const { cleanText: memClean, memories: streamMemories } = extractSaveMemoryTag(fullAiResponse);
+                    for (const mem of streamMemories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+                    let streamCleanText = memClean || fullAiResponse;
+                    const todoCleanMaybe = extractAndProcessTodoTags(streamCleanText);
+                    if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
+                    moodLog('[MOOD DEBUG] before mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
+                    const beforeMood = streamCleanText;
+                    streamCleanText = handleMoodSnapshotsFromAssistantContent(streamCleanText);
+                    moodLog('[MOOD DEBUG] after mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
+                    moodLog('[MOOD DEBUG] mood handler text changed:', beforeMood !== streamCleanText);
+                    if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }); tryAutoDream(currentUserMsgText); }
+                    moodLog('[MOOD DEBUG] stream finalize done');
+                } catch(e) { moodLog('[MOOD ERROR] stream finalize error:', e && (e.stack || e.message || e)); }
             }
+            await finalizeStreamAssistant();
         } else {
             const rawText = await response.text();
             try {
