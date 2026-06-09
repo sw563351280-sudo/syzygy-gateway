@@ -280,11 +280,11 @@ function toast(msg){
 
 function goView(viewId) {
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album' };
+    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state' };
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
-    const VIEWS = ['home','chat','data','favorites','flo','calendar','album'];
+    const VIEWS = ['home','chat','data','favorites','flo','calendar','album','state'];
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);
     if (viewId === 'chat') setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300);
@@ -293,6 +293,7 @@ function goView(viewId) {
     if (viewId === 'flo') floRender();
     if (viewId === 'calendar') calRender();
     if (viewId === 'album') { albumInitMonthFilter(); albumLoad(); }
+    if (viewId === 'state') stateRender();
     if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuUpdateNav();
 }
 function neuGetMemoryPwd() {
@@ -2421,4 +2422,42 @@ function albumInitMonthFilter() {
         html += '<option value="' + key + '">' + key + '</option>';
     }
     sel.innerHTML = html;
+}
+
+// ═══ 状态页面 ═══
+async function stateRender() {
+    const view = document.getElementById('stateView');
+    if (!view) return;
+    try {
+        const r = await fetch('/api/user-state');
+        const d = await r.json();
+        const us = (d && d.user_state) || {};
+        const parts = [];
+        if (us.recent_mood) parts.push('心情：' + us.recent_mood);
+        if (us.physical_state) parts.push('身体：' + us.physical_state);
+        if (us.current_focus && us.current_focus.length) parts.push('关注：' + us.current_focus.join(' / '));
+        view.innerText = parts.join('\n') || '还没有记录过状态';
+    } catch(e) { view.innerText = '加载失败'; }
+}
+
+async function stateSnapshot() {
+    const mood = document.getElementById('stateMood').value.trim();
+    const physical = document.getElementById('stateBody').value.trim();
+    const focusStr = document.getElementById('stateFocus').value.trim();
+    const focus = focusStr ? focusStr.split('/').map(s => s.trim()).filter(Boolean) : [];
+    if (!mood && !physical && !focus.length) return toast('至少填一项');
+    try {
+        const r = await fetch('/api/mood-snapshot', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mood, physical_state: physical, current_focus: focus, observation: '', trigger: '前端手动记录', importance: 'normal' })
+        });
+        const d = await r.json();
+        if (d.success) {
+            toast('快照已写入');
+            document.getElementById('stateMood').value = '';
+            document.getElementById('stateBody').value = '';
+            document.getElementById('stateFocus').value = '';
+            stateRender();
+        } else toast('失败: ' + (d.error || ''));
+    } catch(e) { toast('网络错误'); }
 }
