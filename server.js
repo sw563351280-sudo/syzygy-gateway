@@ -48,7 +48,12 @@ function resolveApiUrl(reqPath) {
 // ==========================================
 const MODEL_PROMPTS_FILE = path.join(__dirname, 'model_prompts.json');
 let MODEL_PROMPTS = { default: { role: 'system', prepend: '' } };
-try { MODEL_PROMPTS = JSON.parse(fs.readFileSync(MODEL_PROMPTS_FILE, 'utf8')); } catch(e) {}
+try {
+    MODEL_PROMPTS = JSON.parse(fs.readFileSync(MODEL_PROMPTS_FILE, 'utf8'));
+    console.log(`✅ [模型专属prompt] 已加载: ${Object.keys(MODEL_PROMPTS).join(', ')}`);
+} catch(e) {
+    console.error(`❌ [模型专属prompt] 加载失败: ${e.message}`);
+}
 function getModelPromptConfig(modelName) {
     const keys = Object.keys(MODEL_PROMPTS).filter(k => k !== 'default');
     const matchKey = keys.find(k => (modelName || '').toLowerCase().includes(k));
@@ -2821,9 +2826,22 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
         const newMessages = [...cleanMessages];
         const mpConfig = getModelPromptConfig(body.model || '');
-        newMessages.unshift({ role: 'system', content: finalSystemPrompt });
-        if (mpConfig.prepend) newMessages.unshift({ role: mpConfig.role, content: mpConfig.prepend });
-        console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${mpConfig.prepend ? mpConfig.prepend.length + '字' : '无'}`);
+        const modelPromptText = (mpConfig.prepend || '').trim();
+        const reinforcedSystemPrompt = modelPromptText
+            ? `${modelPromptText}
+
+${finalSystemPrompt}
+
+【本轮强制校验】
+回复前必须再次检查并遵守最上方 model_prompt 中的行为约束，尤其是：
+1. 不要用空洞安慰代替解法。
+2. 不要否认江鱼痛苦的真实性。
+3. 不要替江鱼判断她"真正想要什么"。
+4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。`
+            : finalSystemPrompt;
+
+        newMessages.unshift({ role: 'system', content: reinforcedSystemPrompt });
+        console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=${modelPromptText ? 'yes' : 'no'}`);
 
         // 把匹配到的照片 base64 注入到最后一条用户消息中
         if (_albumPhotoBlocks.length > 0) {
@@ -4219,13 +4237,30 @@ app.post('/api/web-chat', async (req, res) => {
             }
 
             try {
+                const webModelName = model || 'deepseek-chat';
+                const webMpConfig = getModelPromptConfig(webModelName || '');
+                const webModelPromptText = (webMpConfig.prepend || '').trim();
+                const webReinforcedSystemPrompt = webModelPromptText
+                    ? `${webModelPromptText}
+
+${finalSystemPrompt}
+
+【本轮强制校验】
+回复前必须再次检查并遵守最上方 model_prompt 中的行为约束，尤其是：
+1. 不要用空洞安慰代替解法。
+2. 不要否认江鱼痛苦的真实性。
+3. 不要替江鱼判断她"真正想要什么"。
+4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。`
+                    : finalSystemPrompt;
+
                 const apiMessages = [
-                    { role: "system", content: finalSystemPrompt },
+                    { role: "system", content: webReinforcedSystemPrompt },
                     ...historyMessages,
                     { role: "user", content: userContent }
                 ];
+                console.log(`🎯 [web-chat模型策略] ${webModelName} → role=${webMpConfig.role} prepend=${webModelPromptText ? webModelPromptText.length + '字' : '无'} mergedIntoSystem=${webModelPromptText ? 'yes' : 'no'}`);
 
-                const fetchBody = { model: model || 'deepseek-chat', messages: apiMessages };
+                const fetchBody = { model: webModelName, messages: apiMessages };
                 const isGemini = (model || '').toLowerCase().includes('gemini');
                 if (!isGemini) {
                     fetchBody.frequency_penalty = 0.4;
