@@ -141,9 +141,11 @@ if (!hasStrategyLog && hasNewMessages) {
                 // 替换整个块
                 const replaceLines = [
                     '        const newMessages = [...cleanMessages];',
-                    "        const mpConfig = getModelPromptConfig(body.model || '');",
-                    "        const modelPromptText = (mpConfig.prepend || '').trim();",
-                    '        const reinforcedSystemPrompt = modelPromptText',
+                    '        let mpConfig, modelPromptText, reinforcedSystemPrompt;',
+                    '        try {',
+                    "          mpConfig = getModelPromptConfig(body.model || '');",
+                    "          modelPromptText = (mpConfig.prepend || '').trim();",
+                    '          reinforcedSystemPrompt = modelPromptText',
                     '            ? `${modelPromptText}',
                     '',
                     '${finalSystemPrompt}',
@@ -155,9 +157,15 @@ if (!hasStrategyLog && hasNewMessages) {
                     '3. 不要替江鱼判断她"真正想要什么"。',
                     '4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。`',
                     '            : finalSystemPrompt;',
+                    "          console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=${modelPromptText ? 'yes' : 'no'}`);",
+                    '        } catch(e) {',
+                    '          console.error(`❌ [模型策略] 注入失败: ${e.message}`, e.stack);',
+                    '          mpConfig = { role: "system", prepend: "" };',
+                    '          modelPromptText = "";',
+                    '          reinforcedSystemPrompt = finalSystemPrompt;',
+                    '        }',
                     '',
                     "        newMessages.unshift({ role: 'system', content: reinforcedSystemPrompt });",
-                    "        console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=${modelPromptText ? 'yes' : 'no'}`); // patched",
                 ];
                 lines.splice(i, blockEnd - i, ...replaceLines);
                 found = true;
