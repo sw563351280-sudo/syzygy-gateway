@@ -74,8 +74,6 @@ app.get('/debug-log', (req, res) => {
     res.json({ total: _consoleRing.length, shown: entries.length, entries: entries.slice(-30) });
 });
 app.get('/debug-test-inject', (req, res) => {
-// [auto-injected by patch_inject.js]
-app.get('/debug-test-inject', (req, res) => {
     const testModel = req.query.model || 'kiro-claude-opus-4-6-thinking';
     const mpConfig = getModelPromptConfig(testModel);
     const modelPromptText = (mpConfig.prepend || '').trim();
@@ -84,12 +82,14 @@ app.get('/debug-test-inject', (req, res) => {
     res.json({ ok: true, msg, mpConfig: { role: mpConfig.role, prependLen: modelPromptText.length, prependPreview: modelPromptText.substring(0, 200) } });
 });
 `;
-if (!server.includes('debug-test-inject')) {
+if (!server.includes('/debug-log')) {
+    // 强制注入: 先清除可能的旧注入残留, 再写入
+    server = server.replace(/\/\/ \[auto-injected by patch_inject\.js\]\s*app\.get\('\/debug-[^']+'.*?\n\s*\}\);\n*/gs, '');
     server = server.replace(listenPattern, '\n' + testEndpoint + '\n$1server.listen(PORT, () => {');
     changed = true;
-    console.log('✅ patch0.5: /debug-test-inject 已注入');
+    console.log('✅ patch0.5: /debug-log + /debug-test-inject 已注入');
 } else {
-    console.log('✅ patch0.5: /debug-test-inject 已存在');
+    console.log('✅ patch0.5: /debug-log 已存在');
 }
 
 // ============================================================
