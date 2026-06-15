@@ -114,6 +114,38 @@ app.get('/debug-test-inject', (req, res) => {
 } else { console.log('✅ patchC: /debug-test-inject 已存在'); }
 
 // ============================================================
+// Patch H: 探针 — 在 handler 关键位置插入 ASCII 日志
+// ============================================================
+// 在 handler 的 try { 之后插入
+const handlerTryBlock = `app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (req, res) => {
+    try {`;
+const handlerTryProbe = `app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (req, res) => {
+    try { console.log('[PROBE-H0] handler entered');`;
+if (server.includes(handlerTryBlock) && !server.includes('[PROBE-H0]')) {
+    server = server.replace(handlerTryBlock, handlerTryProbe);
+    changed = true;
+    console.log('✅ patchH0: handler entry probe');
+} else if (server.includes('[PROBE-H0]')) {
+    console.log('✅ patchH0: 已存在');
+} else {
+    console.log('⚠️ patchH0: 未匹配 handler try block');
+}
+
+// 在 newMessages 之前插入探针
+const beforeNewMsg = `        const newMessages = [...cleanMessages];`;
+const beforeNewMsgProbe = `        console.log('[PROBE-H1] about to construct newMessages, body.model=' + ((body||{}).model || 'undefined'));
+        const newMessages = [...cleanMessages];`;
+if (server.includes(beforeNewMsg) && !server.includes('[PROBE-H1]')) {
+    server = server.replace(beforeNewMsg, beforeNewMsgProbe);
+    changed = true;
+    console.log('✅ patchH1: pre-newMessages probe');
+} else if (server.includes('[PROBE-H1]')) {
+    console.log('✅ patchH1: 已存在');
+} else {
+    console.log('⚠️ patchH1: 未匹配 newMessages 行');
+}
+
+// ============================================================
 // Patch 1: MODEL_PROMPTS 加载日志
 // ============================================================
 const old1 = `try { MODEL_PROMPTS = JSON.parse(fs.readFileSync(MODEL_PROMPTS_FILE, 'utf8')); } catch(e) {}`;
