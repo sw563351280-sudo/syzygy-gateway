@@ -63,6 +63,26 @@ if (!server.includes('debug-source')) {
     console.log('✅ patch0: /debug-source 已存在');
 }
 
+// Patch 0.5: /debug-test-inject 测试端点
+const testEndpoint = `
+// [auto-injected by patch_inject.js]
+app.get('/debug-test-inject', (req, res) => {
+    const testModel = req.query.model || 'kiro-claude-opus-4-6-thinking';
+    const mpConfig = getModelPromptConfig(testModel);
+    const modelPromptText = (mpConfig.prepend || '').trim();
+    const msg = '🧪 [注入测试] model=' + testModel + ' role=' + mpConfig.role + ' prependLen=' + modelPromptText.length + ' hasPrepend=' + (!!modelPromptText);
+    console.log(msg);
+    res.json({ ok: true, msg, mpConfig: { role: mpConfig.role, prependLen: modelPromptText.length, prependPreview: modelPromptText.substring(0, 200) } });
+});
+`;
+if (!server.includes('debug-test-inject')) {
+    server = server.replace(listenPattern, '\n' + testEndpoint + '\n$1server.listen(PORT, () => {');
+    changed = true;
+    console.log('✅ patch0.5: /debug-test-inject 已注入');
+} else {
+    console.log('✅ patch0.5: /debug-test-inject 已存在');
+}
+
 // ============================================================
 // Patch 1: MODEL_PROMPTS 加载日志
 // ============================================================
