@@ -63,8 +63,17 @@ if (!server.includes('debug-source')) {
     console.log('✅ patch0: /debug-source 已存在');
 }
 
-// Patch 0.5: /debug-test-inject 测试端点
+// Patch 0.5: /debug-test-inject 测试端点 + /debug-log (bug-free filter)
 const testEndpoint = `
+// [auto-injected by patch_inject.js]
+app.get('/debug-log', (req, res) => {
+    const q = req.query.q || '';
+    const n = parseInt(req.query.n) || 50;
+    let entries = _consoleRing.slice(-n);
+    if (q) entries = entries.filter(e => JSON.stringify(e).includes(q));
+    res.json({ total: _consoleRing.length, shown: entries.length, entries: entries.slice(-30) });
+});
+app.get('/debug-test-inject', (req, res) => {
 // [auto-injected by patch_inject.js]
 app.get('/debug-test-inject', (req, res) => {
     const testModel = req.query.model || 'kiro-claude-opus-4-6-thinking';
