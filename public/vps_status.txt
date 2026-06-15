@@ -1,0 +1,29 @@
+ M data/deep_archive.json
+ M data/dream_logs.json
+ M data/last_interaction.json
+ M data/roleplay_archives.json
+ M data/weekly_summaries.json
+?? pub
+?? public/alog.txt
+?? public/env.txt
+?? public/env2.txt
+?? public/env3.txt
+?? public/fullenv.txt
+?? public/ip.txt
+?? public/keycheck.txt
+?? public/keyreal.txt
+?? public/logs.txt
+?? public/newlog.txt
+?? public/newlog2.txt
+?? public/p.txt
+?? public/p2.txt
+?? public/p3.txt
+?? public/penv.txt
+?? public/pid.txt
+?? public/recent.txt
+?? public/s.txt
+?? public/s3.txt
+?? public/status2.txt
+?? public/t.txt
+?? public/trig.txt
+?? public/urlcheck.txt

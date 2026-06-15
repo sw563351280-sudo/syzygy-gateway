@@ -1,0 +1,1 @@
+Environment="PROACTIVE_URL=https://api.dzzi.ai/v1/chat/completions"

@@ -1,0 +1,10 @@
+8393318 fix: 主动消息切msui - PROACTIVE_KEY优先 + 模型claude-opus-4-6 + 修复systemd
+af73772 ci: 强制修复systemd三处错误(DZZI_API_KEY typo + MODEL缺前缀 + URL代理绕圈)
+9fb8256 ci: 部署时自动修复systemd环境变量(DZZI_API_KEY typo + PROACTIVE_MODEL前缀)
+60f669d fix: trigger-proactive强制跳过概率检查，手动触发不受时间段限制
+bd5d572 fix: 恢复[0.1]模型前缀 + 所有早退路径加错误追踪
+e107b43 fix: trigger-proactive返回具体失败原因，不再需要看日志
+e95b815 fix: /trigger-proactive返回实际发送结果+诊断信息
+844b396 fix: /trigger-proactive同时支持GET和POST，浏览器可直接访问
+f5a434c ci: git reset --hard替代git pull，避免VPS本地修改导致冲突
+8fd06fe ci: 清理诊断代码，保留干净部署流程

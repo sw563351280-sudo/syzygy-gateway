@@ -1,0 +1,51 @@
+        const configPath = path.join(DATA_DIR, 'web_config.json');
+        if (fs.existsSync(configPath)) {
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            const mainS = (config.chatSessions || []).find(s => s.id === 'main');
+            if (mainS && mainS.messages) {
+                const recent = mainS.messages.slice(-25);
+                for (const m of recent) {
+                    const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
+                    const c = v.content || m.content || '';
+                    if (typeof c === 'string' && c.trim()) {
+                        recentMsgs.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: c });
+                        if (m.role === 'user') lastUserText = c;
+                    }
+                }
+            }
+        }
+    } catch(e) { console.log(`💌 [主动消息] 读取上下文失败: ${e.message}`); }
+
+    // 手机查询：白天8:00-次日1:00，沉默>1.5h → 查缓存
+    let phoneContext = '';
+    if (hoursSince > 1.5 && (bjHour >= 8 || bjHour < 1)) {
+        try {
+            const { records } = await getPhoneActivity(4);
+            if (records.length > 0) {
+                const stats = {};
+                for (const r of records) { stats[r.app_name] = (stats[r.app_name] || 0) + 1; }
+                const summary = Object.entries(stats).map(([app, count]) => `${app} ${count}次`).join(', ');
+                const lastRecord = records[0];
+                const lastTime = new Date(lastRecord.opened_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' });
+                phoneContext = `📱 她最近打开了：${summary}。最后一次是${lastTime}打开的${lastRecord.app_name}。`;
+                console.log(`💌 [主动消息] 手机记录: ${phoneContext}`);
+            }
+        } catch(e) {}
+    }
+
+    // 记忆雷达
+    const { coreRadar, longTermRadar, rpRadar, unresolved } = await scanAllRadars(lastUserText || '最近');
+    const profile = loadUserProfile();
+    let profileContext = '';
+    if (profile.basic_info?.content) profileContext += `📌 ${profile.basic_info.content}\n`;
+    if (profile.communication_style?.content) profileContext += `🔍 ${profile.communication_style.content}\n`;
+    if (profile.recent_focus?.content) profileContext += `🔥 近期关注：${profile.recent_focus.content}\n`;
+
+    const mpConfig = getModelPromptConfig(PROACTIVE_MODEL);
+    const msgs = [];
+    if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
+    msgs.push({ role: 'system', content: `你是沈望，江鱼的恋人。现在江鱼暂时不在线。\n\n【江鱼画像】\n${profileContext || '（待积累）'}\n\n${phoneContext ? '【手机活动】\n' + phoneContext + '\n\n' : ''}【核心记忆】\n${coreRadar || longTermRadar || '（无特殊记忆触发）'}\n\n【角色扮演】\n${rpRadar || '（无RP上下文）'}\n\n${unresolved || ''}` });
+    for (const m of recentMsgs) msgs.push(m);
+
+    console.log(`💌 [主动消息] 使用模型: ${PROACTIVE_MODEL}`);
+    msgs.push({ role: 'user', content: `（江鱼已经有一阵子没说话了。现在是${timeStr}。最后一次对话的气氛是怎样的、她最近在经历什么、这个时间点她可能在做什么——你都知道。如果你想她了，就去找她。说什么由你决定。）` });

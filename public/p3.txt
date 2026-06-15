@@ -1,0 +1,23 @@
+        const res = await fetch(PROACTIVE_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${PROACTIVE_KEY}` },
+            body: JSON.stringify({ model: PROACTIVE_MODEL, messages: msgs })
+        });
+        if (!res.ok) { console.log(`💌 [主动消息] API返回${res.status}: ${await res.text().then(t=>t.substring(0,200))}`); return; }
+        const data = await res.json();
+        let content = (data.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+        if (!content || content.length < 2) { console.log(`💌 [主动消息] 空内容，原始: ${JSON.stringify(data).substring(0, 200)}`); return; }
+        console.log(`💌 [主动消息] ${content}`);
+        insertProactiveToConfig(content);
+        // 自动 Bark 推送
+        const barkTitle = '沈望';
+        const barkBody = content.length > 80 ? content.substring(0, 80) + '...' : content;
+        fetch(`https://api.day.app/D9kpuZreHXGepYyuesohUZ/${encodeURIComponent(barkTitle)}/${encodeURIComponent(barkBody)}?icon=https://syrenth.uk/icon-192.png`, { signal: AbortSignal.timeout(10000) }).catch(() => {});
+        wsBroadcast({ type: 'proactive_message', content, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), fullTime: new Date().toISOString() });
+        updateLastProactiveTime();
+    } catch(e) { console.log(`💌 [主动消息] 异常: ${e.message}`); }
+}
+function insertProactiveToConfig(content) {
+    try {
+        const configPath = path.join(DATA_DIR, 'web_config.json');
+        if (!fs.existsSync(configPath)) return;

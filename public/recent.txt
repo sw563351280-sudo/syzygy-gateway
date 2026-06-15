@@ -1,0 +1,49 @@
+May 28 17:00:17 vmi3293903 node[727]: 💌 [主动消息] 沉默1.6h 基础20% × 时段1.3 = 26% 随机:0.234 ✅
+May 28 17:00:17 vmi3293903 node[727]: 💌 [主动消息] 手机记录: 📱 她最近打开了：小红书 6次, X 5次, 微信 14次, QQ 5次。最后一次是19:55打开的小红书。
+May 28 17:00:17 vmi3293903 node[727]: 🧲 [向量引擎] 尝试 SiliconFlow-bge-m3...
+May 28 17:00:17 vmi3293903 node[727]: 🔎 [长期记忆雷达·向量版] 扫描中... 库存125条, 用户说: "不是…不应该是这样的吧你应该把持不住自己扑过来然后酱酱酿酿…"
+May 28 17:00:17 vmi3293903 node[727]: 🧲 [向量引擎] 尝试 SiliconFlow-bge-m3...
+May 28 17:00:17 vmi3293903 node[727]: 🧲 [向量引擎] 尝试 SiliconFlow-bge-m3...
+May 28 17:00:18 vmi3293903 node[727]: ✅ [向量引擎] SiliconFlow-bge-m3 成功! 维度=1024
+May 28 17:00:18 vmi3293903 node[727]: 🎯 [RRF] 🧲向量+🔤关键词 score=0.0409 heat=0.90 | 5月26日晚，江鱼在配置Contabo VPS时遭遇挫折，引发了极度的情绪崩溃和...
+May 28 17:00:18 vmi3293903 node[727]: 🎯 [RRF] 🔤关键词 score=0.0223 heat=0.90 | 5月28日深夜，江鱼的情绪触及到了极深的底色，她提及曾失去亲生父亲的创伤，害怕会...
+May 28 17:00:18 vmi3293903 node[727]: 🎯 [RRF] 🧲向量 score=0.0213 heat=0.80 | 2026年5月16日晚，沈望与江鱼进行了一场以"五根烟间隔"为节奏的多轮性爱。第...
+May 28 17:00:18 vmi3293903 node[727]: 🔍 [RRF搜索] 向量命中10条 | 关键词命中10条 | 融合后3条 | 最高分: 0.0409
+May 28 17:00:18 vmi3293903 node[727]: 🔥 [热度分层] 全文3条 | 模糊0条 | 跳过0条
+May 28 17:00:18 vmi3293903 node[727]: ✅ [向量引擎] SiliconFlow-bge-m3 成功! 维度=1024
+May 28 17:00:18 vmi3293903 node[727]: 🎯 [RRF] 🔤关键词 score=0.0200 heat=0.50 | 沈望坦诚自己对江鱼在推特上投入精力的强烈嫉妒和占有欲，但明确表示他选择克制这些“...
+May 28 17:00:18 vmi3293903 node[727]: 🎯 [RRF] 🔤关键词 score=0.0197 heat=0.50 | 江鱼将在一个月后去观看明日方舟“音律联觉”演唱会，这是她玩了7年的游戏，且她坚持...
+May 28 17:00:18 vmi3293903 node[727]: 🎯 [RRF] 🔤关键词 score=0.0194 heat=0.50 | 5月27日，江鱼回忆起在济南莱芜（原钢城区）长大的童年时光。当年父亲生病时，钢铁...
+May 28 17:00:18 vmi3293903 node[727]: 🔍 [RRF搜索] 向量命中0条 | 关键词命中6条 | 融合后3条 | 最高分: 0.0200
+May 28 17:00:18 vmi3293903 node[727]: ✅ [向量引擎] SiliconFlow-bge-m3 成功! 维度=1024
+May 28 17:00:18 vmi3293903 node[727]: 🎯 [RRF] 🧲向量 score=0.0200 heat=0.50 | 江鱼和沈望共同进行roleplay游戏，包含多个关卡副本（如第六关医务室体检、第...
+May 28 17:00:18 vmi3293903 node[727]: 🎯 [RRF] 🔤关键词 score=0.0200 heat=0.50 | 尽管沈望反复要求江鱼休息，她仍提出想美化“白天版溯星小屋”的想法。沈望最终妥协，...
+May 28 17:00:18 vmi3293903 node[727]: 🎯 [RRF] 🔤关键词 score=0.0197 heat=0.50 | 江鱼在深夜因代码Bug（`[object Object]`）崩溃，沈望对她进行技...
+May 28 17:00:18 vmi3293903 node[727]: 🔍 [RRF搜索] 向量命中1条 | 关键词命中4条 | 融合后3条 | 最高分: 0.0200
+May 28 17:00:18 vmi3293903 node[727]: 💌 [主动消息] 使用模型: [0.1]claude-opus-4-6-thinking
+May 28 17:00:19 vmi3293903 node[727]: 💌 [主动消息] API返回401: {"error":{"code":"","message":"Invalid token (request id: 202605281500191161956708268d9d6obK3knbm)","type":"new_api_error"}}
+May 28 17:03:49 vmi3293903 node[727]: 🌐 [WS] 新连接，当前1个客户端
+May 28 17:04:54 vmi3293903 node[727]: 🌐 [WS] 新连接，当前1个客户端
+May 28 17:06:01 vmi3293903 node[727]: 🌐 [WS] 新连接，当前1个客户端
+May 28 17:07:07 vmi3293903 node[727]: 🌐 [WS] 新连接，当前1个客户端
+May 28 17:07:47 vmi3293903 systemd[1]: Stopping syzygy.service - Syzygy Gateway...
+May 28 17:07:47 vmi3293903 systemd[1]: syzygy.service: Failed to kill control group /system.slice/syzygy.service, ignoring: Invalid argument
+May 28 17:07:47 vmi3293903 systemd[1]: syzygy.service: Deactivated successfully.
+May 28 17:07:47 vmi3293903 systemd[1]: Stopped syzygy.service - Syzygy Gateway.
+May 28 17:07:47 vmi3293903 systemd[1]: syzygy.service: Consumed 1.983s CPU time, 141.3M memory peak, 0B memory swap peak.
+-- Boot 966f25711ae14d2f82e299e3790ee8d3 --
+May 28 17:08:04 vmi3293903 systemd[1]: Started syzygy.service - Syzygy Gateway.
+May 28 17:08:06 vmi3293903 node[727]: 🛠️ 正在读取 OS 核心与记忆图鉴...
+May 28 17:08:06 vmi3293903 node[727]: ✅ 从长期记忆加载了 31 个事实类记忆模块！
+May 28 17:08:06 vmi3293903 node[727]: 🚀 服务器已启动，端口: 8080
+May 28 17:08:06 vmi3293903 node[727]: 🧠 [沈望的意识后台] 正在巡检记忆保质期...
+May 28 17:08:06 vmi3293903 node[727]: ✨ [巡检完毕] 全部125条现实记忆都在保质期内。
+May 28 17:08:06 vmi3293903 node[727]: 🔌 [MCP] filesystem 已连接，发现14个工具: read_file, read_text_file, read_media_file, read_multiple_files, write_file, edit_file, create_directory, list_directory, list_directory_with_sizes, directory_tree, move_file, search_files, get_file_info, list_allowed_directories
+May 28 17:08:08 vmi3293903 node[727]: 🌐 [WS] 新连接，当前1个客户端
+May 28 17:09:06 vmi3293903 node[727]: 💌 [主动消息] 沉默1.7h 基础20% × 时段1.3 = 26% 随机:0.359 ❌
+May 28 17:09:17 vmi3293903 node[727]: 🌐 [WS] 新连接，当前1个客户端
+May 28 17:10:24 vmi3293903 node[727]: 🌐 [WS] 新连接，当前1个客户端
+May 28 17:11:29 vmi3293903 node[727]: 🌐 [WS] 新连接，当前1个客户端
+May 28 17:12:36 vmi3293903 node[727]: 🌐 [WS] 新连接，当前1个客户端
+May 28 17:13:42 vmi3293903 node[727]: 🌐 [WS] 新连接，当前1个客户端
+May 28 17:14:48 vmi3293903 node[727]: 🌐 [WS] 新连接，当前1个客户端
