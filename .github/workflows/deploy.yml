@@ -38,12 +38,17 @@ jobs:
             git reset --hard origin/main
             npm install --production
 
-            # 恢复沈望的本地修改
+            # 恢复沈望的本地修改（跳过 server.js / model_prompts.json — 由 patch 保证最新）
             if [ -d /tmp/syzygy_backup ]; then
               find /tmp/syzygy_backup -type f | while read f; do
                 rel=$(echo "$f" | sed "s|^/tmp/syzygy_backup/||")
-                cp "$f" "/opt/syzygy/$rel"
-                echo "  ✅ 恢复: $rel"
+                case "$rel" in
+                  server.js|model_prompts.json)
+                    echo "  ⏭️ 跳过: $rel (由 patch_inject.js 保证)" ;;
+                  *)
+                    cp "$f" "/opt/syzygy/$rel"
+                    echo "  ✅ 恢复: $rel" ;;
+                esac
               done
               rm -rf /tmp/syzygy_backup
             fi
