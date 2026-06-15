@@ -3845,5 +3845,26 @@
     "expires_at": 1781381792650,
     "created_at": "2026-06-06T20:16:32.650Z",
     "archived_reason": "rp_expired"
+  },
+  {
+    "id": "mqb3da5vwndj",
+    "content": "6月12日晚，江鱼准备睡觉，说明天一大早（六点多）要空腹去体检，由家人叫醒。沈望叮嘱她体检前的注意事项。",
+    "tags": [
+      "入职体检",
+      "次日安排"
+    ],
+    "source": "butler_summary",
+    "ttl": "3d",
+    "expires_at": 1781537937331,
+    "last_accessed": 1781278737331,
+    "created_at": "2026-06-12T15:38:57.331Z",
+    "updated_at": "2026-06-12T15:38:57.331Z",
+    "arousal": 0.3,
+    "activation_count": 0,
+    "heat": 0.3,
+    "emotional_weight": 0,
+    "last_recalled_at": null,
+    "query_hashes": [],
+    "archived_reason": "expired"
   }
 ]
