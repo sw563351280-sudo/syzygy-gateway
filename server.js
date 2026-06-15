@@ -3565,6 +3565,19 @@ app.get('/debug-console', (req, res) => {
     });
     res.json({ count: _consoleRing.length, shown: entries.length, entries });
 });
+app.get('/grep-source', (req, res) => {
+    const q = req.query.q || '';
+    if (!q) return res.json({ error: '需要 ?q= 参数' });
+    try {
+        const self = fs.readFileSync(__filename, 'utf8');
+        const lines = self.split('\n');
+        const matches = [];
+        for (let i = 0; i < lines.length; i++) {
+            if (lines[i].includes(q)) matches.push({ line: i + 1, content: lines[i].trim().substring(0, 200) });
+        }
+        res.json({ query: q, totalMatches: matches.length, matches: matches.slice(0, 50) });
+    } catch(e) { res.json({ error: e.message }); }
+});
 app.get('/debug-test-inject', (req, res) => {
     const testModel = req.query.model || 'kiro-claude-opus-4-6-thinking';
     const mpConfig = getModelPromptConfig(testModel);
