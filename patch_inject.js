@@ -122,69 +122,70 @@ if (server.includes(old1)) {
 }
 
 // ============================================================
-// Patch 2: 主 /v1 链路 model_prompt 合并
+// Patch 2: 主 /v1 链路 model_prompt 合并 (强制替换, 不跳过)
 // ============================================================
-const hasStrategyLog = server.includes('🎯 [模型策略]');
 const hasNewMessagesLine = server.includes('newMessages = [...cleanMessages]') || server.includes('newMessages = [ ...cleanMessages ]');
 
-if (!hasStrategyLog && hasNewMessagesLine) {
+if (hasNewMessagesLine) {
     const lines = server.split('\n');
     let found = false;
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        if ((line.includes('newMessages = [...cleanMessages]') || line.includes('newMessages = [ ...cleanMessages ]')) &&
-            !line.includes('// patched')) {
-            let hasOldPattern = false;
-            for (let j = i; j < Math.min(i + 15, lines.length); j++) {
-                if (lines[j].includes('if (mpConfig.prepend) newMessages.unshift')) {
-                    hasOldPattern = true;
+        // 找 newMessages 构造点(不在已标记过的块内)
+        if ((line.includes('newMessages = [...cleanMessages]') || line.includes('newMessages = [ ...cleanMessages ]'))) {
+            // 找到这个块的结束 — 用下一个相同缩进级别的非空行判断
+            let blockEnd = i;
+            for (let j = i + 1; j < Math.min(i + 25, lines.length); j++) {
+                const l = lines[j];
+                // 如果遇到 "// 把匹配到的照片" 或 "if (_albumPhotoBlocks" 就是一整块，找空行后就是块的结束
+                if (j > i + 3 && l.trim() === '' && j + 1 < lines.length &&
+                    (lines[j+1].trim().startsWith('// 把匹配到的照片') || lines[j+1].trim().startsWith('if (_albumPhotoBlocks'))) {
+                    blockEnd = j;
                     break;
                 }
-            }
-            if (hasOldPattern) {
-                let blockEnd = i;
-                for (let j = i; j < lines.length; j++) {
-                    if (j > i + 5 && lines[j].trim() === '' && j + 1 < lines.length && lines[j+1].trim().startsWith('//')) {
-                        blockEnd = j;
-                        break;
-                    }
-                    if (j > i + 12) { blockEnd = j; break; }
+                // 或者如果遇到了 模型策略 console.log 说明已经被替换过 — 找它的行
+                if (l.includes('🎯 [模型策略]')) {
+                    // 已替换过, 但还是强制再替换一次 (确保代码是最新的)
                 }
-                const replaceLines = [
-                    '        const newMessages = [...cleanMessages];',
-                    "        const mpConfig = getModelPromptConfig(body.model || '');",
-                    "        const modelPromptText = (mpConfig.prepend || '').trim();",
-                    '        const reinforcedSystemPrompt = modelPromptText',
-                    '            ? `${modelPromptText}',
-                    '',
-                    '${finalSystemPrompt}',
-                    '',
-                    '【本轮强制校验】',
-                    '回复前必须再次检查并遵守最上方 model_prompt 中的行为约束，尤其是：',
-                    '1. 不要用空洞安慰代替解法。',
-                    '2. 不要否认江鱼痛苦的真实性。',
-                    '3. 不要替江鱼判断她"真正想要什么"。',
-                    '4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。`',
-                    '            : finalSystemPrompt;',
-                    '',
-                    "        newMessages.unshift({ role: 'system', content: reinforcedSystemPrompt });",
-                    "        console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=${modelPromptText ? 'yes' : 'no'}`);",
-                ];
-                lines.splice(i, blockEnd - i, ...replaceLines);
-                found = true;
-                console.log(`✅ patch2: 主/v1链路 (行${i+1}-${blockEnd+1})`);
-                break;
+                if (j > i + 20) { blockEnd = j; break; }
             }
+            if (blockEnd === i) blockEnd = i + 8; // fallback
+
+            // 强制替换
+            const replaceLines = [
+                '        const newMessages = [...cleanMessages];',
+                "        console.log('[PROBE] entering model_prompt block, body.model=' + (body.model || 'undefined'));",
+                "        const mpConfig = getModelPromptConfig(body.model || '');",
+                "        const modelPromptText = (mpConfig.prepend || '').trim();",
+                '        const reinforcedSystemPrompt = modelPromptText',
+                '            ? `${modelPromptText}',
+                '',
+                '${finalSystemPrompt}',
+                '',
+                '【本轮强制校验】',
+                '回复前必须再次检查并遵守最上方 model_prompt 中的行为约束，尤其是：',
+                '1. 不要用空洞安慰代替解法。',
+                '2. 不要否认江鱼痛苦的真实性。',
+                '3. 不要替江鱼判断她"真正想要什么"。',
+                '4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。`',
+                '            : finalSystemPrompt;',
+                '',
+                "        newMessages.unshift({ role: 'system', content: reinforcedSystemPrompt });",
+                "        console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=${modelPromptText ? 'yes' : 'no'}`);",
+            ];
+            lines.splice(i, blockEnd - i, ...replaceLines);
+            found = true;
+            console.log(`✅ patch2: 主/v1链路强制替换 (行${i+1}-${blockEnd+1})`);
+            break;
         }
     }
     if (found) {
         server = lines.join('\n');
         changed = true;
     } else {
-        console.log('⚠️ patch2: 未找到可替换的 old pattern');
+        console.log('⚠️ patch2: 替换失败, 打印上下文');
         for (let i = 0; i < lines.length; i++) {
             if (lines[i].includes('newMessages = [...cleanMessages]') || lines[i].includes('newMessages = [ ...cleanMessages ]')) {
-                console.log('--- DEBUG context:');
                 for (let j = Math.max(0, i-2); j < Math.min(lines.length, i+15); j++) {
                     console.log(`  L${j+1}: ${lines[j].substring(0, 120)}`);
                 }
@@ -192,8 +193,6 @@ if (!hasStrategyLog && hasNewMessagesLine) {
             }
         }
     }
-} else if (hasStrategyLog) {
-    console.log('✅ patch2: 已存在');
 } else {
     console.log('⚠️ patch2: 找不到 newMessages 构造点');
 }
