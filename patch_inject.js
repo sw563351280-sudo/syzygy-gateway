@@ -21,6 +21,19 @@ function injectBeforeListen(code) {
 }
 
 // ============================================================
+// Patch Z: /whoami — 确认运行中的脚本路径 + Node 版本
+// ============================================================
+if (!server.includes("app.get('/whoami'")) {
+    injectBeforeListen(`
+// [auto-injected by patch_inject.js]
+app.get('/whoami', (req, res) => {
+    res.json({ __filename, __dirname, cwd: process.cwd(), argv: process.argv, nodeVersion: process.version, uptime: process.uptime() });
+});
+`);
+    console.log('✅ patchZ: /whoami');
+} else { console.log('✅ patchZ: /whoami 已存在'); }
+
+// ============================================================
 // Patch A: /debug-source — 窥探 VPS 实际代码
 // ============================================================
 if (!server.includes("app.get('/debug-source'")) {
