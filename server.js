@@ -17,6 +17,19 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
 
+// 内存日志环缓冲区 — 捕获 console 输出到 HTTP 可查
+const _consoleRing = [];
+const _CONSOLE_RING_MAX = 200;
+function _ringPush(level, ...args) {
+    const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+    _consoleRing.push({ t: new Date().toISOString(), l: level, m: msg });
+    if (_consoleRing.length > _CONSOLE_RING_MAX) _consoleRing.shift();
+}
+const _origConsole = { log: console.log, error: console.error, warn: console.warn };
+console.log   = (...a) => { _ringPush('LOG',   ...a); _origConsole.log(...a); };
+console.error = (...a) => { _ringPush('ERROR', ...a); _origConsole.error(...a); };
+console.warn  = (...a) => { _ringPush('WARN',  ...a); _origConsole.warn(...a); };
+
 const CONTRADICTION_DETECTION_ENABLED = true;
 const ZEP_URL = 'http://127.0.0.1:9999'; // Zep已废弃，指向本地不存在的端口快速失败
 const SESSION_ID = "syzygy_01";
@@ -3542,6 +3555,13 @@ app.get('/debug-ctx', (req, res) => {
 });
 app.get('/debug-mood-logs', (req, res) => {
     res.json({ logs: _moodLog.slice(-50), count: _moodLog.length });
+});
+app.get('/debug-console', (req, res) => {
+    const filter = (req.query.filter || '').toLowerCase();
+    const n = parseInt(req.query.n) || 100;
+    let entries = _consoleRing.slice(-n);
+    if (filter) entries = entries.filter(e => e.m.toLowerCase().includes(filter));
+    res.json({ count: _consoleRing.length, shown: entries.length, entries });
 });
 
 app.post('/api/tools-toggle', (req, res) => {
