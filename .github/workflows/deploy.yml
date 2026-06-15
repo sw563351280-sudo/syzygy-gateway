@@ -63,7 +63,8 @@ jobs:
             node restore_transcript_to_chat.js || echo "⚠️ 恢复脚本失败"
 
             # === 强制补丁：确保 model_prompt 注入不被本地备份覆盖 ===
-            node patch_inject.js || echo "⚠️ 补丁执行出错，但继续部署"
+            # patch_inject.js 已禁用 — server.js/model_prompts.json 由 git 直接提供
+            # node patch_inject.js || echo "⚠️ 补丁执行出错，但继续部署"
 
             systemctl restart syzygy.service
             echo "=== DEPLOY OK ==="
