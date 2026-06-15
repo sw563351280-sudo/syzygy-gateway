@@ -3563,6 +3563,14 @@ app.get('/debug-console', (req, res) => {
     if (filter) entries = entries.filter(e => e.m.toLowerCase().includes(filter));
     res.json({ count: _consoleRing.length, shown: entries.length, entries });
 });
+app.get('/debug-test-inject', (req, res) => {
+    const testModel = req.query.model || 'kiro-claude-opus-4-6-thinking';
+    const mpConfig = getModelPromptConfig(testModel);
+    const modelPromptText = (mpConfig.prepend || '').trim();
+    const msg = `🧪 [注入测试] model=${testModel} role=${mpConfig.role} prependLen=${modelPromptText.length} hasPrepend=${!!modelPromptText}`;
+    console.log(msg);
+    res.json({ ok: true, msg, mpConfig: { role: mpConfig.role, prependLen: modelPromptText.length, prependPreview: modelPromptText.substring(0, 200) } });
+});
 
 app.post('/api/tools-toggle', (req, res) => {
     const toolName = req.query.tool;
