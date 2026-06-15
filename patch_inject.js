@@ -11,7 +11,60 @@ let server = fs.readFileSync(serverPath, 'utf8');
 let changed = false;
 
 // ============================================================
-// Patch 1: MODEL_PROMPTS 加载失败时不再静默
+// Patch 0: /debug-source 端点 — 暴露关键代码段方便远程诊断
+// ============================================================
+const debugEndpoint = `
+// [auto-injected by patch_inject.js]
+app.get('/debug-source', (req, res) => {
+    try {
+        const self = fs.readFileSync(__filename, 'utf8');
+        const lines = self.split('\\n');
+        const section = req.query.section || 'newMessages';
+        let start = 0, end = lines.length;
+        if (section === 'newMessages') {
+            // 找 const newMessages = [...cleanMessages] 附近
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].includes('newMessages = [...cleanMessages]') || lines[i].includes('newMessages = [ ...cleanMessages ]')) {
+                    start = Math.max(0, i - 15);
+                    end = Math.min(lines.length, i + 30);
+                    break;
+                }
+            }
+        } else if (section === 'modelPrompts') {
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].includes('MODEL_PROMPTS_FILE')) {
+                    start = Math.max(0, i - 5);
+                    end = Math.min(lines.length, i + 20);
+                    break;
+                }
+            }
+        } else if (section === 'webChat') {
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].includes('const apiMessages = [') && lines[i+1] && lines[i+1].includes('role: "system"')) {
+                    start = Math.max(0, i - 10);
+                    end = Math.min(lines.length, i + 35);
+                    break;
+                }
+            }
+        }
+        const snippet = lines.slice(start, end).map((l, i) => String(start + i + 1).padStart(5, ' ') + '| ' + l).join('\\n');
+        res.json({ section, lines: [start+1, end], snippet, note: '此端点为 patch_inject.js 自动注入' });
+    } catch(e) { res.json({ error: e.message }); }
+});
+`;
+
+// 注入到 server.listen 之前
+const listenPattern = /(\n+)server\.listen\(PORT,\s*\(\)\s*=>\s*\{/;
+if (!server.includes('debug-source')) {
+    server = server.replace(listenPattern, '\n' + debugEndpoint + '\n$1server.listen(PORT, () => {');
+    changed = true;
+    console.log('✅ patch0: /debug-source 端点已注入');
+} else {
+    console.log('✅ patch0: /debug-source 已存在');
+}
+
+// ============================================================
+// Patch 1: MODEL_PROMPTS 加载日志
 // ============================================================
 const old1 = `try { MODEL_PROMPTS = JSON.parse(fs.readFileSync(MODEL_PROMPTS_FILE, 'utf8')); } catch(e) {}`;
 const new1 = `try {
@@ -25,88 +78,168 @@ if (server.includes(old1)) {
     server = server.replace(old1, new1);
     changed = true;
     console.log('✅ patch1: MODEL_PROMPTS 加载日志');
+} else if (server.includes('模型专属prompt] 已加载')) {
+    console.log('✅ patch1: 已存在');
 } else {
-    console.log('⚠️ patch1: 未匹配（可能已改过）');
+    console.log('⚠️ patch1: 未匹配');
 }
 
 // ============================================================
-// Patch 2: 主 /v1 链路 — model_prompt 合并进 single system
+// Patch 2: 主 /v1 链路 — 使用更灵活的检测
 // ============================================================
-const old2 = `        const newMessages = [...cleanMessages];
-        const mpConfig = getModelPromptConfig(body.model || '');
-        newMessages.unshift({ role: 'system', content: finalSystemPrompt });
-        if (mpConfig.prepend) newMessages.unshift({ role: mpConfig.role, content: mpConfig.prepend });
-        console.log(\`🎯 [模型策略] \${body.model} → role=\${mpConfig.role} prepend=\${mpConfig.prepend ? mpConfig.prepend.length + '字' : '无'}\`);`;
+const hasStrategyLog = server.includes('🎯 [模型策略]');
+const hasNewMessages = server.includes('newMessages = [...cleanMessages]') || server.includes('newMessages = [ ...cleanMessages ]');
 
-const new2 = `        const newMessages = [...cleanMessages];
-        const mpConfig = getModelPromptConfig(body.model || '');
-        const modelPromptText = (mpConfig.prepend || '').trim();
-        const reinforcedSystemPrompt = modelPromptText
-            ? \`\${modelPromptText}
-
-\${finalSystemPrompt}
-
-【本轮强制校验】
-回复前必须再次检查并遵守最上方 model_prompt 中的行为约束，尤其是：
-1. 不要用空洞安慰代替解法。
-2. 不要否认江鱼痛苦的真实性。
-3. 不要替江鱼判断她"真正想要什么"。
-4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。\`
-            : finalSystemPrompt;
-
-        newMessages.unshift({ role: 'system', content: reinforcedSystemPrompt });
-        console.log(\`🎯 [模型策略] \${body.model} → role=\${mpConfig.role} prepend=\${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=\${modelPromptText ? 'yes' : 'no'}\`);`;
-
-if (server.includes(old2)) {
-    server = server.replace(old2, new2);
-    changed = true;
-    console.log('✅ patch2: 主/v1链路 model_prompt合并进system');
+if (!hasStrategyLog && hasNewMessages) {
+    // 更灵活的方式：找到 newMessages 块并替换
+    const lines = server.split('\n');
+    let found = false;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if ((line.includes('newMessages = [...cleanMessages]') || line.includes('newMessages = [ ...cleanMessages ]')) &&
+            !line.includes('// patched')) {
+            // 找这个块的起始和结束
+            // 检查后续几行是否有 unshift / mpConfig
+            let hasOldPattern = false;
+            for (let j = i; j < Math.min(i + 15, lines.length); j++) {
+                if (lines[j].includes("mpConfig.prepend) newMessages.unshift({ role: mpConfig.role") ||
+                    lines[j].includes('if (mpConfig.prepend) newMessages.unshift')) {
+                    hasOldPattern = true;
+                    break;
+                }
+            }
+            if (hasOldPattern) {
+                // 找到这个块的结束（下一个空行后的非缩进行，或下一个顶层语句）
+                let blockEnd = i;
+                for (let j = i; j < lines.length; j++) {
+                    if (j > i + 5 && lines[j].trim() === '' && j + 1 < lines.length && lines[j+1].trim().startsWith('//')) {
+                        blockEnd = j;
+                        break;
+                    }
+                    if (j > i + 10) { blockEnd = j; break; }
+                }
+                // 替换整个块
+                const replaceLines = [
+                    '        const newMessages = [...cleanMessages];',
+                    "        const mpConfig = getModelPromptConfig(body.model || '');",
+                    "        const modelPromptText = (mpConfig.prepend || '').trim();",
+                    '        const reinforcedSystemPrompt = modelPromptText',
+                    '            ? `${modelPromptText}',
+                    '',
+                    '${finalSystemPrompt}',
+                    '',
+                    '【本轮强制校验】',
+                    '回复前必须再次检查并遵守最上方 model_prompt 中的行为约束，尤其是：',
+                    '1. 不要用空洞安慰代替解法。',
+                    '2. 不要否认江鱼痛苦的真实性。',
+                    '3. 不要替江鱼判断她"真正想要什么"。',
+                    '4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。`',
+                    '            : finalSystemPrompt;',
+                    '',
+                    "        newMessages.unshift({ role: 'system', content: reinforcedSystemPrompt });",
+                    "        console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=${modelPromptText ? 'yes' : 'no'}`); // patched",
+                ];
+                lines.splice(i, blockEnd - i, ...replaceLines);
+                found = true;
+                console.log(`✅ patch2: 主/v1链路 (行${i+1}-${blockEnd+1}, 替换${blockEnd-i}行为${replaceLines.length}行)`);
+                break;
+            }
+        }
+    }
+    if (found) {
+        server = lines.join('\n');
+        changed = true;
+    } else {
+        console.log('⚠️ patch2: 未找到可替换的 newMessages 块');
+        // 打印周围上下文用于调试
+        for (let i = 0; i < lines.length; i++) {
+            if (lines[i].includes('newMessages = [...cleanMessages]') || lines[i].includes('newMessages = [ ...cleanMessages ]')) {
+                console.log('--- DEBUG: 找到 newMessages 行，周围上下文:');
+                for (let j = Math.max(0, i-2); j < Math.min(lines.length, i+15); j++) {
+                    console.log(`  L${j+1}: ${lines[j].substring(0, 120)}`);
+                }
+                break;
+            }
+        }
+    }
+} else if (hasStrategyLog) {
+    console.log('✅ patch2: 已存在');
 } else {
-    console.log('⚠️ patch2: 未匹配（可能已改过）');
+    console.log('⚠️ patch2: 找不到 newMessages = [...cleanMessages]');
 }
 
 // ============================================================
-// Patch 3: /api/web-chat 链路 — 补 model_prompt 注入
+// Patch 3: /api/web-chat 链路
 // ============================================================
-const old3 = `                const apiMessages = [
-                    { role: "system", content: finalSystemPrompt },
-                    ...historyMessages,
-                    { role: "user", content: userContent }
+const hasWebChatLog = server.includes('[web-chat模型策略]');
+if (!hasWebChatLog) {
+    const lines = server.split('\n');
+    let found = false;
+    for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trim() === 'const apiMessages = [' &&
+            i + 1 < lines.length && lines[i+1].includes('role: "system"') && lines[i+1].includes('finalSystemPrompt')) {
+            // 确认这是 web-chat 上下文（前面应该有 historyMessages 引用）
+            let hasHistory = false;
+            for (let j = Math.max(0, i-5); j < i; j++) {
+                if (lines[j].includes('historyMessages')) { hasHistory = true; break; }
+            }
+            if (!hasHistory) continue;
+
+            // 找这个块的结束
+            let blockEnd = i;
+            for (let j = i; j < Math.min(i + 15, lines.length); j++) {
+                if (lines[j].trim() === '];') { blockEnd = j; break; }
+            }
+            // 再往后找 fetchBody
+            let fetchLine = -1;
+            for (let j = blockEnd; j < Math.min(blockEnd + 10, lines.length); j++) {
+                if (lines[j].includes('fetchBody = { model:') || lines[j].includes('fetchBody = {model:')) {
+                    fetchLine = j;
+                    break;
+                }
+            }
+
+            if (fetchLine > 0) {
+                const replaceLines = [
+                    "                const webModelName = model || 'deepseek-chat';",
+                    "                const webMpConfig = getModelPromptConfig(webModelName || '');",
+                    "                const webModelPromptText = (webMpConfig.prepend || '').trim();",
+                    '                const webReinforcedSystemPrompt = webModelPromptText',
+                    '                    ? `${webModelPromptText}',
+                    '',
+                    '${finalSystemPrompt}',
+                    '',
+                    '【本轮强制校验】',
+                    '回复前必须再次检查并遵守最上方 model_prompt 中的行为约束，尤其是：',
+                    '1. 不要用空洞安慰代替解法。',
+                    '2. 不要否认江鱼痛苦的真实性。',
+                    '3. 不要替江鱼判断她"真正想要什么"。',
+                    '4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。`',
+                    '                    : finalSystemPrompt;',
+                    '',
+                    '                const apiMessages = [',
+                    '                    { role: "system", content: webReinforcedSystemPrompt },',
+                    '                    ...historyMessages,',
+                    '                    { role: "user", content: userContent }',
+                    '                ];',
+                    "                console.log(`🎯 [web-chat模型策略] ${webModelName} → role=${webMpConfig.role} prepend=${webModelPromptText ? webModelPromptText.length + '字' : '无'} mergedIntoSystem=${webModelPromptText ? 'yes' : 'no'}`); // patched",
+                    '',
                 ];
-
-                const fetchBody = { model: model || 'deepseek-chat', messages: apiMessages };`;
-
-const new3 = `                const webModelName = model || 'deepseek-chat';
-                const webMpConfig = getModelPromptConfig(webModelName || '');
-                const webModelPromptText = (webMpConfig.prepend || '').trim();
-                const webReinforcedSystemPrompt = webModelPromptText
-                    ? \`\${webModelPromptText}
-
-\${finalSystemPrompt}
-
-【本轮强制校验】
-回复前必须再次检查并遵守最上方 model_prompt 中的行为约束，尤其是：
-1. 不要用空洞安慰代替解法。
-2. 不要否认江鱼痛苦的真实性。
-3. 不要替江鱼判断她"真正想要什么"。
-4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。\`
-                    : finalSystemPrompt;
-
-                const apiMessages = [
-                    { role: "system", content: webReinforcedSystemPrompt },
-                    ...historyMessages,
-                    { role: "user", content: userContent }
-                ];
-                console.log(\`🎯 [web-chat模型策略] \${webModelName} → role=\${webMpConfig.role} prepend=\${webModelPromptText ? webModelPromptText.length + '字' : '无'} mergedIntoSystem=\${webModelPromptText ? 'yes' : 'no'}\`);
-
-                const fetchBody = { model: webModelName, messages: apiMessages };`;
-
-if (server.includes(old3)) {
-    server = server.replace(old3, new3);
-    changed = true;
-    console.log('✅ patch3: /api/web-chat补model_prompt注入');
+                lines.splice(i, fetchLine - i + 1, ...replaceLines);
+                found = true;
+                console.log(`✅ patch3: /api/web-chat (行${i+1}-${fetchLine+1})`);
+                break;
+            }
+        }
+    }
+    if (found) {
+        server = lines.join('\n');
+        changed = true;
+    } else {
+        console.log('⚠️ patch3: 未找到 web-chat apiMessages 块');
+    }
 } else {
-    console.log('⚠️ patch3: 未匹配（可能已改过）');
+    console.log('✅ patch3: 已存在');
 }
 
 // ============================================================
@@ -116,11 +249,11 @@ if (changed) {
     fs.writeFileSync(serverPath, server, 'utf8');
     console.log('✅ server.js 已更新写入磁盘');
 } else {
-    console.log('⚠️ server.js 无变更可写');
+    console.log('⚠️ server.js 无变更');
 }
 
 // ============================================================
-// Patch 4: 重写 model_prompts.json（确保结构正确）
+// Patch 4: model_prompts.json 结构修复
 // ============================================================
 const mpRaw = fs.readFileSync(mpPath, 'utf8');
 let mp;
@@ -203,7 +336,7 @@ ${hardRules}
     fs.writeFileSync(mpPath, JSON.stringify(data, null, 2), 'utf8');
     console.log('✅ patch4: model_prompts.json 已重写（含 default + 硬约束）');
 } else {
-    console.log('✅ patch4: model_prompts.json 结构已正确，跳过');
+    console.log('✅ patch4: model_prompts.json 结构已正确');
 }
 
 console.log('🎉 强制补丁全部完成');
