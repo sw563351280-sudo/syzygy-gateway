@@ -10,10 +10,21 @@ const mpPath = path.join(root, 'model_prompts.json');
 let server = fs.readFileSync(serverPath, 'utf8');
 let changed = false;
 
+const listenPattern = /(\n+)server\.listen\(PORT,\s*\(\)\s*=>\s*\{/;
+
 // ============================================================
-// Patch 0: /debug-source 端点 — 暴露关键代码段方便远程诊断
+// 工具：往 server.listen 前注入代码块
 // ============================================================
-const debugEndpoint = `
+function injectBeforeListen(code) {
+    server = server.replace(listenPattern, '\n' + code + '\n$1server.listen(PORT, () => {');
+    changed = true;
+}
+
+// ============================================================
+// Patch A: /debug-source — 窥探 VPS 实际代码
+// ============================================================
+if (!server.includes("app.get('/debug-source'")) {
+    injectBeforeListen(`
 // [auto-injected by patch_inject.js]
 app.get('/debug-source', (req, res) => {
     try {
@@ -22,7 +33,6 @@ app.get('/debug-source', (req, res) => {
         const section = req.query.section || 'newMessages';
         let start = 0, end = lines.length;
         if (section === 'newMessages') {
-            // 找 const newMessages = [...cleanMessages] 附近
             for (let i = 0; i < lines.length; i++) {
                 if (lines[i].includes('newMessages = [...cleanMessages]') || lines[i].includes('newMessages = [ ...cleanMessages ]')) {
                     start = Math.max(0, i - 15);
@@ -48,23 +58,18 @@ app.get('/debug-source', (req, res) => {
             }
         }
         const snippet = lines.slice(start, end).map((l, i) => String(start + i + 1).padStart(5, ' ') + '| ' + l).join('\\n');
-        res.json({ section, lines: [start+1, end], snippet, note: '此端点为 patch_inject.js 自动注入' });
+        res.json({ section, lines: [start+1, end], snippet });
     } catch(e) { res.json({ error: e.message }); }
 });
-`;
+`);
+    console.log('✅ patchA: /debug-source');
+} else { console.log('✅ patchA: /debug-source 已存在'); }
 
-// 注入到 server.listen 之前
-const listenPattern = /(\n+)server\.listen\(PORT,\s*\(\)\s*=>\s*\{/;
-if (!server.includes('debug-source')) {
-    server = server.replace(listenPattern, '\n' + debugEndpoint + '\n$1server.listen(PORT, () => {');
-    changed = true;
-    console.log('✅ patch0: /debug-source 端点已注入');
-} else {
-    console.log('✅ patch0: /debug-source 已存在');
-}
-
-// Patch 0.5: /debug-test-inject 测试端点 + /debug-log (bug-free filter)
-const testEndpoint = `
+// ============================================================
+// Patch B: /debug-log — bug-free 日志搜索（不用 toLowerCase）
+// ============================================================
+if (!server.includes("app.get('/debug-log'")) {
+    injectBeforeListen(`
 // [auto-injected by patch_inject.js]
 app.get('/debug-log', (req, res) => {
     const q = req.query.q || '';
@@ -73,6 +78,16 @@ app.get('/debug-log', (req, res) => {
     if (q) entries = entries.filter(e => JSON.stringify(e).includes(q));
     res.json({ total: _consoleRing.length, shown: entries.length, entries: entries.slice(-30) });
 });
+`);
+    console.log('✅ patchB: /debug-log');
+} else { console.log('✅ patchB: /debug-log 已存在'); }
+
+// ============================================================
+// Patch C: /debug-test-inject — 验证 getModelPromptConfig
+// ============================================================
+if (!server.includes("app.get('/debug-test-inject'")) {
+    injectBeforeListen(`
+// [auto-injected by patch_inject.js]
 app.get('/debug-test-inject', (req, res) => {
     const testModel = req.query.model || 'kiro-claude-opus-4-6-thinking';
     const mpConfig = getModelPromptConfig(testModel);
@@ -81,16 +96,9 @@ app.get('/debug-test-inject', (req, res) => {
     console.log(msg);
     res.json({ ok: true, msg, mpConfig: { role: mpConfig.role, prependLen: modelPromptText.length, prependPreview: modelPromptText.substring(0, 200) } });
 });
-`;
-if (!server.includes('/debug-log')) {
-    // 强制注入: 先清除可能的旧注入残留, 再写入
-    server = server.replace(/\/\/ \[auto-injected by patch_inject\.js\]\s*app\.get\('\/debug-[^']+'.*?\n\s*\}\);\n*/gs, '');
-    server = server.replace(listenPattern, '\n' + testEndpoint + '\n$1server.listen(PORT, () => {');
-    changed = true;
-    console.log('✅ patch0.5: /debug-log + /debug-test-inject 已注入');
-} else {
-    console.log('✅ patch0.5: /debug-log 已存在');
-}
+`);
+    console.log('✅ patchC: /debug-test-inject');
+} else { console.log('✅ patchC: /debug-test-inject 已存在'); }
 
 // ============================================================
 // Patch 1: MODEL_PROMPTS 加载日志
@@ -110,51 +118,43 @@ if (server.includes(old1)) {
 } else if (server.includes('模型专属prompt] 已加载')) {
     console.log('✅ patch1: 已存在');
 } else {
-    console.log('⚠️ patch1: 未匹配');
+    console.log('⚠️ patch1: 未匹配 (old1 not found)');
 }
 
 // ============================================================
-// Patch 2: 主 /v1 链路 — 使用更灵活的检测
+// Patch 2: 主 /v1 链路 model_prompt 合并
 // ============================================================
 const hasStrategyLog = server.includes('🎯 [模型策略]');
-const hasNewMessages = server.includes('newMessages = [...cleanMessages]') || server.includes('newMessages = [ ...cleanMessages ]');
+const hasNewMessagesLine = server.includes('newMessages = [...cleanMessages]') || server.includes('newMessages = [ ...cleanMessages ]');
 
-if (!hasStrategyLog && hasNewMessages) {
-    // 更灵活的方式：找到 newMessages 块并替换
+if (!hasStrategyLog && hasNewMessagesLine) {
     const lines = server.split('\n');
     let found = false;
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if ((line.includes('newMessages = [...cleanMessages]') || line.includes('newMessages = [ ...cleanMessages ]')) &&
             !line.includes('// patched')) {
-            // 找这个块的起始和结束
-            // 检查后续几行是否有 unshift / mpConfig
             let hasOldPattern = false;
             for (let j = i; j < Math.min(i + 15, lines.length); j++) {
-                if (lines[j].includes("mpConfig.prepend) newMessages.unshift({ role: mpConfig.role") ||
-                    lines[j].includes('if (mpConfig.prepend) newMessages.unshift')) {
+                if (lines[j].includes('if (mpConfig.prepend) newMessages.unshift')) {
                     hasOldPattern = true;
                     break;
                 }
             }
             if (hasOldPattern) {
-                // 找到这个块的结束（下一个空行后的非缩进行，或下一个顶层语句）
                 let blockEnd = i;
                 for (let j = i; j < lines.length; j++) {
                     if (j > i + 5 && lines[j].trim() === '' && j + 1 < lines.length && lines[j+1].trim().startsWith('//')) {
                         blockEnd = j;
                         break;
                     }
-                    if (j > i + 10) { blockEnd = j; break; }
+                    if (j > i + 12) { blockEnd = j; break; }
                 }
-                // 替换整个块
                 const replaceLines = [
                     '        const newMessages = [...cleanMessages];',
-                    '        let mpConfig, modelPromptText, reinforcedSystemPrompt;',
-                    '        try {',
-                    "          mpConfig = getModelPromptConfig(body.model || '');",
-                    "          modelPromptText = (mpConfig.prepend || '').trim();",
-                    '          reinforcedSystemPrompt = modelPromptText',
+                    "        const mpConfig = getModelPromptConfig(body.model || '');",
+                    "        const modelPromptText = (mpConfig.prepend || '').trim();",
+                    '        const reinforcedSystemPrompt = modelPromptText',
                     '            ? `${modelPromptText}',
                     '',
                     '${finalSystemPrompt}',
@@ -166,19 +166,13 @@ if (!hasStrategyLog && hasNewMessages) {
                     '3. 不要替江鱼判断她"真正想要什么"。',
                     '4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。`',
                     '            : finalSystemPrompt;',
-                    "          console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=${modelPromptText ? 'yes' : 'no'}`);",
-                    '        } catch(e) {',
-                    '          console.error(`❌ [模型策略] 注入失败: ${e.message}`, e.stack);',
-                    '          mpConfig = { role: "system", prepend: "" };',
-                    '          modelPromptText = "";',
-                    '          reinforcedSystemPrompt = finalSystemPrompt;',
-                    '        }',
                     '',
                     "        newMessages.unshift({ role: 'system', content: reinforcedSystemPrompt });",
+                    "        console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=${modelPromptText ? 'yes' : 'no'}`);",
                 ];
                 lines.splice(i, blockEnd - i, ...replaceLines);
                 found = true;
-                console.log(`✅ patch2: 主/v1链路 (行${i+1}-${blockEnd+1}, 替换${blockEnd-i}行为${replaceLines.length}行)`);
+                console.log(`✅ patch2: 主/v1链路 (行${i+1}-${blockEnd+1})`);
                 break;
             }
         }
@@ -187,11 +181,10 @@ if (!hasStrategyLog && hasNewMessages) {
         server = lines.join('\n');
         changed = true;
     } else {
-        console.log('⚠️ patch2: 未找到可替换的 newMessages 块');
-        // 打印周围上下文用于调试
+        console.log('⚠️ patch2: 未找到可替换的 old pattern');
         for (let i = 0; i < lines.length; i++) {
             if (lines[i].includes('newMessages = [...cleanMessages]') || lines[i].includes('newMessages = [ ...cleanMessages ]')) {
-                console.log('--- DEBUG: 找到 newMessages 行，周围上下文:');
+                console.log('--- DEBUG context:');
                 for (let j = Math.max(0, i-2); j < Math.min(lines.length, i+15); j++) {
                     console.log(`  L${j+1}: ${lines[j].substring(0, 120)}`);
                 }
@@ -202,32 +195,28 @@ if (!hasStrategyLog && hasNewMessages) {
 } else if (hasStrategyLog) {
     console.log('✅ patch2: 已存在');
 } else {
-    console.log('⚠️ patch2: 找不到 newMessages = [...cleanMessages]');
+    console.log('⚠️ patch2: 找不到 newMessages 构造点');
 }
 
 // ============================================================
 // Patch 3: /api/web-chat 链路
 // ============================================================
-const hasWebChatLog = server.includes('[web-chat模型策略]');
-if (!hasWebChatLog) {
+if (!server.includes('[web-chat模型策略]')) {
     const lines = server.split('\n');
     let found = false;
     for (let i = 0; i < lines.length; i++) {
         if (lines[i].trim() === 'const apiMessages = [' &&
             i + 1 < lines.length && lines[i+1].includes('role: "system"') && lines[i+1].includes('finalSystemPrompt')) {
-            // 确认这是 web-chat 上下文（前面应该有 historyMessages 引用）
             let hasHistory = false;
             for (let j = Math.max(0, i-5); j < i; j++) {
                 if (lines[j].includes('historyMessages')) { hasHistory = true; break; }
             }
             if (!hasHistory) continue;
 
-            // 找这个块的结束
             let blockEnd = i;
             for (let j = i; j < Math.min(i + 15, lines.length); j++) {
                 if (lines[j].trim() === '];') { blockEnd = j; break; }
             }
-            // 再往后找 fetchBody
             let fetchLine = -1;
             for (let j = blockEnd; j < Math.min(blockEnd + 10, lines.length); j++) {
                 if (lines[j].includes('fetchBody = { model:') || lines[j].includes('fetchBody = {model:')) {
@@ -235,7 +224,6 @@ if (!hasWebChatLog) {
                     break;
                 }
             }
-
             if (fetchLine > 0) {
                 const replaceLines = [
                     "                const webModelName = model || 'deepseek-chat';",
@@ -259,7 +247,7 @@ if (!hasWebChatLog) {
                     '                    ...historyMessages,',
                     '                    { role: "user", content: userContent }',
                     '                ];',
-                    "                console.log(`🎯 [web-chat模型策略] ${webModelName} → role=${webMpConfig.role} prepend=${webModelPromptText ? webModelPromptText.length + '字' : '无'} mergedIntoSystem=${webModelPromptText ? 'yes' : 'no'}`); // patched",
+                    "                console.log(`🎯 [web-chat模型策略] ${webModelName} → role=${webMpConfig.role} prepend=${webModelPromptText ? webModelPromptText.length + '字' : '无'} mergedIntoSystem=${webModelPromptText ? 'yes' : 'no'}`);",
                     '',
                 ];
                 lines.splice(i, fetchLine - i + 1, ...replaceLines);
@@ -280,17 +268,32 @@ if (!hasWebChatLog) {
 }
 
 // ============================================================
+// Patch 4: 修复 debug-console filter (toLowerCase -> JSON.stringify)
+// ============================================================
+const oldFilter = `if (filter) entries = entries.filter(e => e.m.toLowerCase().includes(filter));`;
+const newFilter = `if (filter) entries = entries.filter(e => JSON.stringify(e).includes(filter));`;
+if (server.includes(oldFilter)) {
+    server = server.replace(oldFilter, newFilter);
+    changed = true;
+    console.log('✅ patch4: debug-console filter 修复');
+} else if (server.includes(newFilter)) {
+    console.log('✅ patch4: filter 已修复');
+} else {
+    console.log('⚠️ patch4: debug-console filter 行未匹配');
+}
+
+// ============================================================
 // 写入 server.js
 // ============================================================
 if (changed) {
     fs.writeFileSync(serverPath, server, 'utf8');
-    console.log('✅ server.js 已更新写入磁盘');
+    console.log('✅ server.js 已写入磁盘');
 } else {
     console.log('⚠️ server.js 无变更');
 }
 
 // ============================================================
-// Patch 4: model_prompts.json 结构修复
+// Patch 5: model_prompts.json 结构修复
 // ============================================================
 const mpRaw = fs.readFileSync(mpPath, 'utf8');
 let mp;
@@ -371,22 +374,9 @@ ${hardRules}
     };
 
     fs.writeFileSync(mpPath, JSON.stringify(data, null, 2), 'utf8');
-    console.log('✅ patch4: model_prompts.json 已重写（含 default + 硬约束）');
+    console.log('✅ patch5: model_prompts.json 已重写（含 default + 硬约束）');
 } else {
-    console.log('✅ patch4: model_prompts.json 结构已正确');
-}
-
-// Patch 5: 修复 debug-console 的 filter Unicode bug
-const oldFilter = `if (filter) entries = entries.filter(e => e.m.toLowerCase().includes(filter));`;
-const newFilter = `if (filter) entries = entries.filter(e => { try { return e.m.toLowerCase().includes(filter); } catch(_) { return e.m.includes(req.query.filter || ''); } });`;
-if (server.includes(oldFilter) && !server.includes(newFilter)) {
-    server = server.replace(oldFilter, newFilter);
-    changed = true;
-    console.log('✅ patch5: debug-console filter Unicode 修复');
-} else if (server.includes(newFilter)) {
-    console.log('✅ patch5: filter 已修复');
-} else {
-    console.log('⚠️ patch5: debug-console filter 行未匹配');
+    console.log('✅ patch5: model_prompts.json 结构已正确');
 }
 
 console.log('🎉 强制补丁全部完成');
