@@ -367,4 +367,17 @@ ${hardRules}
     console.log('✅ patch4: model_prompts.json 结构已正确');
 }
 
+// Patch 5: 修复 debug-console 的 filter Unicode bug
+const oldFilter = `if (filter) entries = entries.filter(e => e.m.toLowerCase().includes(filter));`;
+const newFilter = `if (filter) entries = entries.filter(e => { try { return e.m.toLowerCase().includes(filter); } catch(_) { return e.m.includes(req.query.filter || ''); } });`;
+if (server.includes(oldFilter) && !server.includes(newFilter)) {
+    server = server.replace(oldFilter, newFilter);
+    changed = true;
+    console.log('✅ patch5: debug-console filter Unicode 修复');
+} else if (server.includes(newFilter)) {
+    console.log('✅ patch5: filter 已修复');
+} else {
+    console.log('⚠️ patch5: debug-console filter 行未匹配');
+}
+
 console.log('🎉 强制补丁全部完成');
