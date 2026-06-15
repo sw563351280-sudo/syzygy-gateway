@@ -8,6 +8,8 @@ const serverPath = path.join(root, 'server.js');
 const mpPath = path.join(root, 'model_prompts.json');
 
 let server = fs.readFileSync(serverPath, 'utf8');
+// 统一行尾为 \n，避免 \r\n vs \n 导致所有多行匹配失败
+server = server.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 let changed = false;
 
 const listenPattern = /(\n+)server\.listen\(PORT,\s*\(\)\s*=>\s*\{/;
@@ -330,6 +332,8 @@ if (server.includes(oldFilter)) {
 // 写入 server.js
 // ============================================================
 if (changed) {
+    // 确保统一 \n 行尾（Linux 标准）
+    server = server.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     fs.writeFileSync(serverPath, server, 'utf8');
     console.log('✅ server.js 已写入磁盘');
 } else {
