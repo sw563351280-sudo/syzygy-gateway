@@ -3560,7 +3560,9 @@ app.get('/debug-console', (req, res) => {
     const filter = (req.query.filter || '').toLowerCase();
     const n = parseInt(req.query.n) || 100;
     let entries = _consoleRing.slice(-n);
-    if (filter) entries = entries.filter(e => e.m.toLowerCase().includes(filter));
+    if (filter) entries = entries.filter(e => {
+        try { return e.m.toLowerCase().includes(filter); } catch(_) { return e.m.includes(req.query.filter || ''); }
+    });
     res.json({ count: _consoleRing.length, shown: entries.length, entries });
 });
 app.get('/debug-test-inject', (req, res) => {
