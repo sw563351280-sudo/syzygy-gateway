@@ -116,6 +116,48 @@ app.get('/debug-test-inject', (req, res) => {
 } else { console.log('✅ patchC: /debug-test-inject 已存在'); }
 
 // ============================================================
+// Patch REACH: 全局标记 — 绕过 console.log，用 globalThis 确认代码可达
+// ============================================================
+const reachEndpoint = `
+// [auto-injected by patch_inject.js]
+let __REACH_FLAGS = { handler: false, newMessages: false, modelPrompt: false, afterUnshift: false };
+app.get('/check-reach', (req, res) => { res.json(__REACH_FLAGS); });
+`;
+if (!server.includes('/check-reach')) {
+    injectBeforeListen(reachEndpoint);
+    console.log('✅ patchREACH: /check-reach endpoint');
+}
+
+// 在 handler try { 之后第一行
+const tryBlock = `app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (req, res) => {
+    try {`;
+const tryBlockWithFlag = `app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (req, res) => {
+    try { __REACH_FLAGS.handler = true;`;
+if (server.includes(tryBlock) && !server.includes('__REACH_FLAGS.handler')) {
+    server = server.replace(tryBlock, tryBlockWithFlag);
+    changed = true;
+    console.log('✅ patchREACH: handler entry flag');
+}
+
+// 在 newMessages 前
+const beforeNM = 'const newMessages = [...cleanMessages];';
+const beforeNMflag = '__REACH_FLAGS.newMessages = true;\n        const newMessages = [...cleanMessages];';
+if (server.includes(beforeNM) && !server.includes('__REACH_FLAGS.newMessages')) {
+    server = server.replace(beforeNM, beforeNMflag);
+    changed = true;
+    console.log('✅ patchREACH: newMessages flag');
+}
+
+// 在 🎯 [模型策略] console.log 之前
+const strategyLog = 'console.log(`🎯 [模型策略]';
+const strategyLogWithFlag = '__REACH_FLAGS.modelPrompt = true;\n        console.log(`🎯 [模型策略]';
+if (server.includes(strategyLog) && !server.includes('__REACH_FLAGS.modelPrompt')) {
+    server = server.replace(strategyLog, strategyLogWithFlag);
+    changed = true;
+    console.log('✅ patchREACH: modelPrompt flag');
+}
+
+// ============================================================
 // Patch H: 探针 — 在 handler 关键位置插入 ASCII 日志
 // ============================================================
 // 在 handler 的 try { 之后插入
@@ -214,7 +256,8 @@ if (hasNewMessagesLine) {
                 '1. 不要用空洞安慰代替解法。',
                 '2. 不要否认江鱼痛苦的真实性。',
                 '3. 不要替江鱼判断她"真正想要什么"。',
-                '4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。`',
+                '4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。',
+'5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。`',
                 '            : finalSystemPrompt;',
                 '',
                 "        newMessages.unshift({ role: 'system', content: reinforcedSystemPrompt });",
@@ -285,7 +328,8 @@ if (!server.includes('[web-chat模型策略]')) {
                     '1. 不要用空洞安慰代替解法。',
                     '2. 不要否认江鱼痛苦的真实性。',
                     '3. 不要替江鱼判断她"真正想要什么"。',
-                    '4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。`',
+                    '4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。',
+'5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。`',
                     '                    : finalSystemPrompt;',
                     '',
                     '                const apiMessages = [',
