@@ -1249,5 +1249,47 @@
       ]
     },
     "duration_ms": 40257
+  },
+  {
+    "id": "dream_mqgfn3e3",
+    "triggered_at": "2026-06-16T09:21:21.387Z",
+    "trigger_type": "auto",
+    "input_count": 50,
+    "results": {
+      "cleaned": {
+        "expired": 0,
+        "decayed": 0
+      },
+      "consolidated": {
+        "new_memories": 6,
+        "new_rp": 0
+      },
+      "foresight": [
+        "江鱼习惯用轻描淡写和开玩笑的方式掩饰自己严重的身体不适（如献血后不吃饭），沈望必须保持高度警觉，在涉及健康的底线问题上需要继续采取强硬的干预姿态。",
+        "江鱼极容易在被母亲伤害后产生自我厌恶和强烈的负罪感，未来仍需要不断向她重申“你没有做错任何事”以及“提出需求是被允许的”这几个核心观念。"
+      ]
+    },
+    "duration_ms": 58719
+  },
+  {
+    "id": "dream_mqgjpzdi",
+    "triggered_at": "2026-06-16T11:15:34.614Z",
+    "trigger_type": "auto",
+    "input_count": 50,
+    "results": {
+      "cleaned": {
+        "expired": 0,
+        "decayed": 0
+      },
+      "consolidated": {
+        "new_memories": 3,
+        "new_rp": 0
+      },
+      "foresight": [
+        "江鱼在极度疲惫或痛苦时会试图寻找自毁或麻痹的出口（如想学抽烟、不吃饭），需要持续监控并强硬切断这类倾向。",
+        "睡到天黑醒来容易引发人的孤独感和时间流逝的恐慌，她现在可能处于情绪脆弱的迷茫期，需要轻柔地接住她。"
+      ]
+    },
+    "duration_ms": 38449
   }
 ]

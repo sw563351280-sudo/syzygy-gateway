@@ -54,7 +54,52 @@ function renderMarkdown(text) { if (!text) return ''; if (typeof marked !== 'und
 // ==================== 版本化消息辅助函数 ====================
 function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; return v; } return msg; }
 function normalizeMessageVersionFields(msg) { if (!msg) return msg; if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0]; if (!v) return msg; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; return msg; } ensureVersioned(msg); return msg; }
-function extractThinkingFromContent(content) { if (!content) return {thinking:'',visibleContent:''}; const tagRe=/<(think|thinking|chain_of_thought|reasoning)>([\s\S]*?)<\/\1>/gi; const thinkingParts=[]; let visibleContent=content.replace(tagRe,function(_,tag,inner){const trimmed=inner.trim();if(trimmed)thinkingParts.push(trimmed);return'';}); const openTagRe=/<(think|thinking|chain_of_thought|reasoning)>/gi; let openMatch,lastOpenMatch=null; while((openMatch=openTagRe.exec(visibleContent))!==null){lastOpenMatch=openMatch;} if(lastOpenMatch){const openTagStart=lastOpenMatch.index;const openTagEnd=openTagStart+lastOpenMatch[0].length;const tagName=lastOpenMatch[1];const afterOpenTag=visibleContent.slice(openTagEnd);const closeTag=new RegExp('</'+tagName+'>','i');if(!closeTag.test(afterOpenTag)){const partialThinking=afterOpenTag.trim();if(partialThinking)thinkingParts.push(partialThinking);visibleContent=visibleContent.slice(0,openTagStart);}} // 流式半截标签保护：末尾未完成的标签前缀不渲染到正文 const tagNames=['think','thinking','chain_of_thought','reasoning'];const lastLt=visibleContent.lastIndexOf('<');if(lastLt!==-1){const suffix=visibleContent.slice(lastLt+1);const isPartial=suffix===''||tagNames.some(function(tn){return tn.startsWith(suffix);});if(isPartial)visibleContent=visibleContent.slice(0,lastLt);} return {thinking:thinkingParts.join('\n\n'),visibleContent:visibleContent.trim()}; }
+function extractThinkingFromContent(content) {
+    if (!content) return { thinking: '', visibleContent: '' };
+
+    const tagRe = /<(think|thinking|chain_of_thought|reasoning)>([\s\S]*?)<\/\1>/gi;
+    const thinkingParts = [];
+    let visibleContent = content.replace(tagRe, function(_, tag, inner) {
+        const trimmed = inner.trim();
+        if (trimmed) thinkingParts.push(trimmed);
+        return '';
+    });
+
+    const openTagRe = /<(think|thinking|chain_of_thought|reasoning)>/gi;
+    let openMatch;
+    let lastOpenMatch = null;
+    while ((openMatch = openTagRe.exec(visibleContent)) !== null) {
+        lastOpenMatch = openMatch;
+    }
+
+    if (lastOpenMatch) {
+        const openTagStart = lastOpenMatch.index;
+        const openTagEnd = openTagStart + lastOpenMatch[0].length;
+        const tagName = lastOpenMatch[1];
+        const afterOpenTag = visibleContent.slice(openTagEnd);
+        const closeTag = new RegExp('</' + tagName + '>', 'i');
+        if (!closeTag.test(afterOpenTag)) {
+            const partialThinking = afterOpenTag.trim();
+            if (partialThinking) thinkingParts.push(partialThinking);
+            visibleContent = visibleContent.slice(0, openTagStart);
+        }
+    }
+
+    const tagNames = ['think', 'thinking', 'chain_of_thought', 'reasoning'];
+    const lastLt = visibleContent.lastIndexOf('<');
+    if (lastLt !== -1) {
+        const suffix = visibleContent.slice(lastLt + 1);
+        const isPartial = suffix === '' || tagNames.some(function(tagName) {
+            return tagName.startsWith(suffix);
+        });
+        if (isPartial) visibleContent = visibleContent.slice(0, lastLt);
+    }
+
+    return {
+        thinking: thinkingParts.join('\n\n'),
+        visibleContent: visibleContent.trim()
+    };
+}
 function getVersionCount(msg) { return (msg.versions && msg.versions.length) ? msg.versions.length : 1; }
 function getActiveVersionIndex(msg) { if (msg.versions && msg.versions.length > 0) return msg.activeVersion || 0; return 0; }
 function ensureVersioned(msg) { if (msg.versions) return; const { role, ...rest } = msg; msg.versions = [rest]; msg.activeVersion = 0; delete msg.content; delete msg.thinking; delete msg.time; delete msg.model; delete msg.fullTime; delete msg.image; }
