@@ -54,7 +54,7 @@ function renderMarkdown(text) { if (!text) return ''; if (typeof marked !== 'und
 // ==================== 版本化消息辅助函数 ====================
 function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; return v; } return msg; }
 function normalizeMessageVersionFields(msg) { if (!msg) return msg; if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0]; if (!v) return msg; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; return msg; } ensureVersioned(msg); return msg; }
-function extractThinkingFromContent(content) { if (!content) return {thinking:'',visibleContent:''}; const m=[...content.matchAll(/<thinking>([\s\S]*?)<\/thinking>/g)]; const t=m.map(x=>x[1].trim()).filter(Boolean).join('\n\n'); const v=content.replace(/<thinking>[\s\S]*?<\/thinking>/g,'').trim(); return {thinking:t,visibleContent:v}; }
+function extractThinkingFromContent(content) { if (!content) return {thinking:'',visibleContent:''}; const tagRe=/<(thinking|chain_of_thought|reasoning)>([\s\S]*?)<\/\1>/gi; const thinkingParts=[]; let visibleContent=content.replace(tagRe,function(_,tag,inner){const trimmed=inner.trim();if(trimmed)thinkingParts.push(trimmed);return'';}); const openTagRe=/<(thinking|chain_of_thought|reasoning)>/gi; let openMatch,lastOpenMatch=null; while((openMatch=openTagRe.exec(visibleContent))!==null){lastOpenMatch=openMatch;} if(lastOpenMatch){const openTagStart=lastOpenMatch.index;const openTagEnd=openTagStart+lastOpenMatch[0].length;const tagName=lastOpenMatch[1];const afterOpenTag=visibleContent.slice(openTagEnd);const closeTag=new RegExp('</'+tagName+'>','i');if(!closeTag.test(afterOpenTag)){const partialThinking=afterOpenTag.trim();if(partialThinking)thinkingParts.push(partialThinking);visibleContent=visibleContent.slice(0,openTagStart);}} return {thinking:thinkingParts.join('\n\n'),visibleContent:visibleContent.trim()}; }
 function getVersionCount(msg) { return (msg.versions && msg.versions.length) ? msg.versions.length : 1; }
 function getActiveVersionIndex(msg) { if (msg.versions && msg.versions.length > 0) return msg.activeVersion || 0; return 0; }
 function ensureVersioned(msg) { if (msg.versions) return; const { role, ...rest } = msg; msg.versions = [rest]; msg.activeVersion = 0; delete msg.content; delete msg.thinking; delete msg.time; delete msg.model; delete msg.fullTime; delete msg.image; }
@@ -1084,8 +1084,6 @@ try {
             mainTextDiv.classList.add('md-content');
             sDiv.appendChild(mainTextDiv);
 
-            let inThinking = false; // 判断当前文字是不是包在 <think> 里面
-
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
@@ -1126,7 +1124,7 @@ try {
                             win.scrollTop = win.scrollHeight;
                         }
 
-                        // 2. 处理正文内容 (content)
+                        // 2. 处理正文内容 (content) — 用累计全文解析，避免 chunk 边界截断标签
                         if (delta.content) {
                             if (!firstChunkReceived) {
                                 firstChunkReceived = true;
@@ -1135,34 +1133,19 @@ try {
                                 sDiv.classList.remove('msg-loading');
                             }
                             rawAssistantText += delta.content;
-                            // 状态机解析 <think> 标签，每次扫描整段 chunk
-                            let chunk = delta.content;
-                            let pos = 0;
-                            while (pos < chunk.length) {
-                                if (!inThinking) {
-                                    const tagStart = chunk.indexOf('<think>', pos);
-                                    if (tagStart !== -1) {
-                                        fullReply += chunk.substring(pos, tagStart);
-                                        pos = tagStart + 7; // 跳过 '<think>'
-                                        inThinking = true;
-                                        thinkBox.style.display = 'block';
-                                    } else {
-                                        fullReply += chunk.substring(pos);
-                                        break;
-                                    }
-                                } else {
-                                    const tagEnd = chunk.indexOf('</think>', pos);
-                                    if (tagEnd !== -1) {
-                                        thinkContent += chunk.substring(pos, tagEnd);
-                                        pos = tagEnd + 8; // 跳过 '</think>'
-                                        inThinking = false;
-                                    } else {
-                                        thinkContent += chunk.substring(pos);
-                                        break;
-                                    }
-                                }
+
+                            // 对累计全文解析，自动处理 <thinking>/<chain_of_thought>/<reasoning> 及未闭合标签
+                            const parsed = extractThinkingFromContent(rawAssistantText);
+                            fullReply = parsed.visibleContent;
+
+                            // 合并 API 级 reasoning_content + 文本提取的 thinking
+                            const combinedThinking = [reasoningContent, parsed.thinking].filter(Boolean).join('\n\n');
+                            if (combinedThinking) {
+                                thinkContent = combinedThinking;
+                                thinkBox.style.display = 'block';
+                                thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
                             }
-                            if (thinkContent) thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
+
                             if (fullReply) mainTextDiv.innerHTML = fullReply.replace(/\n/g, '<br>') + '<span class="typing-cursor"></span>';
                             win.scrollTop = win.scrollHeight;
                         }
@@ -1172,28 +1155,22 @@ try {
                 }
             }
             
-            // 接收完毕 — 先清空 SSE buffer 残留，再渲染 Markdown
+            // 接收完毕 — 处理 SSE buffer 残留，用累计全文解析
             if (buffer.trim()) {
                 const lastLine = buffer.replace(/^data: /, '').trim();
                 if (lastLine && lastLine !== '[DONE]' && !lastLine.startsWith('[ERROR]')) {
                     try {
-                        const parsed = JSON.parse(lastLine);
-                        if (parsed.choices?.[0]?.delta?.content) {
-                            const rest = parsed.choices[0].delta.content;
-                            // 用状态机处理残留
-                            let pos = 0;
-                            while (pos < rest.length) {
-                                if (!inThinking) {
-                                    const ts = rest.indexOf('<think>', pos);
-                                    if (ts !== -1) { fullReply += rest.substring(pos, ts); pos = ts + 7; inThinking = true; thinkBox.style.display = 'block'; }
-                                    else { fullReply += rest.substring(pos); break; }
-                                } else {
-                                    const te = rest.indexOf('</think>', pos);
-                                    if (te !== -1) { thinkContent += rest.substring(pos, te); pos = te + 8; inThinking = false; }
-                                    else { thinkContent += rest.substring(pos); break; }
-                                }
+                        const parsedJson = JSON.parse(lastLine);
+                        if (parsedJson.choices?.[0]?.delta?.content) {
+                            rawAssistantText += parsedJson.choices[0].delta.content;
+                            const result = extractThinkingFromContent(rawAssistantText);
+                            fullReply = result.visibleContent;
+                            const combinedThinking = [reasoningContent, result.thinking].filter(Boolean).join('\n\n');
+                            if (combinedThinking) {
+                                thinkContent = combinedThinking;
+                                thinkBox.style.display = 'block';
+                                thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
                             }
-                            if (thinkContent) thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
                         }
                     } catch(e) {}
                 }
@@ -1209,13 +1186,11 @@ try {
             rawAssistantText = fullReply;
             reasoningContent = data.choices[0].message.reasoning_content || '';
 
-            // 处理思考过程
-            if (fullReply.includes('<think>')) {
-                const match = fullReply.match(/<think>([\s\S]*?)<\/think>/);
-                if (match) {
-                    thinkContent = match[1].trim();
-                    fullReply = fullReply.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-                }
+            // 处理思考过程 — 支持 <thinking>/<chain_of_thought>/<reasoning>
+            const extracted = extractThinkingFromContent(fullReply);
+            if (extracted.thinking) {
+                thinkContent = extracted.thinking;
+                fullReply = extracted.visibleContent;
             }
 
             sDiv.innerHTML = '';
@@ -1923,12 +1898,12 @@ async function regenerateSend(aiMsgIndex) {
         if (!response.ok) { clearTimeout(reSilenceTimer); const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         let fullReply='', thinkContent='';
         if(isStream) {
-            const reader = response.body.getReader(); const decoder = new TextDecoder('utf-8'); let buffer='', inThinking=false;
+            const reader = response.body.getReader(); const decoder = new TextDecoder('utf-8'); let buffer='', rawAcc='', reasoningAcc='';
             sDiv.innerHTML=''; const thinkBox=document.createElement('div'); thinkBox.className='think-box'; thinkBox.style.display='none'; thinkBox.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content"></div>'; const thinkTextDiv=thinkBox.querySelector('.think-content'); sDiv.appendChild(thinkBox);
             const mainTextDiv=document.createElement('div'); mainTextDiv.classList.add('md-content'); sDiv.appendChild(mainTextDiv);
-            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); const d=p.choices[0].delta; if(d.reasoning_content){thinkContent+=d.reasoning_content; thinkBox.style.display='block'; thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');} if(d.content){const ck=d.content; if(ck.includes('<think>')){inThinking=true;thinkBox.style.display='block';continue;} if(ck.includes('</think>')){inThinking=false;continue;} if(inThinking){thinkContent+=ck;thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');}else{fullReply+=ck;mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';}} win.scrollTop=win.scrollHeight;}catch(e){}}}
+            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); const d=p.choices[0].delta; if(d.reasoning_content){reasoningAcc+=d.reasoning_content; thinkBox.style.display='block';} if(d.content){rawAcc+=d.content; const parsed=extractThinkingFromContent(rawAcc); fullReply=parsed.visibleContent; const combinedThink=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n'); if(combinedThink){thinkContent=combinedThink; thinkBox.style.display='block'; thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');} mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';} win.scrollTop=win.scrollHeight;}catch(e){}}}
             mainTextDiv.innerHTML=renderMarkdown(fullReply);
-        } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; if(fullReply.includes('<think>')){const m=fullReply.match(/<think>([\s\S]*?)<\/think>/);if(m)thinkContent=m[1].trim();fullReply=fullReply.replace(/<think>[\s\S]*?<\/think>/g,'').trim();} sDiv.innerHTML=''; if(thinkContent){const tb=document.createElement('div');tb.className='think-box';tb.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content">'+thinkContent.replace(/\n/g,'<br>')+'</div>';sDiv.appendChild(tb);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
+        } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){const tb=document.createElement('div');tb.className='think-box';tb.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content">'+thinkContent.replace(/\n/g,'<br>')+'</div>';sDiv.appendChild(tb);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
         sDiv.classList.remove('msg-loading');
         const timeStr=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
         ensureVersioned(aiMsg); aiMsg.versions.push({content:fullReply,thinking:thinkContent,time:timeStr,model:selectedModel,fullTime:new Date().toISOString()}); aiMsg.activeVersion=aiMsg.versions.length-1; aiMsg._zepDirty=true;
