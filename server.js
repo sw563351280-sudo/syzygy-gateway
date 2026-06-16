@@ -2920,6 +2920,8 @@ newMessages.forEach((m, i) => {
         const isGemini = (body.model || '').toLowerCase().includes('gemini');
         if (!isGemini) { body.frequency_penalty = 0.4; body.presence_penalty = 0.4; }
                else { delete body.frequency_penalty; delete body.presence_penalty; delete body.logprobs; delete body.top_logprobs; delete body.n; delete body.best_of; }
+        const isClaude = (body.model || '').toLowerCase().includes('claude');
+        if (isClaude && body.temperature === undefined) { body.temperature = 0.9; }
 
 
         const apiUrl = resolveApiUrl(req.path);
@@ -4311,6 +4313,8 @@ ${finalSystemPrompt}
                     fetchBody.frequency_penalty = 0.4;
                     fetchBody.presence_penalty = 0.4;
                 }
+                const isWebClaude = (model || '').toLowerCase().includes('claude');
+                if (isWebClaude && fetchBody.temperature === undefined) { fetchBody.temperature = 0.9; }
 
                 const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return TOOLS_ENABLED.mcp !== false; return TOOLS_ENABLED[name] !== false; });
                 let webForceToolChoice = null;
