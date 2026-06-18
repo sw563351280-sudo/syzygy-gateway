@@ -66,6 +66,11 @@ jobs:
             # patch_inject.js 已禁用 — server.js/model_prompts.json 由 git 直接提供
             # node patch_inject.js || echo "⚠️ 补丁执行出错，但继续部署"
 
-            systemctl restart syzygy.service
+            systemctl stop syzygy.service 2>/dev/null || true
+            pkill -f 'node.*server.js' 2>/dev/null || true
+            sleep 2
+            systemctl start syzygy.service
+            sleep 3
+            systemctl status syzygy.service --no-pager | head -5
             echo "=== DEPLOY OK ==="
           '
