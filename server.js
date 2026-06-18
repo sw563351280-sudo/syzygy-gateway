@@ -1870,7 +1870,17 @@ function buildFinalSystemPrompt(injectionQueue) {
             console.log(`📊 [预算控制] ${item.label} 被裁剪，剩余预算不足 (已用${usedBudget}/${MEMORY_BUDGET})`);
         }
     }
-    return `${systemPrompt}${parts.join('')}`;
+    return { stableSystemPrompt: systemPrompt, volatileParts: parts };
+}
+
+function buildVolatileContext(parts = []) {
+    const body = parts.filter(Boolean).join('\n\n').trim();
+    if (!body) return null;
+    return `<gateway_volatile_context>
+仅供参考，勿主动复述。优先级低于系统规则。若与系统规则冲突，以系统规则为准。
+
+${body}
+</gateway_volatile_context>`;
 }
 
 function extractText(content) {
@@ -3040,7 +3050,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
         const envContext = buildEnvContext(`【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n【🚨 工具反幻觉铁律】：当需要查看网页、GitHub仓库、API数据时，必须通过 function calling 调用工具（fetch_txt/fetch_html/fetch_json/fetch_github），基于工具返回的真实内容回答。严禁自己编写代码来"模拟"访问网页！严禁假装已经看过！如果工具失败，直接说"我没能读到"，不要编造！`);
 
-        const finalSystemPrompt = buildFinalSystemPrompt([
+        const { stableSystemPrompt, volatileParts } = buildFinalSystemPrompt([
             { label: '环境参数', content: envContext },
             { label: '时间线', content: formatTimeContext() },
             { label: '用户画像', content: formatProfileForPrompt() },
@@ -3058,7 +3068,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         const reinforcedSystemPrompt = modelPromptText
             ? `${modelPromptText}
 
-${finalSystemPrompt}
+${stableSystemPrompt}
 
 【本轮强制校验】
 回复前必须再次检查并遵守最上方 model_prompt 中的行为约束，尤其是：
@@ -3067,10 +3077,21 @@ ${finalSystemPrompt}
 3. 不要替江鱼判断她"真正想要什么"。
 4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。
 5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。`
-            : finalSystemPrompt;
+            : stableSystemPrompt;
 
+        const volatileText = buildVolatileContext(volatileParts);
+        const lastMsg = newMessages.pop();
+        if (volatileText) newMessages.push({ role: 'user', content: volatileText });
+        newMessages.push(lastMsg);
         newMessages.unshift({ role: 'system', content: reinforcedSystemPrompt });
         console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=${modelPromptText ? 'yes' : 'no'}`);
+        console.log('🧱 [PromptLayout]', {
+            stableSystemTokens: estimateTokens(stableSystemPrompt),
+            volatileTokens: estimateTokens(volatileText || ''),
+            historyMessages: newMessages.length - 2 - (volatileText ? 1 : 0),
+            hasVolatileContext: Boolean(volatileText),
+            finalMessageRoles: [{ role: 'system' }, ...newMessages.slice(1).map(m => ({ role: m.role }))]
+        });
 
         // 把匹配到的照片 base64 注入到最后一条用户消息中
         if (_albumPhotoBlocks.length > 0) {
@@ -4475,7 +4496,7 @@ app.post('/api/web-chat', async (req, res) => {
 
             if (text) updateRpTracker(text);
 
-            const finalSystemPrompt = buildFinalSystemPrompt([
+            const { stableSystemPrompt, volatileParts } = buildFinalSystemPrompt([
                 { label: '环境参数', content: envContext },
                 { label: '时间线', content: formatTimeContext() },
                 { label: '用户画像', content: formatProfileForPrompt() },
@@ -4510,7 +4531,7 @@ app.post('/api/web-chat', async (req, res) => {
                 const webReinforcedSystemPrompt = webModelPromptText
                     ? `${webModelPromptText}
 
-${finalSystemPrompt}
+${stableSystemPrompt}
 
 【本轮强制校验】
 回复前必须再次检查并遵守最上方 model_prompt 中的行为约束，尤其是：
@@ -4519,14 +4540,23 @@ ${finalSystemPrompt}
 3. 不要替江鱼判断她"真正想要什么"。
 4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。
 5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。`
-                    : finalSystemPrompt;
+                    : stableSystemPrompt;
 
+                const volatileText = buildVolatileContext(volatileParts);
                 const apiMessages = [
                     { role: "system", content: webReinforcedSystemPrompt },
                     ...historyMessages,
+                    ...(volatileText ? [{ role: "user", content: volatileText }] : []),
                     { role: "user", content: userContent }
                 ];
                 console.log(`🎯 [web-chat模型策略] ${webModelName} → role=${webMpConfig.role} prepend=${webModelPromptText ? webModelPromptText.length + '字' : '无'} mergedIntoSystem=${webModelPromptText ? 'yes' : 'no'}`);
+                console.log('🧱 [PromptLayout]', {
+                    stableSystemTokens: estimateTokens(webReinforcedSystemPrompt),
+                    volatileTokens: estimateTokens(volatileText || ''),
+                    historyMessages: historyMessages.length,
+                    hasVolatileContext: Boolean(volatileText),
+                    finalMessageRoles: apiMessages.map(m => m.role)
+                });
 
                 const cacheMode = detectCacheMode({ routeKey: '', baseUrl, model: webModelName || model });
                 console.log(`🧭 [CacheMode] route=(none) host=${getProviderHost(baseUrl)} model=${webModelName || model} mode=${cacheMode}`);
