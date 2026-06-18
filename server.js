@@ -1826,6 +1826,12 @@ function buildFinalSystemPrompt(injectionQueue) {
 
     const renderedRecall = renderLimitedRecallLines(kept);
 
+    // 按来源汇总 token
+    const rpTokens = kept.filter(k => k.source === 'roleplay').reduce((s, k) => s + estimateTokens(k.fullText || k.text || ''), 0);
+    const ltTokens = kept.filter(k => k.source === 'long_term').reduce((s, k) => s + estimateTokens(k.fullText || k.text || ''), 0);
+    const txTokens = kept.filter(k => k.source === 'transcript').reduce((s, k) => s + estimateTokens(k.fullText || k.text || ''), 0);
+    const avgTokensPerKept = kept.length > 0 ? Math.round(usedTokens / kept.length) : 0;
+
     if (usedTokens > MEMORY_RECALL_TOKEN_BUDGET) {
         console.error('❌ [MemoryBudget:Exceeded]', { usedTokens, maxTokens: MEMORY_RECALL_TOKEN_BUDGET });
     }
@@ -1835,7 +1841,9 @@ function buildFinalSystemPrompt(injectionQueue) {
         kept: kept.length, dropped,
         rpCount: rpKept + rpDropped, ltCount: ltKept + ltDropped, txCount: txKept + txDropped,
         rpKept, ltKept, txKept,
-        rpDropped, ltDropped, txDropped
+        rpDropped, ltDropped, txDropped,
+        tokensBySource: { rpTokens, ltTokens, txTokens },
+        avgTokensPerKept
     });
 
     // === 替换动态召回内容为裁剪后版本 ===
