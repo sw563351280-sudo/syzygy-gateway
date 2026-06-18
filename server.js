@@ -1738,7 +1738,53 @@ function injectAfterSystem(messages, injected) {
     return arr;
 }
 
+function estimateTokens(text = '') {
+    if (!text) return 0;
+    const s = String(text);
+    const cjk = (s.match(/[\u4e00-\u9fff]/g) || []).length;
+    const nonCjk = s.length - cjk;
+    return cjk + Math.ceil(nonCjk / 4);
+}
+
+const MEMORY_RECALL_TOKEN_BUDGET = Number(process.env.MEMORY_RECALL_TOKEN_BUDGET || 6000);
 function buildFinalSystemPrompt(injectionQueue) {
+    // === 动态记忆召回 token 硬上限 ===
+    const dynamicLabels = ['长期记忆雷达', 'RP雷达', '对话原文'];
+    const priorityOrder = ['RP雷达', '长期记忆雷达', '对话原文'];
+    let recallTokensUsed = 0;
+    let rpCount = 0, ltCount = 0, txCount = 0;
+
+    for (const label of priorityOrder) {
+        const item = injectionQueue.find(i => i.label === label);
+        if (!item || !item.content) continue;
+        const tokens = estimateTokens(item.content);
+        const remaining = MEMORY_RECALL_TOKEN_BUDGET - recallTokensUsed;
+
+        if (label === 'RP雷达') rpCount = 1;
+        else if (label === '长期记忆雷达') ltCount = 1;
+        else if (label === '对话原文') txCount = 1;
+
+        if (tokens <= remaining) {
+            recallTokensUsed += tokens;
+        } else if (remaining > 100) {
+            const ratio = remaining / tokens;
+            const charLimit = Math.floor(item.content.length * ratio);
+            item.content = item.content.substring(0, charLimit) + '\n[记忆截断]';
+            recallTokensUsed += estimateTokens(item.content);
+        } else {
+            item.content = '';
+        }
+    }
+
+    console.log('🧠 [MemoryBudget]', {
+        maxTokens: MEMORY_RECALL_TOKEN_BUDGET,
+        usedTokens: recallTokensUsed,
+        kept: rpCount + ltCount + txCount,
+        dropped: 0,
+        rpCount, ltCount, txCount
+    });
+
+    // === 原有字符预算控制 ===
     const MEMORY_BUDGET = 15000;
     let usedBudget = 0;
     const parts = [];
