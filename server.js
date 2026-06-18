@@ -2116,6 +2116,10 @@ async function executeToolCall(name, args, mcpServer) {
 
 async function saveToZep(userMsg, aiMsg) {
     if (!ZEP_URL) return;
+    if (typeof userMsg === 'string' && userMsg.includes('<gateway_volatile_context>')) {
+        console.log('🚫 [ZepFilter] Skipped volatile context message, not persisting to Zep');
+        return;
+    }
     try {
         await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`, {
             method: 'POST',
@@ -2898,7 +2902,13 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 
         if (zepRes && zepRes.ok) {
             const zepData = await zepRes.json();
-            zepMessages = zepData.messages || [];
+            zepMessages = (zepData.messages || []).filter(msg => {
+                if (typeof msg.content === 'string' && msg.content.includes('<gateway_volatile_context>')) {
+                    console.log('🧹 [HistoryFilter] Removed stale volatile context from Zep history');
+                    return false;
+                }
+                return true;
+            });
             const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
             if (zepLastUser) zepLastUserContent = zepLastUser.content;
           
@@ -3092,8 +3102,9 @@ ${stableSystemPrompt}
                 historyMessages: newMessages.length - 2 - (volatileText ? 1 : 0),
                 hasVolatileContext: Boolean(volatileText),
                 finalMessageRoles: newMessages.map(m => m.role),
-                volatileIndex: volatileText ? newMessages.findIndex(m => typeof m.content === 'string' && m.content.includes('<gateway_volatile_context>')) : -1,
-                currentUserIndex: newMessages.length - 1
+                volatileIndex: volatileText ? (() => { for (let i = newMessages.length - 1; i >= 0; i--) { if (typeof newMessages[i].content === 'string' && newMessages[i].content.includes('<gateway_volatile_context>')) return i; } return -1; })() : -1,
+                currentUserIndex: newMessages.length - 1,
+                volatileBeforeCurrentUser: volatileText ? (() => { for (let i = newMessages.length - 1; i >= 0; i--) { if (typeof newMessages[i].content === 'string' && newMessages[i].content.includes('<gateway_volatile_context>')) return i === newMessages.length - 2; } return false; })() : false
             });
         } catch (e) {
             console.log('❌ [PromptLayout:Error]', e.message);
@@ -3245,6 +3256,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
             }
 
             const toolData = await toolResponse.json();
+            if (toolData?.usage) console.log('📦 [UpstreamUsage:tool]', { model: toolData?.model || body.model, promptTokens: toolData.usage?.prompt_tokens, completionTokens: toolData.usage?.completion_tokens, totalTokens: toolData.usage?.total_tokens, cachedTokens: toolData.usage?.prompt_tokens_details?.cached_tokens, cacheRead: toolData.usage?.cache_read_input_tokens, cacheWrite: toolData.usage?.cache_creation_input_tokens, details: toolData.usage?.prompt_tokens_details });
             const curMessage = toolData.choices?.[0]?.message;
 
             if (curMessage?.tool_calls && curMessage.tool_calls.length > 0) {
@@ -3356,6 +3368,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         }
 
         console.log(`📊 [Cache:via-stream] mode=${cacheMode2} 流式路径暂未解析 usage (response body 已 stream)`);
+        if (response?.headers) console.log('📦 [UpstreamUsage:stream] headers:', { 'x-ratelimit-limit': response.headers.get('x-ratelimit-limit'), 'x-ratelimit-remaining': response.headers.get('x-ratelimit-remaining') });
         // 流式与非流式处理
         if (isStreamMode) {
             if (!streamingSetup) {
@@ -4389,7 +4402,13 @@ app.post('/api/web-chat', async (req, res) => {
                 ]) : [null, null];
                 if (zepRes?.ok) {
                     const zepData = await zepRes.json();
-                    zepMessages = zepData.messages || [];
+                    zepMessages = (zepData.messages || []).filter(msg => {
+                        if (typeof msg.content === 'string' && msg.content.includes('<gateway_volatile_context>')) {
+                            console.log('🧹 [HistoryFilter] Removed stale volatile context from Zep history');
+                            return false;
+                        }
+                        return true;
+                    });
                     const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
                     if (zepLastUser) zepLastUserContent = zepLastUser.content;
 
@@ -4562,8 +4581,9 @@ ${stableSystemPrompt}
                     historyMessages: historyMessages.length,
                     hasVolatileContext: Boolean(volatileText),
                     finalMessageRoles: apiMessages.map(m => m.role),
-                    volatileIndex: volatileText ? apiMessages.findIndex(m => typeof m.content === 'string' && m.content.includes('<gateway_volatile_context>')) : -1,
-                    currentUserIndex: apiMessages.length - 1
+                    volatileIndex: volatileText ? (() => { for (let i = apiMessages.length - 1; i >= 0; i--) { if (typeof apiMessages[i].content === 'string' && apiMessages[i].content.includes('<gateway_volatile_context>')) return i; } return -1; })() : -1,
+                    currentUserIndex: apiMessages.length - 1,
+                    volatileBeforeCurrentUser: ((() => { for (let i = apiMessages.length - 1; i >= 0; i--) { if (typeof apiMessages[i].content === 'string' && apiMessages[i].content.includes('<gateway_volatile_context>')) return i === apiMessages.length - 2; } return false; })())
                 });
 
                 const cacheMode = detectCacheMode({ routeKey: '', baseUrl, model: webModelName || model });
@@ -5389,6 +5409,32 @@ server.listen(PORT, () => {
     initUserProfile();
     startAllMCPServers();
     cleanAndArchiveMemories();
+
+    // 一次性清理旧待办（idempotent，只跑一次）
+    try {
+        const todos = loadTodos();
+        const stale = todos.find(t => t.id === 'shen_mq4mpcxd' && !t.done);
+        if (stale) {
+            stale.done = true;
+            stale.text = '✅ 已完成 stable/volatile prompt 分离与 MemoryBudget';
+            stale.doneAt = new Date().toISOString();
+            saveTodos(todos);
+            console.log('📝 [TodoCleanup] Marked stale anthropic cache todo as done');
+        }
+    } catch (e) { /* ignore */ }
+
+    // 一次性更新用户画像年龄 32→33（idempotent）
+    try {
+        const profile = loadUserProfile();
+        let changed = false;
+        for (const key of ['basic_info', 'long_term_values']) {
+            if (profile[key]?.content && profile[key].content.includes('32岁')) {
+                profile[key].content = profile[key].content.replace(/32岁/g, '33岁');
+                changed = true;
+            }
+        }
+        if (changed) { saveUserProfile(profile); console.log('🔧 [ProfileFix] Updated age 32→33 in user_profile.json'); }
+    } catch (e) { /* ignore */ }
 
     // 启动后延迟 10 秒在后台进行增量向量索引重建，补全可能缺失的存量记忆向量缓存
     setTimeout(() => {
