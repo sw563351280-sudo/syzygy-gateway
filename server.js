@@ -2673,6 +2673,7 @@ function findZepAnchor(cleanMessages, zepMessages) {
 // 🌟 核心聊天接口
 // ==========================================
 app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (req, res) => {
+    console.log('🧪 [CacheDebug] ENTER via handler');
     try {
                 let body = req.body;
         const noMemory = req.headers['x-no-memory'] === 'true';
@@ -3003,6 +3004,8 @@ newMessages.forEach((m, i) => {
 console.log('🌐 [DEBUG] 目标URL:', apiUrl);      // ← 加这行
 console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         console.log('🛤️ [DEBUG] req.path:', req.path); 
+        const cacheMode2 = detectCacheMode(apiUrl, body.model || "");
+        console.log(`🧭 [CacheMode] host=${getProviderHost(apiUrl)} model=${body.model || ""} mode=${cacheMode2}`);
 
         
         const apiHeaders = {
@@ -3102,6 +3105,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
 
             // 没有 tool_calls → 最终回复
             console.log(`🔧 [工具] ${roundLabel}AI返回最终回复`);
+            logUsage(cacheMode2, body.model || '', toolData?.usage, 'via-tool');
             const aiContent = curMessage?.content || '';
             const reasoning = curMessage?.reasoning_content || '';
             // 也兼容 <think> 标签格式
@@ -3181,6 +3185,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
             return res.status(response.status).json({ error: "模型报错：" + errText });
         }
 
+        console.log(`📊 [Cache:via-stream] mode=${cacheMode2} 流式路径暂未解析 usage (response body 已 stream)`);
         // 流式与非流式处理
         if (isStreamMode) {
             if (!streamingSetup) {
