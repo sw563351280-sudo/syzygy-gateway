@@ -84,6 +84,10 @@ const PHONE_CACHE_FILE = path.join(DATA_DIR, 'phone_cache.json');
 const SUPABASE_URL = 'https://zaqcpvqpfdbhsqpjfgbd.supabase.co/rest/v1/phone_activity';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphcWNwdnFwZmRiaHNxcGpmZ2JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMDQ3NjQsImV4cCI6MjA5NDc4MDc2NH0.2olvex6-uUWzJHSsgxQAsMbejQK53xVuNSXrmH1ExIA';
 
+const CACHE_BLACKLIST_FILE = path.join(DATA_DIR, 'cache_blacklist.json');
+const CACHE_TTL = '1h';
+const METADATA_USER_ID = 'syzygy-gateway-stable';
+
 function loadPhoneCache() { try { return JSON.parse(fs.readFileSync(PHONE_CACHE_FILE, 'utf8')); } catch(e) { return null; } }
 function savePhoneCache(data) { try { fs.writeFileSync(PHONE_CACHE_FILE, JSON.stringify(data, null, 2), 'utf8'); } catch(e) {} }
 
@@ -108,6 +112,74 @@ async function getPhoneActivity(maxAgeHours = 4) {
     }
     if (cache && cache.data) return { records: cache.data, fromCache: true, stale: true };
     return { records: [], fromCache: false, empty: true };
+}
+
+// ==========================================
+// 🔍 Cache Mode 检测 & Usage 日志（观测层）
+// ==========================================
+function getProviderHost(baseUrl) {
+    try { return new URL(baseUrl).hostname; }
+    catch (e) { return ''; }
+}
+
+function loadCacheBlacklist() {
+    try {
+        if (!fs.existsSync(CACHE_BLACKLIST_FILE)) return {};
+        return JSON.parse(fs.readFileSync(CACHE_BLACKLIST_FILE, 'utf8') || '{}');
+    } catch (e) {
+        console.warn(`⚠️ [CacheBlacklist] 读取失败: ${e.message}`);
+        return {};
+    }
+}
+
+function saveCacheBlacklist(data) {
+    try { fs.writeFileSync(CACHE_BLACKLIST_FILE, JSON.stringify(data || {}, null, 2), 'utf8'); }
+    catch (e) { console.warn(`⚠️ [CacheBlacklist] 保存失败: ${e.message}`); }
+}
+
+function isHostBlacklisted(host) {
+    if (!host) return false;
+    const blacklist = loadCacheBlacklist();
+    return Boolean(blacklist[host]);
+}
+
+function detectCacheMode(baseUrl, model = '') {
+    const host = getProviderHost(baseUrl);
+    const normalized = `${host} ${baseUrl || ''} ${model || ''}`.toLowerCase();
+
+    if (isHostBlacklisted(host)) return 'oai-passthrough';
+
+    if (
+        normalized.includes('anthropic') ||
+        normalized.includes('/v1/messages') ||
+        normalized.includes('msui') ||
+        normalized.includes('claude')
+    ) return 'anthropic-bp';
+
+    if (normalized.includes('openrouter')) return 'or-blocks';
+
+    return 'oai-passthrough';
+}
+
+function logUsage(cacheMode, model, usage, label = 'web-chat') {
+    try {
+        if (!usage) {
+            console.log(`📊 [Cache:${label}] model=${model} mode=${cacheMode} no_usage`);
+            return;
+        }
+        const input = usage.input_tokens ?? usage.prompt_tokens ?? usage.total_prompt_tokens ?? null;
+        const output = usage.output_tokens ?? usage.completion_tokens ?? null;
+        const cacheRead = usage.cache_read_input_tokens ?? usage.prompt_cache_hit_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? null;
+        const cacheWrite = usage.cache_creation_input_tokens ?? usage.prompt_cache_miss_tokens ?? null;
+        let hitRate = null;
+        if (typeof input === 'number' && typeof cacheRead === 'number' && input > 0) {
+            hitRate = ((cacheRead / input) * 100).toFixed(2) + '%';
+        }
+        const hitState = (cacheRead && cacheRead > 0) ? 'HIT' : 'MISS_OR_UNKNOWN';
+        console.log(`📊 [Cache:${label}] ${hitState} model=${model} mode=${cacheMode} input=${input} output=${output} cache_read=${cacheRead} cache_write=${cacheWrite} hit_rate=${hitRate} raw=${JSON.stringify(usage)}`);
+    } catch (e) {
+        console.warn(`⚠️ [Cache:${label}] usage 日志失败: ${e.message}`);
+    }
 }
 
 const COUNTER_FILE = path.join(DATA_DIR, 'session_counters.json');
@@ -4307,6 +4379,9 @@ ${finalSystemPrompt}
                 ];
                 console.log(`🎯 [web-chat模型策略] ${webModelName} → role=${webMpConfig.role} prepend=${webModelPromptText ? webModelPromptText.length + '字' : '无'} mergedIntoSystem=${webModelPromptText ? 'yes' : 'no'}`);
 
+                const cacheMode = detectCacheMode(baseUrl, webModelName || model);
+                console.log(`🧭 [CacheMode] host=${getProviderHost(baseUrl)} model=${webModelName || model} mode=${cacheMode}`);
+
                 const fetchBody = { model: webModelName, messages: apiMessages };
                 const isGemini = (model || '').toLowerCase().includes('gemini');
                 if (!isGemini) {
@@ -4368,6 +4443,7 @@ ${finalSystemPrompt}
                     }
 
                     console.log(`🔧 [web-chat工具] ${roundLabel}AI返回最终回复`);
+                    logUsage(cacheMode, webModelName || model, toolData?.usage, 'web-chat-tool');
                     const aiContent = curMsg?.content || '';
                     let thinking = '';
                     if (aiContent.includes('<think>')) {
@@ -4409,6 +4485,7 @@ ${finalSystemPrompt}
                 }
 
                 const aiData = await aiRes.json();
+                logUsage(cacheMode, webModelName || model, aiData?.usage, 'web-chat-final');
                 const message = aiData.choices?.[0]?.message;
                 let aiReply = message?.content || "";
                 let thinking = "";
