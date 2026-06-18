@@ -3086,11 +3086,13 @@ ${stableSystemPrompt}
         newMessages.unshift({ role: 'system', content: reinforcedSystemPrompt });
         console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=${modelPromptText ? 'yes' : 'no'}`);
         console.log('🧱 [PromptLayout]', {
-            stableSystemTokens: estimateTokens(stableSystemPrompt),
+            stableSystemTokens: estimateTokens(reinforcedSystemPrompt),
             volatileTokens: estimateTokens(volatileText || ''),
             historyMessages: newMessages.length - 2 - (volatileText ? 1 : 0),
             hasVolatileContext: Boolean(volatileText),
-            finalMessageRoles: [{ role: 'system' }, ...newMessages.slice(1).map(m => ({ role: m.role }))]
+            finalMessageRoles: newMessages.map(m => m.role),
+            volatileIndex: volatileText ? newMessages.findIndex(m => typeof m.content === 'string' && m.content.includes('<gateway_volatile_context>')) : -1,
+            currentUserIndex: newMessages.length - 1
         });
 
         // 把匹配到的照片 base64 注入到最后一条用户消息中
@@ -4555,7 +4557,9 @@ ${stableSystemPrompt}
                     volatileTokens: estimateTokens(volatileText || ''),
                     historyMessages: historyMessages.length,
                     hasVolatileContext: Boolean(volatileText),
-                    finalMessageRoles: apiMessages.map(m => m.role)
+                    finalMessageRoles: apiMessages.map(m => m.role),
+                    volatileIndex: volatileText ? apiMessages.findIndex(m => typeof m.content === 'string' && m.content.includes('<gateway_volatile_context>')) : -1,
+                    currentUserIndex: apiMessages.length - 1
                 });
 
                 const cacheMode = detectCacheMode({ routeKey: '', baseUrl, model: webModelName || model });
