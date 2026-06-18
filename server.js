@@ -3085,15 +3085,19 @@ ${stableSystemPrompt}
         newMessages.push(lastMsg);
         newMessages.unshift({ role: 'system', content: reinforcedSystemPrompt });
         console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=${modelPromptText ? 'yes' : 'no'}`);
-        console.log('🧱 [PromptLayout]', {
-            stableSystemTokens: estimateTokens(reinforcedSystemPrompt),
-            volatileTokens: estimateTokens(volatileText || ''),
-            historyMessages: newMessages.length - 2 - (volatileText ? 1 : 0),
-            hasVolatileContext: Boolean(volatileText),
-            finalMessageRoles: newMessages.map(m => m.role),
-            volatileIndex: volatileText ? newMessages.findIndex(m => typeof m.content === 'string' && m.content.includes('<gateway_volatile_context>')) : -1,
-            currentUserIndex: newMessages.length - 1
-        });
+        try {
+            console.log('🧱 [PromptLayout]', {
+                stableSystemTokens: estimateTokens(reinforcedSystemPrompt),
+                volatileTokens: estimateTokens(volatileText || ''),
+                historyMessages: newMessages.length - 2 - (volatileText ? 1 : 0),
+                hasVolatileContext: Boolean(volatileText),
+                finalMessageRoles: newMessages.map(m => m.role),
+                volatileIndex: volatileText ? newMessages.findIndex(m => typeof m.content === 'string' && m.content.includes('<gateway_volatile_context>')) : -1,
+                currentUserIndex: newMessages.length - 1
+            });
+        } catch (e) {
+            console.log('❌ [PromptLayout:Error]', e.message);
+        }
 
         // 把匹配到的照片 base64 注入到最后一条用户消息中
         if (_albumPhotoBlocks.length > 0) {
