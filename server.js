@@ -150,17 +150,33 @@ function isHostBlacklisted(host) {
     return Boolean(blacklist[host]);
 }
 
-function detectCacheMode(baseUrl, model = '') {
-    const host = getProviderHost(baseUrl);
-    const normalized = `${host} ${baseUrl || ''} ${model || ''}`.toLowerCase();
+function detectCacheMode(input = {}) {
+    const routeKey = String(input.routeKey || '').toLowerCase();
+    const baseUrl = String(input.baseUrl || '');
+    const model   = String(input.model   || '');
+    const host    = getProviderHost(baseUrl);
+    const normalized = `${routeKey} ${host} ${baseUrl} ${model}`.toLowerCase();
 
-    if (isHostBlacklisted(host)) return 'oai-passthrough';
+    if (isHostBlacklisted(routeKey) || isHostBlacklisted(host)) return 'oai-passthrough';
+
+    // 优先按 routeKey 判断
+    if (
+        routeKey.includes('msui') ||
+        routeKey.includes('anthropic') ||
+        routeKey.includes('claude')
+    ) return 'anthropic-bp';
 
     if (
-        normalized.includes('anthropic') ||
+        routeKey.includes('openrouter') ||
+        routeKey.includes('or')
+    ) return 'or-blocks';
+
+    // 兜底：URL / model 关键词
+    if (
         normalized.includes('/v1/messages') ||
-        normalized.includes('msui') ||
-        normalized.includes('claude')
+        normalized.includes('anthropic') ||
+        normalized.includes('claude') ||
+        normalized.includes('msui')
     ) return 'anthropic-bp';
 
     if (normalized.includes('openrouter')) return 'or-blocks';
@@ -2680,7 +2696,7 @@ function findZepAnchor(cleanMessages, zepMessages) {
 // 🌟 核心聊天接口
 // ==========================================
 app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (req, res) => {
-    console.log('🧪 [CacheDebug] ENTER via handler');
+    console.log('🧪 [CacheDebug] ENTER via handler', { routeKey: req.params?.platform, path: req.path, originalUrl: req.originalUrl });
     try {
                 let body = req.body;
         const noMemory = req.headers['x-no-memory'] === 'true';
@@ -3011,8 +3027,9 @@ newMessages.forEach((m, i) => {
 console.log('🌐 [DEBUG] 目标URL:', apiUrl);      // ← 加这行
 console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         console.log('🛤️ [DEBUG] req.path:', req.path); 
-        const cacheMode2 = detectCacheMode(apiUrl, body.model || "");
-        console.log(`🧭 [CacheMode] host=${getProviderHost(apiUrl)} model=${body.model || ""} mode=${cacheMode2}`);
+        const viaRouteKey = req.params?.platform || '';
+        const cacheMode2 = detectCacheMode({ routeKey: viaRouteKey, baseUrl: apiUrl, model: body.model });
+        console.log(`🧭 [CacheMode] route=${viaRouteKey} host=${getProviderHost(apiUrl)} model=${body.model} mode=${cacheMode2}`);
 
         
         const apiHeaders = {
@@ -4392,8 +4409,8 @@ ${finalSystemPrompt}
                 ];
                 console.log(`🎯 [web-chat模型策略] ${webModelName} → role=${webMpConfig.role} prepend=${webModelPromptText ? webModelPromptText.length + '字' : '无'} mergedIntoSystem=${webModelPromptText ? 'yes' : 'no'}`);
 
-                const cacheMode = detectCacheMode(baseUrl, webModelName || model);
-                console.log(`🧭 [CacheMode] host=${getProviderHost(baseUrl)} model=${webModelName || model} mode=${cacheMode}`);
+                const cacheMode = detectCacheMode({ routeKey: '', baseUrl, model: webModelName || model });
+                console.log(`🧭 [CacheMode] route=(none) host=${getProviderHost(baseUrl)} model=${webModelName || model} mode=${cacheMode}`);
 
                 const fetchBody = { model: webModelName, messages: apiMessages };
                 const isGemini = (model || '').toLowerCase().includes('gemini');
