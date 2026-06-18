@@ -352,7 +352,7 @@ function shouldScanTranscript(userText) {
     return /之前|以前|上次|刚才|前面|还记得|那天|昨天|前天|历史|旧消息|找回来|恢复|又|还是不行|没改好|你说过|我们说|当时|那会儿/.test(userText);
 }
 
-async function scanTranscriptRadar(userText, topK = 2) {
+async function scanTranscriptRadar(userText, topK = RADAR_TOPK.transcript) {
     if (!userText || userText.length < 4) return "";
     const now = new Date();
     let allChunks = [];
@@ -1162,7 +1162,7 @@ async function scanLongTermRadar(userText) {
     const memories = loadLongTermMemories();
     console.log(`🔎 [长期记忆雷达·向量版] 扫描中... 库存${memories.length}条, 用户说: "${userText.substring(0, 30)}"`);
 
-    const results = await rrfMergeSearch(userText, memories, 3);
+    const results = await rrfMergeSearch(userText, memories, RADAR_TOPK.longTerm);
     if (results.length === 0) return "";
 
     const memMap = new Map(memories.map(m => [m.id, m]));
@@ -1219,7 +1219,7 @@ async function scanLongTermRadar(userText) {
 async function scanRoleplayRadar(userText) {
     if (!userText) return "";
     const memories = loadRoleplayMemories();
-    const results = await rrfMergeSearch(userText, memories, 3);
+    const results = await rrfMergeSearch(userText, memories, RADAR_TOPK.roleplay);
     if (results.length === 0) return "";
 
     return `\n\n==========\n【🎮 游戏卡带已插入：检测到江鱼想玩/继续以下设定的Roleplay】\n${results.map(r => `• 🎭 [设定/进度: ${(r.memory.tags||[]).join(',')}] ${r.memory.content}`).join('\n')}\n👉 【最高指令】：请沈望立刻抛弃现实包袱，无缝接入该游戏设定，陪她沉浸式演绎！\n==========\n`;
@@ -1275,7 +1275,7 @@ function calculateHeat(m) {
 // ==========================================
 //高权重记忆浮现
 // ==========================================
-function surfaceUnresolvedMemories(topK = 2) {
+function surfaceUnresolvedMemories(topK = RADAR_TOPK.unresolved) {
     const memories = loadLongTermMemories();
     const now = Date.now();
 
@@ -1606,8 +1606,8 @@ async function scanAllRadars(userText) {
         scanRoleplayRadar(userText),
     ]);
     let transcriptRadar = '';
-    if (shouldScanTranscript(userText)) transcriptRadar = await scanTranscriptRadar(userText, 2);
-    const unresolved = surfaceUnresolvedMemories(2);
+    if (shouldScanTranscript(userText)) transcriptRadar = await scanTranscriptRadar(userText);
+    const unresolved = surfaceUnresolvedMemories();
     return { coreRadar, longTermRadar, rpRadar, unresolved, transcriptRadar };
 }
 
@@ -1621,7 +1621,7 @@ async function scanMemoryRadar(userText) {
         expires_at: null
     }));
 
-    const results = await rrfMergeSearch(userText, blocksWithId, 3);
+    const results = await rrfMergeSearch(userText, blocksWithId, RADAR_TOPK.core);
     if (results.length === 0) return "";
 
     const lines = results.map(r => {
@@ -1793,6 +1793,14 @@ function renderLimitedRecallLines(kept = []) {
 }
 
 const MEMORY_RECALL_TOKEN_BUDGET = Number(process.env.MEMORY_RECALL_TOKEN_BUDGET || 6000);
+
+const RADAR_TOPK = {
+    core:       Number(process.env.RADAR_CORE_TOPK       || 3),
+    longTerm:   Number(process.env.RADAR_LONG_TERM_TOPK  || 5),
+    roleplay:   Number(process.env.RADAR_ROLEPLAY_TOPK   || 5),
+    transcript: Number(process.env.RADAR_TRANSCRIPT_TOPK || 4),
+    unresolved: Number(process.env.RADAR_UNRESOLVED_TOPK || 2)
+};
 
 function buildFinalSystemPrompt(injectionQueue) {
     // === 动态记忆召回 token 硬上限（bullet 级） ===
@@ -3098,7 +3106,7 @@ ${finalSystemPrompt}
             const memCtx = await scanMemoryRadar(currentUserMsgText);
             let txCtx = '';
             const shouldScan = shouldScanTranscript(currentUserMsgText);
-            if (shouldScan) txCtx = await scanTranscriptRadar(currentUserMsgText, 2);
+            if (shouldScan) txCtx = await scanTranscriptRadar(currentUserMsgText);
             const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
     // 先情绪指令，再剩余上下文，确保不被 slice 截掉
     const mainCtx = [liveCtx, sumCtx, memCtx, txCtx].filter(Boolean).join('\n\n').substring(0, 11000);
