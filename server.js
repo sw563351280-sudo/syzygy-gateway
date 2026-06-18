@@ -1746,7 +1746,7 @@ function estimateTokens(text = '') {
     return cjk + Math.ceil(nonCjk / 4);
 }
 
-const MEMORY_RECALL_TOKEN_BUDGET = Number(process.env.MEMORY_RECALL_TOKEN_BUDGET || 6000);
+const MEMORY_RECALL_TOKEN_BUDGET = Number(process.env.MEMORY_RECALL_TOKEN_BUDGET || 800); // TEST: 800, restore to 6000
 function buildFinalSystemPrompt(injectionQueue) {
     // === 动态记忆召回 token 硬上限 ===
     const dynamicLabels = ['长期记忆雷达', 'RP雷达', '对话原文'];
