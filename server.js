@@ -1746,43 +1746,100 @@ function estimateTokens(text = '') {
     return cjk + Math.ceil(nonCjk / 4);
 }
 
-const MEMORY_RECALL_TOKEN_BUDGET = Number(process.env.MEMORY_RECALL_TOKEN_BUDGET || 800); // TEST: 800, restore to 6000
-function buildFinalSystemPrompt(injectionQueue) {
-    // === 动态记忆召回 token 硬上限 ===
-    const dynamicLabels = ['长期记忆雷达', 'RP雷达', '对话原文'];
-    const priorityOrder = ['RP雷达', '长期记忆雷达', '对话原文'];
-    let recallTokensUsed = 0;
-    let rpCount = 0, ltCount = 0, txCount = 0;
+function splitRecallBlockToLines(block = '', source = '') {
+    const text = String(block || '').trim();
+    if (!text) return [];
+    const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+    const result = [];
+    let currentHeader = '';
+    for (const line of lines) {
+        const isBullet = line.startsWith('•') || line.startsWith('-') || line.startsWith('*');
+        if (!isBullet) { currentHeader = line; continue; }
+        result.push({ source, header: currentHeader, text: line, fullText: currentHeader ? `${currentHeader}\n${line}` : line });
+    }
+    if (result.length === 0 && text) {
+        result.push({ source, header: '', text, fullText: text });
+    }
+    return result;
+}
 
+function limitRecallLinesByTokens(items = [], maxTokens = 6000) {
+    const kept = [];
+    let usedTokens = 0;
+    let dropped = 0;
+    for (const item of items) {
+        const tokens = estimateTokens(item.fullText || item.text || '');
+        if (usedTokens + tokens > maxTokens) { dropped++; continue; }
+        kept.push(item);
+        usedTokens += tokens;
+    }
+    return { kept, usedTokens, dropped, maxTokens };
+}
+
+function renderLimitedRecallLines(kept = []) {
+    const groups = new Map();
+    for (const item of kept) {
+        const key = `${item.source}::${item.header}`;
+        if (!groups.has(key)) groups.set(key, { source: item.source, header: item.header, lines: [] });
+        groups.get(key).lines.push(item.text);
+    }
+    const blocks = [];
+    for (const group of groups.values()) {
+        if (!group.lines.length) continue;
+        if (group.header) blocks.push(`${group.header}\n${group.lines.join('\n')}`);
+        else blocks.push(group.lines.join('\n'));
+    }
+    return blocks.join('\n\n');
+}
+
+const MEMORY_RECALL_TOKEN_BUDGET = Number(process.env.MEMORY_RECALL_TOKEN_BUDGET || 800); // TEST: 800, restore to 6000
+
+function buildFinalSystemPrompt(injectionQueue) {
+    // === 动态记忆召回 token 硬上限（bullet 级） ===
+    const priorityOrder = ['RP雷达', '长期记忆雷达', '对话原文'];
+    const sourceMap = { 'RP雷达': 'roleplay', '长期记忆雷达': 'long_term', '对话原文': 'transcript' };
+
+    const allRecallLines = [];
     for (const label of priorityOrder) {
         const item = injectionQueue.find(i => i.label === label);
         if (!item || !item.content) continue;
-        const tokens = estimateTokens(item.content);
-        const remaining = MEMORY_RECALL_TOKEN_BUDGET - recallTokensUsed;
+        const source = sourceMap[label] || label;
+        allRecallLines.push(...splitRecallBlockToLines(item.content, source));
+    }
 
-        if (label === 'RP雷达') rpCount = 1;
-        else if (label === '长期记忆雷达') ltCount = 1;
-        else if (label === '对话原文') txCount = 1;
+    const { kept, usedTokens, dropped, maxTokens } = limitRecallLinesByTokens(allRecallLines, MEMORY_RECALL_TOKEN_BUDGET);
 
-        if (tokens <= remaining) {
-            recallTokensUsed += tokens;
-        } else if (remaining > 100) {
-            const ratio = remaining / tokens;
-            const charLimit = Math.floor(item.content.length * ratio);
-            item.content = item.content.substring(0, charLimit) + '\n[记忆截断]';
-            recallTokensUsed += estimateTokens(item.content);
-        } else {
-            item.content = '';
-        }
+    const rpKept   = kept.filter(k => k.source === 'roleplay').length;
+    const ltKept   = kept.filter(k => k.source === 'long_term').length;
+    const txKept   = kept.filter(k => k.source === 'transcript').length;
+    const rpDropped = allRecallLines.filter(k => k.source === 'roleplay').length - rpKept;
+    const ltDropped = allRecallLines.filter(k => k.source === 'long_term').length - ltKept;
+    const txDropped = allRecallLines.filter(k => k.source === 'transcript').length - txKept;
+
+    const renderedRecall = renderLimitedRecallLines(kept);
+
+    if (usedTokens > MEMORY_RECALL_TOKEN_BUDGET) {
+        console.error('❌ [MemoryBudget:Exceeded]', { usedTokens, maxTokens: MEMORY_RECALL_TOKEN_BUDGET });
     }
 
     console.log('🧠 [MemoryBudget]', {
-        maxTokens: MEMORY_RECALL_TOKEN_BUDGET,
-        usedTokens: recallTokensUsed,
-        kept: rpCount + ltCount + txCount,
-        dropped: 0,
-        rpCount, ltCount, txCount
+        maxTokens, usedTokens,
+        kept: kept.length, dropped,
+        rpCount: rpKept + rpDropped, ltCount: ltKept + ltDropped, txCount: txKept + txDropped,
+        rpKept, ltKept, txKept,
+        rpDropped, ltDropped, txDropped
     });
+
+    // === 替换动态召回内容为裁剪后版本 ===
+    for (const label of priorityOrder) {
+        const item = injectionQueue.find(i => i.label === label);
+        if (!item) continue;
+        // 只保留该 source 的内容
+        const source = sourceMap[label];
+        const sourceKept = kept.filter(k => k.source === source);
+        if (sourceKept.length === 0) { item.content = ''; continue; }
+        item.content = renderLimitedRecallLines(sourceKept);
+    }
 
     // === 原有字符预算控制 ===
     const MEMORY_BUDGET = 15000;
