@@ -4196,6 +4196,7 @@ function processQueue() {
 // 🚀 通用聊天接口：网页端专属
 // ==========================================
 app.post('/api/web-chat', async (req, res) => {
+    console.log('🧪 [CacheDebug] ENTER web-chat handler');
     const { text, image, images, model, baseUrl, apiKey } = req.body;
     if (!text && !image && !(images && images.length > 0)) return res.status(400).json({ error: "信息不全" });
 
