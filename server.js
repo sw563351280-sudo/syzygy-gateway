@@ -17,6 +17,13 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
 
+app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.includes('api') || req.path.includes('chat') || req.path.includes('completions') || req.path.includes('via')) {
+        console.log(`🧪 [ReqLogger] ${req.method} ${req.path}`);
+    }
+    next();
+});
+
 // 内存日志环缓冲区 — 捕获 console 输出到 HTTP 可查
 const _consoleRing = [];
 const _CONSOLE_RING_MAX = 200;
