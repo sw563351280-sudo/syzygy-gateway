@@ -447,10 +447,27 @@ function neuOpenLongTerm() {
     if (pwd) window.open('/long-term?pwd=' + encodeURIComponent(pwd), '_blank');
 }
 
+let _isOpeningArchiveRoom = false;
 function openStarCrossing() {
-    const pwd = new URLSearchParams(location.search).get('pwd') || localStorage.getItem('memoryPwd') || '';
-    if (pwd) window.location.href = '/memory-manager.html?tab=archive&pwd=' + encodeURIComponent(pwd);
-    else { const i = prompt('星渡访问密码:'); if (i) { localStorage.setItem('memoryPwd', i); window.location.href = '/memory-manager.html?tab=archive&pwd=' + encodeURIComponent(i); } }
+    if (_isOpeningArchiveRoom) return;
+    _isOpeningArchiveRoom = true;
+
+    // 即时视觉反馈：点亮入口卡片
+    const btn = document.querySelector('[onclick*="openStarCrossing"]');
+    if (btn) btn.style.opacity = '0.6';
+
+    let pwd = localStorage.getItem('memoryPwd');
+    if (!pwd) {
+        pwd = prompt('星渡访问密码:');
+        if (!pwd) {
+            _isOpeningArchiveRoom = false;
+            if (btn) btn.style.opacity = '';
+            return;
+        }
+        localStorage.setItem('memoryPwd', pwd);
+    }
+
+    window.location.assign('/memory-manager.html?tab=archive&pwd=' + encodeURIComponent(pwd));
 }
 async function triggerDreamFromHome() {
     const pwd = prompt('管理员密码:'); if (!pwd) return;
