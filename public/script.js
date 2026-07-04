@@ -243,32 +243,69 @@ function cleanupOldImages(session) {
     }
 }
 
+let _saveFailCount = 0;
+function _showSaveWarning(show) {
+    let el = document.getElementById('saveWarning');
+    if (show) {
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'saveWarning';
+            el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(255,82,82,0.92);color:#fff;padding:6px 16px;border-radius:20px;font-size:12px;z-index:9999;white-space:nowrap;pointer-events:none;';
+            el.textContent = '⚠️ 同步失败，消息可能丢失';
+            document.body.appendChild(el);
+        }
+        el.style.display = 'block';
+    } else if (el) {
+        el.style.display = 'none';
+    }
+}
+
+async function _doSave() {
+    const sessionsToSave = JSON.parse(JSON.stringify(chatSessions));
+    for (const s of sessionsToSave) {
+        if (!s.messages) continue;
+        cleanupOldImages(s);
+        s.messages = s.messages.slice(-200);
+        for (const m of s.messages) {
+            if (m.versions && m.versions.length > 5) {
+                m.versions = [m.versions[0], ...m.versions.slice(-4)];
+                if (m.activeVersion >= m.versions.length) m.activeVersion = m.versions.length - 1;
+            }
+            delete m._zepDirty;
+        }
+    }
+    const r = await fetch('/api/sync-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suppliers, chatSessions: sessionsToSave, activeSupIndex, activeChatId, _version: _dataVersion })
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    if (d._version) _dataVersion = d._version;
+    if (d._rejected) { console.warn('🛡️ [版本落后] 本次保存被拒绝，请刷新页面'); }
+}
+
 function saveToCloud(immediate) {
     clearTimeout(_saveTimer);
     const doSave = async () => {
-        try {
-            const sessionsToSave = JSON.parse(JSON.stringify(chatSessions));
-            for (const s of sessionsToSave) {
-                if (!s.messages) continue;
-                cleanupOldImages(s);
-                s.messages = s.messages.slice(-200);
-                for (const m of s.messages) {
-                    if (m.versions && m.versions.length > 5) {
-                        m.versions = [m.versions[0], ...m.versions.slice(-4)];
-                        if (m.activeVersion >= m.versions.length) m.activeVersion = m.versions.length - 1;
-                    }
-                    delete m._zepDirty;
+        const delays = [1000, 2000, 4000]; // 指数退避
+        for (let attempt = 0; attempt <= delays.length; attempt++) {
+            try {
+                await _doSave();
+                _saveFailCount = 0;
+                _showSaveWarning(false);
+                return; // 成功
+            } catch(e) {
+                console.log('💾 [保存失败] 第' + (attempt + 1) + '次: ' + e.message);
+                if (attempt < delays.length) {
+                    await new Promise(r => setTimeout(r, delays[attempt]));
                 }
             }
-            const r = await fetch('/api/sync-config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ suppliers, chatSessions: sessionsToSave, activeSupIndex, activeChatId, _version: _dataVersion })
-            });
-            const d = await r.json();
-            if (d._version) _dataVersion = d._version;
-            if (d._rejected) { console.warn('🛡️ [版本落后] 本次保存被拒绝，请刷新页面'); }
-        } catch(e) { console.log(e); }
+        }
+        // 3 次重试全失败
+        _saveFailCount++;
+        console.error('❌ [保存] 重试耗尽，本次数据可能丢失');
+        _showSaveWarning(true);
     };
     if (immediate) doSave(); else _saveTimer = setTimeout(doSave, 500);
 }
@@ -869,8 +906,8 @@ function renderChatMessages(){
     const session = getActiveSession();
     if(!session || !session.messages) return;
 
-    // 手机端限制渲染最近 50 条，防止大量 base64 图片/长消息 DOM 触发 Safari 崩溃
-    const msgs = session.messages.slice(-50);
+    // 手机端限制渲染最近 30 条，防止大量长消息 DOM 触发 Safari 崩溃
+    const msgs = session.messages.slice(-30);
     msgs.forEach((m, subIndex) => {
         const index = session.messages.length - msgs.length + subIndex;
         const v = getActiveVersion(m);
@@ -997,7 +1034,7 @@ async function sendChat() {
     // 📸 保存压缩后的图片到版本记录（保留最近 5 轮可查看/重新生成）
     const savedImages = currentImgBase64List.length > 0 ? [...currentImgBase64List] : null;
     session.messages.push({ role: 'user', versions: [{ content: val, fullTime: new Date().toISOString(), image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
-    saveToCloud();
+    saveToCloud(true);  // 立即保存，不延迟
 
    // --- 2. 准备好沈望回复的空白气泡 ---
     const sRow = document.createElement('div'); sRow.className = 'msg-row sys';
@@ -1279,7 +1316,7 @@ try {
         const domThinking = thinkTextDiv && thinkBox && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || '');
         const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '' }], activeVersion: 0 };
         session.messages.push(assistantMsg);
-        saveToCloud();
+        saveToCloud(true);  // 立即保存，不延迟
         clearTimeout(silenceTimer);
         if (window._coreStreamEnd) window._coreStreamEnd();
         triggerStarEffects(val, fullReply);
