@@ -224,6 +224,25 @@ async function syncFromCloud() {
 }
 
 let _saveTimer = null;
+// 🧹 清理超过 5 轮的老图片，只保留文本
+function cleanupOldImages(session) {
+    if (!session.messages) return;
+    let imgCount = 0;
+    // 从后往前扫，数到 5 张有图片的消息
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+        const m = session.messages[i];
+        if (m.role !== 'user') continue;
+        const hasImg = m.versions && m.versions.some(v => v.image);
+        if (hasImg) {
+            imgCount++;
+            if (imgCount > 5) {
+                // 超过 5 轮，剥掉所有版本的图片
+                if (m.versions) m.versions.forEach(v => { delete v.image; });
+            }
+        }
+    }
+}
+
 function saveToCloud(immediate) {
     clearTimeout(_saveTimer);
     const doSave = async () => {
@@ -231,6 +250,7 @@ function saveToCloud(immediate) {
             const sessionsToSave = JSON.parse(JSON.stringify(chatSessions));
             for (const s of sessionsToSave) {
                 if (!s.messages) continue;
+                cleanupOldImages(s);
                 s.messages = s.messages.slice(-200);
                 for (const m of s.messages) {
                     if (m.versions && m.versions.length > 5) {
@@ -865,7 +885,11 @@ function renderChatMessages(){
         div.className = 'msg ' + (m.role === 'user' ? 'user' : 'sys');
 
         let htmlContent = '';
-        if(v.image) htmlContent += '<img src="' + v.image + '" style="max-width:200px;border-radius:8px;margin-bottom:5px;box-shadow:0 2px 10px rgba(0,0,0,0.3);display:block;">';
+        // 📸 渲染消息附带的图片（支持多图）
+        const imgsToRender = v.images || (v.image ? [v.image] : []);
+        for (let imgIdx = 0; imgIdx < imgsToRender.length; imgIdx++) {
+            htmlContent += '<img src="' + imgsToRender[imgIdx] + '" style="max-width:200px;border-radius:8px;margin-bottom:5px;margin-right:4px;box-shadow:0 2px 10px rgba(0,0,0,0.3);display:inline-block;">';
+        }
         const rawThinking = v.thinking || v.reasoning || m.thinking || m.reasoning || '';
         // 兼容正文里混入 <thinking>...</thinking> 或 <think>...</think> 的旧格式
         let displayContent = v.content || '';
@@ -970,8 +994,9 @@ async function sendChat() {
     uRow.appendChild(uDiv);
     win.appendChild(uRow); win.scrollTop = win.scrollHeight;
 
-   // 💥 铁律执行：历史记录里绝对只存文本和时间，图片滚蛋！省下巨量 Token！
-    session.messages.push({ role: 'user', versions: [{ content: val, fullTime: new Date().toISOString() }], activeVersion: 0 });
+    // 📸 保存压缩后的图片到版本记录（保留最近 5 轮可查看/重新生成）
+    const savedImages = currentImgBase64List.length > 0 ? [...currentImgBase64List] : null;
+    session.messages.push({ role: 'user', versions: [{ content: val, fullTime: new Date().toISOString(), image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
     saveToCloud();
 
    // --- 2. 准备好沈望回复的空白气泡 ---
@@ -1433,20 +1458,62 @@ function resetAll(){
 }
 
 // ==================== 视觉与长按交互 ====================
+
+/**
+ * 压缩图片：Canvas 缩放到 maxDim，输出 JPEG，解决原图 base64 过大导致 413 的问题
+ * @param {string} base64 - 原始 data:image/...;base64,... 字符串
+ * @param {number} maxDim - 最大边长（默认 2048px）
+ * @param {number} quality - JPEG 质量（默认 0.8）
+ * @returns {Promise<string>} 压缩后的 base64 data URL
+ */
+function compressImage(base64, maxDim = 2048, quality = 0.8) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = function() {
+            let w = img.width, h = img.height;
+            if (w <= maxDim && h <= maxDim && base64.length < 200000) {
+                // 图已经很小了，跳过压缩
+                resolve(base64);
+                return;
+            }
+            // 计算缩放比例
+            const ratio = Math.min(maxDim / w, maxDim / h, 1);
+            w = Math.round(w * ratio);
+            h = Math.round(h * ratio);
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, w, h);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = function() { reject(new Error('图片加载失败')); };
+        img.src = base64;
+    });
+}
+
 let currentImgBase64List = [];
 
-// 💥 多图上传监听
+// 💥 多图上传监听（带压缩，防止原图过大导致 413）
 document.getElementById('imgUpload')?.addEventListener('change', function(e){
-    const files = e.target.files; 
+    const files = e.target.files;
     if(!files || files.length === 0) return;
 
     // 循环读取你选的每一张图片
     for(let i = 0; i < files.length; i++){
         const reader = new FileReader();
-        reader.onload = function(event){
-            // 塞进咱们刚才建好的大相册里
-            currentImgBase64List.push(event.target.result);
-            updateImagePreview(); // 刷新预览区
+        reader.onload = async function(event){
+            try {
+                // 压缩后再塞进相册
+                const compressed = await compressImage(event.target.result);
+                currentImgBase64List.push(compressed);
+                updateImagePreview(); // 刷新预览区
+            } catch(err) {
+                console.error('图片压缩失败:', err);
+                // 兜底：用原图（压缩挂了也不能丢图）
+                currentImgBase64List.push(event.target.result);
+                updateImagePreview();
+            }
         };
         reader.readAsDataURL(files[i]);
     }
@@ -1876,7 +1943,7 @@ function editUserMessage(msgIndex) {
     const newContent = prompt('编辑消息：', v.content || '');
     if (newContent === null || newContent.trim() === '' || newContent.trim() === (v.content||'').trim()) return;
     ensureVersioned(msg);
-    msg.versions.push({ content: newContent.trim(), fullTime: new Date().toISOString() });
+    msg.versions.push({ content: newContent.trim(), fullTime: new Date().toISOString(), image: v.image, images: v.images });
     msg.activeVersion = msg.versions.length - 1;
     session.messages.splice(msgIndex + 1);
     saveToCloud(); renderChatMessages();
@@ -1893,6 +1960,14 @@ function resendUserMessage(msgIndex) {
     session.messages.splice(msgIndex + 1);
     const input = document.getElementById('chatInput');
     if (input) input.value = v.content || '';
+    // 📸 从版本记录中恢复图片
+    if (v.images && v.images.length > 0) {
+        currentImgBase64List = [...v.images];
+        updateImagePreview();
+    } else if (v.image) {
+        currentImgBase64List = [v.image];
+        updateImagePreview();
+    }
     saveToCloud(); renderChatMessages();
     sendChat();
 }
