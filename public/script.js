@@ -268,8 +268,23 @@ function _showSaveWarning(show, errMsg) {
     }
 }
 
+function stripImagesForCloudSync(sessions) {
+    return sessions.map(session => ({
+        ...session,
+        messages: (session.messages || []).map(msg => ({
+            ...msg,
+            versions: (msg.versions || []).map(v => {
+                const next = { ...v };
+                delete next.image;
+                delete next.images;
+                return next;
+            })
+        }))
+    }));
+}
+
 async function _doSave() {
-    const sessionsToSave = JSON.parse(JSON.stringify(chatSessions));
+    const sessionsToSave = stripImagesForCloudSync(chatSessions);
     for (const s of sessionsToSave) {
         if (!s.messages) continue;
         cleanupOldImages(s);
@@ -283,7 +298,7 @@ async function _doSave() {
         }
     }
     const payload = JSON.stringify({ suppliers, chatSessions: sessionsToSave, activeSupIndex, activeChatId, _version: _dataVersion });
-    console.log('💾 [_doSave] payload ' + (payload.length / 1024).toFixed(0) + ' KB');
+    console.log('[sync-config] payload size MB:', (payload.length / 1024 / 1024).toFixed(2));
     const r = await fetch('/api/sync-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
