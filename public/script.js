@@ -449,8 +449,8 @@ function neuOpenLongTerm() {
 
 function openStarCrossing() {
     const pwd = new URLSearchParams(location.search).get('pwd') || localStorage.getItem('memoryPwd') || '';
-    if (pwd) window.location.href = '/memory.html?pwd=' + encodeURIComponent(pwd);
-    else { const i = prompt('星渡访问密码:'); if (i) { localStorage.setItem('memoryPwd', i); window.location.href = '/memory.html?pwd=' + encodeURIComponent(i); } }
+    if (pwd) window.location.href = '/memory-manager.html?tab=archive&pwd=' + encodeURIComponent(pwd);
+    else { const i = prompt('星渡访问密码:'); if (i) { localStorage.setItem('memoryPwd', i); window.location.href = '/memory-manager.html?tab=archive&pwd=' + encodeURIComponent(i); } }
 }
 async function triggerDreamFromHome() {
     const pwd = prompt('管理员密码:'); if (!pwd) return;
