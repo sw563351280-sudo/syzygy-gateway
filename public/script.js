@@ -1027,22 +1027,38 @@ function renameChatWindow(){
     toast('频道已重命名');
 }
 
-async function sendChat() {
+async function sendChat(options = {}) {
+    const reuseLastUser = !!options.reuseLastUser;
     const input = document.getElementById('chatInput');
     if(!input) return;
-    const val = input.value.trim();
-
-    // 💥 就在这里！Claude 让加的“侦察兵”
-    console.log('val类型:', typeof val, '值:', val);
-    console.log('currentImgBase64List:', currentImgBase64List.length);
-
-    if(!val && currentImgBase64List.length === 0) return;
-    input.value = '';
 
     const session = getActiveSession();
     const win = document.getElementById('chatWindow');
 
+    let existingUserVersion = null;
+    let val = input.value.trim();
+
+    if (reuseLastUser) {
+        const lastMsg = session.messages[session.messages.length - 1];
+        if (!lastMsg || lastMsg.role !== 'user') return;
+
+        existingUserVersion = getActiveVersion(lastMsg);
+        val = (existingUserVersion.content || '').trim();
+
+        if (!val && !(existingUserVersion.images && existingUserVersion.images.length) && !existingUserVersion.image) return;
+    } else {
+        if(!val && currentImgBase64List.length === 0) return;
+        input.value = '';
+    }
+
+    // 💥 就在这里！Claude 让加的”侦察兵”
+    console.log('val类型:', typeof val, '值:', val);
+    console.log('currentImgBase64List:', currentImgBase64List.length);
+    console.log('reuseLastUser:', reuseLastUser);
+
     await flushDirtyToZep(session);
+
+    if (!reuseLastUser) {
 
     // --- 1. 把你的消息展示到屏幕上 ---
    const uRow = document.createElement('div'); uRow.className = 'msg-row user';
@@ -1066,6 +1082,8 @@ async function sendChat() {
     session.messages.push({ role: 'user', versions: [{ content: val, fullTime: new Date().toISOString(), image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
     saveToCloud(true);  // 立即保存，不延迟
 
+    }  // end if (!reuseLastUser)
+
    // --- 2. 准备好沈望回复的空白气泡 ---
     const sRow = document.createElement('div'); sRow.className = 'msg-row sys';
     const sDiv = document.createElement('div'); sDiv.className = 'msg sys';
@@ -1086,9 +1104,19 @@ async function sendChat() {
 
     win.appendChild(sRow); win.scrollTop = win.scrollHeight;
 
-    // 💥 1. 拷贝图片并清空相册
-    var imgsToSend = [...currentImgBase64List]; 
-    clearImage(); 
+    // 💥 1. 准备图片：复用模式从版本取，普通模式从相册取
+    var imgsToSend = [];
+
+    if (reuseLastUser) {
+        if (existingUserVersion.images && existingUserVersion.images.length > 0) {
+            imgsToSend = [...existingUserVersion.images];
+        } else if (existingUserVersion.image) {
+            imgsToSend = [existingUserVersion.image];
+        }
+    } else {
+        imgsToSend = [...currentImgBase64List];
+        clearImage();
+    } 
 
     // ❌ 已经彻底删除了那句双倍烧钱的 await askShenWang！
 
@@ -2013,10 +2041,9 @@ function editUserMessage(msgIndex) {
     msg.versions.push({ content: newContent.trim(), fullTime: new Date().toISOString(), image: v.image, images: v.images });
     msg.activeVersion = msg.versions.length - 1;
     session.messages.splice(msgIndex + 1);
-    saveToCloud(); renderChatMessages();
-    const input = document.getElementById('chatInput');
-    if (input) input.value = newContent.trim();
-    sendChat();
+    saveToCloud();
+    renderChatMessages();
+    sendChat({ reuseLastUser: true });
 }
 
 function resendUserMessage(msgIndex) {
