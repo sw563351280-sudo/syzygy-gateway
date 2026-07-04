@@ -5326,27 +5326,36 @@ app.get('/api/sync-config', (req, res) => {
 });
 
 app.post('/api/sync-config', (req, res) => {
-    // 版本号保护：拒绝旧标签页覆盖新数据
-    const clientVersion = req.body._version || 0;
-    const existingData = fs.existsSync(CONFIG_FILE) ? JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')) : null;
-    const serverVersion = (existingData && existingData._version) ? existingData._version : 0;
-    if (clientVersion > 0 && clientVersion < serverVersion) {
-        console.log(`🛡️ [写保护] 拒绝旧版本写入 (client v${clientVersion} < server v${serverVersion})`);
-        return res.json({ success: false, _version: serverVersion, _rejected: true, message: '数据已被较新标签页更新，请刷新页面' });
+    try {
+        const rawLen = JSON.stringify(req.body).length;
+        console.log('💾 [sync-config] 收到保存请求 payload ' + (rawLen / 1024).toFixed(0) + ' KB');
+        // 版本号保护：拒绝旧标签页覆盖新数据
+        const clientVersion = req.body._version || 0;
+        const existingData = fs.existsSync(CONFIG_FILE) ? JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')) : null;
+        const serverVersion = (existingData && existingData._version) ? existingData._version : 0;
+        if (clientVersion > 0 && clientVersion < serverVersion) {
+            console.log(`🛡️ [写保护] 拒绝旧版本写入 (client v${clientVersion} < server v${serverVersion})`);
+            return res.json({ success: false, _version: serverVersion, _rejected: true, message: '数据已被较新标签页更新，请刷新页面' });
+        }
+        const { suppliers, chatSessions, activeSupIndex, activeChatId } = req.body;
+        const newVersion = serverVersion + 1;
+        const data = {
+            ...(existingData || {}),
+            _version: newVersion,
+            suppliers: suppliers || [],
+            chatSessions: chatSessions || [],
+            activeSupIndex: activeSupIndex || 0,
+            activeChatId: activeChatId || 'main'
+        };
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2));
+        const fileSize = fs.statSync(CONFIG_FILE).size;
+        console.log('✅ [sync-config] 写入成功 v' + newVersion + ' 文件 ' + (fileSize / 1024).toFixed(0) + ' KB');
+        res.json({ success: true, _version: newVersion });
+        setImmediate(() => { updateRollingSummaries(data.chatSessions).catch(e => console.log('rolling summary failed:', e.message)); });
+    } catch(e) {
+        console.error('❌ [sync-config] 保存失败:', e.message);
+        res.status(500).json({ error: 'SAVE_FAILED', message: e.message });
     }
-    const { suppliers, chatSessions, activeSupIndex, activeChatId } = req.body;
-    const newVersion = serverVersion + 1;
-    const data = {
-        ...(existingData || {}),
-        _version: newVersion,
-        suppliers: suppliers || [],
-        chatSessions: chatSessions || [],
-        activeSupIndex: activeSupIndex || 0,
-        activeChatId: activeChatId || 'main'
-    };
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2));
-    res.json({ success: true, _version: newVersion });
-    setImmediate(() => { updateRollingSummaries(data.chatSessions).catch(e => console.log('rolling summary failed:', e.message)); });
 });
 
 app.get('/api/user-state', (req, res) => { res.json({ success: true, user_state: loadUserState() }); });

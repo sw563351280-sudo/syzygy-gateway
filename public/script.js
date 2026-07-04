@@ -224,36 +224,44 @@ async function syncFromCloud() {
 }
 
 let _saveTimer = null;
-// 🧹 清理超过 5 轮的老图片，只保留文本
+// 🧹 清理超过 5 轮的老图片，只保留文本（同时清理 v.image 和 v.images）
 function cleanupOldImages(session) {
-    if (!session.messages) return;
+    if (!session || !session.messages) return;
     let imgCount = 0;
-    // 从后往前扫，数到 5 张有图片的消息
+
     for (let i = session.messages.length - 1; i >= 0; i--) {
         const m = session.messages[i];
-        if (m.role !== 'user') continue;
-        const hasImg = m.versions && m.versions.some(v => v.image);
-        if (hasImg) {
+        if (!m.versions) continue;
+
+        const hasImage = m.versions.some(v =>
+            v.image || (Array.isArray(v.images) && v.images.length)
+        );
+
+        if (hasImage) {
             imgCount++;
             if (imgCount > 5) {
-                // 超过 5 轮，剥掉所有版本的图片
-                if (m.versions) m.versions.forEach(v => { delete v.image; });
+                m.versions.forEach(v => {
+                    delete v.image;
+                    delete v.images;
+                });
             }
         }
     }
 }
 
 let _saveFailCount = 0;
-function _showSaveWarning(show) {
+let _lastSaveError = '';
+function _showSaveWarning(show, errMsg) {
     let el = document.getElementById('saveWarning');
     if (show) {
+        if (errMsg) _lastSaveError = errMsg;
         if (!el) {
             el = document.createElement('div');
             el.id = 'saveWarning';
             el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(255,82,82,0.92);color:#fff;padding:6px 16px;border-radius:20px;font-size:12px;z-index:9999;white-space:nowrap;pointer-events:none;';
-            el.textContent = '⚠️ 同步失败，消息可能丢失';
             document.body.appendChild(el);
         }
+        el.textContent = '⚠️ 同步失败: ' + (_lastSaveError || '未知错误');
         el.style.display = 'block';
     } else if (el) {
         el.style.display = 'none';
@@ -274,12 +282,17 @@ async function _doSave() {
             delete m._zepDirty;
         }
     }
+    const payload = JSON.stringify({ suppliers, chatSessions: sessionsToSave, activeSupIndex, activeChatId, _version: _dataVersion });
+    console.log('💾 [_doSave] payload ' + (payload.length / 1024).toFixed(0) + ' KB');
     const r = await fetch('/api/sync-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ suppliers, chatSessions: sessionsToSave, activeSupIndex, activeChatId, _version: _dataVersion })
+        body: payload
     });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) {
+        const text = await r.text().catch(() => '');
+        throw new Error('HTTP ' + r.status + ' ' + text.slice(0, 200));
+    }
     const d = await r.json();
     if (d._version) _dataVersion = d._version;
     if (d._rejected) { console.warn('🛡️ [版本落后] 本次保存被拒绝，请刷新页面'); }
@@ -296,6 +309,7 @@ function saveToCloud(immediate) {
                 _showSaveWarning(false);
                 return; // 成功
             } catch(e) {
+                _lastSaveError = e.message;
                 console.log('💾 [保存失败] 第' + (attempt + 1) + '次: ' + e.message);
                 if (attempt < delays.length) {
                     await new Promise(r => setTimeout(r, delays[attempt]));
@@ -304,8 +318,9 @@ function saveToCloud(immediate) {
         }
         // 3 次重试全失败
         _saveFailCount++;
-        console.error('❌ [保存] 重试耗尽，本次数据可能丢失');
-        _showSaveWarning(true);
+        const lastErr = _lastSaveError || '未知错误';
+        console.error('❌ [保存] 重试耗尽: ' + lastErr);
+        _showSaveWarning(true, lastErr);
     };
     if (immediate) doSave(); else _saveTimer = setTimeout(doSave, 500);
 }
