@@ -1524,7 +1524,7 @@ body[data-view="chat"] #themeToggleBtn{display:none!important}
 .fav-detail-meta { margin-bottom: 16px; color: var(--dim); font-size: 0.8em; }
 .fav-detail-tag { display: inline-block; padding: 2px 8px; border-radius: 10px; background: rgba(201,169,97,0.10); color: var(--gold); font-size: 0.8em; margin-right: 4px; }
 .fav-detail-role { margin: 16px 4px 6px; color: var(--dim); font-size: 0.8em; font-weight: 500; letter-spacing: 1px; }
-.fav-detail-text { padding: 0 4px; width: 100%; white-space: pre-wrap; line-height: 1.75; color: var(--text); font-size: 17px; }
+.fav-detail-text { padding: 0 4px; width: 100%; white-space: pre-wrap; line-height: 1.75; color: var(--text); font-size: 15px; }
 .fav-detail-note { margin-top: 20px; padding: 8px 12px; color: var(--dim); font-size: 0.85em; border-top: 1px solid rgba(99,127,190,0.14); }
 .fav-think-box { margin: 10px 4px; background: rgba(255,255,255,0.03); border: 1px solid rgba(99,127,190,0.12); border-radius: 8px; overflow: hidden; }
 .fav-think-header { padding: 6px 10px; font-size: 0.8em; color: var(--dim); cursor: pointer; user-select: none; }
