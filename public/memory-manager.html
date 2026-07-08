@@ -52,8 +52,6 @@ body::before{
 .archive-tools .search-row input{flex:1;padding:0 14px;height:44px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text-primary);font-size:.85rem;font-family:inherit;outline:none}
 .archive-tools .search-row input::placeholder{color:var(--text-muted)}
 .archive-tools .search-row input:focus{border-color:rgba(99,127,190,.4)}
-.archive-tools .search-row .btn-add-inline{width:88px;height:44px;flex-shrink:0;border-radius:8px;border:1px solid var(--accent-gold);background:transparent;color:var(--accent-gold);cursor:pointer;font-size:.8rem;font-family:inherit;transition:all .15s}
-
 /* chips */
 .filter-chips{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
 .filter-chips::-webkit-scrollbar{display:none}
@@ -136,8 +134,7 @@ body::before{
 
 <section class="archive-tools">
   <div class="search-row">
-    <input type="text" id="arSearch" placeholder="搜索长期记忆..." oninput="renderArchive()">
-    <button class="btn-add-inline" onclick="openAddModal()">＋ 新增</button>
+    <input type="text" id="arSearch" placeholder="搜索长期记忆..." oninput="renderArchive()" style="width:100%">
   </div>
   <div class="filter-chips" id="filterChips"></div>
   <div class="archive-stats">
