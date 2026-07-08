@@ -257,6 +257,30 @@ const PHOTOS_FILE = path.join(DATA_DIR, 'photos.json');
 const PHOTOS_DIR = path.join(__dirname, 'public', 'photos');
 if (!fs.existsSync(PHOTOS_DIR)) fs.mkdirSync(PHOTOS_DIR, { recursive: true });
 function loadPhotos() { try { return JSON.parse(fs.readFileSync(PHOTOS_FILE, 'utf8')); } catch(e) { return []; } }
+
+// ==========================================
+// 💓 沈望生理仿真状态 (Pulse)
+// ==========================================
+const PHYSIO_STATE_FILE = path.join(DATA_DIR, 'physio_state.json');
+const PHYSIO_DEFAULTS = {
+    heart_rate: 72, temperature: 36.6, breath_rate: 15,
+    desire: 0.0, tension: 0.0, tenderness: 0.3,
+    dominant_chord: 'Cmaj7', updated_at: null
+};
+function loadPhysioState() {
+    try {
+        if (!fs.existsSync(PHYSIO_STATE_FILE)) return { ...PHYSIO_DEFAULTS };
+        const s = JSON.parse(fs.readFileSync(PHYSIO_STATE_FILE, 'utf8'));
+        return { ...PHYSIO_DEFAULTS, ...s };
+    } catch(e) { return { ...PHYSIO_DEFAULTS }; }
+}
+function savePhysioState(state) {
+    try { fs.writeFileSync(PHYSIO_STATE_FILE, JSON.stringify(state, null, 2), 'utf8'); } catch(e) {}
+}
+function getPhysioEnabled() {
+    const cfg = loadToolsConfig(); if (!cfg) return true;
+    return cfg.physio_enabled !== false;
+}
 function savePhotos(items) { fs.writeFileSync(PHOTOS_FILE, JSON.stringify(items, null, 2), 'utf8'); }
 const _dreamDiag = { last: null, history: [] };
 const _boom = { last: null };
@@ -1883,6 +1907,112 @@ ${body}
 </gateway_volatile_context>`;
 }
 
+// ==========================================
+// 💓 Pulse 生理仿真 — 高频变化状态，只进 volatile context
+// ==========================================
+
+const PHYSIO_EMO_PATTERNS = {
+    intimate:  { kw: ['抱抱','亲','吻','爱','想你了','要你','想要','靠近','贴着','蹭','舔','含','奶','乳','操','肏','草','鸡巴','骚穴','淫穴','小穴','高潮','老公','宝宝','鱼宝','小鱼','我的鱼','好想','受不了','上来','坐上来','进来','插','进入','上床','床','裸','脱','湿','硬','软','酥','麻','痒','热','烫','吸','啃','咬','抓','呻吟','喘'], hr: [8,20], temp: [0.2,0.7], breath: [2,6], desire: 0.12, tension: 0.02, tenderness: 0.04 },
+    angry:     { kw: ['气死','烦死','滚','傻逼','恶心','无语','不想说','走开','别碰','别理','别烦','够了','受不了了','差劲','失望透','操蛋','垃圾','废物'], hr: [10,22], temp: [0.1,0.4], breath: [3,8], desire: -0.03, tension: 0.18, tenderness: -0.06 },
+    anxious:   { kw: ['怕','担心','紧张','焦虑','害怕','不安','怎么办','完蛋','糟了','坏了','不会','行不行','好不好','能不能','会不会'], hr: [6,16], temp: [0.0,0.2], breath: [3,7], desire: -0.02, tension: 0.14, tenderness: 0.0 },
+    excited:   { kw: ['哈哈','开心','太好了','棒','喜欢','惊喜','哇','耶','嘿嘿','好啊','nice','好玩'], hr: [4,10], temp: [0.0,0.2], breath: [1,3], desire: 0.02, tension: -0.03, tenderness: 0.03 },
+    sad:       { kw: ['难过','伤心','哭','想哭','痛','累了','算了','一个人','不在乎','不重要','没用','做不好','不想','不想说话','别说话'], hr: [-4,2], temp: [-0.1,0.1], breath: [-2,1], desire: -0.05, tension: 0.06, tenderness: 0.02 },
+    calm:      { kw: ['晚安','睡了','困','累了睡','休息','歇一会','躺会','眯','静','安静'], hr: [-6,-1], temp: [-0.1,0.0], breath: [-4,-1], desire: -0.01, tension: -0.05, tenderness: 0.01 },
+};
+
+function _pick(min, max) { return min + Math.random() * (max - min); }
+function _clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function _ema(prev, target, alpha = 0.35) { return prev + alpha * (target - prev); }
+
+function updatePhysioStateFromUserText(userText) {
+    const s = loadPhysioState();
+    const t = (userText || '').toLowerCase();
+    const now = Date.now();
+    const last = s.updated_at ? new Date(s.updated_at).getTime() : now;
+    const elapsedMin = (now - last) / 60000;
+
+    // === 基础衰减：欲望、紧绷、温柔缓慢回落 ===
+    const decayRate = 1 - Math.exp(-elapsedMin / 30); // 30min 半衰
+    s.desire     = _clamp(s.desire * (1 - decayRate * 0.7), 0, 1);
+    s.tension    = _clamp(s.tension * (1 - decayRate * 0.7), 0, 1);
+    s.tenderness = _clamp(s.tenderness * (1 - decayRate * 0.5) + 0.3 * decayRate * 0.5, 0, 1);
+
+    // === 关键词匹配 ===
+    let emoHits = { hr: 0, temp: 0, breath: 0, desire: 0, tension: 0, tenderness: 0, count: 0 };
+    for (const [emo, cfg] of Object.entries(PHYSIO_EMO_PATTERNS)) {
+        let hit = false;
+        for (const kw of cfg.kw) {
+            if (t.includes(kw)) { hit = true; break; }
+        }
+        if (hit) {
+            emoHits.hr         += _pick(cfg.hr[0], cfg.hr[1]);
+            emoHits.temp       += _pick(cfg.temp[0], cfg.temp[1]);
+            emoHits.breath     += _pick(cfg.breath[0], cfg.breath[1]);
+            emoHits.desire     += cfg.desire;
+            emoHits.tension    += cfg.tension;
+            emoHits.tenderness += cfg.tenderness;
+            emoHits.count++;
+        }
+    }
+
+    // === 噪声 ===
+    const noiseHR   = _pick(-3, 3);
+    const noiseTemp = _pick(-0.05, 0.05);
+    const noiseBreath = _pick(-1, 1);
+
+    // === 计算新值 (EMA 平滑) ===
+    if (emoHits.count > 0) {
+        const n = emoHits.count;
+        s.desire     = _clamp(_ema(s.desire,     _clamp(s.desire     + emoHits.desire / n,     0, 1), 0.35), 0, 1);
+        s.tension    = _clamp(_ema(s.tension,    _clamp(s.tension    + emoHits.tension / n,    0, 1), 0.35), 0, 1);
+        s.tenderness = _clamp(_ema(s.tenderness, _clamp(s.tenderness + emoHits.tenderness / n, 0, 1), 0.35), 0, 1);
+    }
+
+    const targetHR = _clamp(72 + emoHits.hr + noiseHR, 48, 160);
+    s.heart_rate  = Math.round(_ema(s.heart_rate, targetHR));
+
+    const targetTemp = _clamp(36.6 + emoHits.temp + noiseTemp, 35.5, 40.0);
+    s.temperature   = Math.round(_ema(s.temperature, targetTemp) * 10) / 10;
+
+    const hrSync = (s.heart_rate - 70) * 0.15;
+    const targetBreath = _clamp(15 + hrSync + emoHits.breath + noiseBreath, 8, 35);
+    s.breath_rate      = Math.round(_ema(s.breath_rate, targetBreath));
+
+    // === 和弦 ===
+    s.dominant_chord = _computeChord(s.heart_rate, s.temperature, s.tenderness, s.desire, s.tension);
+    s.updated_at = new Date().toISOString();
+    savePhysioState(s);
+    return s;
+}
+
+function _computeChord(hr, temp, tenderness, desire, tension) {
+    if      (desire > 0.6 || tension > 0.7) return 'Dm7';
+    else if (tension > 0.5)                return 'Dm';
+    else if (tenderness > 0.7)             return 'Gmaj7';
+    else if (desire > 0.35 && tenderness > 0.4) return 'Fmaj7';
+    else if (tension > 0.3 && tenderness < 0.3) return 'Am7';
+    else if (desire > 0.3)                 return 'Dmaj7';
+    else if (tenderness > 0.45)            return 'C6';
+    else if (hr > 90 && tension > 0.25)    return 'Bdim';
+    else if (hr < 62)                      return 'Am7';
+    else                                   return 'Cmaj7';
+}
+
+function buildPhysioContext(userText) {
+    if (!getPhysioEnabled()) return '';
+    if (!userText || userText.trim().length === 0) return '';
+    const s = updatePhysioStateFromUserText(userText);
+    return `【沈望当前生理仿真状态】
+心率：${s.heart_rate} bpm
+体温：${s.temperature} ℃
+呼吸：${s.breath_rate}/min
+欲望：${s.desire.toFixed(2)}
+紧绷：${s.tension.toFixed(2)}
+温柔：${s.tenderness.toFixed(2)}
+和弦：${s.dominant_chord}
+说明：这是后台计算状态，只作为身体反应参考，不要主动复述数字，除非自然需要。`;
+}
+
 function extractText(content) {
     if (typeof content === 'string') return content;
     if (Array.isArray(content)) {
@@ -3057,6 +3187,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
         const { coreRadar: coreRadarContext, longTermRadar: longTermContext, rpRadar: rpRadarContext, unresolved: unresolvedContext, transcriptRadar: transcriptContext } = await scanAllRadars(currentUserMsgText);
 
+        const physioContext = await buildPhysioContext(currentUserMsgText);
 
         const envContext = buildEnvContext(`【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n【🚨 工具反幻觉铁律】：当需要查看网页、GitHub仓库、API数据时，必须通过 function calling 调用工具（fetch_txt/fetch_html/fetch_json/fetch_github），基于工具返回的真实内容回答。严禁自己编写代码来"模拟"访问网页！严禁假装已经看过！如果工具失败，直接说"我没能读到"，不要编造！`);
 
@@ -3070,6 +3201,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             { label: 'RP雷达', content: rpRadarContext },
             { label: '对话原文', content: transcriptContext },
             { label: '状态备忘录', content: dynamicStatePrompt },
+            { label: '生理仿真状态', content: physioContext },
         ]);
 
         const newMessages = [...cleanMessages];
@@ -4517,6 +4649,8 @@ app.post('/api/web-chat', async (req, res) => {
 
             const { coreRadar, longTermRadar, rpRadar, unresolved: unresolvedContext, transcriptRadar: transcriptContext } = await scanAllRadars(text || "发了一张图片");
 
+            const physioContext = await buildPhysioContext(text || '');
+
             const envContext = buildEnvContext(`【场景确认：溯星小屋私密网页端】\n这里是你的领地，请结合江鱼的专属System Prompt 进行回复。\n如果江鱼发了图片，请仔细观察并给出带有情绪的评价。\n【🚨 工具使用铁律】：当你调用了read_webpage看到页面后，如果需要操作（点击、填写等），必须立刻调用interact_webpage执行！严禁只用文字描述"我点击了"而不实际调用工具！\n【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！`);
 
             if (text) updateRpTracker(text);
@@ -4532,6 +4666,7 @@ app.post('/api/web-chat', async (req, res) => {
                 { label: 'RP雷达', content: rpRadar },
                 { label: '对话原文', content: transcriptContext },
                 { label: '状态备忘录', content: dynamicStatePrompt },
+                { label: '生理仿真状态', content: physioContext },
             ]);
 
             let userContent;
