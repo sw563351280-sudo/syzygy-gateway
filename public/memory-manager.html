@@ -92,7 +92,7 @@ body::before{
 /* heat bar */
 .heat-mini{display:inline-flex;align-items:center;gap:4px;font-size:.7rem;color:var(--text-muted)}
 .heat-bar{width:40px;height:4px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden;flex-shrink:0}
-.heat-bar-fill{height:100%;border-radius:2px;transition:width .3s}
+.heat-bar-fill{display:block;height:100%;width:0;border-radius:2px;transition:width .3s}
 .heat-bar-fill.hot{background:linear-gradient(90deg,#d86b4a,#f0a05a)}.heat-bar-fill.warm{background:linear-gradient(90deg,#b99a5f,#d4b56f)}.heat-bar-fill.cool{background:linear-gradient(90deg,#5f789c,#86a6c8)}
 
 /* empty */
