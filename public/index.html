@@ -443,14 +443,13 @@
     </div>
 </div>
 
-<div id="favDetail" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.7);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);" onclick="if(event.target===this)document.getElementById('favDetail').style.display='none'">
-    <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:92%;max-width:560px;max-height:85vh;background:rgba(12,16,28,0.95);border:1px solid rgba(201,169,97,0.25);border-radius:14px;display:flex;flex-direction:column;overflow:hidden;">
-        <div style="padding:18px 20px;border-bottom:1px solid rgba(201,169,97,0.1);display:flex;justify-content:space-between;align-items:center;">
-            <span style="color:var(--gold);font-size:1em;letter-spacing:2px;">⭐ 收藏详情</span>
-            <button onclick="document.getElementById('favDetail').style.display='none'" style="background:transparent;border:none;color:var(--dim);font-size:1.3em;cursor:pointer;">✕</button>
-        </div>
-        <div id="favDetailBody" style="padding:16px 20px;overflow-y:auto;flex:1;"></div>
+<div id="favDetail" style="display:none;position:fixed;inset:0;z-index:9999;background:var(--page);flex-direction:column;">
+    <div class="view-topbar" style="flex-shrink:0;">
+        <button class="view-back" onclick="document.getElementById('favDetail').style.display='none'">←</button>
+        <span class="view-title">收藏详情</span>
+        <span style="flex:1"></span>
     </div>
+    <div id="favDetailBody" style="overflow-y:auto;flex:1;padding:12px 8px 80px;color:var(--text);"></div>
 </div>
 
 </body>

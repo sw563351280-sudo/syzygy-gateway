@@ -1490,6 +1490,20 @@ body[data-view="chat"] #themeToggleBtn{display:none!important}
 
 .fav-card:hover { border-color: rgba(201,169,97,0.35) !important; background: rgba(201,169,97,0.03) !important; }
 
+/* ═══ 收藏详情全屏阅读页 ═══ */
+.fav-detail-meta { margin-bottom: 16px; color: var(--dim); font-size: 0.8em; }
+.fav-detail-tag { display: inline-block; padding: 2px 8px; border-radius: 10px; background: rgba(201,169,97,0.08); color: var(--gold); font-size: 0.8em; margin-right: 4px; }
+.fav-detail-role { margin: 16px 4px 6px; color: var(--dim); font-size: 0.8em; font-weight: 500; letter-spacing: 1px; }
+.fav-detail-text { padding: 0 4px; width: 100%; white-space: pre-wrap; line-height: 1.75; color: var(--text); font-size: 0.92rem; }
+.fav-detail-note { margin-top: 20px; padding: 8px 12px; color: var(--dim); font-size: 0.85em; border-left: 2px solid var(--page-border); }
+.fav-think-box { margin: 10px 4px; border: 1px solid var(--page-border); border-radius: 8px; overflow: hidden; }
+.fav-think-header { padding: 6px 10px; font-size: 0.8em; color: var(--dim); cursor: pointer; user-select: none; }
+.fav-think-content { padding: 6px 10px; font-size: 0.82em; color: var(--dim); line-height: 1.6; border-top: 1px solid var(--page-border); }
+body.light-mode .fav-think-box { background: rgba(0,0,0,0.02); }
+body.light-mode .fav-detail-tag { background: rgba(196,165,123,0.08); }
+body.neu-mode .fav-think-box { background: rgba(0,0,0,0.02); }
+body.dark-gold-mode .fav-detail-tag { background: rgba(212,160,74,0.08); }
+
 /* ═══════════════════════════════════════
    溯星小屋 v3.0 · 新拟态白天模式 (Neu Day)
    ═══════════════════════════════════════ */
