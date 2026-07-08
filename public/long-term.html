@@ -42,9 +42,9 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
 <div id="profileCard"></div>
 <div id="dreamCard"></div>
 <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;font-size:13px;flex-wrap:wrap;" id="heatBar">
-<span style="color:#e65100;">🔥 高热度 <b id="heatHigh">0</b>条</span>
-<span style="color:#f57f17;">🌡️ 中热度 <b id="heatMid">0</b>条</span>
-<span style="color:#546e7a;">🧊 低热度 <b id="heatLow">0</b>条</span>
+<span style="color:#d86b4a;">🔥 高热度 <b id="heatHigh">0</b>条</span>
+<span style="color:#b99a5f;">🌡️ 中热度 <b id="heatMid">0</b>条</span>
+<span style="color:#5f789c;">🧊 低热度 <b id="heatLow">0</b>条</span>
 <button class="normal" onclick="sortByHeat()" style="font-size:12px;padding:4px 12px;margin-left:auto;">📊 按热度排序</button>
 <button class="normal" onclick="sortByTime()" style="font-size:12px;padding:4px 12px;">🕐 按时间排序</button>
 </div>
@@ -139,9 +139,9 @@ function renderCard(m) {
     const countBadge = m.activation_count !== undefined ? '<span style="background:#e3f2fd;color:#1565c0;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;">🔄 唤醒:'+m.activation_count+'次</span>' : '';
     const rawHeat = m.liveHeat !== undefined ? m.liveHeat : (m.heat !== undefined ? m.heat : 0.5);
     let heatEmoji, heatColor, heatBg;
-    if (rawHeat > 0.7) { heatEmoji = '🔥'; heatColor = '#e65100'; heatBg = '#fff3e0'; }
-    else if (rawHeat >= 0.3) { heatEmoji = '🌡️'; heatColor = '#f57f17'; heatBg = '#fffde7'; }
-    else { heatEmoji = '🧊'; heatColor = '#546e7a'; heatBg = '#eceff1'; }
+    if (rawHeat > 0.7) { heatEmoji = '🔥'; heatColor = '#d86b4a'; heatBg = '#fff4ed'; }
+    else if (rawHeat >= 0.3) { heatEmoji = '🌡️'; heatColor = '#b99a5f'; heatBg = '#fbf6e8'; }
+    else { heatEmoji = '🧊'; heatColor = '#5f789c'; heatBg = '#eef4fb'; }
     const heatBadge = '<span style="background:'+heatBg+';color:'+heatColor+';padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;" title="实时热度">'+heatEmoji+' '+rawHeat.toFixed(2)+'</span>';
     const archiveLabel = m.category === 'archived' ? (m.archived_reason === 'contradiction' ? '<span style="color:#e65100;font-weight:bold;">⚡ 已被新记忆替代</span>' : '<span style="color:#0288d1;font-weight:bold;">❄️ 冰封中</span>') : '';
     const rpLabel = m.category === 'roleplay' ? '<span style="color:#8e24aa;font-weight:bold;">🎭 游戏卡带</span>' : '';
