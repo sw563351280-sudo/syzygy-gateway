@@ -1,143 +1,155 @@
-<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><title>星渡 · 记忆管理</title>
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><title>档案室 · 溯星小屋</title>
 <style>
-:root{--bg-primary:#222;--bg-card:#2A2A2A;--bg-hover:#333;--bg-input:#1A1A1A;--text-primary:#E8E8E8;--text-secondary:#888;--text-muted:#555;--accent-blue:#4D7CFF;--accent-gold:#D4A853;--accent-purple:#7C4DFF;--accent-warm:#C8B89A;--danger:#FF4D4D;--danger-hover:#FF6B6B;--border:#333;--shadow:rgba(0,0,0,0.3)}
+:root{
+  --bg-primary:#171a1f;--bg-card:#24272c;--bg-hover:#2a2d33;--bg-input:#1e2126;
+  --text-primary:#ece7dc;--text-secondary:#9e9789;--text-muted:#5e5a52;
+  --accent-blue:rgba(99,127,190,.6);--accent-gold:#D4A853;--accent-purple:rgba(160,130,190,.6);
+  --danger:#d95a4a;--border:rgba(255,255,255,.07);--shadow:rgba(0,0,0,.25);
+}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:var(--bg-primary);color:var(--text-primary);min-height:100dvh;padding-bottom:72px}
-.top-bar{position:fixed;top:0;left:0;right:0;z-index:100;height:56px;background:var(--bg-primary);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 1rem}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  background:linear-gradient(180deg,#171a1f 0%,#111418 48%,#0c0f13 100%);
+  color:var(--text-primary);min-height:100dvh;
+}
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.18;
+  background-image:
+    linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);
+  background-size:28px 28px;
+}
+
+/* topbar */
+.top-bar{position:fixed;top:0;left:0;right:0;z-index:100;height:56px;background:#181b20;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;padding:0 1rem}
 .top-left{display:flex;align-items:center;gap:8px}
-.top-back{width:36px;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.1rem;text-decoration:none;transition:opacity .15s}
+.top-back{width:40px;height:40px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.1rem;text-decoration:none;transition:opacity .15s}
 .top-back:active{opacity:.7}
-.top-title{font-size:1.1rem;font-weight:600;color:var(--text-primary)}
+.top-title{font-size:1.05rem;font-weight:600;color:var(--text-primary)}
 .top-actions{display:flex;gap:8px;align-items:center}
-.btn-icon{width:36px;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.1rem;transition:opacity .15s}
+.btn-icon{width:40px;height:40px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1.1rem;transition:opacity .15s}
 .btn-icon:active{opacity:.7}
 .btn-more{position:relative}
-.more-menu{display:none;position:absolute;top:44px;right:0;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:160px;z-index:200;box-shadow:0 4px 16px var(--shadow)}
+.more-menu{display:none;position:absolute;top:44px;right:0;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:180px;z-index:200;box-shadow:0 4px 16px var(--shadow)}
 .more-menu.show{display:block}
 .more-menu button{display:block;width:100%;padding:10px 14px;border:none;background:transparent;color:var(--text-primary);font-size:.85rem;text-align:left;border-radius:6px;cursor:pointer;font-family:inherit}
 .more-menu button:hover{background:var(--bg-hover)}
 .more-menu button.danger{color:var(--danger)}
 
-.tab-bar{position:fixed;bottom:0;left:0;right:0;z-index:100;height:56px;background:var(--bg-primary);border-top:1px solid var(--border);display:flex}
-.tab-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border:none;background:transparent;color:var(--text-secondary);font-size:.7rem;cursor:pointer;font-family:inherit;gap:2px;position:relative;transition:color .15s;-webkit-tap-highlight-color:transparent;min-height:44px}
-.tab-btn.tl.active{color:var(--accent-blue)} .tab-btn.tl.active::after{content:'';position:absolute;bottom:0;left:25%;right:25%;height:2px;background:var(--accent-blue);border-radius:1px}
-.tab-btn.ar.active{color:var(--accent-gold)} .tab-btn.ar.active::after{content:'';position:absolute;bottom:0;left:25%;right:25%;height:2px;background:var(--accent-gold);border-radius:1px}
-.tab-btn.gl.active{color:var(--accent-purple)} .tab-btn.gl.active::after{content:'';position:absolute;bottom:0;left:25%;right:25%;height:2px;background:var(--accent-purple);border-radius:1px}
-.tab-btn.dl.active{color:var(--accent-warm)} .tab-btn.dl.active::after{content:'';position:absolute;bottom:0;left:25%;right:25%;height:2px;background:var(--accent-warm);border-radius:1px}
-.tab-icon{font-size:1.2rem;line-height:1}
+/* main */
+.main-content{position:relative;z-index:1;padding:72px 1rem 2rem;max-width:780px;margin:0 auto}
 
-.main-content{padding:72px 1rem 2rem;max-width:800px;margin:0 auto}
-.tab-panel{display:none}
-.tab-panel.active{display:block}
+/* hero */
+.archive-hero{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:20px}
+.archive-hero h1{font-size:1.4rem;font-weight:600;color:var(--text-primary);letter-spacing:.5px}
+.archive-hero p{font-size:.78rem;color:var(--text-muted);margin-top:2px}
+.archive-hero .btn-add{height:40px;padding:0 16px;border-radius:8px;border:1px solid var(--accent-gold);background:transparent;color:var(--accent-gold);cursor:pointer;font-size:.82rem;font-family:inherit;white-space:nowrap;transition:all .15s}
+.archive-hero .btn-add:active{background:rgba(212,168,83,.1)}
 
-.search-bar{display:flex;gap:8px;margin-bottom:1rem;position:sticky;top:56px;z-index:50;background:var(--bg-primary);padding:8px 0}
-.search-bar input{flex:1;padding:10px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text-primary);font-size:.85rem;font-family:inherit;outline:none}
-.search-bar input::placeholder{color:var(--text-muted)}
-.search-bar input:focus{border-color:var(--accent-blue)}
-.btn-sm{padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);cursor:pointer;font-size:.8rem;font-family:inherit;white-space:nowrap;transition:all .15s;-webkit-tap-highlight-color:transparent;min-height:44px;display:flex;align-items:center}
-.btn-sm:active{opacity:.7}
-.btn-sm.accent{color:var(--accent-blue);border-color:var(--accent-blue)}
-.btn-sm.gold{color:var(--accent-gold);border-color:var(--accent-gold)}
+/* tools */
+.archive-tools{margin-bottom:16px}
+.archive-tools .search-row{display:flex;gap:8px;margin-bottom:10px}
+.archive-tools .search-row input{flex:1;padding:0 14px;height:44px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text-primary);font-size:.85rem;font-family:inherit;outline:none}
+.archive-tools .search-row input::placeholder{color:var(--text-muted)}
+.archive-tools .search-row input:focus{border-color:rgba(99,127,190,.4)}
+.archive-tools .search-row .btn-add-inline{width:88px;height:44px;flex-shrink:0;border-radius:8px;border:1px solid var(--accent-gold);background:transparent;color:var(--accent-gold);cursor:pointer;font-size:.8rem;font-family:inherit;transition:all .15s}
 
-.msg-card{background:var(--bg-card);border-radius:12px;padding:1rem;margin-bottom:.75rem;position:relative;box-shadow:0 2px 8px var(--shadow);border-left:3px solid transparent;transition:border-color .15s;cursor:pointer}
-.msg-card.user{border-left-color:var(--accent-gold)}
-.msg-card.assistant{border-left-color:var(--accent-blue)}
-.msg-card.rp{border-left-color:var(--accent-purple)}
-.msg-card.rp::after{content:'RP';position:absolute;top:8px;right:10px;background:rgba(124,77,255,.15);color:var(--accent-purple);font-size:.65rem;padding:1px 6px;border-radius:4px}
-.msg-card.selected{border-left-color:var(--danger)}
-.msg-card .msg-header{display:flex;justify-content:space-between;margin-bottom:6px}
-.msg-card .msg-role{font-size:.8rem;color:var(--text-secondary);font-weight:500}
-.msg-card .msg-time{font-size:.7rem;color:var(--text-muted)}
-.msg-card .msg-body{font-size:.88rem;line-height:1.6;color:var(--text-primary);white-space:pre-wrap;word-break:break-word}
-
-.floating-bar{position:fixed;bottom:72px;left:50%;transform:translateX(-50%);background:var(--danger);color:#fff;padding:10px 24px;border-radius:24px;font-size:.85rem;cursor:pointer;z-index:90;display:none;box-shadow:0 4px 16px rgba(255,77,77,.4)}
-.floating-bar.show{display:block}
-
-.mem-card{background:var(--bg-card);border-radius:12px;padding:1rem;margin-bottom:.75rem;box-shadow:0 2px 8px var(--shadow)}
-.mem-card .mem-title{font-size:.9rem;color:var(--text-primary);font-weight:500;margin-bottom:6px;line-height:1.5}
-.mem-card .mem-tags{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}
-.mem-tag{background:var(--bg-hover);color:var(--text-secondary);font-size:.7rem;padding:3px 8px;border-radius:6px}
-.mem-card .mem-meta{display:flex;justify-content:space-between;align-items:center;font-size:.75rem;color:var(--text-muted)}
-.mem-card .mem-actions{display:flex;gap:6px}
-.mem-card{position:relative}
-.mem-check{position:absolute;top:10px;right:10px;z-index:2}
-.mem-check input{width:18px;height:18px;accent-color:var(--accent-gold)}
-.btn-del{color:var(--danger)!important}
-.btn-del:disabled{opacity:.4}
-
-.filter-chips{display:flex;gap:6px;overflow-x:auto;padding:8px 0;margin-bottom:1rem;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+/* chips */
+.filter-chips{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
 .filter-chips::-webkit-scrollbar{display:none}
-.chip{padding:7px 14px;border-radius:16px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);font-size:.78rem;white-space:nowrap;cursor:pointer;transition:all .15s;font-family:inherit}
+.chip{padding:6px 14px;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);color:var(--text-secondary);font-size:.76rem;white-space:nowrap;cursor:pointer;transition:all .15s;font-family:inherit}
 .chip.active{background:var(--accent-gold);border-color:var(--accent-gold);color:#fff}
 
-.profile-card{background:var(--bg-card);border-radius:12px;padding:1rem;margin-bottom:.75rem;border-left:3px solid var(--accent-gold)}
-.profile-card summary{font-size:.9rem;color:var(--accent-gold);font-weight:600;cursor:pointer;margin-bottom:4px}
-.profile-card summary::-webkit-details-marker{display:none}
-.profile-card p{font-size:.82rem;color:var(--text-secondary);line-height:1.5;margin:6px 0 6px 12px}
+/* stats */
+.archive-stats{display:flex;align-items:center;justify-content:space-between;font-size:.76rem;color:var(--text-muted);margin-bottom:8px;flex-wrap:wrap;gap:8px}
+.archive-stats .stats-nums{display:flex;gap:10px}
+.archive-stats .stats-nums b{color:var(--text-secondary)}
+.archive-stats .sort-seg{display:flex;border-radius:6px;overflow:hidden;border:1px solid var(--border)}
+.archive-stats .sort-seg button{padding:5px 12px;border:none;background:transparent;color:var(--text-muted);cursor:pointer;font-size:.72rem;font-family:inherit}
+.archive-stats .sort-seg button.active{background:var(--bg-card);color:var(--text-secondary)}
+.archive-stats .sort-seg button:first-child{border-right:1px solid var(--border)}
 
-.empty-state{text-align:center;padding:3rem 1rem;color:var(--text-muted)}
-.empty-icon{font-size:3rem;margin-bottom:1rem;opacity:.5}
+/* cards */
+.mem-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;position:relative;border-left:3px solid transparent}
+.mem-card.src-manual{border-left-color:rgba(212,160,74,.55)}
+.mem-card.src-ai_active{border-left-color:rgba(99,127,190,.55)}
+.mem-card.src-butler_summary{border-left-color:rgba(140,200,220,.55)}
+.mem-card.src-archived,.mem-card.cat-archived{border-left-color:rgba(140,200,220,.55)}
+.mem-card.src-roleplay{border-left-color:rgba(160,130,190,.55)}
+.mem-card .mem-content{font-size:16px;line-height:1.72;color:#f0ece3;white-space:pre-wrap;word-break:break-word}
+.mem-card .mem-content.clamped{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.mem-card .mem-expand{display:block;margin-top:6px;font-size:.75rem;color:var(--text-muted);cursor:pointer;border:none;background:none;font-family:inherit;padding:0}
+.mem-card .mem-expand:hover{color:var(--text-secondary)}
+.mem-card .mem-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px}
+.mem-tag{background:rgba(255,255,255,.06);color:#9e9789;font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.05)}
+.mem-card .mem-meta{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:.72rem;color:var(--text-muted)}
+.mem-card .mem-actions{display:flex;gap:6px;align-items:center}
+.mem-card .mem-actions button{font-size:.72rem;padding:4px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.08);background:transparent;color:var(--text-muted);cursor:pointer;font-family:inherit;transition:all .15s}
+.mem-card .mem-actions button:hover{color:var(--text-secondary);border-color:rgba(255,255,255,.15)}
+.mem-card .mem-actions .act-del{color:rgba(217,90,74,.5)}
+.mem-card .mem-actions .act-del:hover{color:var(--danger)}.mem-check{position:absolute;top:10px;right:10px;z-index:2}
+.mem-check input{width:18px;height:18px;accent-color:var(--accent-gold)}
+.btn-del{color:var(--danger)!important}.btn-del:disabled{opacity:.4}
+
+/* heat bar */
+.heat-mini{display:inline-flex;align-items:center;gap:4px;font-size:.7rem;color:var(--text-muted)}
+.heat-bar{width:40px;height:4px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden;flex-shrink:0}
+.heat-bar-fill{height:100%;border-radius:2px;transition:width .3s}
+.heat-bar-fill.hot{background:#e8954c}.heat-bar-fill.warm{background:#d4b860}.heat-bar-fill.cool{background:#8a9bb5}
+
+/* empty */
+.empty-state{text-align:center;padding:4rem 1rem;color:var(--text-muted)}
+.empty-icon{font-size:2.5rem;margin-bottom:.75rem;opacity:.4}
 .empty-text{font-size:.85rem}
 
-.fab{position:fixed;bottom:80px;right:20px;width:56px;height:56px;border-radius:50%;background:var(--accent-purple);color:#fff;border:none;font-size:1.5rem;cursor:pointer;box-shadow:0 4px 16px rgba(124,77,255,.3);display:flex;align-items:center;justify-content:center;z-index:80;transition:opacity .15s}
-.fab:active{opacity:.8}
-
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:300;align-items:center;justify-content:center}
+/* modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;align-items:center;justify-content:center}
 .modal-overlay.show{display:flex}
 .modal-box{background:var(--bg-card);border-radius:14px;padding:1.5rem;width:90%;max-width:420px;max-height:80vh;overflow-y:auto}
 .modal-box h3{font-size:1rem;margin-bottom:1rem;color:var(--text-primary)}
 .modal-box textarea,.modal-box input{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text-primary);font-size:.85rem;font-family:inherit;margin-bottom:10px;resize:vertical}
 .modal-box .btn-row{display:flex;gap:8px;justify-content:flex-end}
+
 .edit-area{display:none;margin-top:8px}
 .edit-area textarea{width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text-primary);font-size:.85rem;font-family:inherit;margin-bottom:6px;resize:vertical;min-height:60px}
-.stat-row{display:flex;gap:12px;align-items:center;font-size:.78rem;color:var(--text-secondary);margin-bottom:10px;flex-wrap:wrap}
 
-.toast{position:fixed;bottom:4rem;left:50%;transform:translateX(-50%);background:var(--bg-card);color:var(--text-secondary);padding:10px 24px;border-radius:8px;font-size:.85rem;z-index:99;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast{position:fixed;bottom:2rem;left:50%;transform:translateX(-50%);background:var(--bg-card);color:var(--text-secondary);padding:10px 24px;border-radius:8px;font-size:.85rem;z-index:99;opacity:0;transition:opacity .2s;pointer-events:none}
 .toast.show{opacity:1}
 
-.diary-entry{background:var(--bg-card);border-radius:12px;padding:1rem;margin-bottom:.75rem;border-left:3px solid var(--accent-gold);box-shadow:0 2px 8px var(--shadow)}
-.diary-entry.syzygy{border-left-color:var(--danger)}
-.diary-entry .di-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
-.diary-entry .di-author{font-size:.8rem;color:var(--text-secondary)}
-.diary-entry .di-date{font-size:.7rem;color:var(--text-muted)}
-.diary-entry .di-text{font-size:.88rem;line-height:1.6;color:var(--text-primary);white-space:pre-wrap;word-break:break-word}
-.diary-entry .di-del{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:.85rem;padding:2px 6px}
-
-.gallery-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.gallery-item{aspect-ratio:1;border-radius:8px;background:var(--bg-card);border:1px solid var(--border)}
+.btn-sm{padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);cursor:pointer;font-size:.8rem;font-family:inherit;white-space:nowrap;transition:all .15s;min-height:44px;display:flex;align-items:center}
+.btn-sm:active{opacity:.7}.btn-sm.accent{color:var(--accent-blue);border-color:var(--accent-blue)}
+.btn-sm.gold{color:var(--accent-gold);border-color:var(--accent-gold)}
 
 @media(min-width:768px){
-  body{padding-bottom:0}
-  .tab-bar{position:static;height:48px;border-top:none;border-bottom:1px solid var(--border);margin-bottom:1rem;background:transparent}
-  .tab-btn{font-size:.8rem;flex-direction:row;gap:6px;min-height:0;padding:8px 16px}
-  .tab-btn.active::after{top:auto;bottom:-1px;left:0;right:0;height:2px}
-  .tab-icon{font-size:1rem}
-  .main-content{padding:72px 2rem 2rem}
-  .profile-card p{margin-left:20px}
-  .gallery-grid{grid-template-columns:repeat(3,1fr)}
+  .main-content{padding:72px 2rem 3rem}
 }
 </style></head><body>
 
-<div class="top-bar"><div class="top-left"><a class="top-back" href="/">←</a><span class="top-title" id="tabTitle">档案室</span></div><div class="top-actions"><button class="btn-icon" onclick="location.reload()" title="刷新">↻</button><div class="btn-more"><button class="btn-icon" onclick="this.nextElementSibling.classList.toggle('show')">···</button><div class="more-menu"><button onclick="triggerDream()">🌙 触发 Dream</button><button onclick="restoreAll()">🔓 全部恢复</button></div></div></div></div>
+<div class="top-bar"><div class="top-left"><a class="top-back" href="/">←</a><span class="top-title">档案室</span></div><div class="top-actions"><button class="btn-icon" onclick="location.reload()" title="刷新">↻</button><div class="btn-more"><button class="btn-icon" onclick="this.nextElementSibling.classList.toggle('show')">···</button><div class="more-menu"><button onclick="triggerDream()">🌙 触发 Dream</button><button onclick="restoreAll()">🔓 全部恢复</button><button onclick="triggerCleanup()">🧹 AI清理</button><button id="multiMenuItem" onclick="toggleMultiSelect()">☑ 多选</button><button id="batchMenuItem" class="danger" onclick="deleteSelectedMemories()" style="display:none">🗑 删除选中 <span id="selectedCount">0</span></button></div></div></div></div>
 
 <div class="main-content">
 
-<div class="tab-panel active" id="panel-archive">
-<div class="search-bar"><input type="text" id="arSearch" placeholder="搜索长期记忆..." oninput="filterArchive()"><button class="btn-sm gold" onclick="openAddModal()">＋ 新增</button></div>
-<div class="filter-chips" id="filterChips"></div>
-<div class="stat-row"><span>共 <b id="arCount">0</b> 条</span><span>🔥 <b id="arHigh">0</b></span><span>🌡️ <b id="arMid">0</b></span><span>🧊 <b id="arLow">0</b></span><button class="btn-sm" onclick="sortByHeat()">按热度</button><button class="btn-sm" onclick="sortByTime()">按时间</button><button class="btn-sm gold" onclick="triggerCleanup()">🧹 AI清理</button><button class="btn-sm" id="multiSelectBtn" onclick="toggleMultiSelect()">多选</button><button class="btn-sm btn-del" id="batchDeleteBtn" onclick="deleteSelectedMemories()" disabled>删除选中 <span id="selectedCount">0</span></button></div>
-<div id="profileCard"></div>
-<div id="summaryCards"></div>
+<section class="archive-hero">
+  <div><h1>档案室</h1><p>长期记忆 · 冰封记录 · 手动写入</p></div>
+  <button class="btn-add" onclick="openAddModal()">＋ 新增</button>
+</section>
+
+<section class="archive-tools">
+  <div class="search-row">
+    <input type="text" id="arSearch" placeholder="搜索长期记忆..." oninput="renderArchive()">
+    <button class="btn-add-inline" onclick="openAddModal()">＋ 新增</button>
+  </div>
+  <div class="filter-chips" id="filterChips"></div>
+  <div class="archive-stats">
+    <span class="stats-nums">共 <b id="arCount">0</b> 条 · 🔥 <b id="arHigh">0</b> · 🫧 <b id="arMid">0</b> · 🧊 <b id="arLow">0</b></span>
+    <div class="sort-seg"><button onclick="sortByHeat()" id="segHeat">热度</button><button onclick="sortByTime()" id="segTime">时间</button></div>
+  </div>
+</section>
+
 <div id="archiveList"><div class="empty-state"><div class="empty-icon">💎</div><div class="empty-text">加载中...</div></div></div>
-</div>
 
 </div>
 
-<div class="tab-bar">
-<button class="tab-btn ar active" onclick="switchTab('archive')">💎 档案室</button>
-</div>
-
-<div class="floating-bar" id="deleteBar" onclick="deleteSelected()">删除已选 (<span id="deleteCount">0</span>)</div>
 <div class="toast" id="toast"></div>
 
 <div class="modal-overlay" id="addModal"><div class="modal-box">
@@ -148,182 +160,118 @@ body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","PingFang SC"
 
 <script>
 var PWD=new URLSearchParams(location.search).get('pwd')||'111111';
-var urlTab=new URLSearchParams(location.search).get('tab')||'archive';
-var TL_MESSAGES=[],AR_MEMS=[],AR_COUNTS={},AR_HEAT={},PROFILE=null,PENDING_PROMISES='',WEEKLIES=[],MONTHLIES=[],activeTab='',DIARY_ENTRIES=[];
-var selectMode=false,selectedSet=new Set(),arCat='all',longPressTimer=null;
+var AR_MEMS=[],AR_COUNTS={},AR_HEAT={},arCat='all';
 var multiSelectMode=false;
 var selectedMemoryIds=new Set();
 
-function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000)}
+function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2000)}
 
-function switchTab(tab){
-  // 星渡入口现在只保留档案室。其他 tab 不再可用，强制 fallback
-  if (tab !== 'archive') tab = 'archive';
-  activeTab=tab;document.getElementById('tabTitle').textContent='档案室';
-  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-  var btn = document.querySelector('.tab-btn.ar'); if(btn) btn.classList.add('active');
-  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id==='panel-archive'));
-  if(AR_MEMS.length===0)loadArchive();
-}
-
-function toggleSelectMode(){selectMode=!selectMode;selectedSet.clear();renderTimeline();updateDeleteBar()}
-function toggleMsg(uuid){if(selectedSet.has(uuid))selectedSet.delete(uuid);else selectedSet.add(uuid);updateDeleteBar();renderTimeline()}
-function updateDeleteBar(){const bar=document.getElementById('deleteBar');const n=selectedSet.size;document.getElementById('deleteCount').textContent=n;bar.classList.toggle('show',selectMode&&n>0)}
-
-async function loadTimeline(){
-  const r=await fetch('/api/memory-page-data?pwd='+encodeURIComponent(PWD));
-  if(!r.ok)return;
-  const d=await r.json();TL_MESSAGES=d.messages||[];
-  document.getElementById('lastDream').textContent=d.lastDreamTime||'从未';
-  document.getElementById('tlCount').textContent=TL_MESSAGES.length;
-  renderTimeline();
-}
-function filterTimeline(){
-  const kw=(document.getElementById('tlSearch').value||'').toLowerCase();
-  document.querySelectorAll('#timelineList .msg-card').forEach(c=>{c.style.display=kw?((c.textContent||'').toLowerCase().includes(kw)?'':'none'):''});
-}
-function renderTimeline(){
-  const list=document.getElementById('timelineList');
-  if(TL_MESSAGES.length===0){list.innerHTML='<div class="empty-state"><div class="empty-icon">📖</div><div class="empty-text">暂无对话记录</div></div>';return}
-  var sorted=TL_MESSAGES.slice().sort(function(a,b){return new Date(b.created_at)-new Date(a.created_at)});
-  list.innerHTML=sorted.map((m,i)=>{
-    const isRP=(m.content||'').startsWith('[RP模式]');
-    const role=m.role==='user'?'江鱼':'沈望';const cls=['msg-card',m.role==='user'?'user':'assistant'];
-    if(isRP)cls.push('rp');if(selectMode&&selectedSet.has(m.uuid))cls.push('selected');
-    return `<div class="${cls.join(' ')}" data-uuid="${m.uuid||''}" ${selectMode?`onclick="toggleMsg('${m.uuid||''}')"`:''}
-      onmousedown="startLongPress(event,'${m.uuid||''}')" ontouchstart="startLongPress(event,'${m.uuid||''}')" ontouchend="cancelLongPress()" ontouchmove="cancelLongPress()">
-      <div class="msg-header"><span class="msg-role">${role}</span><span class="msg-time">${new Date(m.created_at).toLocaleString()}</span></div>
-      <div class="msg-body">${(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div></div>`;
-  }).join('');
-}
-function startLongPress(e,uuid){if(selectMode)return;longPressTimer=setTimeout(()=>{selectMode=true;selectedSet.add(uuid);renderTimeline();updateDeleteBar()},600)}
-function cancelLongPress(){clearTimeout(longPressTimer)}
-
-async function deleteSelected(){
-  const toDelete=[...selectedSet].filter(Boolean);if(toDelete.length===0)return;
-  if(!confirm('确定删除'+toDelete.length+'条？'))return;
-  let ok=0;for(const u of toDelete){try{const r=await fetch('/delete-memory/'+u,{method:'DELETE'});if((await r.json()).success)ok++}catch(e){}}
-  toast('✅ 删除'+ok+'条');selectMode=false;selectedSet.clear();location.reload();
-}
-
-async function triggerDream(){const p=prompt('管理员密码:');if(!p)return;const r=await fetch('/trigger-dream?pwd='+encodeURIComponent(p),{method:'POST'});toast((await r.json()).success?'✅ Dream已触发':'❌ 失败')}
-async function restoreAll(){const p=prompt('管理员密码:');if(!p)return;const r=await fetch('/api/restore-all-messages?pwd='+encodeURIComponent(p),{method:'POST'});const d=await r.json();toast(d.success?'✅ 已恢复':'❌ '+d.error);if(d.success)location.reload()}
-
-function getTTLLabel(m){if(!m.expires_at)return'♾️';const r=m.expires_at-Date.now();if(r<=0)return'⏰';return Math.ceil(r/86400000)+'d'}
-function srcLabel(s){return({manual:'✍️手动',ai_active:'🤖AI',butler_summary:'🌙管家',roleplay:'🎮RP'})[s]||s}
-
+/* ── load ── */
 async function loadArchive(){
-  const r=await fetch('/api/longterm-page-data?pwd='+encodeURIComponent(PWD));
-  if(!r.ok)return;const d=await r.json();
-  AR_MEMS=d.memories||[];AR_COUNTS=d.counts||{};AR_HEAT=d.heatStats||{};PROFILE=d.profile;PENDING_PROMISES=d.pendingPromises||'';WEEKLIES=d.weeklies||[];MONTHLIES=d.monthlies||[];
+  var r=await fetch('/api/longterm-page-data?pwd='+encodeURIComponent(PWD));
+  if(!r.ok)return;var d=await r.json();
+  AR_MEMS=d.memories||[];AR_COUNTS=d.counts||{};AR_HEAT=d.heatStats||{};
   document.getElementById('arCount').textContent=AR_MEMS.length;
   document.getElementById('arHigh').textContent=AR_HEAT.high||0;
   document.getElementById('arMid').textContent=AR_HEAT.mid||0;
   document.getElementById('arLow').textContent=AR_HEAT.low||0;
-  renderChips();renderProfile();renderSummaryCards();renderArchive();
+  renderChips();renderArchive();
 }
+
+/* ── chips ── */
 function renderChips(){
-  var chips=[
-    {key:'all',label:'全部'},
-    {key:'src:archived',label:'❄️ 冰封记忆'},
-    {key:'src:roleplay',label:'🎮 游戏库'},
-    {key:'src:manual',label:'✍️ 手动写入'},
-    {key:'src:ai_active',label:'🤖 AI写入'},
-    {key:'src:butler_summary',label:'🌙 管家写入'}
-  ];
+  var chips=[{key:'all',label:'全部'},{key:'src:archived',label:'❄️ 冰封'},{key:'src:roleplay',label:'🎮 游戏库'},{key:'src:manual',label:'✍️ 手动'},{key:'src:ai_active',label:'🤖 AI'},{key:'src:butler_summary',label:'🌙 管家'}];
   document.getElementById('filterChips').innerHTML=chips.map(function(c){
-    return '<span class="chip'+(arCat===c.key?' active':'')+'" onclick="setChip(this,\''+c.key+'\')">'+c.label+'</span>';
+    return '<span class="chip'+(arCat===c.key?' active':'')+'" onclick="setChip(\''+c.key+'\')">'+c.label+'</span>';
   }).join('');
 }
-function setChip(el,v){arCat=v;document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));el.classList.add('active');renderArchive()}
-function renderProfile(){
-  if(!PROFILE)return;
-  const u=PROFILE.last_full_update?new Date(PROFILE.last_full_update).toLocaleString('zh-CN'):'未更新';
-  let h='<details class="profile-card"><summary>📌 江鱼画像 · '+u+'</summary>';
-  if(PROFILE.basic_info?.content)h+='<p>📌 '+PROFILE.basic_info.content.replace(/</g,'&lt;')+'</p>';
-  if(PROFILE.recent_focus?.content)h+='<p>🔥 '+PROFILE.recent_focus.content.replace(/</g,'&lt;')+'</p>';
-  if(PROFILE.communication_style?.content)h+='<p>🔍 '+PROFILE.communication_style.content.replace(/</g,'&lt;')+'</p>';
-  if(PENDING_PROMISES)h+='<p>📋 待办约定：'+PENDING_PROMISES.replace(/</g,'&lt;')+'</p>';
-  h+='<button class="btn-sm gold" style="margin-top:8px" onclick="updateProfile()">🔄 更新画像</button></details>';
-  document.getElementById('profileCard').innerHTML=h;
-}
-function renderSummaryCards(){
-  var el=document.getElementById('summaryCards');
-  if(!el)return;
-  var h='';
-  if(WEEKLIES.length>0){
-    h+='<details class="profile-card" style="border-left-color:var(--accent-blue)"><summary>📋 周总结 · 最近'+WEEKLIES.length+'周</summary>';
-    for(var i=0;i<WEEKLIES.length;i++){
-      var w=WEEKLIES[i];
-      h+='<p><b>'+w.week+'</b>：'+(w.summary||'').replace(/</g,'&lt;')+'</p>';
-      if(w.key_themes&&w.key_themes.length)h+='<p style="font-size:0.75em;color:var(--text-muted)">关键词：'+w.key_themes.join(' / ')+'</p>';
-    }
-    h+='</details>';
-  }
-  if(MONTHLIES.length>0){
-    h+='<details class="profile-card" style="border-left-color:var(--accent-purple)"><summary>📦 月总结 · 最近'+MONTHLIES.length+'月</summary>';
-    for(var i=0;i<MONTHLIES.length;i++){
-      var m=MONTHLIES[i];
-      h+='<p><b>'+m.month+'</b>：'+(m.summary||'').replace(/</g,'&lt;')+'</p>';
-      if(m.key_themes&&m.key_themes.length)h+='<p style="font-size:0.75em;color:var(--text-muted)">关键词：'+m.key_themes.join(' / ')+'</p>';
-      if(m.highlights&&m.highlights.length)h+='<p style="font-size:0.75em;color:var(--text-muted)">亮点：'+m.highlights.join(' / ')+'</p>';
-    }
-    h+='</details>';
-  }
-  el.innerHTML=h;
-}
+function setChip(v){arCat=v;document.querySelectorAll('.chip').forEach(function(c){c.classList.remove('active')});document.querySelectorAll('.chip').forEach(function(c){if(c.textContent===(v==='all'?'全部':v==='src:archived'?'❄️ 冰封':v==='src:roleplay'?'🎮 游戏库':v==='src:manual'?'✍️ 手动':v==='src:ai_active'?'🤖 AI':'🌙 管家'))c.classList.add('active')});renderArchive()}
+
+/* ── src helpers ── */
+function srcKey(m){return m.category==='archived'?'src-archived':m.source||''}
+function srcLabel(s){return ({manual:'✍️ 手动',ai_active:'🤖 AI',butler_summary:'🌙 管家',roleplay:'🎮 RP'})[s]||s||'未知'}
+function getTTLLabel(m){if(!m.expires_at)return'';var r=m.expires_at-Date.now();if(r<=0)return'⏰';return Math.ceil(r/86400000)+'d'}
+
+/* ── render cards ── */
 function renderArchive(){
-  const kw=(document.getElementById('arSearch').value||'').toLowerCase();
-  let mems=AR_MEMS;
+  var kw=(document.getElementById('arSearch').value||'').toLowerCase();
+  var mems=AR_MEMS;
   if(arCat==='src:archived') mems=mems.filter(function(m){return m.category==='archived'});
   else if(arCat==='src:roleplay') mems=mems.filter(function(m){return m.source==='roleplay'||(m.tags||[]).includes('roleplay')});
   else if(arCat==='src:manual') mems=mems.filter(function(m){return m.source==='manual'});
   else if(arCat==='src:ai_active') mems=mems.filter(function(m){return m.source==='ai_active'});
   else if(arCat==='src:butler_summary') mems=mems.filter(function(m){return m.source==='butler_summary'});
-  if(kw)mems=mems.filter(m=>(m.content||'').toLowerCase().includes(kw));
-  const list=document.getElementById('archiveList');
+  if(kw)mems=mems.filter(function(m){return (m.content||'').toLowerCase().includes(kw)});
+  var list=document.getElementById('archiveList');
   if(mems.length===0){list.innerHTML='<div class="empty-state"><div class="empty-icon">💎</div><div class="empty-text">暂无匹配记忆</div></div>';return}
-  list.innerHTML=mems.map(m=>{
-    const h=m.liveHeat!==undefined?m.liveHeat:(m.heat||.5);
-    const he=h>.7?'🔥':h>=.3?'🌡️':'🧊';
-    const checked=selectedMemoryIds.has(m.id)?' checked':'';
-    const selectBox=multiSelectMode
-      ?'<label class="mem-check"><input type="checkbox" '+checked+' onchange="toggleMemorySelected(\''+m.id+'\',this.checked)"></label>'
-      :'';
-    return `<div class="mem-card cat-${m.category}" id="card-${m.id}">
-      ${selectBox}
-      <div class="mem-title" id="ctitle-${m.id}">${(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;').substring(0,120)}</div>
-      <div class="mem-tags">${(m.tags||[]).map(t=>'<span class="mem-tag">'+t+'</span>').join('')} <span class="mem-tag" style="background:transparent">${getTTLLabel(m)}</span> <span class="mem-tag" style="background:transparent">${he}${h.toFixed(2)}</span></div>
-      <div class="mem-meta"><span>${new Date(m.created_at).toLocaleString('zh-CN')} · ${srcLabel(m.source)} ${m.category==='archived'?'❄️':''}</span>
-      <div class="mem-actions">${m.category==='archived'?`<button class="btn-sm" onclick="restoreMem('${m.id}')">解封</button><button class="btn-sm" onclick="delArchMem('${m.id}')" style="color:var(--danger)">🗑</button>`:`<button class="btn-sm" onclick="editMem('${m.id}')">✏️</button><button class="btn-sm" onclick="toggleResolved('${m.id}',${!!m.resolved})">${m.resolved?'✅已解决':'○未解决'}</button><button class="btn-sm" onclick="delMem('${m.id}')" style="color:var(--danger)">🗑</button>`}</div></div>
-      <div class="edit-area" id="edit-${m.id}"><textarea id="ta-${m.id}">${(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea><input id="tags-${m.id}" value="${(m.tags||[]).join(',')}"><div class="btn-row"><button class="btn-sm accent" onclick="saveEdit('${m.id}')">保存</button><button class="btn-sm" onclick="cancelEdit('${m.id}')">取消</button></div></div></div>`;
+  list.innerHTML=mems.map(function(m){
+    var h=m.liveHeat!==undefined?m.liveHeat:(m.heat||.5);
+    var hCls=h>.7?'hot':h>=.3?'warm':'cool';
+    var heatBar='<span class="heat-mini"><span class="heat-bar"><span class="heat-bar-fill '+hCls+'" style="width:'+Math.round(h*100)+'%"></span></span>'+h.toFixed(2)+'</span>';
+    var checked=selectedMemoryIds.has(m.id)?' checked':'';
+    var selectBox=multiSelectMode?'<label class="mem-check"><input type="checkbox" '+checked+' onchange="toggleMemorySelected(\''+m.id+'\',this.checked)"></label>':'';
+    var ttl=getTTLLabel(m);
+    var tags=[];
+    if(m.tags)for(var i=0;i<m.tags.length;i++)tags.push('<span class="mem-tag">'+m.tags[i].replace(/</g,'&lt;')+'</span>');
+    var act=m.category==='archived'?'<button onclick="restoreMem(\''+m.id+'\')">解封</button><button class="act-del" onclick="delArchMem(\''+m.id+'\')">🗑</button>':'<button onclick="editMem(\''+m.id+'\')">✏️</button><button onclick="toggleResolved(\''+m.id+'\','+!!m.resolved+')">'+(m.resolved?'✓已解决':'○未解决')+'</button><button class="act-del" onclick="delMem(\''+m.id+'\')">🗑</button>';
+    return '<div class="mem-card src-'+srcKey(m)+'" id="card-'+m.id+'">'
+      +selectBox
+      +'<div class="mem-content clamped" id="ctitle-'+m.id+'">'+(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>'
+      +'<button class="mem-expand" id="expand-'+m.id+'" onclick="toggleCardExpand(\''+m.id+'\')">展开 ▾</button>'
+      +(tags.length||ttl?'<div class="mem-tags">'+tags.join('')+(ttl?'<span class="mem-tag">'+ttl+'</span>':'')+'</div>':'')
+      +'<div class="mem-meta"><span>'+new Date(m.created_at).toLocaleString('zh-CN')+' · '+srcLabel(m.source)+' '+heatBar+'</span><div class="mem-actions">'+act+'</div></div>'
+      +'<div class="edit-area" id="edit-'+m.id+'"><textarea id="ta-'+m.id+'">'+(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</textarea><input id="tags-'+m.id+'" value="'+(m.tags||[]).join(',')+'"><div class="btn-row"><button class="btn-sm accent" onclick="saveEdit(\''+m.id+'\')">保存</button><button class="btn-sm" onclick="cancelEdit(\''+m.id+'\')">取消</button></div></div>'
+      +'</div>';
   }).join('');
 }
-function filterArchive(){renderArchive()}
 
-// ========= 多选删除 =========
-function toggleMultiSelect(){
-  multiSelectMode=!multiSelectMode;
-  selectedMemoryIds.clear();
-  updateBatchToolbar();
+function toggleCardExpand(id){
+  var ct=document.getElementById('ctitle-'+id);var btn=document.getElementById('expand-'+id);
+  if(!ct||!btn)return;
+  if(ct.classList.contains('clamped')){ct.classList.remove('clamped');btn.textContent='收起 ▴'}
+  else{ct.classList.add('clamped');btn.textContent='展开 ▾'}
+}
+
+/* ── sort ── */
+var _sortDir='heat';
+function sortByHeat(){
+  _sortDir='heat';document.getElementById('segHeat').classList.add('active');document.getElementById('segTime').classList.remove('active');
+  AR_MEMS.sort(function(a,b){var ha=a.liveHeat!==undefined?a.liveHeat:(a.heat||.5);var hb=b.liveHeat!==undefined?b.liveHeat:(b.heat||.5);return hb-ha});
   renderArchive();
 }
-function toggleMemorySelected(id,checked){
-  if(checked)selectedMemoryIds.add(id);else selectedMemoryIds.delete(id);
-  updateBatchToolbar();
+function sortByTime(){
+  _sortDir='time';document.getElementById('segTime').classList.add('active');document.getElementById('segHeat').classList.remove('active');
+  AR_MEMS.sort(function(a,b){return new Date(b.created_at)-new Date(a.created_at)});
+  renderArchive();
 }
-function updateBatchToolbar(){
+document.getElementById('segHeat').classList.add('active');
+
+/* ── edit ── */
+function editMem(id){document.getElementById('ctitle-'+id).style.display='none';document.getElementById('expand-'+id).style.display='none';document.getElementById('edit-'+id).style.display='block'}
+function cancelEdit(id){document.getElementById('ctitle-'+id).style.display='';document.getElementById('expand-'+id).style.display='';document.getElementById('edit-'+id).style.display='none'}
+async function saveEdit(id){var c=document.getElementById('ta-'+id).value;var t=document.getElementById('tags-'+id).value.split(',').filter(Boolean);await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:c,tags:t})});loadArchive()}
+
+/* ── single ops ── */
+async function delMem(id){if(confirm('删除这条记忆？')){await fetch('/api/long-term-memories/'+id,{method:'DELETE'});loadArchive()}}
+async function restoreMem(id){await fetch('/api/archive-memories/'+id+'/restore',{method:'POST'});loadArchive()}
+async function delArchMem(id){if(confirm('彻底删除这条冰封记忆？')){await fetch('/api/archive-memories/'+id,{method:'DELETE'});loadArchive()}}
+async function toggleResolved(id,r){await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({resolved:!r})});loadArchive()}
+
+/* ── multi-select ── */
+function toggleMultiSelect(){
+  multiSelectMode=!multiSelectMode;selectedMemoryIds.clear();updateBatchUI();renderArchive();
+}
+function toggleMemorySelected(id,checked){
+  if(checked)selectedMemoryIds.add(id);else selectedMemoryIds.delete(id);updateBatchUI();
+}
+function updateBatchUI(){
   var count=selectedMemoryIds.size;
-  var countEl=document.getElementById('selectedCount');
-  var delBtn=document.getElementById('batchDeleteBtn');
-  var modeBtn=document.getElementById('multiSelectBtn');
-  if(countEl)countEl.textContent=count;
-  if(delBtn)delBtn.disabled=count===0;
-  if(modeBtn)modeBtn.textContent=multiSelectMode?'取消多选':'多选';
+  var item=document.getElementById('batchMenuItem');var multiItem=document.getElementById('multiMenuItem');
+  if(item){item.style.display=multiSelectMode?'block':'none';item.innerHTML='🗑 删除选中 <span id="selectedCount">'+count+'</span>'}
+  if(multiItem)multiItem.textContent=multiSelectMode?'☑ 取消多选':'☑ 多选';
 }
 async function deleteSelectedMemories(){
-  var ids=Array.from(selectedMemoryIds);
-  if(ids.length===0)return;
+  var ids=Array.from(selectedMemoryIds);if(ids.length===0)return;
   if(!confirm('确定删除选中的 '+ids.length+' 条记忆？'))return;
   var idSet=new Set(ids);
   var selectedMems=AR_MEMS.filter(function(m){return idSet.has(m.id)});
@@ -331,78 +279,33 @@ async function deleteSelectedMemories(){
     var url=m.category==='archived'?'/api/archive-memories/'+encodeURIComponent(m.id):'/api/long-term-memories/'+encodeURIComponent(m.id);
     return fetch(url,{method:'DELETE'}).then(async function(res){
       var data=await res.json().catch(function(){return{}});
-      if(!res.ok||data.success===false){throw new Error(data.error||('删除失败: '+m.id))}
+      if(!res.ok||data.success===false)throw new Error(data.error||'删除失败');
       return data;
     });
   }));
   var failed=results.filter(function(r){return r.status==='rejected'});
-  if(failed.length>0){toast('❌ 有 '+failed.length+' 条删除失败')}
-  else{toast('✅ 已删除 '+ids.length+' 条')}
-  selectedMemoryIds.clear();
-  updateBatchToolbar();
-  loadArchive();
+  if(failed.length>0)toast('❌ 有 '+failed.length+' 条删除失败');else toast('✅ 已删除 '+ids.length+' 条');
+  selectedMemoryIds.clear();updateBatchUI();loadArchive();
 }
-function sortByHeat(){const list=document.getElementById('archiveList');const cards=[...list.children];cards.sort((a,b)=>(parseFloat(b.querySelector('.mem-tags')?.textContent?.match(/[\d.]+/)?.[0])||0)-(parseFloat(a.querySelector('.mem-tags')?.textContent?.match(/[\d.]+/)?.[0])||0));cards.forEach(c=>list.appendChild(c))}
-function sortByTime(){const list=document.getElementById('archiveList');const cards=[...list.children];cards.sort((a,b)=>(b.querySelector('.mem-meta span')?.textContent||'').localeCompare(a.querySelector('.mem-meta span')?.textContent||''));cards.forEach(c=>list.appendChild(c))}
 
-function editMem(id){document.getElementById('ctitle-'+id).style.display='none';document.getElementById('edit-'+id).style.display='block'}
-function cancelEdit(id){document.getElementById('ctitle-'+id).style.display='block';document.getElementById('edit-'+id).style.display='none'}
-async function saveEdit(id){const c=document.getElementById('ta-'+id).value;const t=document.getElementById('tags-'+id).value.split(',').filter(Boolean);await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:c,tags:t})});loadArchive()}
-async function delMem(id){if(confirm('删除？')){await fetch('/api/long-term-memories/'+id,{method:'DELETE'});loadArchive()}}
-async function restoreMem(id){await fetch('/api/archive-memories/'+id+'/restore',{method:'POST'});loadArchive()}
-async function delArchMem(id){if(confirm('彻底删除？')){await fetch('/api/archive-memories/'+id,{method:'DELETE'});loadArchive()}}
-async function toggleResolved(id,r){await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({resolved:!r})});loadArchive()}
-async function updateProfile(){const r=await fetch('/trigger-profile-update?pwd='+encodeURIComponent(PWD),{method:'POST'});toast((await r.json()).success?'✅ 更新成功':'❌ 失败');loadArchive()}
-async function triggerCleanup(){
-  var pwd=prompt('管理员密码:');
-  if(!pwd)return;
-  if(!confirm('确定让AI审查清理记忆库？这可能需要几十秒。'))return;
-  toast('🧹 AI正在审查记忆库...');
-  try{
-    const r=await fetch('/trigger-cleanup?pwd='+encodeURIComponent(pwd),{method:'POST'});
-    const d=await r.json();
-    if(d.success){
-      toast('✅ 清理完成: 删除'+d.deleted+'条, 合并'+d.merged+'组');
-      setTimeout(function(){location.reload()},2000);
-    } else {
-      toast('❌ '+(d.error||'失败'));
-    }
-  }catch(e){
-    toast('❌ 网络错误: '+e.message);
-  }
-}
+/* ── modal ── */
 function openAddModal(){document.getElementById('addModal').classList.add('show')}
 function closeAddModal(){document.getElementById('addModal').classList.remove('show')}
-async function submitNew(){const c=document.getElementById('newContent').value;const t=document.getElementById('newTags').value.split(',').filter(Boolean);await fetch('/api/long-term-memories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:c,tags:t})});closeAddModal();loadArchive()}
+async function submitNew(){var c=document.getElementById('newContent').value;var t=document.getElementById('newTags').value.split(',').filter(Boolean);await fetch('/api/long-term-memories',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:c,tags:t})});closeAddModal();loadArchive()}
 
-async function loadDiary(){
-  const r=await fetch('/diary-logs');
-  if(!r.ok)return;DIARY_ENTRIES=await r.json();
-  document.getElementById('diCount').textContent=DIARY_ENTRIES.length;
-  renderDiary();
-}
-function renderDiary(){
-  const kw=(document.getElementById('diSearch')?.value||'').toLowerCase();
-  let entries=DIARY_ENTRIES;if(kw)entries=entries.filter(e=>(e.text||'').toLowerCase().includes(kw));
-  entries.sort((a,b)=>new Date(b.datetime||b.date)-new Date(a.datetime||a.date));
-  const list=document.getElementById('diaryList');
-  if(!list)return;
-  if(entries.length===0){list.innerHTML='<div class="empty-state"><div class="empty-icon">📓</div><div class="empty-text">还没有日记</div></div>';return}
-  list.innerHTML=entries.map(e=>{
-    const isSys=e.author==='system'||e.type==='syzygy_note';
-    const cls=isSys?'diary-entry syzygy':'diary-entry';
-    const author=isSys?'沈望':'江鱼';
-    const date=e.date||(e.datetime?new Date(e.datetime).toLocaleDateString('zh-CN'):'');
-    const safeText=(e.text||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    return `<div class="${cls}"><div class="di-header"><span class="di-author">${author}</span><span class="di-date">${date}</span></div><div class="di-text">${safeText}</div>${e.id?`<button class="di-del" onclick="delDiary('${e.id}')">✕</button>`:''}</div>`;
-  }).join('');
-}
-async function delDiary(id){if(!confirm('删除这篇日记？'))return;await fetch('/diary/'+id,{method:'DELETE'});loadDiary()}
-function openDiaryAdd(){
-  const text=prompt('写日记：');if(!text||!text.trim())return;
-  fetch('/diary/add?text='+encodeURIComponent(text.trim())+'&author=user').then(r=>r.json()).then(d=>{if(d.success)loadDiary()});
+/* ── dream / restore / cleanup ── */
+async function triggerDream(){var p=prompt('管理员密码:');if(!p)return;var r=await fetch('/trigger-dream?pwd='+encodeURIComponent(p),{method:'POST'});toast((await r.json()).success?'✅ Dream已触发':'❌ 失败')}
+async function restoreAll(){var p=prompt('管理员密码:');if(!p)return;var r=await fetch('/api/restore-all-messages?pwd='+encodeURIComponent(p),{method:'POST'});var d=await r.json();toast(d.success?'✅ 已恢复':'❌ '+d.error);if(d.success)location.reload()}
+async function triggerCleanup(){
+  var pwd=prompt('管理员密码:');if(!pwd)return;
+  if(!confirm('确定让AI审查清理记忆库？这可能需要几十秒。'))return;
+  toast('🧹 AI正在审查记忆库...');
+  try{var r=await fetch('/trigger-cleanup?pwd='+encodeURIComponent(pwd),{method:'POST'});var d=await r.json();
+    if(d.success){toast('✅ 清理完成: 删除'+d.deleted+'条, 合并'+d.merged+'组');setTimeout(function(){location.reload()},2000)}
+    else toast('❌ '+(d.error||'失败'));
+  }catch(e){toast('❌ 网络错误: '+e.message)}
 }
 
-switchTab(urlTab);
+/* ── init ── */
 loadArchive();
 </script></body></html>
