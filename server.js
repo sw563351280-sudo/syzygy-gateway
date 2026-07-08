@@ -4258,6 +4258,11 @@ app.post('/trigger-profile-update', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
+// GET /api/physio/status — 前端 Pulse 状态条轮询
+app.get('/api/physio/status', (req, res) => {
+    res.json({ ok: true, ...loadPhysioState() });
+});
+
 app.post('/delete-selected', async (req, res) => {
     try {
         const { keepMessages, deleteUuids } = req.body;

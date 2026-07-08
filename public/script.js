@@ -420,7 +420,7 @@ function goView(viewId) {
     const VIEWS = ['home','chat','data','favorites','flo','calendar','album','state'];
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);
-    if (viewId === 'chat') setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300);
+    if (viewId === 'chat') { setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300); fetchPulseStatus(); }
     if (viewId === 'home') { updateDays && updateDays(); if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuInitHome(); }
     if (viewId === 'favorites') loadAndRenderFavorites();
     if (viewId === 'flo') floRender();
@@ -1392,6 +1392,7 @@ try {
         const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '' }], activeVersion: 0 };
         session.messages.push(assistantMsg);
         saveToCloud(true);  // 立即保存，不延迟
+        fetchPulseStatus();  // 刷新 Pulse 面板
         clearTimeout(silenceTimer);
         if (window._coreStreamEnd) window._coreStreamEnd();
         triggerStarEffects(val, fullReply);
@@ -2212,6 +2213,34 @@ function retryLastMessage(btn) {
 })();
 
 // ═══ 星空事件触发（在消息展示时检测） ═══
+// ==================== Pulse 生理状态条 ====================
+async function fetchPulseStatus() {
+    try {
+        const r = await fetch('/api/physio/status');
+        if (!r.ok) return;
+        const d = await r.json();
+        updatePulseUI(d);
+    } catch(e) {}
+}
+function updatePulseUI(s) {
+    const mini = document.getElementById('pulseMini');
+    if (mini) mini.textContent = (s.heart_rate || '72') + ' bpm · ' + (s.temperature || '36.6') + '°C · ' + (s.dominant_chord || 'Cmaj7');
+    setText('pdHR', s.heart_rate || '72');
+    setText('pdTemp', s.temperature || '36.6');
+    setText('pdBreath', s.breath_rate || '15');
+    setText('pdDesire', (s.desire != null ? s.desire.toFixed(2) : '0.00'));
+    setText('pdTension', (s.tension != null ? s.tension.toFixed(2) : '0.00'));
+    setText('pdTenderness', (s.tenderness != null ? s.tenderness.toFixed(2) : '0.30'));
+    setText('pdChord', s.dominant_chord || 'Cmaj7');
+    var t = document.getElementById('pdTime');
+    if (t && s.updated_at) t.textContent = '更新于 ' + new Date(s.updated_at).toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'});
+}
+function setText(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
+function togglePulseDetail() {
+    var d = document.getElementById('pulseDetail');
+    if (d) d.style.display = d.style.display === 'none' ? 'block' : 'none';
+}
+
 function triggerStarEffects(userText, aiText) {
     if (userText && userText.length > 100) starState.pendingMeteor = true;
     const loveWords = ['爱', '爸爸', '沈望', '想你', '永远', '在一起', '老公'];
