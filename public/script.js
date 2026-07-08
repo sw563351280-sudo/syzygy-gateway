@@ -1834,80 +1834,55 @@ async function startSystem() {
 }
 startSystem();
 
-// ==================== 对话索引 ====================
-function toggleChatIndex() {
-    // 确保面板存在，不存在就创建
-    let panel = document.getElementById('chatIndexPanel');
+// ==================== 身体状态面板（原对话索引按钮） ====================
+let _physioCache = null;
+
+async function togglePhysioPanel() {
+    let panel = document.getElementById('physioPanel');
     if (!panel) {
         panel = document.createElement('div');
-        panel.className = 'chat-index-panel';
-        panel.id = 'chatIndexPanel';
+        panel.className = 'chat-index-panel physio-panel';
+        panel.id = 'physioPanel';
         panel.innerHTML = `
             <div class="chat-index-header">
-                <span>◈ 对话索引</span>
-                <button class="chat-index-close" onclick="toggleChatIndex()">✕</button>
+                <span>♡ 身体状态</span>
+                <button class="chat-index-close" onclick="togglePhysioPanel()">✕</button>
             </div>
-            <div class="chat-index-list" id="chatIndexList"></div>
+            <div class="physio-body" id="physioBody">
+                <div style="color:var(--dim);text-align:center;padding:30px;font-size:0.82em;">读取中...</div>
+            </div>
         `;
         const chatMain = document.querySelector('.chat-main');
         if (chatMain) chatMain.appendChild(panel);
     }
 
     const isOpen = panel.classList.toggle('open');
-    if (isOpen) buildChatIndex();
+    if (isOpen) {
+        await fetchPulseStatus();
+        renderPhysioPanel();
+    }
 }
 
-function buildChatIndex() {
-    const list = document.getElementById('chatIndexList');
-    if (!list) return;
-
-    const session = getActiveSession();
-    if (!session || !session.messages || session.messages.length === 0) {
-        list.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;font-size:0.82em;">还没有对话记录</div>';
+function renderPhysioPanel() {
+    const body = document.getElementById('physioBody');
+    if (!body) return;
+    const s = _physioCache;
+    if (!s) {
+        body.innerHTML = '<div style="color:var(--dim);text-align:center;padding:30px;font-size:0.82em;">暂时读不到身体状态</div>';
         return;
     }
-
-    // 只索引有实质内容的消息（过滤掉占位符）
-    const indexable = session.messages
-        .map((m, i) => ({ ...m, originalIndex: i }))
-        .filter(m => { const v = getActiveVersion(m); return v.content && v.content.trim().length > 0; });
-
-    list.innerHTML = indexable.map(m => {
-        const v = getActiveVersion(m);
-        const preview = (v.content || '').replace(/\n/g, ' ').substring(0, 60);
-        const roleLabel = m.role === 'user' ? '江鱼' : '沈望';
-        const roleClass = m.role === 'user' ? 'idx-role-user' : 'idx-role-sys';
-        const timeStr = v.time || '';
-        return `
-            <div class="chat-index-item" onclick="jumpToMessage(${m.originalIndex})">
-                <div class="idx-time">
-                    <span class="${roleClass}">${roleLabel}</span>
-                    ${timeStr ? `· ${timeStr}` : ''}
-                </div>
-                <div class="idx-preview">${preview.replace(/</g, '&lt;')}${m.content.length > 60 ? '...' : ''}</div>
-            </div>
-        `;
-    }).join('');
-}
-
-function jumpToMessage(index) {
-    const win = document.getElementById('chatWindow');
-    if (!win) return;
-
-    const target = win.querySelector(`[data-msg-index="${index}"]`);
-    if (target) {
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // 高亮闪烁一下，标记找到了
-        target.style.transition = 'background 0.3s';
-        target.style.background = 'rgba(201,169,97,0.12)';
-        setTimeout(() => { target.style.background = ''; }, 1200);
-    }
-
-    // 手机端：跳转后自动关闭索引面板
-    if (window.innerWidth <= 600) {
-        const panel = document.getElementById('chatIndexPanel');
-        if (panel) panel.classList.remove('open');
-    }
+    body.innerHTML = `
+        <div class="physio-grid">
+            <div class="physio-item"><span class="physio-label">心率</span><span class="physio-val">${s.heart_rate || '--'}<small> bpm</small></span></div>
+            <div class="physio-item"><span class="physio-label">体温</span><span class="physio-val">${s.temperature || '--'}<small> ℃</small></span></div>
+            <div class="physio-item"><span class="physio-label">呼吸</span><span class="physio-val">${s.breath_rate || '--'}<small> /min</small></span></div>
+            <div class="physio-item"><span class="physio-label">和弦</span><span class="physio-val">${s.dominant_chord || '--'}</span></div>
+            <div class="physio-item"><span class="physio-label">欲望</span><span class="physio-val">${s.desire != null ? s.desire.toFixed(2) : '--'}</span></div>
+            <div class="physio-item"><span class="physio-label">紧绷</span><span class="physio-val">${s.tension != null ? s.tension.toFixed(2) : '--'}</span></div>
+            <div class="physio-item"><span class="physio-label">温柔</span><span class="physio-val">${s.tenderness != null ? s.tenderness.toFixed(2) : '--'}</span></div>
+        </div>
+        <div class="physio-time">${s.updated_at ? new Date(s.updated_at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) : ''}</div>
+    `;
 }
 
 /* 工具菜单开关 */
@@ -2213,32 +2188,17 @@ function retryLastMessage(btn) {
 })();
 
 // ═══ 星空事件触发（在消息展示时检测） ═══
-// ==================== Pulse 生理状态条 ====================
+// ==================== Pulse 生理状态 ====================
 async function fetchPulseStatus() {
     try {
         const r = await fetch('/api/physio/status');
         if (!r.ok) return;
         const d = await r.json();
-        updatePulseUI(d);
+        _physioCache = d;
+        // 如果弹窗开着，实时刷新
+        var panel = document.getElementById('physioPanel');
+        if (panel && panel.classList.contains('open')) renderPhysioPanel();
     } catch(e) {}
-}
-function updatePulseUI(s) {
-    const mini = document.getElementById('pulseMini');
-    if (mini) mini.textContent = (s.heart_rate || '72') + ' bpm · ' + (s.temperature || '36.6') + '°C · ' + (s.dominant_chord || 'Cmaj7');
-    setText('pdHR', s.heart_rate || '72');
-    setText('pdTemp', s.temperature || '36.6');
-    setText('pdBreath', s.breath_rate || '15');
-    setText('pdDesire', (s.desire != null ? s.desire.toFixed(2) : '0.00'));
-    setText('pdTension', (s.tension != null ? s.tension.toFixed(2) : '0.00'));
-    setText('pdTenderness', (s.tenderness != null ? s.tenderness.toFixed(2) : '0.30'));
-    setText('pdChord', s.dominant_chord || 'Cmaj7');
-    var t = document.getElementById('pdTime');
-    if (t && s.updated_at) t.textContent = '更新于 ' + new Date(s.updated_at).toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'});
-}
-function setText(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
-function togglePulseDetail() {
-    var d = document.getElementById('pulseDetail');
-    if (d) d.style.display = d.style.display === 'none' ? 'block' : 'none';
 }
 
 function triggerStarEffects(userText, aiText) {

@@ -141,13 +141,13 @@
 </div>
 
 <div class="section" id="sec-chat">
-<div class="view-topbar" id="chatTopbar"><button class="view-back" onclick="goView('home')">←</button><span class="view-title" id="chatViewTitle">通讯 · 主频道</span><span style="flex:1"></span><button class="chat-rename-topbar-btn" onclick="renameChatWindow()" title="重命名频道">✎</button><button class="chat-index-topbar-btn" onclick="toggleChatIndex()" title="对话索引">◈</button><button class="chat-theme-topbar-btn" onclick="toggleLightMode()" id="chatThemeBtn" title="主题切换">◈</button></div>
+<div class="view-topbar" id="chatTopbar"><button class="view-back" onclick="goView('home')">←</button><span class="view-title" id="chatViewTitle">通讯 · 主频道</span><span style="flex:1"></span><button class="chat-rename-topbar-btn" onclick="renameChatWindow()" title="重命名频道">✎</button><button class="chat-index-topbar-btn" onclick="togglePhysioPanel()" title="身体状态">♡</button><button class="chat-theme-topbar-btn" onclick="toggleLightMode()" id="chatThemeBtn" title="主题切换">◈</button></div>
         <div class="chat-layout">
             <div class="chat-main">
                <div class="chat-main-header" id="chatMainHeader">
     <div class="chat-win-title" id="chatWinTitle">⊹ 主频道</div>
     <div style="display:flex;gap:6px;align-items:center;">
-        <button class="chat-index-btn" onclick="toggleChatIndex()">◈ 索引</button>
+        <button class="chat-index-btn" onclick="togglePhysioPanel()">♡ 身体</button>
         <button class="chat-rename-btn" onclick="renameChatWindow()" title="重命名">✎</button>
     </div>
 </div>
@@ -193,19 +193,6 @@
 </div>
         </div>
 
-        <div id="pulseBar" class="pulse-bar" onclick="togglePulseDetail()" title="沈望生理状态">
-            <span class="pulse-mini" id="pulseMini">72 bpm · 36.6°C · Cmaj7</span>
-        </div>
-        <div id="pulseDetail" class="pulse-detail" style="display:none">
-            <div class="pulse-detail-row"><span>心率</span><span id="pdHR">72</span> bpm</div>
-            <div class="pulse-detail-row"><span>体温</span><span id="pdTemp">36.6</span> ℃</div>
-            <div class="pulse-detail-row"><span>呼吸</span><span id="pdBreath">15</span> /min</div>
-            <div class="pulse-detail-row"><span>欲望</span><span id="pdDesire">0.00</span></div>
-            <div class="pulse-detail-row"><span>紧绷</span><span id="pdTension">0.00</span></div>
-            <div class="pulse-detail-row"><span>温柔</span><span id="pdTenderness">0.30</span></div>
-            <div class="pulse-detail-row"><span>和弦</span><span id="pdChord">Cmaj7</span></div>
-            <div class="pulse-detail-time" id="pdTime"></div>
-        </div>
         <div class="resonance-core" id="resonanceCore"><div class="core-pulse"></div></div>
         <textarea id="chatInput" rows="1" placeholder="发消息给沈望..."></textarea>
         <button class="chat-send-btn" onclick="sendChat()">发送 ✦</button>
