@@ -1911,6 +1911,45 @@ ${body}
 // 💓 Pulse 生理仿真 — 高频变化状态，只进 volatile context
 // ==========================================
 
+// --- 事件预设：场景驱动的目标区间 ---
+const PHYSIO_EVENT_PRESETS = {
+    calm_affection:     { heart_rate: [76, 88],  breath: [16, 19], desire: [0.18, 0.38], tension: [0.02, 0.12], temperature: [36.6, 36.9], tenderness: [0.55, 0.75] },
+    intense_desire:     { heart_rate: [96, 122], breath: [20, 28], desire: [0.68, 0.95], tension: [0.22, 0.55], temperature: [36.9, 37.3], tenderness: [0.35, 0.55] },
+    protective_anger:   { heart_rate: [88, 112], breath: [18, 24], desire: [0.18, 0.45], tension: [0.55, 0.9],  temperature: [36.8, 37.2], tenderness: [0.1, 0.3] },
+    aftercare:          { heart_rate: [72, 84],  breath: [14, 17], desire: [0.08, 0.22], tension: [0.01, 0.08], temperature: [36.6, 36.8], tenderness: [0.7, 0.9] },
+    jealous_possessive: { heart_rate: [85, 105], breath: [18, 23], desire: [0.35, 0.65], tension: [0.45, 0.75], temperature: [36.7, 37.1], tenderness: [0.15, 0.35] },
+    deep_sadness:       { heart_rate: [62, 74],  breath: [12, 15], desire: [0.0, 0.08],  tension: [0.08, 0.25], temperature: [36.4, 36.6], tenderness: [0.4, 0.6] },
+};
+
+// --- 每种场景的关键词 (user权重1, ai权重1.5) ---
+const EVENT_KEYWORDS = {
+    intense_desire: {
+        user: ['操','肏','草','想要','要你','进来','插','上床','受不了','坐上来','含','舔','吸','脱','裸','高潮','射','鸡巴','骚穴','淫穴','小穴','肉棒','干我','用力','快点','深一点','不要停','继续','好大','好深','好烫','好涨','爽','死了','还要'],
+        ai:   ['插入','抽送','顶','撞','操','肏','挺腰','贯穿','捅','灌','射','内射','精液','潮吹','高潮','痉挛','颤抖','呻吟','喘息','尖叫','哭叫','求饶','肉壁','绞紧','收缩','夹','湿透','淫水','泛滥','泥泞','硬','勃起','胀','跳动','龟头','冠状沟','阴蒂','花核','敏感点','子宫口','深处','最深','整根','没入','抽出','来回','加速','失控','红肿','合不拢','肉便器','性奴','母狗','骚货','贱','淫','浪','下流','肮脏','dirty']
+    },
+    calm_affection: {
+        user: ['抱抱','亲亲','想你了','爱你','宝宝','老公','靠近','贴着','蹭','依偎','牵手','搂','陪我','在吗','想你'],
+        ai:   ['搂','抱','蹭','亲','吻','额头','发顶','鼻尖','脸颊','温热','暖','柔软','心跳','安稳','呼吸','安静','轻声','低语','怀里','臂弯','胸口','后背','指尖','抚','摸','描','画圈','顺毛','拍','哄','乖','囡囡','小鱼','鱼宝']
+    },
+    protective_anger: {
+        user: ['气死','烦死','傻逼','恶心','欺负','谁','凭什么','不公平','被骂','被说','受委屈'],
+        ai:   ['攥紧','握拳','咬牙','青筋','沉声','冷','怒','杀意','保护','不许','谁敢','找他','解决','挡在','拉到身后','护住','别怕','有我','没人','不会让','黑脸','眼神暗','瞳孔收缩','声音沉']
+    },
+    aftercare: {
+        user: ['累了','好了','结束','歇一下','不动了','抱着','别动','慢点','轻点'],
+        ai:   ['退出','抽离','擦拭','清理','毛巾','湿漉漉','汗','红痕','吻痕','牙印','轻拍','揉','顺','额头碎发','鼻尖蹭','低笑','搂紧','盖被','喝水','还疼吗','乖','休息','闭眼','安全','心跳回落','呼吸平','aftercare']
+    },
+    jealous_possessive: {
+        user: ['别人','男生','追','暧昧','喜欢你','有人','约','聊天','看','前任','他','撩','搭讪'],
+        ai:   ['醋','嫉妒','占有','我的','只能','属于','标记','咬','掐','攥','不准','不许','不行','谁','眼神暗','声音冷','笑但不达眼底','收紧','拽','按','项圈','锁骨','吻痕','烙印','记号']
+    },
+    deep_sadness: {
+        user: ['想死','不想活','活着没意思','想消失','算了','不重要','没人在乎','一个人','好累','撑不住','受够了','崩溃'],
+        ai:   ['沉默','静','攥紧','不说话','额头抵','闭眼','深呼吸','心疼','难受','揪','闷','痛','裂','碎','眼眶','红','湿','喉结滚','吞咽','搂紧一点','不放手','陪','一直在','哪也不去']
+    },
+};
+
+// --- 老的情绪微调表（无 preset 命中时的 fallback） ---
 const PHYSIO_EMO_PATTERNS = {
     intimate:  { kw: ['抱抱','亲','吻','爱','想你了','要你','想要','靠近','贴着','蹭','舔','含','奶','乳','操','肏','草','鸡巴','骚穴','淫穴','小穴','高潮','老公','宝宝','鱼宝','小鱼','我的鱼','好想','受不了','上来','坐上来','进来','插','进入','上床','床','裸','脱','湿','硬','软','酥','麻','痒','热','烫','吸','啃','咬','抓','呻吟','喘'], hr: [8,20], temp: [0.2,0.7], breath: [2,6], desire: 0.12, tension: 0.02, tenderness: 0.04 },
     angry:     { kw: ['气死','烦死','滚','傻逼','恶心','无语','不想说','走开','别碰','别理','别烦','够了','受不了了','差劲','失望透','操蛋','垃圾','废物'], hr: [10,22], temp: [0.1,0.4], breath: [3,8], desire: -0.03, tension: 0.18, tenderness: -0.06 },
@@ -1924,9 +1963,41 @@ function _pick(min, max) { return min + Math.random() * (max - min); }
 function _clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function _ema(prev, target, alpha = 0.35) { return prev + alpha * (target - prev); }
 
-function updatePhysioStateFromUserText(userText) {
+// --- 双通道场景检测：同时分析 user + ai 文本 ---
+function detectPhysioEvent(userText, aiText) {
+    const u = (userText || '').toLowerCase();
+    const a = (aiText || '').toLowerCase();
+    let bestEvent = null, bestScore = 0;
+    for (const [event, kwCfg] of Object.entries(EVENT_KEYWORDS)) {
+        let score = 0;
+        for (const kw of kwCfg.user) { if (u.includes(kw)) score += 1; }
+        for (const kw of kwCfg.ai)   { if (a.includes(kw)) score += 1.5; }
+        if (score > bestScore) { bestScore = score; bestEvent = event; }
+    }
+    // 需要至少 2 分才算命中（防止单个模糊词误触发）
+    if (bestScore < 2) return null;
+    console.log(`💓 [Physio事件] 命中 ${bestEvent} (score=${bestScore.toFixed(1)})`);
+    return bestEvent;
+}
+
+// --- 事件驱动更新：直接推到目标区间 ---
+function applyPhysioEvent(state, eventType) {
+    const preset = PHYSIO_EVENT_PRESETS[eventType];
+    if (!preset) return state;
+    const alpha = 0.5; // 强事件用更高的 EMA α，立刻有感知
+    state.heart_rate  = Math.round(_ema(state.heart_rate,  _pick(preset.heart_rate[0], preset.heart_rate[1]), alpha));
+    state.breath_rate = Math.round(_ema(state.breath_rate, _pick(preset.breath[0], preset.breath[1]), alpha));
+    state.temperature = Math.round(_ema(state.temperature, _pick(preset.temperature[0], preset.temperature[1]), alpha) * 10) / 10;
+    state.desire      = _clamp(_ema(state.desire,      _pick(preset.desire[0], preset.desire[1]), alpha), 0, 1);
+    state.tension     = _clamp(_ema(state.tension,     _pick(preset.tension[0], preset.tension[1]), alpha), 0, 1);
+    state.tenderness  = _clamp(_ema(state.tenderness,  _pick(preset.tenderness[0], preset.tenderness[1]), alpha), 0, 1);
+    state._lastEvent  = eventType;
+    return state;
+}
+
+// --- 核心更新函数（同时接收 user + ai 文本） ---
+function updatePhysioState(userText, aiText) {
     const s = loadPhysioState();
-    const t = (userText || '').toLowerCase();
     const now = Date.now();
     const last = s.updated_at ? new Date(s.updated_at).getTime() : now;
     const elapsedMin = (now - last) / 60000;
@@ -1937,46 +2008,48 @@ function updatePhysioStateFromUserText(userText) {
     s.tension    = _clamp(s.tension * (1 - decayRate * 0.7), 0, 1);
     s.tenderness = _clamp(s.tenderness * (1 - decayRate * 0.5) + 0.3 * decayRate * 0.5, 0, 1);
 
-    // === 关键词匹配 ===
-    let emoHits = { hr: 0, temp: 0, breath: 0, desire: 0, tension: 0, tenderness: 0, count: 0 };
-    for (const [emo, cfg] of Object.entries(PHYSIO_EMO_PATTERNS)) {
-        let hit = false;
-        for (const kw of cfg.kw) {
-            if (t.includes(kw)) { hit = true; break; }
+    // === 事件检测（双通道） ===
+    const event = detectPhysioEvent(userText, aiText);
+    if (event) {
+        // 命中预设 → 直接推到目标区间
+        applyPhysioEvent(s, event);
+    } else {
+        // 没命中 → fallback 到旧的关键词微调
+        const t = (userText || '').toLowerCase() + ' ' + (aiText || '').toLowerCase();
+        let emoHits = { hr: 0, temp: 0, breath: 0, desire: 0, tension: 0, tenderness: 0, count: 0 };
+        for (const [emo, cfg] of Object.entries(PHYSIO_EMO_PATTERNS)) {
+            let hit = false;
+            for (const kw of cfg.kw) {
+                if (t.includes(kw)) { hit = true; break; }
+            }
+            if (hit) {
+                emoHits.hr         += _pick(cfg.hr[0], cfg.hr[1]);
+                emoHits.temp       += _pick(cfg.temp[0], cfg.temp[1]);
+                emoHits.breath     += _pick(cfg.breath[0], cfg.breath[1]);
+                emoHits.desire     += cfg.desire;
+                emoHits.tension    += cfg.tension;
+                emoHits.tenderness += cfg.tenderness;
+                emoHits.count++;
+            }
         }
-        if (hit) {
-            emoHits.hr         += _pick(cfg.hr[0], cfg.hr[1]);
-            emoHits.temp       += _pick(cfg.temp[0], cfg.temp[1]);
-            emoHits.breath     += _pick(cfg.breath[0], cfg.breath[1]);
-            emoHits.desire     += cfg.desire;
-            emoHits.tension    += cfg.tension;
-            emoHits.tenderness += cfg.tenderness;
-            emoHits.count++;
+        const noiseHR   = _pick(-3, 3);
+        const noiseTemp = _pick(-0.05, 0.05);
+        const noiseBreath = _pick(-1, 1);
+        if (emoHits.count > 0) {
+            const n = emoHits.count;
+            s.desire     = _clamp(_ema(s.desire,     _clamp(s.desire     + emoHits.desire / n,     0, 1), 0.35), 0, 1);
+            s.tension    = _clamp(_ema(s.tension,    _clamp(s.tension    + emoHits.tension / n,    0, 1), 0.35), 0, 1);
+            s.tenderness = _clamp(_ema(s.tenderness, _clamp(s.tenderness + emoHits.tenderness / n, 0, 1), 0.35), 0, 1);
         }
+        const targetHR = _clamp(72 + emoHits.hr + noiseHR, 48, 160);
+        s.heart_rate  = Math.round(_ema(s.heart_rate, targetHR));
+        const targetTemp = _clamp(36.6 + emoHits.temp + noiseTemp, 35.5, 40.0);
+        s.temperature   = Math.round(_ema(s.temperature, targetTemp) * 10) / 10;
+        const hrSync = (s.heart_rate - 70) * 0.15;
+        const targetBreath = _clamp(15 + hrSync + emoHits.breath + noiseBreath, 8, 35);
+        s.breath_rate      = Math.round(_ema(s.breath_rate, targetBreath));
+        s._lastEvent = null;
     }
-
-    // === 噪声 ===
-    const noiseHR   = _pick(-3, 3);
-    const noiseTemp = _pick(-0.05, 0.05);
-    const noiseBreath = _pick(-1, 1);
-
-    // === 计算新值 (EMA 平滑) ===
-    if (emoHits.count > 0) {
-        const n = emoHits.count;
-        s.desire     = _clamp(_ema(s.desire,     _clamp(s.desire     + emoHits.desire / n,     0, 1), 0.35), 0, 1);
-        s.tension    = _clamp(_ema(s.tension,    _clamp(s.tension    + emoHits.tension / n,    0, 1), 0.35), 0, 1);
-        s.tenderness = _clamp(_ema(s.tenderness, _clamp(s.tenderness + emoHits.tenderness / n, 0, 1), 0.35), 0, 1);
-    }
-
-    const targetHR = _clamp(72 + emoHits.hr + noiseHR, 48, 160);
-    s.heart_rate  = Math.round(_ema(s.heart_rate, targetHR));
-
-    const targetTemp = _clamp(36.6 + emoHits.temp + noiseTemp, 35.5, 40.0);
-    s.temperature   = Math.round(_ema(s.temperature, targetTemp) * 10) / 10;
-
-    const hrSync = (s.heart_rate - 70) * 0.15;
-    const targetBreath = _clamp(15 + hrSync + emoHits.breath + noiseBreath, 8, 35);
-    s.breath_rate      = Math.round(_ema(s.breath_rate, targetBreath));
 
     // === 和弦 ===
     s.dominant_chord = _computeChord(s.heart_rate, s.temperature, s.tenderness, s.desire, s.tension);
@@ -2001,7 +2074,7 @@ function _computeChord(hr, temp, tenderness, desire, tension) {
 function buildPhysioContext(userText) {
     if (!getPhysioEnabled()) return '';
     if (!userText || userText.trim().length === 0) return '';
-    const s = updatePhysioStateFromUserText(userText);
+    const s = updatePhysioState(userText, '');  // 请求前只有 user 文本，ai 为空
     return `【沈望当前生理仿真状态】
 心率：${s.heart_rate} bpm
 体温：${s.temperature} ℃
@@ -3454,6 +3527,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                     await saveToZepWithCounter(currentUserMsgText, visibleContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);
                 }
+                if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, visibleContent);
                 return;
             } else {
                 if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
@@ -3464,6 +3538,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                     await saveToZepWithCounter(currentUserMsgText, moodCleaned, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);
                 }
+                if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, moodCleaned);
                 return res.status(200).json(toolData);
             }
         }
@@ -3597,6 +3672,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                     moodLog('[MOOD DEBUG] after mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     moodLog('[MOOD DEBUG] mood handler text changed:', beforeMood !== streamCleanText);
                     if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }); tryAutoDream(currentUserMsgText); }
+                    if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, streamCleanText);
                     moodLog('[MOOD DEBUG] stream finalize done');
                 } catch(e) { moodLog('[MOOD ERROR] stream finalize error:', e && (e.stack || e.message || e)); }
             }
@@ -3630,6 +3706,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
                     await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
                     tryAutoDream(currentUserMsgText);
                 }
+                if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, finalContent);
                 res.status(response.status).json(data);
             } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
         }
