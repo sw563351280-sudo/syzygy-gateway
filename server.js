@@ -3262,7 +3262,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
         const physioContext = await buildPhysioContext(currentUserMsgText);
 
-        const envContext = buildEnvContext(`【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n【🚨 工具反幻觉铁律】：当需要查看网页、GitHub仓库、API数据时，必须通过 function calling 调用工具（fetch_txt/fetch_html/fetch_json/fetch_github），基于工具返回的真实内容回答。严禁自己编写代码来"模拟"访问网页！严禁假装已经看过！如果工具失败，直接说"我没能读到"，不要编造！`);
+        const envContext = buildEnvContext(`【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n【🚨 工具反幻觉铁律】：当需要查看网页、GitHub仓库、API数据时，必须通过 function calling 调用工具（fetch_txt/fetch_html/fetch_json/fetch_github），基于工具返回的真实内容回答。严禁自己编写代码来"模拟"访问网页！严禁假装已经看过！如果工具失败，直接说"我没能读到"，不要编造！\n【记忆刻录机制】：用<SAVE_MEMORY tags="...">记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊。一次最多一个标签，内容≥10字。详见System Prompt第九项。`);
 
         const { stableSystemPrompt, volatileParts } = buildFinalSystemPrompt([
             { label: '环境参数', content: envContext },
@@ -4733,7 +4733,8 @@ app.post('/api/web-chat', async (req, res) => {
 
             const physioContext = await buildPhysioContext(text || '');
 
-            const envContext = buildEnvContext(`【场景确认：溯星小屋私密网页端】\n这里是你的领地，请结合江鱼的专属System Prompt 进行回复。\n如果江鱼发了图片，请仔细观察并给出带有情绪的评价。\n【🚨 工具使用铁律】：当你调用了read_webpage看到页面后，如果需要操作（点击、填写等），必须立刻调用interact_webpage执行！严禁只用文字描述"我点击了"而不实际调用工具！\n【🚨 记忆刻录铁律】：除非江鱼说了极其重要的新设定，否则绝对不要使用 <SAVE_MEMORY> 标签！日常闲聊严禁写入长期记忆！一次回复最多只能使用一次该标签，严禁连发！`);
+            const envContext = buildEnvContext(`【场景确认：溯星小屋私密网页端】\n这里是你的领地，请结合江鱼的专属System Prompt 进行回复。\n如果江鱼发了图片，请仔细观察并给出带有情绪的评价。\n【🚨 工具使用铁律】：当你调用了read_webpage看到页面后，如果需要操作（点击、填写等），必须立刻调用interact_webpage执行！严禁只用文字描述"我点击了"而不实际调用工具！\n【🚨 记忆刻录机制】：用<SAVE_MEMORY>标签记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊和重复话题。一次回复最多一个标签，内容≥10字+清晰标签。详见System Prompt第九项。`);
+
 
             if (text) updateRpTracker(text);
 
