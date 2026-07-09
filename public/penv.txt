@@ -1,3 +1,0 @@
-PROACTIVE_KEY=sk-yTS7qEpW9oPqLHgCFT4RQLa8dfMEqQtS44XGg969TReY9bRY
-PROACTIVE_MODEL=[0.1]claude-opus-4-6
-PROACTIVE_URL=https://api.dzzi.ai/v1/chat/completions

@@ -3324,8 +3324,8 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         const apiHeaders = {
     'Content-Type': 'application/json', 
     'Authorization': req.headers.authorization, 
-    'HTTP-Referer': 'https://syzygy-zep.zeabur.app',  // ← 这个
-    'X-Title': 'My_Cyber_Home'                         // ← 还有这个
+    'HTTP-Referer': 'https://syrenth.uk',
+    'X-Title': 'Syzygy-Gateway'
 };
 
 
@@ -3470,7 +3470,7 @@ console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         // 如果工具修改了文件，自动 git push
         if (fileModified) {
             const { exec } = require('child_process');
-            exec('cd /opt/syzygy && git add -A && git commit -m "auto: AI代码修改" && git push origin main', (err, stdout, stderr) => {
+            exec('cd /opt/syzygy && git add server.js model_prompts.json system_prompt.txt public/script.js public/style.css public/index.html && git diff --cached --quiet || (git commit -m "auto: AI代码修改" && git push origin main)', (err, stdout, stderr) => {
                 if (err) console.log(`🔧 [自动推送] 失败: ${err.message}`);
                 else console.log(`🔧 [自动推送] 成功: ${(stdout||'').replace(/\n/g,' ').substring(0,200)}`);
             });

@@ -1,3 +1,12 @@
 node_modules/
 data/
 public/photos/
+
+# 调试输出（VPS MCP 工具生成）
+public/*.txt
+public/*.patch
+
+# 运行时/临时文件
+ring.json
+pub
+model_prompts_new.json
