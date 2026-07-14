@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>溯星 · 环境感知</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d0d1a;color:#e0d8c8;font-family:-apple-system,BlinkMacSystemFont,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+.card{background:#1a1a2e;border:1px solid #2a2a4e;border-radius:20px;padding:32px 24px;max-width:380px;width:100%;text-align:center}
+h1{font-size:22px;margin-bottom:6px;color:#D4A856}
+.sub{font-size:13px;color:#718096;margin-bottom:28px}
+.row{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid #1e1e3a}
+.row:last-child{border-bottom:none}
+.label{font-size:15px}
+.value{font-size:14px;color:#A0A0B8}
+.status{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px}
+.on{background:#48bb78;box-shadow:0 0 8px #48bb78}
+.off{background:#4a5568}
+.btn{background:#D4A856;color:#0d0d1a;border:none;padding:12px 32px;border-radius:12px;font-size:16px;font-weight:700;margin-top:24px;cursor:pointer;width:100%}
+.btn:active{background:#b8923e}
+.btn.off{background:#4a5568;color:#a0a0b8}
+.token{background:#0d0d1a;border:1px solid #2a2a4e;border-radius:10px;padding:12px;margin-top:16px;font-size:11px;color:#718096;word-break:break-all;font-family:monospace;text-align:left}
+.note{font-size:11px;color:#555;margin-top:20px;line-height:1.6}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>🔭 溯星 · 环境感知</h1>
+  <p class="sub">实时发送位置与环境响度</p>
+
+  <div class="row">
+    <span class="label">📍 GPS</span>
+    <span class="value" id="gpsVal">等待授权…</span>
+    <span class="status off" id="gpsDot"></span>
+  </div>
+
+  <div class="row">
+    <span class="label">🎤 麦克风响度</span>
+    <span class="value" id="micVal">未开启</span>
+    <span class="status off" id="micDot"></span>
+  </div>
+
+  <div class="row">
+    <span class="label">📤 上次发送</span>
+    <span class="value" id="lastSent">—</span>
+  </div>
+
+  <button class="btn" id="micBtn" onclick="startMic()">🎤 授权麦克风</button>
+
+  <div class="token" id="tokenDisplay">加载中…</div>
+
+  <p class="note">
+    添加到主屏幕：Safari → 分享 → 添加到主屏幕<br>
+    保持页面打开即可持续上传<br>
+    GPS 每 5 分钟发送一次
+  </p>
+</div>
+
+<script>
+const INGEST_URL = '/api/sensors/ingest';
+const TOKEN = '%%TOKEN%%'; // 部署时由脚本自动替换
+
+// 显示 token（前8位）
+(function initToken() {
+  if (TOKEN.startsWith('%%')) {
+    // token 未配置，尝试从 localStorage 读取
+    const saved = localStorage.getItem('sensor_ingest_token');
+    if (saved) {
+      document.getElementById('tokenDisplay').textContent = '🔑 令牌: ' + saved.substring(0,8) + '…';
+    } else {
+      const input = prompt('请输入 SENSOR_INGEST_TOKEN（仅保存在本地浏览器）：');
+      if (input && input.length > 10) {
+        localStorage.setItem('sensor_ingest_token', input);
+        document.getElementById('tokenDisplay').textContent = '🔑 令牌: ' + input.substring(0,8) + '…';
+      }
+    }
+  } else {
+    document.getElementById('tokenDisplay').textContent = '🔑 令牌已就绪';
+  }
+})();
+
+function getToken() {
+  if (!TOKEN.startsWith('%%')) return TOKEN;
+  return localStorage.getItem('sensor_ingest_token') || '';
+}
+
+let lastGps = null;
+let lastAudioLevel = null;
+let audioContext = null;
+let analyser = null;
+let micStream = null;
+let sendTimer = null;
+
+// ===== GPS =====
+function updateGpsStatus(ok, msg) {
+  document.getElementById('gpsVal').textContent = msg;
+  document.getElementById('gpsDot').className = 'status ' + (ok ? 'on' : 'off');
+}
+
+if ('geolocation' in navigator) {
+  navigator.geolocation.watchPosition(
+    pos => {
+      lastGps = {
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+        accuracy: pos.coords.accuracy
+      };
+      const acc = pos.coords.accuracy ? `±${Math.round(pos.coords.accuracy)}m` : '';
+      updateGpsStatus(true, `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)} ${acc}`);
+    },
+    err => {
+      updateGpsStatus(false, '权限未授予');
+      console.log('GPS 错误:', err.message);
+    },
+    { enableHighAccuracy: true, timeout: 30000, maximumAge: 300000 }
+  );
+} else {
+  updateGpsStatus(false, '设备不支持');
+}
+
+// ===== 麦克风响度 =====
+async function startMic() {
+  const btn = document.getElementById('micBtn');
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioContext.createMediaStreamSource(micStream);
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+
+    document.getElementById('micDot').className = 'status on';
+    document.getElementById('micVal').textContent = '监听中…';
+    btn.textContent = '🎤 已开启';
+    btn.className = 'btn on';
+    btn.onclick = null;
+
+    // 每秒采样一次
+    setInterval(() => {
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteTimeDomainData(data);
+      let sumSquares = 0;
+      for (let i = 0; i < data.length; i++) {
+        const normalized = (data[i] - 128) / 128;
+        sumSquares += normalized * normalized;
+      }
+      const rms = Math.sqrt(sumSquares / data.length);
+      const dbFS = rms > 0 ? 20 * Math.log10(rms) : -100;
+      lastAudioLevel = Math.round(dbFS * 10) / 10;
+      document.getElementById('micVal').textContent = lastAudioLevel + ' dBFS';
+    }, 1000);
+  } catch (e) {
+    btn.textContent = '❌ 麦克风权限未授予';
+    btn.className = 'btn off';
+    console.log('麦克风错误:', e.message);
+  }
+}
+
+// ===== 定时发送 =====
+async function sendSensorData() {
+  const token = getToken();
+  if (!token) {
+    document.getElementById('lastSent').textContent = '缺少令牌';
+    return;
+  }
+
+  const payload = {
+    device_id: 'iphone-web',
+    captured_at: new Date().toISOString()
+  };
+
+  if (lastGps) {
+    payload.latitude = lastGps.latitude;
+    payload.longitude = lastGps.longitude;
+    if (lastGps.accuracy) payload.accuracy = lastGps.accuracy;
+  }
+
+  if (lastAudioLevel !== null) {
+    payload.sound_average = lastAudioLevel;
+    payload.sound_unit = 'dBFS';
+    payload.sound_sample_seconds = 5;
+  }
+
+  try {
+    const res = await fetch(INGEST_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify(payload)
+    });
+    const now = new Date().toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    document.getElementById('lastSent').textContent = res.ok ? now : '发送失败(' + res.status + ')';
+  } catch(e) {
+    document.getElementById('lastSent').textContent = '网络错误';
+  }
+}
+
+// 每 5 分钟发送一次
+sendTimer = setInterval(sendSensorData, 5 * 60 * 1000);
+// 首次 10 秒后发送
+setTimeout(sendSensorData, 10000);
+</script>
+
+</body>
+</html>

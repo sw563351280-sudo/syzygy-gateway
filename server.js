@@ -237,6 +237,15 @@ app.post('/api/logout', (req, res) => {
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 // ==========================================
+// 传感器网页（免登录，Token 由服务端注入）
+// ==========================================
+app.get('/sensors', (req, res) => {
+    const html = fs.readFileSync(path.join(__dirname, 'public', 'sensors.html'), 'utf8');
+    const token = SENSOR_INGEST_TOKEN || '';
+    res.type('html').send(html.replace('%%TOKEN%%', token));
+});
+
+// ==========================================
 // 传感器数据上传（独立 Bearer Token 认证，绕过 Cookie 登录）
 // ==========================================
 const SENSOR_RATE_LIMIT = new Map(); // IP → { count, resetAt }
@@ -367,7 +376,7 @@ app.post('/api/sensors/ingest', (req, res) => {
 // ==========================================
 // 全局认证中间件（放所有业务路由之前）
 // ==========================================
-const PUBLIC_PATHS = ['/login', '/api/login', '/health', '/api/sensors/ingest'];
+const PUBLIC_PATHS = ['/login', '/api/login', '/health', '/api/sensors/ingest', '/sensors'];
 
 function isPublicPath(req) {
     return PUBLIC_PATHS.includes(req.path);
