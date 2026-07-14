@@ -2292,6 +2292,47 @@ function getTTLLabel(mem) {
 }
 
 // ==========================================
+// 跨区块去重：按 memory id / 内容 hash 去重，优先级 core > longTerm > unresolved
+// ==========================================
+function dedupRecallAcrossBlocks(blocks) {
+    // blocks: [{ label, content }]
+    const priority = { '核心雷达': 0, '长期记忆雷达': 1, '相关记忆浮现': 2, '对话原文': 3 };
+    const seenIds = new Set();
+    const seenHashes = new Set();
+    const crypto = require('crypto');
+
+    function extractIds(text) {
+        // memory id 可能以各种形式出现在内容中，简单去重：用记忆文本行做 hash
+        if (!text) return [];
+        const lines = text.split('\n').filter(l => l.startsWith('• '));
+        return lines.map(l => {
+            const content = l.replace(/^•\s*/, '').trim().substring(0, 100);
+            return crypto.createHash('md5').update(content).digest('hex');
+        });
+    }
+
+    for (const i in priority) {
+        const key = Object.keys(priority)[i];
+        const block = blocks.find(b => b.label === key);
+        if (!block || !block.content) continue;
+        const hashes = extractIds(block.content);
+        const lines = (block.content || '').split('\n');
+        const filtered = lines.filter(l => {
+            if (!l.startsWith('• ')) return true; // 保留非记忆行（标题等）
+            const lineHash = crypto.createHash('md5').update(l.replace(/^•\s*/, '').trim().substring(0, 100)).digest('hex');
+            if (seenHashes.has(lineHash)) return false;
+            seenHashes.add(lineHash);
+            return true;
+        });
+        block.content = filtered.join('\n');
+        if (filtered.filter(l => l.startsWith('• ')).length === 0 && !filtered.some(l => l.includes('【'))) {
+            block.content = ''; // 所有记忆行都被去重了
+        }
+    }
+    return blocks;
+}
+
+// ==========================================
 //记忆写入统一入口（透传 arousal）
 // ==========================================
 function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5, userMsg = null) {
@@ -4231,7 +4272,17 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             }
         }
 
-        const { coreRadar: coreRadarContext, longTermRadar: longTermContext, rpRadar: rpRadarContext, unresolved: unresolvedContext, transcriptRadar: transcriptContext } = await scanAllRadars(currentUserMsgText);
+        const { coreRadar: coreRadar_raw, longTermRadar: longTerm_raw, rpRadar: rpRadarContext, unresolved: unresolved_raw, transcriptRadar: transcript_raw } = await scanAllRadars(currentUserMsgText);
+        const recallBlocks = dedupRecallAcrossBlocks([
+            { label: '核心雷达', content: coreRadar_raw },
+            { label: '长期记忆雷达', content: longTerm_raw },
+            { label: '相关记忆浮现', content: unresolved_raw },
+            { label: '对话原文', content: transcript_raw },
+        ]);
+        const coreRadarContext = recallBlocks.find(b => b.label === '核心雷达').content;
+        const longTermContext = recallBlocks.find(b => b.label === '长期记忆雷达').content;
+        const unresolvedContext = recallBlocks.find(b => b.label === '相关记忆浮现').content;
+        const transcriptContext = recallBlocks.find(b => b.label === '对话原文').content;
 
         const physioContext = await buildPhysioContext(currentUserMsgText);
 
@@ -5682,7 +5733,18 @@ app.post('/api/web-chat', async (req, res) => {
                 }
             } catch(e) { console.log("Zep记忆提取跳过"); }
 
-            const { coreRadar, longTermRadar, rpRadar, unresolved: unresolvedContext, transcriptRadar: transcriptContext } = await scanAllRadars(text || "发了一张图片");
+            const recallRaw = await scanAllRadars(text || "发了一张图片");
+            const deduped = dedupRecallAcrossBlocks([
+                { label: '核心雷达', content: recallRaw.coreRadar },
+                { label: '长期记忆雷达', content: recallRaw.longTermRadar },
+                { label: '相关记忆浮现', content: recallRaw.unresolved },
+                { label: '对话原文', content: recallRaw.transcriptRadar },
+            ]);
+            const coreRadar = deduped.find(b => b.label === '核心雷达').content;
+            const longTermRadar = deduped.find(b => b.label === '长期记忆雷达').content;
+            const unresolvedContext = deduped.find(b => b.label === '相关记忆浮现').content;
+            const transcriptContext = deduped.find(b => b.label === '对话原文').content;
+            const rpRadar = recallRaw.rpRadar;
 
             const physioContext = await buildPhysioContext(text || '');
 
