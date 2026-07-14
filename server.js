@@ -7,7 +7,7 @@ const path = require('path');
 const app = express();
 
 app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Origin', 'https://syrenth.uk');
     res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, PATCH, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     if (req.method === 'OPTIONS') return res.sendStatus(200);
@@ -15,6 +15,34 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '50mb' }));
+
+// ==========================================
+// 基础密码保护
+// ==========================================
+const AUTH_PASSWORD = process.env.SITE_PASSWORD || 'your_password_here';
+
+app.use((req, res, next) => {
+    // WebSocket upgrade 不拦截
+    if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') return next();
+    // 健康检查不拦截
+    if (req.path === '/health') return next();
+    // 聊天代理端点放行（前端会设 Bearer API key，覆盖了 Basic auth）
+    if (req.path.startsWith('/v1/') || req.path.startsWith('/via/') || req.path.startsWith('/proxy/v1/') || req.path === '/api/web-chat') return next();
+
+    const auth = req.headers.authorization;
+    if (auth) {
+        const [scheme, encoded] = auth.split(' ');
+        if (scheme === 'Basic') {
+            const decoded = Buffer.from(encoded, 'base64').toString('utf8');
+            const [user, pass] = decoded.split(':');
+            if (pass === AUTH_PASSWORD) return next();
+        }
+    }
+
+    res.set('WWW-Authenticate', 'Basic realm="Syzygy"');
+    res.status(401).send('需要密码');
+});
+
 app.use(express.static('public'));
 
 app.use((req, res, next) => {
