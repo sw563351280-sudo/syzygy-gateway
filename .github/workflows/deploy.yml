@@ -66,6 +66,12 @@ jobs:
             # patch_inject.js 已禁用 — server.js/model_prompts.json 由 git 直接提供
             # node patch_inject.js || echo "⚠️ 补丁执行出错，但继续部署"
 
-            (systemctl set-environment SITE_PASSWORD="563351280.1230" SESSION_SECRET="57603c8408c58bfa73b1dfbbbe9c926a943481234035967587504f235983074f" && systemctl restart syzygy.service && sleep 2 && journalctl -u syzygy.service --no-pager -n 3) || echo "⚠️ restart may have failed"
+            # 注入 SITE_PASSWORD 和 SESSION_SECRET 到 systemd 环境变量
+            if ! grep -q SITE_PASSWORD /etc/systemd/system/syzygy.service; then
+              sed -i '/^Environment=/ s/$/ SITE_PASSWORD="563351280.1230" SESSION_SECRET="57603c8408c58bfa73b1dfbbbe9c926a943481234035967587504f235983074f"/' /etc/systemd/system/syzygy.service
+              systemctl daemon-reload
+            fi
+
+            (systemctl restart syzygy.service && sleep 2 && journalctl -u syzygy.service --no-pager -n 3) || echo "⚠️ restart may have failed"
             echo "=== DEPLOY OK ==="
           '
