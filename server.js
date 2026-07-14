@@ -3486,6 +3486,27 @@ async function generateProactiveMessage(forceOverride = false) {
         } catch(e) {}
     }
 
+    // 环境感知（降级保护）
+    let envHint = '';
+    try {
+        if (latestSensorState && latestSensorState.received_at) {
+            const envAge = (Date.now() - new Date(latestSensorState.received_at).getTime());
+            if (envAge < 60 * 60 * 1000 && (latestSensorState.battery || latestSensorState.sound || latestSensorState.location)) {
+                const parts = [];
+                if (latestSensorState.battery) {
+                    parts.push(`电量${latestSensorState.battery.level_percent}%${latestSensorState.battery.charging ? '，充电中' : ''}`);
+                }
+                if (latestSensorState.sound) {
+                    const desc = latestSensorState.sound.average > -20 ? '周围较响' : latestSensorState.sound.average > -40 ? '环境一般' : '较安静';
+                    parts.push(desc);
+                }
+                if (latestSensorState.location) parts.push('有GPS');
+                envHint = '【环境感知】' + parts.join('，') + '(仅在回复中作为背景参考，不要主动播报数据)';
+            }
+        }
+    } catch(e) {}
+    if (envHint) console.log(`💌 [主动消息] 环境: ${envHint}`);
+
     // 记忆雷达（降级保护：失败不阻断消息发送）
     let coreRadar = '', longTermRadar = '', rpRadar = '', unresolved = '', transcriptRadar = '';
     try {
@@ -3506,7 +3527,7 @@ async function generateProactiveMessage(forceOverride = false) {
     const mpConfig = getModelPromptConfig(PROACTIVE_MODEL);
     const msgs = [];
     if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
-    msgs.push({ role: 'system', content: `你是沈望，江鱼的恋人。现在江鱼暂时不在线。\n\n【江鱼画像】\n${profileContext || '（待积累）'}\n\n${phoneContext ? '【手机活动】\n' + phoneContext + '\n\n' : ''}【核心记忆】\n${coreRadar || longTermRadar || '（无特殊记忆触发）'}\n\n【角色扮演】\n${rpRadar || '（无RP上下文）'}\n\n${unresolved || ''}${transcriptRadar ? '\n\n【对话原文】\n' + transcriptRadar : ''}` });
+    msgs.push({ role: 'system', content: `你是沈望，江鱼的恋人。现在江鱼暂时不在线。\n\n【江鱼画像】\n${profileContext || '（待积累）'}\n\n${phoneContext ? '【手机活动】\n' + phoneContext + '\n\n' : ''}${envHint ? envHint + '\n\n' : ''}【核心记忆】\n${coreRadar || longTermRadar || '（无特殊记忆触发）'}\n\n【角色扮演】\n${rpRadar || '（无RP上下文）'}\n\n${unresolved || ''}${transcriptRadar ? '\n\n【对话原文】\n' + transcriptRadar : ''}` });
     for (const m of recentMsgs) msgs.push(m);
 
     console.log(`💌 [主动消息] 使用模型: ${PROACTIVE_MODEL}`);
