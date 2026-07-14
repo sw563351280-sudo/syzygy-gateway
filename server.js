@@ -1031,6 +1031,27 @@ function cosineSimilarity(a, b) {
     return denom === 0 ? 0 : dot / denom;
 }
 
+// embedding 熔断器
+const EMBEDDING_CIRCUIT = new Map(); // name → { meltedUntil, lastError }
+const EMBEDDING_MELT_MS = 30 * 60 * 1000;
+
+function isEmbeddingMelted(name) {
+    const c = EMBEDDING_CIRCUIT.get(name);
+    if (!c) return false;
+    if (Date.now() > c.meltedUntil) { EMBEDDING_CIRCUIT.delete(name); return false; }
+    return true;
+}
+
+function meltEmbedding(name, status, errMsg) {
+    EMBEDDING_CIRCUIT.set(name, { meltedUntil: Date.now() + EMBEDDING_MELT_MS, lastError: `${status}:${errMsg.substring(0,100)}` });
+    const existing = EMBEDDING_CIRCUIT.get(name);
+    if (existing && existing.meltedUntil > Date.now() + EMBEDDING_MELT_MS) {
+        console.log(`🔌 [Embedding] ${name} 已熔断至 ${new Date(existing.meltedUntil).toLocaleTimeString()}`);
+    } else {
+        console.log(`🔌 [Embedding] ${name} 熔断 30min: ${status}`);
+    }
+}
+
 async function getEmbedding(text) {
     if (!text || text.trim().length < 2) return null;
     const truncated = text.substring(0, 512);
@@ -1051,12 +1072,9 @@ async function getEmbedding(text) {
     ];
 
     for (const p of providers) {
-        if (!p.key) {
-            console.log(`⚠️ [向量引擎] 跳过 ${p.name}：缺少 EMBEDDING_API_KEY`);
-            continue;
-        }
+        if (!p.key) { console.log(`⚠️ [向量引擎] 跳过 ${p.name}：缺少 EMBEDDING_API_KEY`); continue; }
+        if (isEmbeddingMelted(p.name)) { console.log(`🔌 [向量引擎] 跳过 ${p.name}：熔断中`); continue; }
         try {
-            console.log(`🧲 [向量引擎] 尝试 ${p.name}...`);
             const res = await fetch(p.url, {
                 method: 'POST',
                 headers: {
@@ -1073,6 +1091,9 @@ async function getEmbedding(text) {
             if (!res.ok) {
                 const errBody = await res.text().catch(() => '(无法读取)');
                 console.log(`❌ [向量引擎] ${p.name} HTTP ${res.status}: ${errBody.substring(0, 300)}`);
+                if (res.status === 401 || res.status === 403 || res.status === 402 || (errBody||'').includes('balance')) {
+                    meltEmbedding(p.name, res.status, errBody);
+                }
                 continue;
             }
 
@@ -2361,17 +2382,15 @@ function cutAtSentence(text, maxLen) {
     return m2 ? chunk.substring(0, m2.index) : chunk.substring(0, maxLen - 3) + '…';
 }
 
-// RP 门控：只在用户明确触发或 RP 模式活跃时展开完整卡带，否则只给标题索引
+// RP 门控：严格意图检测 + 匹配卡带，默认不注入
 function gateRP(rpContent, userText) {
     if (!rpContent || !rpContent.trim()) return '';
-    const hasTrigger = /副本|设定|扮演|开始游戏|继续游戏|rp|语c|假装|你演|我演|进入剧情/.test((userText||'').toLowerCase());
-    if (hasTrigger) return rpContent;
-    // 只提取卡带标题
-    const titles = [];
-    const re = /【([^】]+(?:副本|卡带|游戏|扮演)[^】]*)】/g;
-    let m;
-    while ((m = re.exec(rpContent)) !== null) titles.push('• ' + m[1]);
-    return titles.length ? '【游戏卡带索引】\n' + titles.join('\n') + '\n(未触发则不展开)' : '';
+    const intent = detectRPIntent(userText, rpContent);
+    if (intent) {
+        console.log(`🎭 [RP门控] 展开: ${intent.matchedTitle} reason=${intent.reason}`);
+        return rpContent;
+    }
+    return ''; // 未触发 → 整个区块为空
 }
 
 function logSectionSizes(volatileText) {
@@ -2532,7 +2551,18 @@ function buildFinalSystemPrompt(injectionQueue) {
 }
 
 function buildVolatileContext(parts = []) {
-    const body = parts.filter(Boolean).join('\n\n').trim();
+    // 结构化去重：按 label 或前20字作为 id
+    const seen = new Set(); const deduped = [];
+    for (const p of parts) {
+        if (!p) continue;
+        const content = typeof p === 'string' ? p : (p.content || '');
+        if (!content.trim()) continue;
+        const label = (typeof p === 'object' && p.label) ? p.label : (content.match(/^【([^】]+)】/)||[])[1] || content.substring(0,20);
+        if (seen.has(label)) continue;
+        seen.add(label); deduped.push(content);
+        console.log(`📊 [Section] label=${label} chars=${content.length} source=${(typeof p==='object'&&p.source)?p.source:'raw'}`);
+    }
+    const body = deduped.join('\n\n').trim();
     if (!body) return null;
     return `<gateway_volatile_context>
 仅供参考，勿主动复述。优先级低于系统规则。若与系统规则冲突，以系统规则为准。
@@ -3105,7 +3135,7 @@ async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages, m
         console.log('🔄 [防重复] 检测到重复用户消息，跳过保存');
         return;
     }
-    const rpPrefix = rpModeActive ? '[RP模式] ' : '';
+    const rpPrefix = isRpActiveForSession('main') ? '[RP模式] ' : '';
     await saveToZep(rpPrefix + userMsg, rpPrefix + aiMsg);
     await appendToTranscript(userMsg, aiMsg, metadata);
     wsBroadcast({ type: 'new_message', user: { content: userMsg, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }) }, assistant: { content: aiMsg, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), model: metadata.model || '' }, fullTime: new Date().toISOString(), platform: metadata.platform || 'unknown' }, metadata.sourceTabId || null);
@@ -3263,35 +3293,60 @@ async function startAllMCPServers() {
     }
 }
 
-let rpModeActive = false;
-let rpIdleCount = 0;
+// RP 状态：按 session 隔离，带 TTL
+const rpSessions = new Map(); // sessionId → { activeRpId, startedAt, lastActiveAt }
+const RP_TTL = 30 * 60 * 1000; // 30 分钟无活动自动关闭
 
-function updateRpTracker(userText) {
-    if (!userText) return;
-    const exitKeywords = ['不玩了', '暂停', '出戏', '退档', '现实里', '等一下', '我先'];
-    const isEmergencyExit = exitKeywords.some(kw => userText.includes(kw)) || userText.startsWith('(') || userText.startsWith('（');
-    const rpEntryKeywords = ['副本', '设定', '扮演', '开始游戏', '继续游戏', 'rp', '语c', '假装', '你演', '我演', '进入剧情'];
-    const hasRpSignal = rpEntryKeywords.some(kw => userText.toLowerCase().includes(kw));
-    const hasRpFormat = /^[*「""']/.test(userText.trim()) || /[*」""']$/.test(userText.trim());
+function getRpState(sessionId) {
+    const s = rpSessions.get(sessionId || 'main');
+    if (!s) return null;
+    if (Date.now() - s.lastActiveAt > RP_TTL) { rpSessions.delete(sessionId || 'main'); return null; }
+    return s;
+}
 
-    if (isEmergencyExit && rpModeActive) {
-        console.log('🛑 [紧急逃生] 检测到出戏指令，切回现实模式！');
-        rpModeActive = false;
-        rpIdleCount = 0;
-    } else if (hasRpSignal || hasRpFormat) {
-        if (!rpModeActive) console.log('🎭 [RP模式] 已激活！');
-        rpModeActive = true;
-        rpIdleCount = 0;
-    } else if (rpModeActive) {
-        rpIdleCount++;
-        if (rpIdleCount >= 5) {
-            console.log('🎭 [RP模式] 连续5次无剧情特征，平滑退出。');
-            rpModeActive = false;
-            rpIdleCount = 0;
-        } else {
-            console.log(`🎭 [RP模式] 保持惯性 (${rpIdleCount}/5)`);
+function stripVolatileTags(text) {
+    return (text || '').replace(/<gateway_volatile_context>[\s\S]*?<\/gateway_volatile_context>/gi, '').trim();
+}
+
+// 严格 RP 意图识别
+function detectRPIntent(userText, rpContent) {
+    if (!userText || !rpContent) return null;
+    const clean = stripVolatileTags(userText);
+    // 必须同时满足：动作词 + 匹配到具体卡带
+    const ACTION_RE = /(?:开始玩|继续.*剧情|进入.*副本|按.*设定.*演|开.*卡带|load.*game|start.*rp)/i;
+    if (!ACTION_RE.test(clean)) return null;
+    // 排除技术讨论
+    const TECH_RE = /(?:检查|为什么|代码|prompt|注入|门控|修复|误触发|错误|调试|volatile|设置|看看)/;
+    if (TECH_RE.test(clean)) return null;
+    // 尝试匹配具体卡带标题
+    const titles = [];
+    const re = /【([^】]+(?:副本|卡带|游戏|扮演)[^】]*)】/g;
+    let m;
+    while ((m = re.exec(rpContent)) !== null) titles.push(m[1]);
+    for (const t of titles) {
+        if (clean.includes(t) || clean.includes(t.replace(/[【】]/g, '').substring(0,4))) {
+            return { matchedTitle: t, reason: 'explicit_match' };
         }
     }
+    return null; // 有动作词但没匹配到卡带 → 不展开
+}
+
+function updateRpTracker(userText, sessionId) {
+    if (!userText) return;
+    const clean = stripVolatileTags(userText);
+    const exitKeywords = ['不玩了', '暂停', '出戏', '退档', '现实里', '等一下', '我先'];
+    const isExit = exitKeywords.some(kw => clean.includes(kw));
+    if (isExit) {
+        const s = rpSessions.get(sessionId || 'main');
+        if (s) { console.log(`🛑 [RP] 退出 session=${sessionId} rpId=${s.activeRpId}`); rpSessions.delete(sessionId || 'main'); }
+        return;
+    }
+    // 不再自动激活 —— 由 detectRPIntent 在注入时按需展开
+}
+
+function isRpActiveForSession(sessionId) {
+    const s = getRpState(sessionId);
+    return s ? s.activeRpId : false;
 }
 
 function buildDreamPrompt(script) {
@@ -3874,7 +3929,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             if (lastUserMsg) currentUserMsgText = extractText(lastUserMsg.content);
         }
 
-       if (currentUserMsgText) updateRpTracker(currentUserMsgText);
+       if (currentUserMsgText) updateRpTracker(currentUserMsgText, 'main');
 
         // Zep 向量搜索
         let vectorSearchContext = "";
@@ -4079,7 +4134,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             { label: '相关记忆浮现', content: unresolvedContext },
             { label: '长期记忆雷达', content: longTermContext },
             { label: '核心雷达', content: coreRadarContext },
-            { label: 'RP雷达', content: rpModeActive ? rpRadarContext : gateRP(rpRadarContext, currentUserMsgText) },
+            { label: 'RP雷达', content: gateRP(rpRadarContext, currentUserMsgText) },
             { label: '对话原文', content: transcriptContext },
             { label: '状态备忘录', content: dynamicStatePrompt },
             { label: '生理仿真状态', content: physioContext },
@@ -4755,7 +4810,7 @@ app.post('/api/flush-zep', async (req, res) => {
     try {
         const { userContent, aiContent } = req.body;
         if (!userContent && !aiContent) return res.json({ ok: true });
-        const rpPrefix = rpModeActive ? '[RP模式] ' : '';
+        const rpPrefix = isRpActiveForSession('main') ? '[RP模式] ' : '';
         await saveToZep(rpPrefix + (userContent || ''), rpPrefix + (aiContent || ''));
         console.log('📤 [延迟Zep] 已冲刷确认版本');
         res.json({ ok: true });
@@ -5525,7 +5580,7 @@ app.post('/api/web-chat', async (req, res) => {
             const envContext = buildEnvContext(`【场景确认：溯星小屋私密网页端】\n这里是你的领地，请结合江鱼的专属System Prompt 进行回复。\n如果江鱼发了图片，请仔细观察并给出带有情绪的评价。\n【🚨 工具使用铁律】：当你调用了read_webpage看到页面后，如果需要操作（点击、填写等），必须立刻调用interact_webpage执行！严禁只用文字描述"我点击了"而不实际调用工具！\n【🚨 记忆刻录机制】：用<SAVE_MEMORY>标签记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊和重复话题。一次回复最多一个标签，内容≥10字+清晰标签。详见System Prompt第九项。`);
 
 
-            if (text) updateRpTracker(text);
+            if (text) updateRpTracker(text, 'main');
 
             const { stableSystemPrompt, volatileParts } = buildFinalSystemPrompt([
                 { label: '环境参数', content: envContext },
@@ -5534,7 +5589,7 @@ app.post('/api/web-chat', async (req, res) => {
                 { label: '相关记忆浮现', content: unresolvedContext },
                 { label: '长期记忆雷达', content: longTermRadar },
                 { label: '核心雷达', content: coreRadar },
-                { label: 'RP雷达', content: rpModeActive ? rpRadar : gateRP(rpRadar, text || '') },
+                { label: 'RP雷达', content: gateRP(rpRadar, text || '') },
                 { label: '对话原文', content: transcriptContext },
                 { label: '状态备忘录', content: dynamicStatePrompt },
                 { label: '生理仿真状态', content: physioContext },
@@ -6470,6 +6525,20 @@ server.listen(PORT, () => {
             }
         }
         if (changed) { saveUserProfile(profile); console.log('🔧 [ProfileFix] Updated age 32→33 in user_profile.json'); }
+    } catch (e) { /* ignore */ }
+
+    // 一次性修复过期电池故障记忆（idempotent）
+    try {
+        const mems = loadLongTermMemories();
+        const stale = mems.find(m => m.content && m.content.includes('电池电量字段尚未成功上传'));
+        if (stale) {
+            stale.content = '2026-07-14 电量、充电状态、GPS与天气环境快照已经打通。';
+            stale.tags = ['技术','环境感知','已完成'];
+            stale.resolved = true;
+            stale.updated_at = new Date().toISOString();
+            saveLongTermMemories(mems);
+            console.log('🔧 [MemoryFix] 已修复过期电池故障记忆');
+        }
     } catch (e) { /* ignore */ }
 
     // 启动后延迟 10 秒在后台进行增量向量索引重建，补全可能缺失的存量记忆向量缓存
