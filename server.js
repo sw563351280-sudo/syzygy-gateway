@@ -2328,7 +2328,7 @@ async function buildLiveStatePrompt() {
     const parts = [];
     try { const pd = loadPeriod(); const ps = periodStatusText(pd); parts.push('【江鱼生理期状态】\n' + ps.text); } catch(e) {}
     try { const todos = loadTodos().filter(t => !t.done).slice(0, 8); if (todos.length) parts.push('【江鱼当前待办】\n' + todos.map(t => '- ' + (t.text || t.task || t.title || '')).join('\n')); } catch(e) {}
-    try { const phone = await getPhoneActivity(4); if (phone && phone.records && phone.records.length) { parts.push('【江鱼手机活动近况】\n' + phone.records.slice(0, 5).map(r => { const app = r.app_name || r.app || r.package_name || 'unknown'; const time = r.opened_at || r.last_opened || r.created_at || r.timestamp || ''; return '- ' + app + '：' + time; }).join('\n')); } } catch(e) {}
+    try { const phone = await getPhoneActivity(4); if (phone && phone.records && phone.records.length) { const now=Date.now(); const recent=phone.records.filter(r=>{const t=r.opened_at||r.last_opened||r.created_at||r.timestamp||'';return t?(now-new Date(t).getTime())<4*3600000:false}).slice(0,5); if(recent.length){parts.push('【江鱼手机活动近况】\n'+recent.map(r=>{const app=r.app_name||r.app||r.package_name||'unknown';const ts=r.opened_at||r.last_opened||r.created_at||r.timestamp||'';const d=new Date(ts);const local=d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Shanghai'});const min=Math.round((now-d.getTime())/60000);const rel=min<1?'刚刚':min<60?min+'分钟前':Math.round(min/60)+'小时前';return'- '+app+'：'+local+'（'+rel+'）';}).join('\n'));}}} catch(e) {}
     try { const us = loadUserState(); const lines = []; if (us.physical_state) lines.push('身体状态：' + us.physical_state); if (Array.isArray(us.current_focus) && us.current_focus.length) lines.push('当前关注：' + us.current_focus.join(' / ')); if (lines.length) parts.push('【江鱼实时状态】\n' + lines.join('\n')); } catch(e) {}
     return parts.length ? parts.join('\n\n') : '';
 }
@@ -2349,6 +2349,51 @@ function injectAfterSystem(messages, injected) {
     if (lastSystemIndex >= 0) arr.splice(lastSystemIndex + 1, 0, injected);
     else arr.unshift(injected);
     return arr;
+}
+
+function cutAtSentence(text, maxLen) {
+    if (!text || text.length <= maxLen) return text;
+    const chunk = text.substring(0, maxLen);
+    const m = chunk.match(/[。！？\n](?=[^。！？\n]*$)/);
+    if (m) return chunk.substring(0, m.index + 1);
+    // fallback: last comma or space
+    const m2 = chunk.match(/[，,\s](?=[^，,\s]*$)/);
+    return m2 ? chunk.substring(0, m2.index) : chunk.substring(0, maxLen - 3) + '…';
+}
+
+// RP 门控：只在用户明确触发或 RP 模式活跃时展开完整卡带，否则只给标题索引
+function gateRP(rpContent, userText) {
+    if (!rpContent || !rpContent.trim()) return '';
+    const hasTrigger = /副本|设定|扮演|开始游戏|继续游戏|rp|语c|假装|你演|我演|进入剧情/.test((userText||'').toLowerCase());
+    if (hasTrigger) return rpContent;
+    // 只提取卡带标题
+    const titles = [];
+    const re = /【([^】]+(?:副本|卡带|游戏|扮演)[^】]*)】/g;
+    let m;
+    while ((m = re.exec(rpContent)) !== null) titles.push('• ' + m[1]);
+    return titles.length ? '【游戏卡带索引】\n' + titles.join('\n') + '\n(未触发则不展开)' : '';
+}
+
+function logSectionSizes(volatileText) {
+    if (!volatileText) { console.log('📊 [Sections] (empty)'); return; }
+    const sections = volatileText.split(/\n(?=【)/);
+    const summary = sections.map(s => {
+        const key = (s.match(/^【([^】]+)】/) || [])[1] || '?';
+        return `${key}:${s.length}`;
+    });
+    console.log('📊 [Sections] ' + summary.join(' | ') + ' | total:' + volatileText.length);
+}
+
+function dedupSections(text) {
+    if (!text) return text;
+    const sections = text.split(/\n(?=【)/);
+    const seen = new Set();
+    const kept = [];
+    for (const s of sections) {
+        const key = (s.match(/^【([^】]+)】/) || [])[1] || s.substring(0, 20);
+        if (!seen.has(key)) { seen.add(key); kept.push(s); }
+    }
+    return kept.join('\n');
 }
 
 function estimateTokens(text = '') {
@@ -2509,11 +2554,13 @@ function buildWeatherSnapshot() {
             parts.push(`电量：${s.battery.level_percent}%${s.battery.charging ? '，充电中' : ''}`);
         }
         // 位置状态（不暴露坐标）
-        if (s.location && !stale && HOME_LAT != null && HOME_LON != null) {
-            const dist = Math.sqrt((s.location.latitude-HOME_LAT)**2+(s.location.longitude-HOME_LON)**2)*111000;
-            parts.push(`位置状态：${dist<=200?'在家':'外面'}`);
-        } else if (s.location && !stale) {
-            parts.push('位置状态：有位置信息');
+        if (s.location && !stale) {
+            if (HOME_LAT != null && HOME_LON != null) {
+                const dist = Math.sqrt((s.location.latitude-HOME_LAT)**2+(s.location.longitude-HOME_LON)**2)*111000;
+                parts.push(`位置状态：${dist<=200?'在家':'外面'}`);
+            } else {
+                parts.push('位置状态：unknown');
+            }
         }
         // 天气（仅用缓存）
         if (s.location && s.location.latitude && !stale) {
@@ -2523,6 +2570,20 @@ function buildWeatherSnapshot() {
             if (wc && (Date.now()-wc.timestamp)<WEATHER_CACHE_TTL+60*1000) {
                 const w=wc.weather; const ctx=buildWeatherContext(w,null,w.is_day);
                 parts.push(`天气：${w.weather_desc}，${w.temperature}°C，体感${w.apparent_temperature}°C`);
+                if (w.relative_humidity_2m != null) parts.push(`湿度：${w.relative_humidity_2m}%`);
+                if (w.wind_speed_10m != null) {
+                    let ws = `风：${w.wind_speed_10m}km/h`;
+                    if (w.wind_gusts_10m != null && w.wind_gusts_10m > w.wind_speed_10m + 3) ws += `，阵风${w.wind_gusts_10m}km/h`;
+                    parts.push(ws);
+                }
+                if (w.pm2_5 != null) parts.push(`PM2.5：${w.pm2_5}μg/m³`);
+                if (w.us_aqi != null) parts.push(`AQI：${w.us_aqi}`);
+                if (w.uv_index != null) parts.push(`UV：${w.uv_index}`);
+                if (w.sunrise != null && w.sunset != null) {
+                    const srH=Math.floor(w.sunrise),srM=Math.round((w.sunrise%1)*60);
+                    const ssH=Math.floor(w.sunset),ssM=Math.round((w.sunset%1)*60);
+                    parts.push(`日出：${String(srH).padStart(2,'0')}:${String(srM).padStart(2,'0')}  日落：${String(ssH).padStart(2,'0')}:${String(ssM).padStart(2,'0')}`);
+                }
                 const sens=getSensation(ctx); if(sens) parts.push(`身体感受：${sens}`);
             }
         }
@@ -4018,7 +4079,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             { label: '相关记忆浮现', content: unresolvedContext },
             { label: '长期记忆雷达', content: longTermContext },
             { label: '核心雷达', content: coreRadarContext },
-            { label: 'RP雷达', content: rpRadarContext },
+            { label: 'RP雷达', content: rpModeActive ? rpRadarContext : gateRP(rpRadarContext, currentUserMsgText) },
             { label: '对话原文', content: transcriptContext },
             { label: '状态备忘录', content: dynamicStatePrompt },
             { label: '生理仿真状态', content: physioContext },
@@ -4057,17 +4118,22 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             const shouldScan = shouldScanTranscript(currentUserMsgText);
             if (shouldScan) txCtx = await scanTranscriptRadar(currentUserMsgText);
             const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
-            dynamicBlocks = [moodSnapshotInst, liveCtx, memCtx, txCtx].filter(Boolean).join('\n\n').substring(0, 11000);
+            dynamicBlocks = cutAtSentence([moodSnapshotInst, liveCtx, memCtx, txCtx].filter(Boolean).join('\n\n'), 11000);
+            if (dynamicBlocks.endsWith('…')) console.log('⚠️ [DynamicBlocks] truncated at sentence boundary');
             _ctxDiag.last = { at: new Date().toISOString(), scanTranscript: shouldScan, transcriptLen: txCtx.length, liveStateLen: (liveCtx||'').length, memoryLen: (memCtx||'').length, totalCtxLen: dynamicBlocks.length, userText: (currentUserMsgText||'').substring(0, 120) };
         } catch(e) { _ctxDiag.last = { at: new Date().toISOString(), error: e.message, userText: (currentUserMsgText||'').substring(0, 120) }; }
 
-        // 构建 volatile context（含动态注入队列 + 四层上下文 + 天气快照 + memoryContext）
-        const volatileText = buildVolatileContext([
-            ...volatileParts,
+        // 构建 volatile context —— 环境快照紧随环境参数，然后其他动态内容
+        const volatilePartsArr = [...volatileParts];
+        volatilePartsArr.splice(1, 0, buildWeatherSnapshot()); // 插在 环境参数 之后
+        let volatileRaw = buildVolatileContext([
+            ...volatilePartsArr,
             dynamicBlocks,
             memoryContext && memoryContext.trim() ? memoryContext.trim() : null,
-            buildWeatherSnapshot()
         ].filter(Boolean));
+        volatileRaw = volatileRaw ? dedupSections(volatileRaw) : null;
+        logSectionSizes(volatileRaw);
+        const volatileText = volatileRaw;
 
         // === 3. 组装最终 messages: system + history + (merged user) ===
         const lastUserMsg = newMessages.pop();  // 当前用户原话
@@ -5468,7 +5534,7 @@ app.post('/api/web-chat', async (req, res) => {
                 { label: '相关记忆浮现', content: unresolvedContext },
                 { label: '长期记忆雷达', content: longTermRadar },
                 { label: '核心雷达', content: coreRadar },
-                { label: 'RP雷达', content: rpRadar },
+                { label: 'RP雷达', content: rpModeActive ? rpRadar : gateRP(rpRadar, text || '') },
                 { label: '对话原文', content: transcriptContext },
                 { label: '状态备忘录', content: dynamicStatePrompt },
                 { label: '生理仿真状态', content: physioContext },
@@ -5507,7 +5573,11 @@ app.post('/api/web-chat', async (req, res) => {
                 const webSystemMsg = { role: "system", content: webStableBlock };
                 if (webIsClaude) webSystemMsg.cache_control = { type: 'ephemeral' };
 
-                const volatileText = buildVolatileContext([...volatileParts, buildWeatherSnapshot()]);
+                const volatilePartsArr2 = [...volatileParts];
+                volatilePartsArr2.splice(1, 0, buildWeatherSnapshot());
+                let volatileText = buildVolatileContext([...volatilePartsArr2]);
+                volatileText = volatileText ? dedupSections(volatileText) : null;
+                if (volatileText) logSectionSizes(volatileText);
                 let finalUser = userContent;
                 if (volatileText) {
                     finalUser = Array.isArray(finalUser)
