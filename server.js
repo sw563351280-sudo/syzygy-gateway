@@ -1907,7 +1907,7 @@ function surfaceUnresolvedMemories(topK = RADAR_TOPK.unresolved) {
     if (scored.length === 0) return "";
 
     const lines = scored.map(({ m }) => `• ${m.content}`).join('\n');
-    return `\n\n==========\n【⚡ 高权重记忆浮现：这些事还悬着，请自然融入对话，不要生硬念出来】\n${lines}\n==========\n`;
+    return `\n\n==========\n【⚡ 相关记忆浮现：这些事可能跟当前话题有关，请自然融入对话，不要生硬念出来】\n${lines}\n==========\n`;
 }
 
 //自动清洗管家（基于 arousal 衰减）
@@ -2496,24 +2496,37 @@ ${body}
 </gateway_volatile_context>`;
 }
 
-// 天气快照：从缓存读取，不发起网络请求，过期不注入
+// 环境快照：从 latestSensorState + 天气缓存读取，不发起网络请求，过期不注入
 function buildWeatherSnapshot() {
     try {
         const s = latestSensorState;
-        if (!s || !s.location || !s.location.latitude) return null;
+        if (!s || !s.received_at) return null;
         const gpsAge = Date.now() - new Date(s.received_at).getTime();
-        if (gpsAge > 60 * 60 * 1000) return null;
-        const rLat = Math.round(s.location.latitude * 100) / 100;
-        const rLon = Math.round(s.location.longitude * 100) / 100;
-        const wc = weatherCache.get(`${rLat},${rLon}`);
-        if (!wc || (Date.now() - wc.timestamp) > WEATHER_CACHE_TTL + 60 * 1000) return null;
-        const w = wc.weather; const ctx = buildWeatherContext(w, null, w.is_day);
+        const stale = gpsAge > 60 * 60 * 1000;
         const parts = [];
-        parts.push(`天气：${w.weather_desc} ${w.temperature}°C 体感${w.apparent_temperature}°C`);
-        if (w.relative_humidity_2m != null) parts.push(`湿度${w.relative_humidity_2m}%`);
-        const sens = getSensation(ctx); if (sens) parts.push(`体感：${sens}`);
-        parts.push(`天气更新时间：${new Date(w.fetched_at).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai'})}`);
-        return '【当前环境快照】\n' + parts.join('\n');
+        parts.push(`数据时间：${new Date(s.received_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}${stale?'（数据已过期）':''}`);
+        if (s.battery) {
+            parts.push(`电量：${s.battery.level_percent}%${s.battery.charging ? '，充电中' : ''}`);
+        }
+        // 位置状态（不暴露坐标）
+        if (s.location && !stale && HOME_LAT != null && HOME_LON != null) {
+            const dist = Math.sqrt((s.location.latitude-HOME_LAT)**2+(s.location.longitude-HOME_LON)**2)*111000;
+            parts.push(`位置状态：${dist<=200?'在家':'外面'}`);
+        } else if (s.location && !stale) {
+            parts.push('位置状态：有位置信息');
+        }
+        // 天气（仅用缓存）
+        if (s.location && s.location.latitude && !stale) {
+            const rLat = Math.round(s.location.latitude*100)/100;
+            const rLon = Math.round(s.location.longitude*100)/100;
+            const wc = weatherCache.get(`${rLat},${rLon}`);
+            if (wc && (Date.now()-wc.timestamp)<WEATHER_CACHE_TTL+60*1000) {
+                const w=wc.weather; const ctx=buildWeatherContext(w,null,w.is_day);
+                parts.push(`天气：${w.weather_desc}，${w.temperature}°C，体感${w.apparent_temperature}°C`);
+                const sens=getSensation(ctx); if(sens) parts.push(`身体感受：${sens}`);
+            }
+        }
+        return '【当前环境快照】\n'+parts.join('\n');
     } catch(e) { return null; }
 }
 
@@ -4002,8 +4015,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         const { stableSystemPrompt, volatileParts } = buildFinalSystemPrompt([
             { label: '环境参数', content: envContext },
             { label: '时间线', content: formatTimeContext() },
-            { label: '用户画像', content: formatProfileForPrompt() },
-            { label: '高权重浮现', content: unresolvedContext },
+            { label: '相关记忆浮现', content: unresolvedContext },
             { label: '长期记忆雷达', content: longTermContext },
             { label: '核心雷达', content: coreRadarContext },
             { label: 'RP雷达', content: rpRadarContext },
@@ -4040,14 +4052,13 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             const liveCtx = await buildLiveStatePrompt();
             let activeChatId = req.body.activeChatId || 'main';
             try { const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); activeChatId = req.body.activeChatId || cfg.activeChatId || 'main'; } catch(e) {}
-            const sumCtx = buildLatestSummaryPrompt(activeChatId);
             const memCtx = await scanMemoryRadar(currentUserMsgText);
             let txCtx = '';
             const shouldScan = shouldScanTranscript(currentUserMsgText);
             if (shouldScan) txCtx = await scanTranscriptRadar(currentUserMsgText);
             const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
-            dynamicBlocks = [moodSnapshotInst, liveCtx, sumCtx, memCtx, txCtx].filter(Boolean).join('\n\n').substring(0, 11000);
-            _ctxDiag.last = { at: new Date().toISOString(), scanTranscript: shouldScan, transcriptLen: txCtx.length, liveStateLen: (liveCtx||'').length, summaryLen: (sumCtx||'').length, memoryLen: (memCtx||'').length, totalCtxLen: dynamicBlocks.length, userText: (currentUserMsgText||'').substring(0, 120) };
+            dynamicBlocks = [moodSnapshotInst, liveCtx, memCtx, txCtx].filter(Boolean).join('\n\n').substring(0, 11000);
+            _ctxDiag.last = { at: new Date().toISOString(), scanTranscript: shouldScan, transcriptLen: txCtx.length, liveStateLen: (liveCtx||'').length, memoryLen: (memCtx||'').length, totalCtxLen: dynamicBlocks.length, userText: (currentUserMsgText||'').substring(0, 120) };
         } catch(e) { _ctxDiag.last = { at: new Date().toISOString(), error: e.message, userText: (currentUserMsgText||'').substring(0, 120) }; }
 
         // 构建 volatile context（含动态注入队列 + 四层上下文 + 天气快照 + memoryContext）
@@ -5453,9 +5464,8 @@ app.post('/api/web-chat', async (req, res) => {
             const { stableSystemPrompt, volatileParts } = buildFinalSystemPrompt([
                 { label: '环境参数', content: envContext },
                 { label: '时间线', content: formatTimeContext() },
-                { label: '用户画像', content: formatProfileForPrompt() },
                 { label: '深层闪回', content: vectorSearchContext },
-                { label: '高权重浮现', content: unresolvedContext },
+                { label: '相关记忆浮现', content: unresolvedContext },
                 { label: '长期记忆雷达', content: longTermRadar },
                 { label: '核心雷达', content: coreRadar },
                 { label: 'RP雷达', content: rpRadar },
