@@ -250,7 +250,7 @@ app.get('/sensors', (req, res) => {
 // ==========================================
 const SENSOR_RATE_LIMIT = new Map(); // IP → { count, resetAt }
 
-app.post('/api/sensors/ingest', (req, res) => {
+app.post('/api/sensors/ingest', express.urlencoded({ extended: false, limit: '4kb' }), (req, res) => {
     // --- 令牌未配置 → 503 ---
     if (!SENSOR_INGEST_TOKEN) {
         console.log('⚠️ [Sensor] SENSOR_INGEST_TOKEN 未配置，返回503');
@@ -283,10 +283,10 @@ app.post('/api/sensors/ingest', (req, res) => {
         return res.status(401).json({ error: '未授权' });
     }
 
-    // --- Content-Type 检查 ---
+    // --- Content-Type 检查（接受 JSON 或 表单）---
     const contentType = req.headers['content-type'] || '';
-    if (!contentType.includes('application/json')) {
-        return res.status(400).json({ error: '仅接受 application/json' });
+    if (!contentType.includes('application/json') && !contentType.includes('application/x-www-form-urlencoded')) {
+        return res.status(400).json({ error: '仅接受 application/json 或 application/x-www-form-urlencoded' });
     }
 
     // --- Body 验证 ---
