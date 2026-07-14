@@ -242,9 +242,12 @@ app.post('/api/logout', (req, res) => {
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 // 临时诊断：embedding 服务状态
-app.get('/api/diag/embedding', async (req, res) => {
+// GET: 只读，不探测不重置
+app.get('/api/diag/embedding', (req, res) => {
     const crypto = require('crypto');
     const key = process.env.EMBEDDING_API_KEY;
+    // 仅管理员可看 key_sha256_prefix
+    const authed = req.headers.authorization === `Bearer ${process.env.MEMORY_PASSWORD}`;
     const circuitInfo = [];
     for (const [name, c] of EMBEDDING_CIRCUIT) {
         circuitInfo.push({
@@ -254,38 +257,39 @@ app.get('/api/diag/embedding', async (req, res) => {
             lastFailureStatus: c.lastError
         });
     }
-    const results = {
+    res.json({
         env_configured: !!key,
-        key_sha256_prefix: key ? crypto.createHash('sha256').update(key).digest('hex').substring(0, 8) : '(none)',
+        key_sha256_prefix: authed && key ? crypto.createHash('sha256').update(key).digest('hex').substring(0, 8) : authed ? '(none)' : '(auth required)',
         circuits: circuitInfo,
         retrievalMode: currentRetrievalMode,
         lastSuccessfulEmbeddingAt: lastSuccessfulEmbeddingAt ? new Date(lastSuccessfulEmbeddingAt).toISOString() : null,
         lastProbeAttemptAt: lastProbeAttemptAt ? new Date(lastProbeAttemptAt).toISOString() : null
-    };
-    // 半开探测：5分钟冷却
-    const now = Date.now();
-    if (key && (!circuitInfo.length || !circuitInfo.some(c=>c.circuitOpen) || now - lastProbeAttemptAt > PROBE_COOLDOWN_MS)) {
-        lastProbeAttemptAt = now;
-        try {
-            const r = await fetch('https://api.siliconflow.cn/v1/embeddings', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-                body: JSON.stringify({ model: 'BAAI/bge-m3', input: 'test', encoding_format: 'float' }),
-                signal: AbortSignal.timeout(10000)
-            });
-            const data = await r.json().catch(() => ({}));
-            results.probe = { model: 'BAAI/bge-m3', http_status: r.status, code: data.error?.code||null, message: (data.error?.message||'').substring(0,100) };
-            if (r.ok) { resetEmbeddingCircuit(); lastSuccessfulEmbeddingAt = now; results.circuitReset = true; }
-        } catch(e) { results.probe = { error: e.message }; }
-    }
-    res.json(results);
+    });
 });
 
-app.post('/api/diag/embedding/reset', (req, res) => {
-    const pwd = req.query.pwd || req.body?.pwd || '';
+const DIAG_LIMIT = new Map();
+app.post('/api/diag/embedding/probe', (req, res) => {
+    const pwd = req.body?.pwd || '';
     if (pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '需要管理密码' });
-    resetEmbeddingCircuit();
-    res.json({ ok: true, resetAt: new Date().toISOString() });
+    // 限流
+    const ip = req.ip; const now = Date.now();
+    let rl = DIAG_LIMIT.get(ip) || { count: 0, resetAt: now + 60000 };
+    if (now > rl.resetAt) rl = { count: 0, resetAt: now + 60000 };
+    rl.count++; DIAG_LIMIT.set(ip, rl);
+    if (rl.count > 5) return res.status(429).json({ error: '请求过于频繁' });
+
+    const key = process.env.EMBEDDING_API_KEY;
+    if (!key) return res.json({ error: 'EMBEDDING_API_KEY 未配置' });
+    fetch('https://api.siliconflow.cn/v1/embeddings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+        body: JSON.stringify({ model: 'BAAI/bge-m3', input: 'test', encoding_format: 'float' }),
+        signal: AbortSignal.timeout(10000)
+    }).then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (r.ok) { resetEmbeddingCircuit(); lastSuccessfulEmbeddingAt = Date.now(); }
+        res.json({ model: 'BAAI/bge-m3', http_status: r.status, ok: r.ok, code: data.error?.code||null, message: (data.error?.message||'').substring(0,100), circuitReset: r.ok });
+    }).catch(e => res.json({ error: e.message }));
 });
 
 // ==========================================
@@ -1217,6 +1221,21 @@ async function reindexAllEmbeddings() {
 }
 
 // RRF 向量排名（纯向量余弦相似度，不看标签）
+// 受控二字领域词（仅二字、非泛词、领域明确）
+const TWO_CHAR_DOMAIN_TERMS = new Set(['胃痛','经期','头痛','发烧','感冒','失眠','月经','血检','献血','护手','精油','香水','刷牙','洗澡','吃饭','外卖','地铁','打车','开车','科目','驾照','房租','搬家','工资','面试','简历','签证','护照','密码','账号','关机','充电','电池','断电','关机','黑屏']);
+// 二字停用词
+const TWO_CHAR_STOP_WORDS = new Set(['现在','看看','一下','这个','那个','问题','代码','模型','系统','技术','设置','修复','调试','聊天','对话','记忆','今天','昨天','明天','应该','可以','已经','什么','怎么','为什么','是不是','好不好','知道','觉得','好像','可能','也许','或者','但是','不过']);
+const GENERIC_TAGS = new Set(['看看','问题','模型','现在','设置','聊天','对话','技术','代码','日常','心情','情绪']);
+
+const SENSITIVE_TAG_PATTERN = /自杀|自残|死|杀|性爱|做爱|性|dirty|炮|rape|凌辱|血腥|虐待/;
+const COS_THRESHOLD_NORMAL = 0.45;
+const COS_THRESHOLD_SENSITIVE = 0.60;
+
+function isSensitiveMemory(m) {
+    const text = (m.content||'') + ' ' + (m.tags||[]).join(' ');
+    return SENSITIVE_TAG_PATTERN.test(text);
+}
+
 function _vectorRankSearch(queryEmbedding, memories, topK = 10) {
     const cache = loadEmbeddingsCache();
     const results = [];
@@ -1224,35 +1243,33 @@ function _vectorRankSearch(queryEmbedding, memories, topK = 10) {
         if (m.expires_at && Date.now() > m.expires_at) continue;
         if (!queryEmbedding || !cache[m.id]) continue;
         const score = cosineSimilarity(queryEmbedding, cache[m.id]);
-        if (score > 0.3) results.push({ memory: m, score });
+        const threshold = isSensitiveMemory(m) ? COS_THRESHOLD_SENSITIVE : COS_THRESHOLD_NORMAL;
+        if (score > threshold) results.push({ memory: m, score, cosSim: score });
     }
     results.sort((a, b) => b.score - a.score);
     return results.slice(0, topK);
 }
 
-// RRF 关键词排名（标签匹配 1.5x + 内容子串匹配 1.0x）
 function _keywordRankSearch(queryText, memories, topK = 10) {
     const results = [];
-    const subwords = [];
-    for (let i = 0; i < queryText.length; i++) {
-        for (let len = 2; len <= 4 && i + len <= queryText.length; len++) {
-            subwords.push(queryText.substring(i, i + len));
-        }
-    }
+    const textLower = (queryText||'').toLowerCase();
     for (const m of memories) {
         if (m.expires_at && Date.now() > m.expires_at) continue;
         let score = 0;
+        let hitTags = [];
         if (m.tags && m.tags.length > 0) {
-            const hits = m.tags.filter(tag => isTagMatch(tag, queryText));
-            score += hits.length * 1.5;
+            hitTags = m.tags.filter(tag => {
+                if (!tag || tag.length < 2) return false;
+                if (tag.length === 2) {
+                    if (GENERIC_TAGS.has(tag)) return false;
+                    if (TWO_CHAR_STOP_WORDS.has(tag)) return false;
+                    if (!TWO_CHAR_DOMAIN_TERMS.has(tag) && !textLower.includes(tag)) return false;
+                }
+                return isTagMatch(tag, queryText);
+            });
+            score += hitTags.length * 1.5;
         }
-        const contentLower = (m.content || '').toLowerCase();
-        const summaryLower = (m.chunk_summary || '').toLowerCase();
-        for (const sw of subwords) {
-            if (contentLower.includes(sw.toLowerCase())) score += 1.0;
-            else if (summaryLower.includes(sw.toLowerCase())) score += 0.8;
-        }
-        if (score > 0) results.push({ memory: m, score });
+        if (score > 0) results.push({ memory: m, score, hitTags });
     }
     results.sort((a, b) => b.score - a.score);
     return results.slice(0, topK);
@@ -1267,32 +1284,49 @@ async function rrfMergeSearch(queryText, memories, topK = 5) {
     ]);
     const k = 60;
     const scoreMap = new Map();
+    // 向量结果：带有 cosine similarity
     vecResults.forEach((item, rank) => {
         const id = item.memory.id;
-        const entry = scoreMap.get(id) || { memory: item.memory, score: 0, matchType: '' };
+        const entry = scoreMap.get(id) || { memory: item.memory, score: 0, cosSim: item.cosSim || 0, matchType: '', hitTags: [] };
         entry.score += 1 / (k + rank);
+        entry.cosSim = item.cosSim || entry.cosSim;
         entry.matchType = '🧲向量';
         scoreMap.set(id, entry);
     });
+    // 关键词结果
     kwResults.forEach((item, rank) => {
         const id = item.memory.id;
-        const entry = scoreMap.get(id) || { memory: item.memory, score: 0, matchType: '' };
+        const entry = scoreMap.get(id) || { memory: item.memory, score: 0, cosSim: 0, matchType: '', hitTags: [] };
         entry.score += 1 / (k + rank);
         entry.matchType += (entry.matchType ? '+' : '') + '🔤关键词';
+        entry.hitTags = item.hitTags || [];
         scoreMap.set(id, entry);
     });
+    // heat 加权（仅影响排序，不替代 cosine）
     for (const [, entry] of scoreMap) {
         const m = entry.memory;
         const heat = m.heat !== undefined ? m.heat : 0.5;
         const arousal = m.arousal || 0.5;
         entry.score *= (1 + 0.25 * heat + 0.15 * arousal);
     }
-    const merged = [...scoreMap.values()].sort((a, b) => b.score - a.score);
-    const top = merged.slice(0, topK);
-    if (top.length > 0) {
-        top.forEach(r => console.log(`🎯 [RRF] ${r.matchType} score=${r.score.toFixed(4)} heat=${(r.memory.heat||0.5).toFixed(2)} | ${r.memory.content.substring(0,40)}...`));
-    }
-    console.log(`🔍 [RRF搜索] 向量命中${vecResults.length}条 | 关键词命中${kwResults.length}条 | 融合后${top.length}条 | 最高分: ${top[0]?.score.toFixed(4) || 'N/A'}`);
+    // 门控：必须有 cosine>=阈值 或 精确标签命中
+    const filtered = [...scoreMap.values()].filter(entry => {
+        const m = entry.memory;
+        if (isSensitiveMemory(m)) {
+            if (entry.cosSim >= COS_THRESHOLD_SENSITIVE) return true;
+            if (entry.hitTags.length > 0) return true;
+            return false;
+        }
+        if (entry.cosSim >= COS_THRESHOLD_NORMAL) return true;
+        if (entry.hitTags.length > 0) return true;
+        return false;
+    });
+    filtered.sort((a, b) => b.score - a.score);
+    const top = filtered.slice(0, topK);
+    console.log(`🔍 [RRF搜索] vecHits=${vecResults.length} kwHits=${kwResults.length} filtered=${filtered.length} selected=${top.length}`);
+    top.forEach(r => {
+        console.log(`  id=${r.memory.id||'?'} cosSim=${r.cosSim.toFixed(3)} tags=[${(r.hitTags||[]).join(',')}] rrf=${r.score.toFixed(4)} selected=true`);
+    });
     return top;
 }
 
@@ -1870,24 +1904,24 @@ async function scanLongTermRadar(userText) {
     }
     if (updated) saveLongTermMemories(memories);
 
-    // 热度分层注入
-    let fullCount = 0, blurCount = 0, skipCount = 0;
+    // 分层注入：全文 / chunk_summary / 跳过
+    let fullCount = 0, summaryCount = 0, skipCount = 0;
     const lines = [];
     for (const r of results) {
         const heat = r.memory.heat !== undefined ? r.memory.heat : 0.5;
         if (heat > 0.7) {
             lines.push(`• ${r.memory.content}`);
             fullCount++;
-        } else if (heat >= 0.3) {
-            lines.push(`• ${r.memory.content.substring(0, 60)}……（印象有些模糊）`);
-            blurCount++;
+        } else if (heat >= 0.3 && r.memory.chunk_summary && r.memory.chunk_summary.length > 20) {
+            lines.push(`• ${r.memory.chunk_summary}`);
+            summaryCount++;
         } else {
             skipCount++;
         }
     }
     const MAX_RADAR_LINES = 8;
     if (lines.length > MAX_RADAR_LINES) { lines.length = MAX_RADAR_LINES; console.log(`🪓 [雷达截断] 保留前${MAX_RADAR_LINES}条`); }
-    console.log(`🔥 [热度分层] 全文${fullCount}条 | 模糊${blurCount}条 | 跳过${skipCount}条`);
+    console.log(`🔥 [热度分层] 全文${fullCount}条 | 摘要${summaryCount}条 | 跳过${skipCount}条`);
 
     if (lines.length === 0) return "";
     return `\n\n==========\n【现实永久档案 —— 雷达触发，以下是与当前话题相关的真实核心记忆】\n${lines.join('\n')}\n==========\n`;
@@ -1954,45 +1988,55 @@ function calculateHeat(m) {
 // ==========================================
 //高权重记忆浮现
 // ==========================================
-function surfaceUnresolvedMemories(topK = RADAR_TOPK.unresolved, userText = '') {
+async function surfaceUnresolvedMemories(topK = RADAR_TOPK.unresolved, userText = '') {
     const memories = loadLongTermMemories();
     const now = Date.now();
     const strippedUserText = stripVolatileTags(userText || '');
-    const isMelted = currentRetrievalMode !== 'vector';
+    if (!strippedUserText) return "";
 
-    const scored = memories
-        .filter(m => !m.expires_at || now < m.expires_at)
-        .filter(m => !(m.content||'').includes('（印象有些模糊）')) // #7 残缺记忆排除
-        .filter(m => !(m.content||'').endsWith('……'))
-        .map(m => {
-            const heat = calculateHeat(m);
-            const resolvedPenalty = m.resolved ? 0.05 : 1.0;
-            // 关键词相关性
-            let kwScore = 0;
-            if (strippedUserText && m.tags && m.tags.length) {
-                const strictHits = m.tags.filter(t => {
-                    if (!t || t.length < 3) return false;
-                    // 排除泛词
-                    if (/^(看看|问题|模型|现在|设置|聊天|对话|技术|代码|日常|心情|情绪)$/.test(t)) return false;
-                    return strippedUserText.includes(t);
-                });
-                kwScore = strictHits.length > 0 ? 0.3 : 0;
-            }
-            if (isMelted && kwScore === 0) return null; // 熔断时必须有关键词命中
-            const finalScore = heat * resolvedPenalty * 0.4 + kwScore * 0.6;
-            return { m, heat, kwScore, finalScore };
-        })
-        .filter(Boolean)
-        .filter(({ finalScore }) => finalScore > 0.25)
-        .sort((a, b) => b.finalScore - a.finalScore)
-        .slice(0, topK);
+    const queryEmbedding = await getEmbedding(strippedUserText);
+    // 没有 query embedding 时默认不输出
+    if (!queryEmbedding) return "";
 
-    if (scored.length === 0) return "";
+    const cache = loadEmbeddingsCache();
+    const candidates = [];
 
-    console.log(`⚡ [Recall:Unresolved] mode=${currentRetrievalMode} candidates=${scored.length}` +
-        scored.map(s => ` id=${s.m.id||'?'} heat=${s.heat.toFixed(2)} kw=${s.kwScore.toFixed(2)} final=${s.finalScore.toFixed(2)}`).join(' | '));
+    for (const m of memories) {
+        if (m.expires_at && now > m.expires_at) continue;
+        if ((m.content||'').includes('（印象有些模糊）') || (m.content||'').endsWith('……')) continue;
+        let cosSim = 0;
+        let kwScore = 0;
+        // cosine similarity
+        if (cache[m.id]) {
+            cosSim = cosineSimilarity(queryEmbedding, cache[m.id]);
+        }
+        const threshold = isSensitiveMemory(m) ? COS_THRESHOLD_SENSITIVE : COS_THRESHOLD_NORMAL;
+        if (cosSim < threshold) continue; // 硬门槛
+        // 标签加分（仅影响排序）
+        if (m.tags && m.tags.length) {
+            const strictHits = m.tags.filter(t => {
+                if (!t || t.length < 2) return false;
+                if (t.length === 2 && !TWO_CHAR_DOMAIN_TERMS.has(t)) return false;
+                if (GENERIC_TAGS.has(t)) return false;
+                return strippedUserText.includes(t);
+            });
+            if (strictHits.length > 0) kwScore = 0.15;
+        }
+        const heat = calculateHeat(m);
+        const resolvedPenalty = m.resolved ? 0.05 : 1.0;
+        const finalScore = cosSim * 0.8 + heat * resolvedPenalty * 0.2 + kwScore;
+        candidates.push({ m, cosSim, heat, kwScore, finalScore });
+    }
 
-    const lines = scored.map(({ m }) => `• ${m.content}`).join('\n');
+    candidates.sort((a, b) => b.finalScore - a.finalScore);
+    const top = candidates.slice(0, topK);
+
+    if (top.length === 0) return "";
+
+    console.log(`⚡ [Recall:Unresolved] mode=${currentRetrievalMode} candidates=${top.length}` +
+        top.map(s => ` id=${s.m.id||'?'} cos=${s.cosSim.toFixed(3)} heat=${s.heat.toFixed(2)} kw=${s.kwScore.toFixed(2)} final=${s.finalScore.toFixed(3)}`).join(' | '));
+
+    const lines = top.map(({ m }) => `• ${m.content}`).join('\n');
     return `\n\n==========\n【⚡ 相关记忆浮现：这些事可能跟当前话题有关，请自然融入对话，不要生硬念出来】\n${lines}\n==========\n`;
 }
 
@@ -2306,7 +2350,7 @@ async function scanAllRadars(userText) {
     ]);
     let transcriptRadar = '';
     if (shouldScanTranscript(userText)) transcriptRadar = await scanTranscriptRadar(userText);
-    const unresolved = surfaceUnresolvedMemories(RADAR_TOPK.unresolved, userText);
+    const unresolved = await surfaceUnresolvedMemories(RADAR_TOPK.unresolved, userText);
     return { coreRadar, longTermRadar, rpRadar, unresolved, transcriptRadar };
 }
 
