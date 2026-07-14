@@ -79,7 +79,7 @@ jobs:
               echo "🔍 [Deploy] SENSOR_INGEST_TOKEN 未找到，准备注入..."
               if [ ! -f /opt/syzygy/.sensor_token ]; then
                 echo "🔍 [Deploy] 生成新的 .sensor_token..."
-                node -e "console.log(require(\x27crypto\x27).randomBytes(32).toString(\x27hex\x27))" > /opt/syzygy/.sensor_token || { echo "❌ 生成token失败"; exit 1; }
+                node -e '\''console.log(require("crypto").randomBytes(32).toString("hex"))'\'' > /opt/syzygy/.sensor_token || { echo "❌ 生成token失败"; exit 1; }
                 chmod 600 /opt/syzygy/.sensor_token
                 echo "🔑 [Deploy] 已生成 .sensor_token"
               else
