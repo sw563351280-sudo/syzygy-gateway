@@ -2292,42 +2292,42 @@ function getTTLLabel(mem) {
 }
 
 // ==========================================
-// 跨区块去重：按 memory id / 内容 hash 去重，优先级 core > longTerm > unresolved
+// 跨区块去重：按内容 hash 去重，优先级 core > longTerm > unresolved
 // ==========================================
 function dedupRecallAcrossBlocks(blocks) {
-    // blocks: [{ label, content }]
-    const priority = { '核心雷达': 0, '长期记忆雷达': 1, '相关记忆浮现': 2, '对话原文': 3 };
-    const seenIds = new Set();
+    const PRIORITY_ORDER = ['核心雷达', '长期记忆雷达', '相关记忆浮现', '对话原文'];
     const seenHashes = new Set();
     const crypto = require('crypto');
 
-    function extractIds(text) {
-        // memory id 可能以各种形式出现在内容中，简单去重：用记忆文本行做 hash
-        if (!text) return [];
-        const lines = text.split('\n').filter(l => l.startsWith('• '));
-        return lines.map(l => {
-            const content = l.replace(/^•\s*/, '').trim().substring(0, 100);
-            return crypto.createHash('md5').update(content).digest('hex');
-        });
+    function normalizeContent(line) {
+        // 剥离各种前缀：• / - 📌 / 📌 / -  等
+        return line.replace(/^[•\-\s]*📌\s*/, '').replace(/^[•\-\s]*/, '').trim().substring(0, 100);
     }
 
-    for (const i in priority) {
-        const key = Object.keys(priority)[i];
-        const block = blocks.find(b => b.label === key);
+    function isMemoryLine(line) {
+        return /^[•\-]/.test(line.trim()) || line.includes('📌');
+    }
+
+    for (const label of PRIORITY_ORDER) {
+        const block = blocks.find(b => b.label === label);
         if (!block || !block.content) continue;
-        const hashes = extractIds(block.content);
-        const lines = (block.content || '').split('\n');
-        const filtered = lines.filter(l => {
-            if (!l.startsWith('• ')) return true; // 保留非记忆行（标题等）
-            const lineHash = crypto.createHash('md5').update(l.replace(/^•\s*/, '').trim().substring(0, 100)).digest('hex');
-            if (seenHashes.has(lineHash)) return false;
-            seenHashes.add(lineHash);
-            return true;
-        });
-        block.content = filtered.join('\n');
-        if (filtered.filter(l => l.startsWith('• ')).length === 0 && !filtered.some(l => l.includes('【'))) {
-            block.content = ''; // 所有记忆行都被去重了
+        const lines = block.content.split('\n');
+        const filtered = [];
+        let memoryCount = 0;
+        for (const l of lines) {
+            if (!isMemoryLine(l)) { filtered.push(l); continue; }
+            const hash = crypto.createHash('md5').update(normalizeContent(l)).digest('hex');
+            if (seenHashes.has(hash)) continue;
+            seenHashes.add(hash);
+            filtered.push(l);
+            memoryCount++;
         }
+        block.content = filtered.join('\n');
+        // 检查是否还有标题行：如所有记忆行被去重且有区块标题则保留标题
+        const hasHeader = filtered.some(l => l.includes('【'));
+        const hasMemory = filtered.some(l => isMemoryLine(l));
+        if (!hasMemory && !hasHeader) block.content = '';
+        console.log(`🔗 [Dedup] ${label}: ${memoryCount} memories kept, ${lines.filter(isMemoryLine).length - memoryCount} removed`);
     }
     return blocks;
 }
