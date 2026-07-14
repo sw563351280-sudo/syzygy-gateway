@@ -1610,10 +1610,7 @@ ${script}`;
 
 function formatTimeContext() {
     const now = new Date();
-    const todayKey = getDateKey(now);
     const pages = loadDailyPages();
-    const weeklies = loadWeeklySummaries();
-    const monthlies = loadMonthlySummaries();
     const parts = [];
 
     for (let i = 0; i < 3; i++) {
@@ -1623,23 +1620,13 @@ function formatTimeContext() {
         const label = i === 0 ? '今天' : i === 1 ? '昨天' : '前天';
         if (page) {
             const summary = page.summary || page.shenwang_note || '';
-            if (summary) parts.push(`📅 ${label}(${key.slice(5)})：${summary.substring(0, 120)}`);
+            if (summary) parts.push(`📅 ${label}(${key.slice(5)})：${cutAtSentence(summary, 120)}`);
         }
-    }
-
-    const weekliesSorted = weeklies.sort((a, b) => b.week.localeCompare(a.week));
-    for (let i = 0; i < 2 && i < weekliesSorted.length; i++) {
-        parts.push(`📋 周总结(${weekliesSorted[i].week})：${weekliesSorted[i].summary.substring(0, 100)}`);
-    }
-
-    const monthliesSorted = monthlies.sort((a, b) => b.month.localeCompare(a.month));
-    for (let i = 0; i < 2 && i < monthliesSorted.length; i++) {
-        parts.push(`📦 月总结(${monthliesSorted[i].month})：${monthliesSorted[i].summary.substring(0, 120)}`);
     }
 
     if (parts.length === 0) return '';
     const joined = parts.join('\n');
-    return `\n【时间线回忆】\n${joined.substring(0, 1500)}\n`;
+    return `\n【时间线回忆】\n${joined}\n`;
 }
 
 function formatDiaryContext(userText) {
