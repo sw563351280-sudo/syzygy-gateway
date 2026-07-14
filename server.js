@@ -387,15 +387,16 @@ app.post('/api/sensors/ingest', express.urlencoded({ extended: false, limit: '4k
         };
     }
 
-    // --- 组装并保存 ---
-    latestSensorState = {
-        device_id: deviceId,
-        received_at: receivedAt,
-        captured_at: capturedAtISO,
-        location,
-        battery,
-        sound
-    };
+    // --- 字段级合并（不覆盖未提供的字段）---
+    if (!latestSensorState) {
+        latestSensorState = { device_id: deviceId, received_at: receivedAt, captured_at: null, location: null, battery: null, sound: null };
+    }
+    latestSensorState.device_id = deviceId;
+    latestSensorState.received_at = receivedAt;
+    if (capturedAtISO) latestSensorState.captured_at = capturedAtISO;
+    if (location) latestSensorState.location = location;
+    if (battery) latestSensorState.battery = battery;
+    if (sound) latestSensorState.sound = sound;
     saveSensorState(latestSensorState);
 
     res.status(204).end();
