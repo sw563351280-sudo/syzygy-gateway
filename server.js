@@ -3,74 +3,250 @@ const http = require('http');
 const WebSocket = require('ws');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 
+// ==========================================
+// 环境变量验证 — 缺失即拒绝启动
+// ==========================================
+(function checkEnv() {
+    const missing = [];
+    if (!process.env.SITE_PASSWORD) missing.push('SITE_PASSWORD');
+    if (!process.env.SESSION_SECRET) missing.push('SESSION_SECRET');
+    if (process.env.SESSION_SECRET && process.env.SESSION_SECRET.length < 32) {
+        console.error('❌ SESSION_SECRET 长度不足 32 字符');
+        process.exit(1);
+    }
+    if (missing.length > 0) {
+        console.error(`❌ 缺少必需的环境变量: ${missing.join(', ')}`);
+        process.exit(1);
+    }
+})();
+
+const AUTH_PASSWORD = process.env.SITE_PASSWORD;
+const SESSION_SECRET = process.env.SESSION_SECRET;
+const AUTH_COOKIE = 'syzygy_session';
+const SESSION_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // 30 天
+
+// ==========================================
+// 签名会话 Cookie（HMAC-SHA256，防伪造）
+// ==========================================
+function createSessionCookie() {
+    const nonce = crypto.randomBytes(16).toString('base64url');
+    const expiresAt = Date.now() + SESSION_MAX_AGE;
+    const payload = `${nonce}.${expiresAt}`;
+    const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+    const value = `${payload}.${sig}`;
+    const attrs = [
+        `${AUTH_COOKIE}=${value}`,
+        'HttpOnly',
+        'Secure',
+        'SameSite=Strict',
+        'Path=/',
+        `Max-Age=${Math.floor(SESSION_MAX_AGE / 1000)}`,
+    ];
+    return attrs.join('; ');
+}
+
+function clearSessionCookie() {
+    return `${AUTH_COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`;
+}
+
+function verifySignedCookie(cookieValue) {
+    try {
+        const parts = (cookieValue || '').split('.');
+        if (parts.length !== 3) return false;
+        const payload = `${parts[0]}.${parts[1]}`;
+        const expiresAt = parseInt(parts[1], 10);
+        if (isNaN(expiresAt) || Date.now() > expiresAt) return false;
+        const expectedSig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+        return crypto.timingSafeEqual(Buffer.from(expectedSig), Buffer.from(parts[2]));
+    } catch { return false; }
+}
+
+function constantTimeEqual(a, b) {
+    if (typeof a !== 'string' || typeof b !== 'string') return false;
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    if (bufA.length !== bufB.length) {
+        crypto.timingSafeEqual(bufA, bufA); // 不泄漏长度差异
+        return false;
+    }
+    return crypto.timingSafeEqual(bufA, bufB);
+}
+
+// ==========================================
+// 登录限速（按 IP，15 分钟最多 5 次失败）
+// ==========================================
+const LOGIN_FAILURES = new Map();
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+
+function getLoginRateLimit(ip) {
+    const now = Date.now();
+    let rec = LOGIN_FAILURES.get(ip);
+    if (!rec || now > rec.resetAt) {
+        rec = { count: 0, resetAt: now + LOGIN_WINDOW_MS };
+        LOGIN_FAILURES.set(ip, rec);
+    }
+    return rec;
+}
+
+// ==========================================
+// 从请求中提取会话状态
+// ==========================================
+function getSessionCookieValue(req) {
+    const cookieHeader = req.headers.cookie || '';
+    for (const part of cookieHeader.split(';')) {
+        const trimmed = part.trim();
+        if (trimmed.startsWith(AUTH_COOKIE + '=')) {
+            return trimmed.slice(AUTH_COOKIE.length + 1);
+        }
+    }
+    return null;
+}
+
+function isAuthenticated(req) {
+    const val = getSessionCookieValue(req);
+    return !!val && verifySignedCookie(val);
+}
+
+// ==========================================
+// CORS — 仅允许精确 Origin + 写操作校验
+// ==========================================
+const ALLOWED_ORIGIN = 'https://syrenth.uk';
+
+function handleCORS(req, res) {
+    const origin = req.headers.origin;
+    const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
+
+    // 有 Origin 时校验
+    if (origin) {
+        if (origin !== ALLOWED_ORIGIN) {
+            res.set('Vary', 'Origin');
+            return { allowed: false };
+        }
+        res.set('Access-Control-Allow-Origin', origin);
+        res.set('Access-Control-Allow-Credentials', 'true');
+        res.set('Vary', 'Origin');
+
+        // 写操作额外校验 Origin（已经在上一步通过）
+        if (isWrite) {
+            // Origin 已验证通过
+        }
+    }
+
+    if (isWrite && !origin) {
+        // 无 Origin 的写操作可能来自 CSRF, 拒绝
+        return { allowed: false };
+    }
+
+    if (req.method === 'OPTIONS') {
+        res.set('Access-Control-Allow-Methods', 'GET, POST, DELETE, PATCH, OPTIONS');
+        res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        res.set('Access-Control-Max-Age', '86400');
+        return { allowed: null, isPreflight: true };
+    }
+
+    return { allowed: true };
+}
+
+// ==========================================
+// 全局 CORS 中间件（在所有路由之前）
+// ==========================================
 app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', 'https://syrenth.uk');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, PATCH, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    if (req.method === 'OPTIONS') return res.sendStatus(200);
+    const result = handleCORS(req, res);
+    if (result.allowed === false) {
+        return res.status(403).json({ error: 'Origin 不被允许' });
+    }
+    if (result.isPreflight) {
+        return res.sendStatus(204);
+    }
     next();
 });
 
+// ==========================================
+// 指定扩展名 — /login 页用的小型 CSS 可公开
+// ==========================================
 app.use(express.json({ limit: '50mb' }));
 
 // ==========================================
-// 密码保护（cookie 方式，一次登录管一个月）
+// 登录页（无需认证）
 // ==========================================
-const AUTH_PASSWORD = process.env.SITE_PASSWORD || 'your_password_here';
-const AUTH_COOKIE = 'syzygy_auth';
+const LOGIN_PAGE_HTML = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>溯星小屋 · 登录</title><style>body{background:#1A1A2E;color:#E8E8E8;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:sans-serif}.box{background:#16213E;padding:32px;border-radius:16px;text-align:center}input{background:#0F3460;border:none;color:#E8E8E8;padding:12px 20px;border-radius:8px;font-size:16px;width:200px;margin:12px 0}button{background:#D4A856;color:#1A1A2E;border:none;padding:12px 24px;border-radius:8px;font-size:16px;cursor:pointer;font-weight:600}.error{color:#E74C3C;margin-top:8px;font-size:14px}.hint{color:#718096;font-size:12px;margin-top:12px}</style></head><body><div class="box"><h2>溯星小屋</h2><form method="post" action="/api/login"><input type="password" name="password" placeholder="密码" autofocus required><br><button type="submit">进入</button></form><div class="hint">只有被邀请的人才能进来</div></div></body></html>`;
 
-function checkAuth(req) {
-    // Basic Auth 兼容
-    const auth = req.headers.authorization;
-    if (auth) {
-        const [scheme, encoded] = auth.split(' ');
-        if (scheme === 'Basic') {
-            const decoded = Buffer.from(encoded, 'base64').toString('utf8');
-            const [user, pass] = decoded.split(':');
-            if (pass === AUTH_PASSWORD) return true;
-        }
+app.get('/login', (req, res) => {
+    if (isAuthenticated(req)) {
+        res.set('Cache-Control', 'no-store');
+        return res.redirect('/');
     }
-    // cookie 检查
-    const cookies = (req.headers.cookie || '').split(';').map(c => c.trim());
-    for (const c of cookies) {
-        const [name, val] = c.split('=');
-        if (name === AUTH_COOKIE && val === '1') return true;
+    res.set('Cache-Control', 'no-store');
+    res.type('html').send(LOGIN_PAGE_HTML);
+});
+
+// ==========================================
+// 登录验证 API（限速 + 固定时间比较 + 签名 cookie）
+// ==========================================
+app.post('/api/login', express.urlencoded({ extended: false, limit: '2kb' }), express.json({ limit: '2kb' }), (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    const rateRec = getLoginRateLimit(ip);
+
+    if (rateRec.count >= LOGIN_MAX_ATTEMPTS) {
+        return res.status(429).json({ error: '尝试次数过多，请 15 分钟后再试' });
     }
-    return false;
+
+    const password = req.body && req.body.password;
+    if (!password || !constantTimeEqual(password, AUTH_PASSWORD)) {
+        rateRec.count++;
+        return res.status(401).json({ error: '密码错误' });
+    }
+
+    // 成功 — 清除限速记录并设置 cookie
+    LOGIN_FAILURES.delete(ip);
+    res.set('Set-Cookie', createSessionCookie());
+    res.status(303).set('Location', '/').end();
+});
+
+// ==========================================
+// 登出 API
+// ==========================================
+app.post('/api/logout', (req, res) => {
+    res.set('Set-Cookie', clearSessionCookie());
+    res.json({ ok: true });
+});
+
+// ==========================================
+// 健康检查
+// ==========================================
+app.get('/health', (req, res) => res.json({ ok: true }));
+
+// ==========================================
+// 全局认证中间件（放所有业务路由之前）
+// ==========================================
+const PUBLIC_PATHS = ['/login', '/api/login', '/health'];
+
+function isPublicPath(req) {
+    return PUBLIC_PATHS.includes(req.path);
 }
 
-// 登录页面（无需认证）
-app.get('/login', (req, res) => {
-    if (checkAuth(req)) return res.redirect('/');
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>溯星小屋 · 登录</title><style>body{background:#1A1A2E;color:#E8E8E8;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:sans-serif}.box{background:#16213E;padding:32px;border-radius:16px;text-align:center}input{background:#0F3460;border:none;color:#E8E8E8;padding:12px 20px;border-radius:8px;font-size:16px;width:200px;margin:12px 0}button{background:#D4A856;color:#1A1A2E;border:none;padding:12px 24px;border-radius:8px;font-size:16px;cursor:pointer;font-weight:600}.error{color:#E74C3C;margin-top:8px}</style></head><body><div class="box"><h2>溯星小屋</h2><form method="post" action="/api/login"><input type="password" name="password" placeholder="输入密码" autofocus><br><button type="submit">进入</button></form></div></body></html>`);
-});
+function isApiPath(req) {
+    return req.path.startsWith('/api/') || req.path.startsWith('/v1/') || req.path.startsWith('/via/') || req.path.startsWith('/proxy/');
+}
 
-// 登录验证 API
-app.post('/api/login', express.urlencoded({ extended: false }), (req, res) => {
-    if (req.body.password === AUTH_PASSWORD) {
-        res.set('Set-Cookie', `${AUTH_COOKIE}=1; HttpOnly; SameSite=Lax; Max-Age=2592000; Path=/`);
-        res.redirect('/');
-    } else {
-        res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="2;url=/login"></head><body style="background:#1A1A2E;color:#E74C3C;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif">密码错误，即将跳转回登录页...</body></html>`);
-    }
-});
-
-// 全局认证中间件
 app.use((req, res, next) => {
-    // WebSocket upgrade 不拦截
-    if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') return next();
-    // 登录相关不拦截
-    if (req.path === '/login' || req.path === '/api/login' || req.path === '/health') return next();
-    // 聊天代理端点放行（前端会设 Bearer API key）
-    if (req.path.startsWith('/v1/') || req.path.startsWith('/via/') || req.path.startsWith('/proxy/v1/') || req.path === '/api/web-chat') return next();
+    // 公开路径放行
+    if (isPublicPath(req)) return next();
 
-    if (checkAuth(req)) return next();
+    // 已认证放行
+    if (isAuthenticated(req)) return next();
 
-    // 未认证 → 重定向到登录页
-    res.redirect('/login');
+    // 未认证：
+    if (req.method === 'GET' && !isApiPath(req)) {
+        return res.redirect('/login');
+    }
+    res.status(401).json({ error: '未认证，请先登录' });
 });
 
 app.use(express.static('public'));
@@ -3443,9 +3619,6 @@ newMessages.forEach((m, i) => {
         const apiUrl = resolveApiUrl(req.path);
 
         
-    console.log('🔑 [DEBUG] Authorization:', req.headers.authorization);
-console.log('🌐 [DEBUG] 目标URL:', apiUrl);      // ← 加这行
-console.log('📦 [DEBUG] 模型名:', body.model);    // ← 加这行
         console.log('🛤️ [DEBUG] req.path:', req.path); 
         const viaRouteKey = req.params?.platform || '';
         const cacheMode2 = detectCacheMode({ routeKey: viaRouteKey, baseUrl: apiUrl, model: body.model });
@@ -5670,9 +5843,26 @@ app.get('/test-interact', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 
-const wss = new WebSocket.Server({ server });
+// WebSocket — 手动 upgrade 认证
+const wss = new WebSocket.Server({ noServer: true });
 const wsClients = new Set();
-wss.on('connection', (ws) => {
+
+server.on('upgrade', (request, socket, head) => {
+    // 从 cookie 中提取会话值
+    const cookie = (request.headers.cookie || '').split(';').map(c => c.trim())
+        .find(c => c.startsWith(AUTH_COOKIE + '='));
+    const val = cookie ? cookie.slice(AUTH_COOKIE.length + 1) : null;
+    if (!val || !verifySignedCookie(val)) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
+    }
+    wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+    });
+});
+
+wss.on('connection', (ws, req) => {
     const client = { ws, tabId: null };
     wsClients.add(client);
     console.log(`🌐 [WS] 新连接，当前${wsClients.size}个客户端`);
