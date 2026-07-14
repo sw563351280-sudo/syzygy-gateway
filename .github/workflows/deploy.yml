@@ -73,27 +73,28 @@ jobs:
               systemctl daemon-reload
             fi
 
-            # 注入 SENSOR_INGEST_TOKEN 到 systemd 环境变量
-            echo "🔍 [Deploy] 检查 SENSOR_INGEST_TOKEN..."
-            if ! grep -q SENSOR_INGEST_TOKEN /etc/systemd/system/syzygy.service; then
-              echo "🔍 [Deploy] SENSOR_INGEST_TOKEN 未找到，准备注入..."
-              if [ ! -s /opt/syzygy/.sensor_token ]; then
-                echo "🔍 [Deploy] 生成新的 .sensor_token..."
-                node -e '\''console.log(require("crypto").randomBytes(32).toString("hex"))'\'' > /opt/syzygy/.sensor_token || { echo "❌ 生成token失败"; exit 1; }
-                chmod 600 /opt/syzygy/.sensor_token
-                echo "🔑 [Deploy] 已生成 .sensor_token"
-              else
-                echo "🔍 [Deploy] .sensor_token 已存在，复用"
-              fi
-              TOKEN=$(cat /opt/syzygy/.sensor_token)
-              echo "🔍 [Deploy] Token长度: ${#TOKEN} 字符"
-              sed -i "/^Environment=/ s/$/ SENSOR_INGEST_TOKEN=\"${TOKEN}\"/" /etc/systemd/system/syzygy.service || { echo "❌ sed注入失败"; exit 1; }
-              echo "🔍 [Deploy] sed 注入完成，执行 daemon-reload..."
-              systemctl daemon-reload || { echo "❌ daemon-reload失败"; exit 1; }
-              echo "🔑 [Deploy] SENSOR_INGEST_TOKEN 已注入 systemd"
+            # Step 1: 确保 .sensor_token 有效（不管 systemd 里有没有）
+            if [ ! -s /opt/syzygy/.sensor_token ]; then
+              echo "🔍 [Deploy] 生成新的 .sensor_token..."
+              node -e '\''console.log(require("crypto").randomBytes(32).toString("hex"))'\'' > /opt/syzygy/.sensor_token || { echo "❌ 生成token失败"; exit 1; }
+              chmod 600 /opt/syzygy/.sensor_token
+              echo "🔑 [Deploy] 已生成 .sensor_token"
             else
-              echo "🔑 [Deploy] SENSOR_INGEST_TOKEN 已存在，跳过"
+              echo "🔍 [Deploy] .sensor_token 已存在且非空，复用"
             fi
+            TOKEN=$(cat /opt/syzygy/.sensor_token)
+            echo "🔍 [Deploy] Token长度: ${#TOKEN} 字符"
+
+            # Step 2: 确保 systemd 里有正确的 SENSOR_INGEST_TOKEN
+            if grep -q 'SENSOR_INGEST_TOKEN=' /etc/systemd/system/syzygy.service; then
+              echo "🔍 [Deploy] SENSOR_INGEST_TOKEN 已存在，更新为最新值..."
+              sed -i "s/SENSOR_INGEST_TOKEN=\"[^\"]*\"/SENSOR_INGEST_TOKEN=\"${TOKEN}\"/" /etc/systemd/system/syzygy.service || { echo "❌ sed更新失败"; exit 1; }
+            else
+              echo "🔍 [Deploy] SENSOR_INGEST_TOKEN 未找到，追加..."
+              sed -i "/^Environment=/ s/$/ SENSOR_INGEST_TOKEN=\"${TOKEN}\"/" /etc/systemd/system/syzygy.service || { echo "❌ sed追加失败"; exit 1; }
+            fi
+            systemctl daemon-reload || { echo "❌ daemon-reload失败"; exit 1; }
+            echo "🔑 [Deploy] SENSOR_INGEST_TOKEN 已就绪"
 
             echo "🔍 [Deploy] 重启服务..."
             (systemctl restart syzygy.service && sleep 2 && journalctl -u syzygy.service --no-pager -n 5) || echo "⚠️ restart may have failed"
