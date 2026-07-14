@@ -77,7 +77,7 @@ jobs:
             echo "🔍 [Deploy] 检查 SENSOR_INGEST_TOKEN..."
             if ! grep -q SENSOR_INGEST_TOKEN /etc/systemd/system/syzygy.service; then
               echo "🔍 [Deploy] SENSOR_INGEST_TOKEN 未找到，准备注入..."
-              if [ ! -f /opt/syzygy/.sensor_token ]; then
+              if [ ! -s /opt/syzygy/.sensor_token ]; then
                 echo "🔍 [Deploy] 生成新的 .sensor_token..."
                 node -e '\''console.log(require("crypto").randomBytes(32).toString("hex"))'\'' > /opt/syzygy/.sensor_token || { echo "❌ 生成token失败"; exit 1; }
                 chmod 600 /opt/syzygy/.sensor_token
