@@ -17,31 +17,60 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 
 // ==========================================
-// 基础密码保护
+// 密码保护（cookie 方式，一次登录管一个月）
 // ==========================================
 const AUTH_PASSWORD = process.env.SITE_PASSWORD || 'your_password_here';
+const AUTH_COOKIE = 'syzygy_auth';
 
-app.use((req, res, next) => {
-    // WebSocket upgrade 不拦截
-    if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') return next();
-    // 健康检查不拦截
-    if (req.path === '/health') return next();
-    // 聊天代理端点放行（前端会设 Bearer API key，覆盖了 Basic auth）
-    if (req.path.startsWith('/v1/') || req.path.startsWith('/via/') || req.path.startsWith('/proxy/v1/') || req.path === '/api/web-chat') return next();
-
+function checkAuth(req) {
+    // Basic Auth 兼容
     const auth = req.headers.authorization;
     if (auth) {
         const [scheme, encoded] = auth.split(' ');
         if (scheme === 'Basic') {
             const decoded = Buffer.from(encoded, 'base64').toString('utf8');
             const [user, pass] = decoded.split(':');
-            if (pass === AUTH_PASSWORD) return next();
+            if (pass === AUTH_PASSWORD) return true;
         }
     }
+    // cookie 检查
+    const cookies = (req.headers.cookie || '').split(';').map(c => c.trim());
+    for (const c of cookies) {
+        const [name, val] = c.split('=');
+        if (name === AUTH_COOKIE && val === '1') return true;
+    }
+    return false;
+}
 
-    res.set('Cache-Control', 'no-store');
-    res.set('WWW-Authenticate', 'Basic realm="Syzygy"');
-    res.status(401).send('需要密码');
+// 登录页面（无需认证）
+app.get('/login', (req, res) => {
+    if (checkAuth(req)) return res.redirect('/');
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>溯星小屋 · 登录</title><style>body{background:#1A1A2E;color:#E8E8E8;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;font-family:sans-serif}.box{background:#16213E;padding:32px;border-radius:16px;text-align:center}input{background:#0F3460;border:none;color:#E8E8E8;padding:12px 20px;border-radius:8px;font-size:16px;width:200px;margin:12px 0}button{background:#D4A856;color:#1A1A2E;border:none;padding:12px 24px;border-radius:8px;font-size:16px;cursor:pointer;font-weight:600}.error{color:#E74C3C;margin-top:8px}</style></head><body><div class="box"><h2>溯星小屋</h2><form method="post" action="/api/login"><input type="password" name="password" placeholder="输入密码" autofocus><br><button type="submit">进入</button></form></div></body></html>`);
+});
+
+// 登录验证 API
+app.post('/api/login', express.urlencoded({ extended: false }), (req, res) => {
+    if (req.body.password === AUTH_PASSWORD) {
+        res.set('Set-Cookie', `${AUTH_COOKIE}=1; HttpOnly; SameSite=Lax; Max-Age=2592000; Path=/`);
+        res.redirect('/');
+    } else {
+        res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="2;url=/login"></head><body style="background:#1A1A2E;color:#E74C3C;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif">密码错误，即将跳转回登录页...</body></html>`);
+    }
+});
+
+// 全局认证中间件
+app.use((req, res, next) => {
+    // WebSocket upgrade 不拦截
+    if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') return next();
+    // 登录相关不拦截
+    if (req.path === '/login' || req.path === '/api/login' || req.path === '/health') return next();
+    // 聊天代理端点放行（前端会设 Bearer API key）
+    if (req.path.startsWith('/v1/') || req.path.startsWith('/via/') || req.path.startsWith('/proxy/v1/') || req.path === '/api/web-chat') return next();
+
+    if (checkAuth(req)) return next();
+
+    // 未认证 → 重定向到登录页
+    res.redirect('/login');
 });
 
 app.use(express.static('public'));
