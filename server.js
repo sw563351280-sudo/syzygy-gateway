@@ -254,11 +254,13 @@ app.get('/api/sensors/battery', (req, res) => {
     const authHeader = req.headers.authorization || '';
     const sensorToken = req.headers['x-sensor-token'] || '';
     const queryToken = req.query.token || '';
+    console.log(`🔍 [Battery] auth=${!!authHeader} sensor=${!!sensorToken} query=${!!queryToken}`);
     let token = '';
     if (authHeader.startsWith('Bearer ')) token = authHeader.slice(7);
     else if (sensorToken) token = sensorToken;
     else if (queryToken) token = queryToken;
-    if (!token || !constantTimeEqual(token, SENSOR_INGEST_TOKEN)) return res.status(401).json({ error: '未授权' });
+    if (!token) return res.status(401).json({ error: '未授权', reason: 'no token' });
+    if (!constantTimeEqual(token, SENSOR_INGEST_TOKEN)) return res.status(401).json({ error: '未授权', reason: 'bad token' });
 
     const level = parseFloat(req.query.battery_level || req.query.level);
     if (isNaN(level) || level < 0 || level > 100) return res.status(400).json({ error: 'battery_level 需为 0-100' });
