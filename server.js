@@ -245,34 +245,47 @@ app.get('/health', (req, res) => res.json({ ok: true }));
 app.get('/api/diag/embedding', async (req, res) => {
     const crypto = require('crypto');
     const key = process.env.EMBEDDING_API_KEY;
+    const circuitInfo = [];
+    for (const [name, c] of EMBEDDING_CIRCUIT) {
+        circuitInfo.push({
+            name, circuitOpen: Date.now() < c.meltedUntil,
+            openedAt: c.openedAt ? new Date(c.openedAt).toISOString() : null,
+            openUntil: new Date(c.meltedUntil).toISOString(),
+            lastFailureStatus: c.lastError
+        });
+    }
     const results = {
         env_configured: !!key,
         key_sha256_prefix: key ? crypto.createHash('sha256').update(key).digest('hex').substring(0, 8) : '(none)',
-        tests: []
+        circuits: circuitInfo,
+        retrievalMode: currentRetrievalMode,
+        lastSuccessfulEmbeddingAt: lastSuccessfulEmbeddingAt ? new Date(lastSuccessfulEmbeddingAt).toISOString() : null,
+        lastProbeAttemptAt: lastProbeAttemptAt ? new Date(lastProbeAttemptAt).toISOString() : null
     };
-    if (!key) return res.json(results);
-    const models = ['BAAI/bge-m3', 'BAAI/bge-large-zh-v1.5'];
-    for (const model of models) {
+    // 半开探测：5分钟冷却
+    const now = Date.now();
+    if (key && (!circuitInfo.length || !circuitInfo.some(c=>c.circuitOpen) || now - lastProbeAttemptAt > PROBE_COOLDOWN_MS)) {
+        lastProbeAttemptAt = now;
         try {
             const r = await fetch('https://api.siliconflow.cn/v1/embeddings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-                body: JSON.stringify({ model, input: 'test', encoding_format: 'float' }),
+                body: JSON.stringify({ model: 'BAAI/bge-m3', input: 'test', encoding_format: 'float' }),
                 signal: AbortSignal.timeout(10000)
             });
             const data = await r.json().catch(() => ({}));
-            results.tests.push({
-                model,
-                http_status: r.status,
-                siliconflow_code: data.error?.code || data.code || null,
-                siliconflow_message: data.error?.message || data.message || null,
-                siliconflow_request_id: r.headers.get('x-request-id') || data.request_id || null
-            });
-        } catch(e) {
-            results.tests.push({ model, error: e.message });
-        }
+            results.probe = { model: 'BAAI/bge-m3', http_status: r.status, code: data.error?.code||null, message: (data.error?.message||'').substring(0,100) };
+            if (r.ok) { resetEmbeddingCircuit(); lastSuccessfulEmbeddingAt = now; results.circuitReset = true; }
+        } catch(e) { results.probe = { error: e.message }; }
     }
     res.json(results);
+});
+
+app.post('/api/diag/embedding/reset', (req, res) => {
+    const pwd = req.query.pwd || req.body?.pwd || '';
+    if (pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '需要管理密码' });
+    resetEmbeddingCircuit();
+    res.json({ ok: true, resetAt: new Date().toISOString() });
 });
 
 // ==========================================
@@ -1066,8 +1079,12 @@ function cosineSimilarity(a, b) {
 }
 
 // embedding 熔断器
-const EMBEDDING_CIRCUIT = new Map(); // name → { meltedUntil, lastError }
+const EMBEDDING_CIRCUIT = new Map(); // name → { meltedUntil, lastError, openedAt }
 const EMBEDDING_MELT_MS = 30 * 60 * 1000;
+let lastSuccessfulEmbeddingAt = null;
+let currentRetrievalMode = 'vector'; // vector | keyword_fallback | disabled
+let lastProbeAttemptAt = 0;
+const PROBE_COOLDOWN_MS = 5 * 60 * 1000; // 5 分钟冷却
 
 function isEmbeddingMelted(name) {
     const c = EMBEDDING_CIRCUIT.get(name);
@@ -1077,13 +1094,16 @@ function isEmbeddingMelted(name) {
 }
 
 function meltEmbedding(name, status, errMsg) {
-    EMBEDDING_CIRCUIT.set(name, { meltedUntil: Date.now() + EMBEDDING_MELT_MS, lastError: `${status}:${errMsg.substring(0,100)}` });
-    const existing = EMBEDDING_CIRCUIT.get(name);
-    if (existing && existing.meltedUntil > Date.now() + EMBEDDING_MELT_MS) {
-        console.log(`🔌 [Embedding] ${name} 已熔断至 ${new Date(existing.meltedUntil).toLocaleTimeString()}`);
-    } else {
-        console.log(`🔌 [Embedding] ${name} 熔断 30min: ${status}`);
-    }
+    const now = Date.now();
+    EMBEDDING_CIRCUIT.set(name, { meltedUntil: now + EMBEDDING_MELT_MS, openedAt: now, lastError: `${status}:${errMsg.substring(0,100)}` });
+    currentRetrievalMode = 'keyword_fallback';
+    console.log(`🔌 [Embedding] ${name} 熔断 30min: ${status}`);
+}
+
+function resetEmbeddingCircuit() {
+    EMBEDDING_CIRCUIT.clear();
+    currentRetrievalMode = 'vector';
+    console.log('🔌 [Embedding] 熔断已手动重置');
 }
 
 async function getEmbedding(text) {
@@ -1278,42 +1298,49 @@ async function rrfMergeSearch(queryText, memories, topK = 5) {
 
 async function vectorSearch(queryText, memories, topK = 3, threshold = 0.45) {
     const cache = loadEmbeddingsCache();
-    const queryEmbedding = await getEmbedding(queryText);
+    const normalizedQuery = (queryText || '').trim().substring(0, 200);
+    const queryHash = require('crypto').createHash('md5').update(normalizedQuery).digest('hex');
+    const queryEmbedding = await getEmbedding(normalizedQuery);
+    const isMelted = currentRetrievalMode !== 'vector';
     let results = [];
 
     for (const m of memories) {
         if (m.expires_at && Date.now() > m.expires_at) continue;
+        // #7 残缺记忆排除
+        if ((m.content||'').includes('（印象有些模糊）') || (m.content||'').endsWith('……')) continue;
         let score = 0;
+        let vecScore = 0;
         let matchType = '';
 
         if (queryEmbedding && cache[m.id]) {
-            const vecScore = cosineSimilarity(queryEmbedding, cache[m.id]);
+            vecScore = cosineSimilarity(queryEmbedding, cache[m.id]);
             if (vecScore > threshold) {
                 score += vecScore;
                 matchType = '🧲向量';
             }
         }
 
+        // 标签匹配：熔断时要求精确命中且标签≥3字、非泛词
         if (m.tags && m.tags.length > 0) {
-            const hitTags = m.tags.filter(tag => isTagMatch(tag, queryText));
-            if (hitTags.length > 0) {
+            const strictTags = m.tags.filter(t => t && t.length >= 3 && !/^(看看|问题|模型|现在|设置|聊天|对话|技术|代码|日常|心情|情绪)$/.test(t));
+            const hitTags = strictTags.filter(tag => isTagMatch(tag, normalizedQuery));
+            if (hitTags.length > 0 && (!isMelted || !matchType)) { // 熔断时仅当无向量分时才用标签
                 score += hitTags.length * 0.15;
                 matchType += (matchType ? '+' : '') + `🏷️标签[${hitTags.join(',')}]`;
             }
         }
 
         if (score > 0) {
-            results.push({ memory: m, score, matchType });
+            results.push({ memory: m, score, vecScore, matchType, id: m.id || '?' });
         }
     }
 
     results.sort((a, b) => b.score - a.score);
     const top = results.slice(0, topK);
-    if (top.length > 0) {
-        top.forEach(r => {
-            console.log(`🎯 [混合匹配] ${r.matchType} score=${r.score.toFixed(3)} | ${r.memory.content.substring(0, 40)}...`);
-        });
-    }
+    console.log(`🔍 [VectorSearch] mode=${currentRetrievalMode} queryHash=${queryHash} threshold=${threshold} candidates=${results.length} selected=${top.length}`);
+    top.forEach(r => {
+        console.log(`  id=${r.id} source=long_term vec=${r.vecScore.toFixed(3)} final=${r.score.toFixed(3)} type=${r.matchType}`);
+    });
     return top;
 }
 
@@ -1927,23 +1954,43 @@ function calculateHeat(m) {
 // ==========================================
 //高权重记忆浮现
 // ==========================================
-function surfaceUnresolvedMemories(topK = RADAR_TOPK.unresolved) {
+function surfaceUnresolvedMemories(topK = RADAR_TOPK.unresolved, userText = '') {
     const memories = loadLongTermMemories();
     const now = Date.now();
+    const strippedUserText = stripVolatileTags(userText || '');
+    const isMelted = currentRetrievalMode !== 'vector';
 
     const scored = memories
         .filter(m => !m.expires_at || now < m.expires_at)
+        .filter(m => !(m.content||'').includes('（印象有些模糊）')) // #7 残缺记忆排除
+        .filter(m => !(m.content||'').endsWith('……'))
         .map(m => {
             const heat = calculateHeat(m);
             const resolvedPenalty = m.resolved ? 0.05 : 1.0;
-            return { m, heat, finalScore: heat * resolvedPenalty };
+            // 关键词相关性
+            let kwScore = 0;
+            if (strippedUserText && m.tags && m.tags.length) {
+                const strictHits = m.tags.filter(t => {
+                    if (!t || t.length < 3) return false;
+                    // 排除泛词
+                    if (/^(看看|问题|模型|现在|设置|聊天|对话|技术|代码|日常|心情|情绪)$/.test(t)) return false;
+                    return strippedUserText.includes(t);
+                });
+                kwScore = strictHits.length > 0 ? 0.3 : 0;
+            }
+            if (isMelted && kwScore === 0) return null; // 熔断时必须有关键词命中
+            const finalScore = heat * resolvedPenalty * 0.4 + kwScore * 0.6;
+            return { m, heat, kwScore, finalScore };
         })
-        .filter(({ heat }) => heat >= 0.3)
-        .filter(({ finalScore }) => finalScore > 0.3)
+        .filter(Boolean)
+        .filter(({ finalScore }) => finalScore > 0.25)
         .sort((a, b) => b.finalScore - a.finalScore)
         .slice(0, topK);
 
     if (scored.length === 0) return "";
+
+    console.log(`⚡ [Recall:Unresolved] mode=${currentRetrievalMode} candidates=${scored.length}` +
+        scored.map(s => ` id=${s.m.id||'?'} heat=${s.heat.toFixed(2)} kw=${s.kwScore.toFixed(2)} final=${s.finalScore.toFixed(2)}`).join(' | '));
 
     const lines = scored.map(({ m }) => `• ${m.content}`).join('\n');
     return `\n\n==========\n【⚡ 相关记忆浮现：这些事可能跟当前话题有关，请自然融入对话，不要生硬念出来】\n${lines}\n==========\n`;
@@ -2259,7 +2306,7 @@ async function scanAllRadars(userText) {
     ]);
     let transcriptRadar = '';
     if (shouldScanTranscript(userText)) transcriptRadar = await scanTranscriptRadar(userText);
-    const unresolved = surfaceUnresolvedMemories();
+    const unresolved = surfaceUnresolvedMemories(RADAR_TOPK.unresolved, userText);
     return { coreRadar, longTermRadar, rpRadar, unresolved, transcriptRadar };
 }
 
@@ -2599,7 +2646,7 @@ function buildWeatherSnapshot() {
         const parts = [];
         parts.push(`数据时间：${new Date(s.received_at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})}${stale?'（数据已过期）':''}`);
         if (s.battery) {
-            parts.push(`电量：${s.battery.level_percent}%${s.battery.charging ? '，充电中' : ''}`);
+            const cs = s.battery.charging === true ? '，充电中' : s.battery.charging === false ? '，未充电' : ''; parts.push(`电量：${s.battery.level_percent}%${cs}`);
         }
         // 位置状态（不暴露坐标）
         if (s.location && !stale) {
@@ -3016,7 +3063,7 @@ async function executeToolCall(name, args, mcpServer) {
 
                 // 电量
                 if (state.battery) {
-                    const chargeStatus = state.battery.charging ? '充电中' : '未充电';
+                    const cs = state.battery.charging; const chargeStatus = cs === true ? '充电中' : cs === false ? '未充电' : '充电状态未知';
                     let battStr = `电量：${state.battery.level_percent}%，${chargeStatus}`;
                     if (state.battery.low_power_mode) battStr += '，低电量模式';
                     parts.push(battStr);
@@ -3751,7 +3798,7 @@ async function generateProactiveMessage(forceOverride = false) {
             if (envAge < 60 * 60 * 1000 && (latestSensorState.battery || latestSensorState.sound || latestSensorState.location)) {
                 const parts = [];
                 if (latestSensorState.battery) {
-                    parts.push(`电量${latestSensorState.battery.level_percent}%${latestSensorState.battery.charging ? '，充电中' : ''}`);
+                    const cs = latestSensorState.battery.charging; const csTag = cs === true ? '，充电中' : cs === false ? '，未充电' : ''; parts.push(`电量${latestSensorState.battery.level_percent}%${csTag}`);
                 }
                 if (latestSensorState.sound) {
                     const desc = latestSensorState.sound.average > -20 ? '周围较响' : latestSensorState.sound.average > -40 ? '环境一般' : '较安静';
