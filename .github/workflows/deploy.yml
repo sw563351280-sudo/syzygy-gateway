@@ -84,6 +84,13 @@ jobs:
             fi
             TOKEN=$(cat /opt/syzygy/.sensor_token)
             echo "🔍 [Deploy] Token长度: ${#TOKEN} 字符"
+            if [ ${#TOKEN} -lt 64 ]; then
+              echo "⚠️ [Deploy] Token长度不足，重新生成..."
+              node -e '\''console.log(require("crypto").randomBytes(32).toString("hex"))'\'' > /opt/syzygy/.sensor_token
+              chmod 600 /opt/syzygy/.sensor_token
+              TOKEN=$(cat /opt/syzygy/.sensor_token)
+              echo "🔍 [Deploy] 新Token长度: ${#TOKEN} 字符"
+            fi
 
             # Step 2: 确保 systemd 里有正确的 SENSOR_INGEST_TOKEN
             if grep -q 'SENSOR_INGEST_TOKEN=' /etc/systemd/system/syzygy.service; then

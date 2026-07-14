@@ -252,8 +252,8 @@ app.get('/api/sensors/battery/:token/:level', (req, res) => {
     if (!SENSOR_INGEST_TOKEN) return res.status(503).json({ error: '服务未配置' });
 
     const token = req.params.token || '';
-    if (!token) return res.status(401).json({ error: '未授权', reason: 'no_token' });
-    if (token !== SENSOR_INGEST_TOKEN) return res.status(401).json({ error: '未授权', reason: 'token_mismatch', len: token.length, envLen: (SENSOR_INGEST_TOKEN||'').length });
+    if (!token) return res.status(401).json({ error: '未授权' });
+    if (!constantTimeEqual(token, SENSOR_INGEST_TOKEN)) return res.status(401).json({ error: '未授权' });
 
     const level = parseFloat(req.params.level);
     if (isNaN(level) || level < 0 || level > 100) return res.status(400).json({ error: 'battery_level 需为 0-100' });
