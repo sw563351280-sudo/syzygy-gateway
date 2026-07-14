@@ -39,6 +39,7 @@ app.use((req, res, next) => {
         }
     }
 
+    res.set('Cache-Control', 'no-store');
     res.set('WWW-Authenticate', 'Basic realm="Syzygy"');
     res.status(401).send('需要密码');
 });
