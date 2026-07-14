@@ -248,7 +248,7 @@ app.get('/sensors', (req, res) => {
 // ==========================================
 // 电池数据 GET 接口（快捷指令专用，不带 body）
 // ==========================================
-app.get('/api/sensors/battery/:token/:level', (req, res) => {
+app.get('/api/sensors/battery/:token/:level/:charging?', (req, res) => {
     if (!SENSOR_INGEST_TOKEN) return res.status(503).json({ error: '服务未配置' });
 
     const token = req.params.token || '';
@@ -265,7 +265,7 @@ app.get('/api/sensors/battery/:token/:level', (req, res) => {
     latestSensorState.received_at = now;
     latestSensorState.battery = {
         level_percent: Math.round(level),
-        charging: req.query.charging === 'true' || req.query.charging === '1',
+        charging: /^(charging_)?true$|^1$/.test(req.params.charging || ''),
         low_power_mode: null
     };
     saveSensorState(latestSensorState);
