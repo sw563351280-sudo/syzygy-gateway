@@ -2922,10 +2922,10 @@ if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
 // 兼容性：补充缺失的工具开关字段
 let _configChanged = false;
-if (TOOLS_ENABLED.check_environment === undefined) { TOOLS_ENABLED.check_environment = true; _configChanged = true; }
-if (TOOLS_ENABLED.check_phone === undefined) { TOOLS_ENABLED.check_phone = true; _configChanged = true; }
-if (TOOLS_ENABLED.bark_push === undefined) { TOOLS_ENABLED.bark_push = true; _configChanged = true; }
-if (TOOLS_ENABLED.search_transcript === undefined) { TOOLS_ENABLED.search_transcript = true; _configChanged = true; }
+if (!TOOLS_ENABLED.check_environment) { TOOLS_ENABLED.check_environment = true; _configChanged = true; }
+if (!TOOLS_ENABLED.check_phone) { TOOLS_ENABLED.check_phone = true; _configChanged = true; }
+if (!TOOLS_ENABLED.bark_push) { TOOLS_ENABLED.bark_push = true; _configChanged = true; }
+if (!TOOLS_ENABLED.search_transcript) { TOOLS_ENABLED.search_transcript = true; _configChanged = true; }
 if (_configChanged) { saveToolsConfig(TOOLS_ENABLED); console.log('🔧 [工具配置] 已补充缺失字段'); }
 
 // 轻量工具（始终可见，不触发工具循环）
