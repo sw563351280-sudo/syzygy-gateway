@@ -246,6 +246,37 @@ app.get('/sensors', (req, res) => {
 });
 
 // ==========================================
+// 电池数据 GET 接口（快捷指令专用，不带 body）
+// ==========================================
+app.get('/api/sensors/battery', (req, res) => {
+    if (!SENSOR_INGEST_TOKEN) return res.status(503).json({ error: '服务未配置' });
+
+    const authHeader = req.headers.authorization || '';
+    const sensorToken = req.headers['x-sensor-token'] || '';
+    let token = '';
+    if (authHeader.startsWith('Bearer ')) token = authHeader.slice(7);
+    else if (sensorToken) token = sensorToken;
+    if (!token || !constantTimeEqual(token, SENSOR_INGEST_TOKEN)) return res.status(401).json({ error: '未授权' });
+
+    const level = parseFloat(req.query.battery_level || req.query.level);
+    if (isNaN(level) || level < 0 || level > 100) return res.status(400).json({ error: 'battery_level 需为 0-100' });
+
+    // 合并现有状态
+    const now = new Date().toISOString();
+    if (!latestSensorState) latestSensorState = { device_id: 'iphone', received_at: now, captured_at: null, location: null, battery: null, sound: null };
+
+    latestSensorState.received_at = now;
+    latestSensorState.battery = {
+        level_percent: Math.round(level),
+        charging: req.query.charging === 'true' || req.query.charging === '1',
+        low_power_mode: null
+    };
+    saveSensorState(latestSensorState);
+    console.log(`🔋 [Sensor] 电量已更新: ${Math.round(level)}%`);
+    res.json({ ok: true });
+});
+
+// ==========================================
 // 传感器数据上传（独立 Bearer Token 认证，绕过 Cookie 登录）
 // ==========================================
 const SENSOR_RATE_LIMIT = new Map(); // IP → { count, resetAt }
@@ -376,7 +407,7 @@ app.post('/api/sensors/ingest', express.urlencoded({ extended: false, limit: '4k
 // ==========================================
 // 全局认证中间件（放所有业务路由之前）
 // ==========================================
-const PUBLIC_PATHS = ['/login', '/api/login', '/health', '/api/sensors/ingest', '/sensors'];
+const PUBLIC_PATHS = ['/login', '/api/login', '/health', '/api/sensors/ingest', '/sensors', '/api/sensors/battery'];
 
 function isPublicPath(req) {
     return PUBLIC_PATHS.includes(req.path);
