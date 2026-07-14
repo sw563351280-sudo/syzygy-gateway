@@ -248,21 +248,13 @@ app.get('/sensors', (req, res) => {
 // ==========================================
 // 电池数据 GET 接口（快捷指令专用，不带 body）
 // ==========================================
-app.get('/api/sensors/battery', (req, res) => {
+app.get('/api/sensors/battery/:token/:level', (req, res) => {
     if (!SENSOR_INGEST_TOKEN) return res.status(503).json({ error: '服务未配置' });
 
-    const authHeader = req.headers.authorization || '';
-    const sensorToken = req.headers['x-sensor-token'] || '';
-    const queryToken = req.query.token || '';
-    console.log(`🔍 [Battery] auth=${!!authHeader} sensor=${!!sensorToken} query=${!!queryToken}`);
-    let token = '';
-    if (authHeader.startsWith('Bearer ')) token = authHeader.slice(7);
-    else if (sensorToken) token = sensorToken;
-    else if (queryToken) token = queryToken;
-    if (!token) return res.status(401).json({ error: '未授权', reason: 'no token' });
-    if (!constantTimeEqual(token, SENSOR_INGEST_TOKEN)) return res.status(401).json({ error: '未授权', reason: 'bad token' });
+    const token = req.params.token || '';
+    if (!token || !constantTimeEqual(token, SENSOR_INGEST_TOKEN)) return res.status(401).json({ error: '未授权' });
 
-    const level = parseFloat(req.query.battery_level || req.query.level);
+    const level = parseFloat(req.params.level);
     if (isNaN(level) || level < 0 || level > 100) return res.status(400).json({ error: 'battery_level 需为 0-100' });
 
     // 合并现有状态
@@ -414,6 +406,7 @@ app.post('/api/sensors/ingest', express.urlencoded({ extended: false, limit: '4k
 const PUBLIC_PATHS = ['/login', '/api/login', '/health', '/api/sensors/ingest', '/sensors', '/api/sensors/battery'];
 
 function isPublicPath(req) {
+    if (req.path.startsWith('/api/sensors/battery/')) return true;
     return PUBLIC_PATHS.includes(req.path);
 }
 
