@@ -2748,8 +2748,15 @@ function buildWeatherSnapshot() {
             const rLon = Math.round(s.location.longitude*100)/100;
             const wc = weatherCache.get(`${rLat},${rLon}`);
             if (wc && (Date.now()-wc.timestamp)<WEATHER_CACHE_TTL+60*1000) {
-                const w=wc.weather; const ctx=buildWeatherContext(w,null,w.is_day);
-                parts.push(`天气：${w.weather_desc}，${w.temperature}°C，体感${w.apparent_temperature}°C`);
+                const w=wc.weather;
+                if (w.temperature == null && w.weather_code == null) { /* 天气字段全部缺失，跳过 */ }
+                else {
+                const ctx=buildWeatherContext(w,null,w.is_day);
+                const desc = w.weather_desc || (w.weather_code != null ? `代码${w.weather_code}` : '未知');
+                const temp = w.temperature != null ? `${w.temperature}°C` : '';
+                const app = w.apparent_temperature != null ? `体感${w.apparent_temperature}°C` : '';
+                const weatherLine = [`天气：${desc}`, temp, app].filter(Boolean).join('，');
+                if (weatherLine) parts.push(weatherLine);
                 if (w.relative_humidity_2m != null) parts.push(`湿度：${w.relative_humidity_2m}%`);
                 if (w.wind_speed_10m != null) {
                     let ws = `风：${w.wind_speed_10m}km/h`;
@@ -2765,6 +2772,7 @@ function buildWeatherSnapshot() {
                     parts.push(`日出：${String(srH).padStart(2,'0')}:${String(srM).padStart(2,'0')}  日落：${String(ssH).padStart(2,'0')}:${String(ssM).padStart(2,'0')}`);
                 }
                 const sens=getSensation(ctx); if(sens) parts.push(`身体感受：${sens}`);
+                } // 关闭 weather_fields_present
             }
         }
         return '【当前环境快照】\n'+parts.join('\n');
