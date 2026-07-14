@@ -28,11 +28,16 @@ const app = express();
 // 传感器与天气
 // ==========================================
 const SENSOR_INGEST_TOKEN = process.env.SENSOR_INGEST_TOKEN || null;
+const HOME_LAT = parseFloat(process.env.HOME_LAT) || null;
+const HOME_LON = parseFloat(process.env.HOME_LON) || null;
 let latestSensorState = null; // 内存缓存
 
-// 天气缓存 (圆整坐标 → 结果)
-const weatherCache = new Map();
-const WEATHER_CACHE_TTL = 10 * 60 * 1000; // 10 分钟
+// 天气与空气质量缓存
+const weatherCache = new Map();   // key → { data, timestamp }
+const WEATHER_CACHE_TTL = 5 * 60 * 1000;      // 5 分钟
+const AQ_CACHE_TTL = 30 * 60 * 1000;          // 30 分钟
+let lastWeatherRefresh = 0;
+let lastAQRefresh = 0;
 
 const AUTH_PASSWORD = process.env.SITE_PASSWORD;
 const SESSION_SECRET = process.env.SESSION_SECRET;
@@ -560,65 +565,146 @@ function saveSensorState(state) {
 }
 
 // ==========================================
-// 天气查询 (Open-Meteo, 免 API Key)
+// 天气 + 空气质量 + 身体感受 (Open-Meteo, 免 API Key)
 // ==========================================
-const WMO_WEATHER_CODES = {
-    0: '晴天', 1: '大部晴朗', 2: '多云', 3: '阴天',
-    45: '雾', 48: '雾凇',
-    51: '小毛毛雨', 53: '毛毛雨', 55: '大毛毛雨',
-    56: '冻毛毛雨', 57: '冻毛毛雨',
-    61: '小雨', 63: '中雨', 65: '大雨',
-    66: '冻雨', 67: '冻雨',
-    71: '小雪', 73: '中雪', 75: '大雪',
-    77: '雪粒',
-    80: '阵雨', 81: '中阵雨', 82: '大阵雨',
-    85: '小阵雪', 86: '大阵雪',
-    95: '雷暴', 96: '雷暴+小冰雹', 99: '雷暴+大冰雹'
+const WMO_SKY = {
+    0:'clear',1:'clear',2:'cloudy',3:'overcast',
+    45:'fog',48:'fog',51:'rain',53:'rain',55:'rain',
+    56:'rain',57:'rain',61:'rain',63:'rain',65:'rain',
+    66:'rain',67:'rain',71:'snow',73:'snow',75:'snow',77:'snow',
+    80:'rain',81:'rain',82:'rain',85:'snow',86:'snow',
+    95:'thunder',96:'thunder',99:'thunder'
+};
+const WMO_DESC = {
+    0:'晴天',1:'大部晴朗',2:'多云',3:'阴天',
+    45:'雾',48:'雾凇',51:'毛毛雨',53:'毛毛雨',55:'毛毛雨',
+    61:'小雨',63:'中雨',65:'大雨',71:'小雪',73:'中雪',75:'大雪',
+    80:'阵雨',81:'阵雨',82:'大阵雨',95:'雷暴',96:'雷暴',99:'雷暴'
 };
 
-async function queryWeatherOpenMeteo(lat, lon) {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-        `&current=temperature_2m,apparent_temperature,precipitation,rain,weather_code,wind_speed_10m,wind_gusts_10m` +
-        `&timezone=Asia/Shanghai`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) throw new Error(`Open-Meteo HTTP ${res.status}`);
-    const data = await res.json();
-    const c = data.current || {};
+const SENSATIONS_FILE = path.join(DATA_DIR, 'weather_sensations.json');
+function loadSensations() { try{return JSON.parse(fs.readFileSync(SENSATIONS_FILE,'utf8'))}catch(e){return{seeds:{},generated:{}}} }
+function saveSensations(s) { try{fs.writeFileSync(SENSATIONS_FILE,JSON.stringify(s,null,2),'utf8')}catch(e){} }
+
+function buildSensationKey(ctx) {
+    const b = Math.round((ctx.temperature||0)/5)*5;
+    return `${ctx.season}|${ctx.place}|${ctx.sky}|${ctx.period}|${ctx.wind}|${ctx.humidity}|t${b}`;
+}
+
+function getSensation(ctx) {
+    const sensations = loadSensations();
+    const key = buildSensationKey(ctx);
+    if (sensations.seeds[key]) return sensations.seeds[key];
+    if (sensations.generated[key]) return sensations.generated[key];
+    // 模板合成
+    const t = ctx.temperature;
+    const h = ctx.humidity;
+    let body = '';
+    if (t >= 35) body = '热浪裹住全身';
+    else if (t >= 30) body = '闷热贴在皮肤上';
+    else if (t >= 25) body = '暖意拂过手臂';
+    else if (t >= 15) body = '温度不凉不热刚刚好';
+    else if (t >= 5) body = '凉意轻轻爬上来';
+    else body = '冷气从四面八方握过来';
+    if (h === 'humid' || h === 'very_humid') body += '，空气里潮潮的';
+    if (ctx.wind === 'strong') body += '，风推着人走';
+    else if (ctx.wind === 'breeze') body += '，偶尔一阵微风';
+    else if (ctx.wind === 'calm') body += '，几乎没有风';
+    if (ctx.sky === 'rain') body += '，雨丝打在身上';
+    else if (ctx.sky === 'snow') body += '，雪花飘落';
+    body += '。';
+    sensations.generated[key] = body;
+    saveSensations(sensations);
+    return body;
+}
+
+function buildWeatherContext(weather, aq, is_day) {
+    const t = weather.temperature;
+    const month = new Date().getMonth()+1;
+    let season = 'spring'; if (month>=6&&month<=8) season='summer'; else if (month>=9&&month<=11) season='autumn'; else if (month===12||month<=2) season='winter';
+    let sky = WMO_SKY[weather.weather_code] || 'cloudy';
+    const sunrise = weather.sunrise, sunset = weather.sunset;
+    let period = 'daytime';
+    if (sunrise && sunset) { const h=new Date().getHours()+8; if (h<sunrise) period='dawn'; else if (h<8) period='morning'; else if (h<12) period='noon'; else if (h<18) period='afternoon'; else if (h<sunset) period='evening'; else if (h<22) period='night'; else period='late_night'; }
+    let wind = 'calm'; if (weather.wind_speed_10m>=28) wind='strong'; else if (weather.wind_speed_10m>=12) wind='breeze';
+    let humidity = 'comfortable'; if (weather.relative_humidity_2m>=80) humidity='very_humid'; else if (weather.relative_humidity_2m>=65) humidity='humid'; else if (weather.relative_humidity_2m<=25) humidity='dry';
+    let place = 'unknown';
+    if (weather.gpsAge!=null && weather.gpsAge<=30*60*1000 && HOME_LAT!=null && HOME_LON!=null) {
+        const dist = Math.sqrt((weather.lat-HOME_LAT)**2+(weather.lon-HOME_LON)**2)*111000;
+        place = dist<=200?'home':'outside';
+    }
+    return {season,sky,period,wind,humidity,place,temperature:t,apparent_temperature:weather.apparent_temperature,is_day};
+}
+
+function resolveIPv4Agent(url) {
+    try { const h=new URL(url).hostname; if(/^\d+\.\d+\.\d+\.\d+$/.test(h)||h==='localhost') return null; } catch(e){}
+    const http=require('http'); const https=require('https');
+    return {httpAgent:new http.Agent({family:4}), httpsAgent:new https.Agent({family:4})};
+}
+
+async function fetchOpenMeteoJSON(url, label) {
+    const agents = resolveIPv4Agent(url);
+    const opts = {signal:AbortSignal.timeout(10000)};
+    if (agents) Object.assign(opts, agents);
+    let res; try { res = await fetch(url, opts); } catch(e) {
+        console.log(`🌤️ [${label}] fetch异常: ${e.message} cause=${e.cause} url=${url}`);
+        throw e;
+    }
+    if (!res.ok) {
+        console.log(`🌤️ [${label}] HTTP ${res.status} url=${url}`);
+        throw new Error(`${label} HTTP ${res.status}`);
+    }
+    return await res.json();
+}
+
+async function queryWeatherFull(lat, lon) {
+    const wUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+        `&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,rain,showers,snowfall,weather_code,cloud_cover,wind_speed_10m,wind_gusts_10m,is_day` +
+        `&daily=sunrise,sunset&timezone=Asia/Shanghai&forecast_days=1`;
+    const aqUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}` +
+        `&current=pm2_5,pm10,us_aqi,uv_index&timezone=Asia/Shanghai`;
+
+    const [wData, aqData] = await Promise.all([
+        fetchOpenMeteoJSON(wUrl, 'Weather').catch(e => { console.log(`🌤️ [Weather] 失败: ${e.message}`); return null; }),
+        fetchOpenMeteoJSON(aqUrl, 'AQ').catch(e => { console.log(`🌤️ [AQ] 失败: ${e.message}`); return null; })
+    ]);
+
+    const c = (wData&&wData.current) ? wData.current : {};
+    const d = (wData&&wData.daily) ? wData.daily : {};
+    const aq = (aqData&&aqData.current) ? aqData.current : {};
     return {
         temperature: c.temperature_2m,
         apparent_temperature: c.apparent_temperature,
-        precipitation: c.precipitation,
-        rain: c.rain,
-        weather_code: c.weather_code,
-        weather_desc: WMO_WEATHER_CODES[c.weather_code] || `代码${c.weather_code}`,
-        wind_speed_10m: c.wind_speed_10m,
-        wind_gusts_10m: c.wind_gusts_10m,
-        fetched_at: new Date().toISOString()
+        relative_humidity_2m: c.relative_humidity_2m,
+        precipitation: c.precipitation, rain: c.rain, showers: c.showers, snowfall: c.snowfall,
+        weather_code: c.weather_code, weather_desc: WMO_DESC[c.weather_code]||`代码${c.weather_code}`,
+        cloud_cover: c.cloud_cover, wind_speed_10m: c.wind_speed_10m, wind_gusts_10m: c.wind_gusts_10m,
+        is_day: c.is_day,
+        sunrise: (d.sunrise&&d.sunrise[0]) ? parseFloat(d.sunrise[0].split('T')[1]) : null,
+        sunset: (d.sunset&&d.sunset[0]) ? parseFloat(d.sunset[0].split('T')[1]) : null,
+        pm2_5: aq.pm2_5, pm10: aq.pm10, us_aqi: aq.us_aqi, uv_index: aq.uv_index,
+        fetched_at: new Date().toISOString(), lat, lon
     };
 }
 
 async function getWeatherForLocation(lat, lon) {
-    const rLat = Math.round(lat * 100) / 100;
-    const rLon = Math.round(lon * 100) / 100;
-    const cacheKey = `${rLat},${rLon}`;
-    const cached = weatherCache.get(cacheKey);
-    const now = Date.now();
-
-    if (cached && (now - cached.timestamp) < WEATHER_CACHE_TTL) {
+    const rLat = Math.round(lat*100)/100; const rLon = Math.round(lon*100)/100;
+    const cacheKey = `${rLat},${rLon}`; const cached = weatherCache.get(cacheKey); const now = Date.now();
+    if (cached && (now-cached.timestamp)<WEATHER_CACHE_TTL) {
         console.log(`🌤️ [天气] 缓存命中 ${cacheKey}`);
-        return { ...cached.data, fromCache: true };
+        return {...cached.weather, ...cached.aq, fromCache:true, gpsAge:cached.gpsAge};
     }
-
     try {
         console.log(`🌤️ [天气] 查询 ${lat.toFixed(2)},${lon.toFixed(2)}`);
-        const data = await queryWeatherOpenMeteo(lat, lon);
-        weatherCache.set(cacheKey, { data, timestamp: now });
-        return { ...data, fromCache: false };
+        const data = await queryWeatherFull(lat, lon);
+        weatherCache.set(cacheKey, {weather:data, aq:{}, timestamp:now, gpsAge:0});
+        lastWeatherRefresh = now; lastAQRefresh = now;
+        return {...data, fromCache:false, gpsAge:0};
     } catch(e) {
         console.log(`🌤️ [天气] 查询失败: ${e.message}`);
-        if (cached && (now - cached.timestamp) < 60 * 60 * 1000) {
+        if (cached && (now-cached.timestamp)<60*60*1000) {
             console.log('🌤️ [天气] 降级使用过期缓存');
-            return { ...cached.data, fromCache: true, stale: true };
+            return {...cached.weather, ...cached.aq, fromCache:true, stale:true, gpsAge:cached.gpsAge};
         }
         throw e;
     }
@@ -2806,21 +2892,24 @@ async function executeToolCall(name, args, mcpServer) {
                 if (includeWeather && state.location && state.location.latitude != null) {
                     try {
                         const weather = await getWeatherForLocation(state.location.latitude, state.location.longitude);
-                        const staleTag = weather.stale ? '（使用缓存）' : '';
+                        const ctx = buildWeatherContext(weather, null, weather.is_day);
+                        ctx.gpsAge = weather.gpsAge;
+                        const staleTag = weather.stale ? '（使用过期缓存）' : weather.fromCache ? '（缓存）' : '';
                         parts.push(`天气：${weather.weather_desc}，${weather.temperature}°C，体感${weather.apparent_temperature}°C${staleTag}`);
-                        if (weather.precipitation != null && weather.precipitation > 0) {
-                            parts.push(`降水：当前${weather.precipitation}mm`);
+                        if (weather.relative_humidity_2m != null) parts.push(`湿度：${weather.relative_humidity_2m}%`);
+                        if (weather.wind_speed_10m != null) {
+                            let ws = `风：${weather.wind_speed_10m}km/h`;
+                            if (weather.wind_gusts_10m != null && weather.wind_gusts_10m > weather.wind_speed_10m + 5) ws += `，阵风${weather.wind_gusts_10m}km/h`;
+                            parts.push(ws);
                         }
-                        if (weather.wind_speed_10m != null && weather.wind_speed_10m > 5) {
-                            let windStr = `风：${weather.wind_speed_10m}km/h`;
-                            if (weather.wind_gusts_10m != null && weather.wind_gusts_10m > weather.wind_speed_10m + 5) {
-                                windStr += `，阵风${weather.wind_gusts_10m}km/h`;
-                            }
-                            parts.push(windStr);
-                        }
-                        if (weather.fromCache && !weather.stale) {
-                            parts.push('天气数据：10分钟内缓存');
-                        }
+                        if (weather.pm2_5 != null) parts.push(`PM2.5：${weather.pm2_5}μg/m³`);
+                        if (weather.us_aqi != null) parts.push(`空气质量：AQI ${weather.us_aqi}`);
+                        if (weather.uv_index != null) parts.push(`紫外线：${weather.uv_index}`);
+                        const sr = weather.sunrise, ss = weather.sunset;
+                        if (sr != null && ss != null) parts.push(`日出日落：${sr.toFixed(0)}:${String(Math.round((sr%1)*60)).padStart(2,'0')} / ${ss.toFixed(0)}:${String(Math.round((ss%1)*60)).padStart(2,'0')}`);
+                        const sensation = getSensation(ctx);
+                        if (sensation) parts.push(`感受：${sensation}`);
+                        if (weather.fromCache && !weather.stale) parts.push('天气数据：5分钟内缓存');
                     } catch (e) {
                         parts.push('天气：暂时无法获取');
                         console.log(`⚠️ [check_environment] 天气查询失败: ${e.message}`);
@@ -3501,6 +3590,19 @@ async function generateProactiveMessage(forceOverride = false) {
                     parts.push(desc);
                 }
                 if (latestSensorState.location) parts.push('有GPS');
+                // 注入天气背景（仅用缓存，不发起实时查询）
+                try {
+                    if (latestSensorState.location && latestSensorState.location.latitude) {
+                        const rLat = Math.round(latestSensorState.location.latitude*100)/100;
+                        const rLon = Math.round(latestSensorState.location.longitude*100)/100;
+                        const wc = weatherCache.get(`${rLat},${rLon}`);
+                        if (wc && (Date.now()-wc.timestamp)<WEATHER_CACHE_TTL) {
+                            const w=wc.weather; const ctx=buildWeatherContext(w,null,w.is_day);
+                            parts.push(`${w.weather_desc} ${w.temperature}°C 体感${w.apparent_temperature}°C`);
+                            const s=getSensation(ctx); if(s) parts.push(s);
+                        }
+                    }
+                } catch(e) {}
                 envHint = '【环境感知】' + parts.join('，') + '(仅在回复中作为背景参考，不要主动播报数据)';
             }
         }
@@ -6307,4 +6409,19 @@ server.listen(PORT, () => {
             if (now > rec.resetAt) SENSOR_RATE_LIMIT.delete(ip);
         }
     }, 5 * 60 * 1000);
+
+    // 后台天气刷新
+    async function refreshWeatherIfFresh() {
+        try {
+            const s = latestSensorState;
+            if (!s || !s.location || !s.location.latitude) return;
+            const gpsAge = Date.now() - new Date(s.received_at).getTime();
+            if (gpsAge > 60 * 60 * 1000) return;
+            await getWeatherForLocation(s.location.latitude, s.location.longitude);
+        } catch(e) {}
+    }
+    // 启动 30 秒后首次天气刷新
+    setTimeout(() => refreshWeatherIfFresh().catch(()=>{}), 30000);
+    // 每 5 分钟刷新天气
+    setInterval(() => refreshWeatherIfFresh().catch(()=>{}), 5 * 60 * 1000);
 });

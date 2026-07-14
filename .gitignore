@@ -1,5 +1,6 @@
 node_modules/
-data/
+data/**
+!data/weather_sensations.json
 public/photos/
 
 # 调试输出（VPS MCP 工具生成）

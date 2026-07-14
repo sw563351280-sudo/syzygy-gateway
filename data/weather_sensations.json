@@ -1,0 +1,15 @@
+{
+  "seeds": {
+    "summer|outside|clear|noon|breeze|humid|t35": "阳光从头顶直直打下来，皮肤上有微微的灼烧感，偶尔一阵风擦过手臂才凉快一瞬。",
+    "summer|outside|rain|afternoon|breeze|very_humid": "湿热的空气贴在手臂和后颈上，风吹过来也没带走多少热意，雨丝细细地沾在皮肤上。",
+    "summer|home|clear|evening|calm|humid|t30": "房间里的空气有些沉，皮肤上浮着一层薄薄的潮气，不动也微微发热。",
+    "winter|outside|cloudy|night|breeze|dry|t0": "冷风像细针一样扎在脸上，呼吸都带着白气，手指缩进袖子里才暖一点。",
+    "winter|outside|overcast|evening|strong|dry|t-5": "风刮过来的时候脸和耳朵都在疼，脚趾在鞋里冻得蜷起来。",
+    "autumn|outside|clear|morning|calm|comfortable|t15": "空气清清凉凉的，阳光不烫不刺眼，刚好落在肩膀上暖着。",
+    "spring|outside|rain|noon|breeze|humid|t20": "细雨打在脸上软软的，空气里有泥土和青草的味道，呼吸都变慢了。",
+    "summer|outside|thunder|afternoon|strong|humid|t30": "雷声在远处滚着，风吹得衣角直翻，皮肤上凉下来又快被热气压回来。",
+    "summer|outside|overcast|noon|calm|very_humid|t35": "空气稠得像果冻，不动也汗津津的，衣服黏在背上。",
+    "winter|home|overcast|late_night|calm|dry|t10": "指尖凉凉的，缩在被子里暖了一会儿才缓过来，呼气还有点白。"
+  },
+  "generated": {}
+}
