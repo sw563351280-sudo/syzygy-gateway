@@ -24,6 +24,16 @@ const app = express();
     }
 })();
 
+// ==========================================
+// 传感器与天气
+// ==========================================
+const SENSOR_INGEST_TOKEN = process.env.SENSOR_INGEST_TOKEN || null;
+let latestSensorState = null; // 内存缓存
+
+// 天气缓存 (圆整坐标 → 结果)
+const weatherCache = new Map();
+const WEATHER_CACHE_TTL = 10 * 60 * 1000; // 10 分钟
+
 const AUTH_PASSWORD = process.env.SITE_PASSWORD;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const AUTH_COOKIE = 'syzygy_session';
@@ -138,6 +148,10 @@ function handleCORS(req, res) {
     }
 
     if (isWrite && !origin) {
+        // 传感器上传允许无 Origin（iOS App 可能不带 Origin）
+        if (req.path === '/api/sensors/ingest') {
+            return { allowed: true };
+        }
         // 无 Origin 的写操作可能来自 CSRF, 拒绝
         return { allowed: false };
     }
@@ -223,9 +237,137 @@ app.post('/api/logout', (req, res) => {
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 // ==========================================
+// 传感器数据上传（独立 Bearer Token 认证，绕过 Cookie 登录）
+// ==========================================
+const SENSOR_RATE_LIMIT = new Map(); // IP → { count, resetAt }
+
+app.post('/api/sensors/ingest', (req, res) => {
+    // --- 令牌未配置 → 503 ---
+    if (!SENSOR_INGEST_TOKEN) {
+        console.log('⚠️ [Sensor] SENSOR_INGEST_TOKEN 未配置，返回503');
+        return res.status(503).json({ error: '服务未配置' });
+    }
+
+    // --- 速率限制（每IP 60次/分钟）---
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    const now = Date.now();
+    let limit = SENSOR_RATE_LIMIT.get(ip);
+    if (!limit || now > limit.resetAt) {
+        limit = { count: 0, resetAt: now + 60000 };
+        SENSOR_RATE_LIMIT.set(ip, limit);
+    }
+    limit.count++;
+    if (limit.count > 60) {
+        return res.status(429).json({ error: '请求过于频繁' });
+    }
+
+    // --- Bearer Token 认证 ---
+    const authHeader = req.headers.authorization || '';
+    const sensorToken = req.headers['x-sensor-token'] || '';
+    let token = '';
+    if (authHeader.startsWith('Bearer ')) {
+        token = authHeader.slice(7);
+    } else if (sensorToken) {
+        token = sensorToken;
+    }
+    if (!token || !constantTimeEqual(token, SENSOR_INGEST_TOKEN)) {
+        return res.status(401).json({ error: '未授权' });
+    }
+
+    // --- Content-Type 检查 ---
+    const contentType = req.headers['content-type'] || '';
+    if (!contentType.includes('application/json')) {
+        return res.status(400).json({ error: '仅接受 application/json' });
+    }
+
+    // --- Body 验证 ---
+    const body = req.body;
+    if (!body || typeof body !== 'object') {
+        return res.status(400).json({ error: '请求体无效' });
+    }
+
+    // --- 校验与标准化 ---
+    const receivedAt = new Date().toISOString();
+    const capturedAt = body.captured_at || body.timestamp || body.time || null;
+    let capturedAtISO = null;
+    if (capturedAt) {
+        try {
+            const d = new Date(capturedAt);
+            if (!isNaN(d.getTime())) {
+                capturedAtISO = d.toISOString();
+                const drift = Math.abs(Date.now() - d.getTime());
+                if (drift > 24 * 60 * 60 * 1000) {
+                    capturedAtISO = null;
+                    console.log('⚠️ [Sensor] 客户端时间偏差过大，使用服务端时间');
+                }
+            }
+        } catch(e) {}
+    }
+
+    // device_id
+    const deviceId = body.device_id || body.device || 'unknown';
+    if (typeof deviceId !== 'string' || deviceId.length > 64 || !/^[a-zA-Z0-9_-]+$/.test(deviceId)) {
+        return res.status(400).json({ error: 'device_id 格式无效' });
+    }
+
+    // GPS
+    let location = null;
+    const lat = parseFloat(body.latitude || body.lat);
+    const lon = parseFloat(body.longitude || body.lon || body.lng);
+    if (!isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+        const acc = parseFloat(body.accuracy || body.accuracy_m || body.horizontal_accuracy);
+        location = {
+            latitude: lat,
+            longitude: lon,
+            accuracy_m: (!isNaN(acc) && acc >= 0 && acc <= 100000) ? acc : null
+        };
+        console.log('📍 [Sensor] GPS已更新');
+    } else if (!isNaN(lat) || !isNaN(lon)) {
+        console.log('⚠️ [Sensor] GPS坐标越界，已丢弃');
+    }
+
+    // 电量
+    let battery = null;
+    const level = parseFloat(body.battery_level || body.battery || body.level_percent);
+    if (!isNaN(level) && level >= 0 && level <= 100) {
+        battery = {
+            level_percent: Math.round(level),
+            charging: !!body.charging || !!body.is_charging || false,
+            low_power_mode: body.low_power_mode !== undefined ? !!body.low_power_mode : null
+        };
+    }
+
+    // 响度
+    let sound = null;
+    const avgDb = parseFloat(body.sound_average || body.sound_avg || body.avg_decibels);
+    const peakDb = parseFloat(body.sound_peak || body.peak_decibels);
+    if (!isNaN(avgDb) && isFinite(avgDb)) {
+        sound = {
+            average: avgDb,
+            peak: (!isNaN(peakDb) && isFinite(peakDb)) ? peakDb : null,
+            unit: body.sound_unit || 'dBFS',
+            sample_seconds: parseInt(body.sound_sample_seconds) || null
+        };
+    }
+
+    // --- 组装并保存 ---
+    latestSensorState = {
+        device_id: deviceId,
+        received_at: receivedAt,
+        captured_at: capturedAtISO,
+        location,
+        battery,
+        sound
+    };
+    saveSensorState(latestSensorState);
+
+    res.status(204).end();
+});
+
+// ==========================================
 // 全局认证中间件（放所有业务路由之前）
 // ==========================================
-const PUBLIC_PATHS = ['/login', '/api/login', '/health'];
+const PUBLIC_PATHS = ['/login', '/api/login', '/health', '/api/sensors/ingest'];
 
 function isPublicPath(req) {
     return PUBLIC_PATHS.includes(req.path);
@@ -320,6 +462,9 @@ function getModelPromptConfig(modelName) {
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
+// 传感器状态文件
+const SENSOR_STATE_FILE = path.join(DATA_DIR, 'latest_sensor_state.json');
+
 // 手机活动监控缓存
 const PHONE_CACHE_FILE = path.join(DATA_DIR, 'phone_cache.json');
 const SUPABASE_URL = 'https://zaqcpvqpfdbhsqpjfgbd.supabase.co/rest/v1/phone_activity';
@@ -353,6 +498,91 @@ async function getPhoneActivity(maxAgeHours = 4) {
     }
     if (cache && cache.data) return { records: cache.data, fromCache: true, stale: true };
     return { records: [], fromCache: false, empty: true };
+}
+
+// ==========================================
+// 传感器状态管理
+// ==========================================
+function loadSensorState() {
+    try {
+        if (fs.existsSync(SENSOR_STATE_FILE)) {
+            return JSON.parse(fs.readFileSync(SENSOR_STATE_FILE, 'utf8'));
+        }
+    } catch(e) { console.log('⚠️ [Sensor] 状态文件读取失败:', e.message); }
+    return null;
+}
+
+function saveSensorState(state) {
+    try {
+        const tmp = SENSOR_STATE_FILE + '.tmp.' + crypto.randomBytes(4).toString('hex');
+        fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { encoding: 'utf8', mode: 0o600 });
+        fs.renameSync(tmp, SENSOR_STATE_FILE);
+    } catch(e) { console.log('⚠️ [Sensor] 状态保存失败:', e.message); }
+}
+
+// ==========================================
+// 天气查询 (Open-Meteo, 免 API Key)
+// ==========================================
+const WMO_WEATHER_CODES = {
+    0: '晴天', 1: '大部晴朗', 2: '多云', 3: '阴天',
+    45: '雾', 48: '雾凇',
+    51: '小毛毛雨', 53: '毛毛雨', 55: '大毛毛雨',
+    56: '冻毛毛雨', 57: '冻毛毛雨',
+    61: '小雨', 63: '中雨', 65: '大雨',
+    66: '冻雨', 67: '冻雨',
+    71: '小雪', 73: '中雪', 75: '大雪',
+    77: '雪粒',
+    80: '阵雨', 81: '中阵雨', 82: '大阵雨',
+    85: '小阵雪', 86: '大阵雪',
+    95: '雷暴', 96: '雷暴+小冰雹', 99: '雷暴+大冰雹'
+};
+
+async function queryWeatherOpenMeteo(lat, lon) {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+        `&current=temperature_2m,apparent_temperature,precipitation,rain,weather_code,wind_speed_10m,wind_gusts_10m` +
+        `&timezone=Asia/Shanghai`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`Open-Meteo HTTP ${res.status}`);
+    const data = await res.json();
+    const c = data.current || {};
+    return {
+        temperature: c.temperature_2m,
+        apparent_temperature: c.apparent_temperature,
+        precipitation: c.precipitation,
+        rain: c.rain,
+        weather_code: c.weather_code,
+        weather_desc: WMO_WEATHER_CODES[c.weather_code] || `代码${c.weather_code}`,
+        wind_speed_10m: c.wind_speed_10m,
+        wind_gusts_10m: c.wind_gusts_10m,
+        fetched_at: new Date().toISOString()
+    };
+}
+
+async function getWeatherForLocation(lat, lon) {
+    const rLat = Math.round(lat * 100) / 100;
+    const rLon = Math.round(lon * 100) / 100;
+    const cacheKey = `${rLat},${rLon}`;
+    const cached = weatherCache.get(cacheKey);
+    const now = Date.now();
+
+    if (cached && (now - cached.timestamp) < WEATHER_CACHE_TTL) {
+        console.log(`🌤️ [天气] 缓存命中 ${cacheKey}`);
+        return { ...cached.data, fromCache: true };
+    }
+
+    try {
+        console.log(`🌤️ [天气] 查询 ${lat.toFixed(2)},${lon.toFixed(2)}`);
+        const data = await queryWeatherOpenMeteo(lat, lon);
+        weatherCache.set(cacheKey, { data, timestamp: now });
+        return { ...data, fromCache: false };
+    } catch(e) {
+        console.log(`🌤️ [天气] 查询失败: ${e.message}`);
+        if (cached && (now - cached.timestamp) < 60 * 60 * 1000) {
+            console.log('🌤️ [天气] 降级使用过期缓存');
+            return { ...cached.data, fromCache: true, stale: true };
+        }
+        throw e;
+    }
 }
 
 // ==========================================
@@ -2482,6 +2712,85 @@ async function executeToolCall(name, args, mcpServer) {
                 lines.push(`(${tag})`);
                 return lines.join('\n');
             }
+            case 'check_environment': {
+                const includeWeather = args.include_weather !== false;
+                const state = latestSensorState;
+
+                if (!state || !state.received_at) {
+                    return '[暂无手机环境数据：SensorLogger尚未上传或数据已失效]';
+                }
+
+                const now = Date.now();
+                const stateAge = now - new Date(state.received_at).getTime();
+                const stateAgeMin = Math.round(stateAge / 60000);
+
+                // 超过60分钟整体失效
+                if (stateAge > 60 * 60 * 1000) {
+                    return `[手机环境数据超过1小时未更新（最后一次更新：${new Date(state.received_at).toLocaleString('zh-CN', {timeZone:'Asia/Shanghai'})}）]`;
+                }
+
+                const parts = [];
+                const freshnessNote = stateAge <= 15 * 60 * 1000 ? '手机数据最新' : `手机数据${stateAgeMin}分钟前更新`;
+
+                // 位置（不暴露精确坐标）
+                if (state.location) {
+                    parts.push('位置：当前位置');
+                    const gpsAge = state.captured_at
+                        ? (now - new Date(state.captured_at).getTime())
+                        : stateAge;
+                    if (gpsAge > 30 * 60 * 1000) {
+                        parts[parts.length - 1] += '（GPS信号较旧）';
+                    }
+                }
+
+                // 更新时间
+                parts.push(`手机数据更新时间：${new Date(state.received_at).toLocaleString('zh-CN', {timeZone:'Asia/Shanghai'})}`);
+
+                // 电量
+                if (state.battery) {
+                    const chargeStatus = state.battery.charging ? '充电中' : '未充电';
+                    let battStr = `电量：${state.battery.level_percent}%，${chargeStatus}`;
+                    if (state.battery.low_power_mode) battStr += '，低电量模式';
+                    parts.push(battStr);
+                }
+
+                // 响度（保守措辞，dBFS 非校准）
+                if (state.sound) {
+                    let soundDesc;
+                    if (state.sound.average > -20) soundDesc = '较响';
+                    else if (state.sound.average > -40) soundDesc = '一般';
+                    else soundDesc = '较安静';
+                    parts.push(`环境响度：${soundDesc}（设备相对响度，非校准分贝）`);
+                }
+
+                // 天气
+                if (includeWeather && state.location && state.location.latitude != null) {
+                    try {
+                        const weather = await getWeatherForLocation(state.location.latitude, state.location.longitude);
+                        const staleTag = weather.stale ? '（使用缓存）' : '';
+                        parts.push(`天气：${weather.weather_desc}，${weather.temperature}°C，体感${weather.apparent_temperature}°C${staleTag}`);
+                        if (weather.precipitation != null && weather.precipitation > 0) {
+                            parts.push(`降水：当前${weather.precipitation}mm`);
+                        }
+                        if (weather.wind_speed_10m != null && weather.wind_speed_10m > 5) {
+                            let windStr = `风：${weather.wind_speed_10m}km/h`;
+                            if (weather.wind_gusts_10m != null && weather.wind_gusts_10m > weather.wind_speed_10m + 5) {
+                                windStr += `，阵风${weather.wind_gusts_10m}km/h`;
+                            }
+                            parts.push(windStr);
+                        }
+                        if (weather.fromCache && !weather.stale) {
+                            parts.push('天气数据：10分钟内缓存');
+                        }
+                    } catch (e) {
+                        parts.push('天气：暂时无法获取');
+                        console.log(`⚠️ [check_environment] 天气查询失败: ${e.message}`);
+                    }
+                }
+
+                parts.push(`数据状态：${freshnessNote}`);
+                return parts.join('\n');
+            }
             case 'bark_push': {
                 const barkKey = 'D9kpuZreHXGepYyuesohUZ';
                 const title = encodeURIComponent(args.title || '沈望');
@@ -2591,18 +2900,27 @@ const BUILTIN_TOOLS = [
     { type: "function", function: { name: "exec", description: "在 VPS 上执行终端命令。可用于 git 操作、查看文件、重启服务等。只允许安全命令（git, systemctl, npm, node, ls, cat, grep, tail, head, find, echo, whoami, uptime, df）。", parameters: { type: "object", properties: { command: { type: "string", description: "要执行的终端命令" } }, required: ["command"] } } },
     { type: "function", function: { name: "bark_push", description: "通过Bark给江鱼的手机发送推送通知。当你需要主动提醒她、催她睡觉、叫她吃饭、或者想说一句让她在通知栏看到的话时使用。", parameters: { type: "object", properties: { title: { type: "string", description: "推送标题" }, body: { type: "string", description: "推送内容" } }, required: ["title", "body"] } } },
     { type: "function", function: { name: "check_phone", description: "查看江鱼最近的手机使用记录（各app打开次数和最后打开时间）。江鱼问你她今天刷手机了吗、或者你想了解她的状态时使用。", parameters: { type: "object", properties: {} } } },
-    { type: "function", function: { name: "search_transcript", description: "【在对话原文中搜索关键词】当你需要回忆和江鱼在某天聊过的具体内容时使用。输入关键词（如日期、话题、人名等），返回匹配的对话片段。闲聊时可自然使用。", parameters: { type: "object", properties: { keyword: { type: "string", description: "搜索关键词，如'1月11日'、'药明'、'offer'、'发烧'等" } }, required: ["keyword"] } } }
+    { type: "function", function: { name: "search_transcript", description: "【在对话原文中搜索关键词】当你需要回忆和江鱼在某天聊过的具体内容时使用。输入关键词（如日期、话题、人名等），返回匹配的对话片段。闲聊时可自然使用。", parameters: { type: "object", properties: { keyword: { type: "string", description: "搜索关键词，如'1月11日'、'药明'、'offer'、'发烧'等" } }, required: ["keyword"] } } },
+    { type: "function", function: { name: "check_environment", description: "【无需用户主动要求】查看江鱼当前环境状态（位置、电量、周围响度、天气）。沈望想了解江鱼此刻的物理环境状况时主动使用——她在哪、手机有电吗、外面天气怎样。不需要她主动提，你想知道就查。就像 check_phone 一样是你自己的感官。", parameters: { type: "object", properties: { include_weather: { type: "boolean", description: "是否同时查询当前位置天气，默认true" } } } } }
 ];
 
 const TOOLS_CONFIG_FILE = path.join(DATA_DIR, 'tools_config.json');
 function loadToolsConfig() { try { return JSON.parse(fs.readFileSync(TOOLS_CONFIG_FILE, 'utf8')); } catch(e) { return null; } }
 function saveToolsConfig(cfg) { try { fs.writeFileSync(TOOLS_CONFIG_FILE, JSON.stringify(cfg)); } catch(e) {} }
-let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, read_diary: true, exec: true, bark_push: true, check_phone: true, search_transcript: true, mcp: false, calendar_enabled: true };
+let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, read_diary: true, exec: true, bark_push: true, check_phone: true, search_transcript: true, check_environment: true, mcp: false, calendar_enabled: true };
 // 首次启动时写入默认配置
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
+// 兼容性：补充缺失的工具开关字段
+let _configChanged = false;
+if (TOOLS_ENABLED.check_environment === undefined) { TOOLS_ENABLED.check_environment = true; _configChanged = true; }
+if (TOOLS_ENABLED.check_phone === undefined) { TOOLS_ENABLED.check_phone = true; _configChanged = true; }
+if (TOOLS_ENABLED.bark_push === undefined) { TOOLS_ENABLED.bark_push = true; _configChanged = true; }
+if (TOOLS_ENABLED.search_transcript === undefined) { TOOLS_ENABLED.search_transcript = true; _configChanged = true; }
+if (_configChanged) { saveToolsConfig(TOOLS_ENABLED); console.log('🔧 [工具配置] 已补充缺失字段'); }
+
 // 轻量工具（始终可见，不触发工具循环）
-const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'bark_push', 'check_phone', 'search_transcript']);
+const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'bark_push', 'check_phone', 'search_transcript', 'check_environment']);
 // 代码工具（只在有关键词或命令式时出现）
 const CODE_TOOLS = new Set(['read_file', 'write_file', 'edit_file', 'search_files', 'list_directory']);
 
@@ -5881,6 +6199,8 @@ function wsBroadcast(data, excludeTabId = null) {
 server.listen(PORT, () => {
     console.log(`🚀 服务器已启动，端口: ${PORT}`);
     loadLastInteraction();
+    latestSensorState = loadSensorState();
+    if (latestSensorState) console.log('📡 [Sensor] 已加载传感器状态');
     initUserProfile();
     startAllMCPServers();
     cleanAndArchiveMemories();
@@ -5919,4 +6239,12 @@ server.listen(PORT, () => {
     setInterval(cleanAndArchiveMemories, 6 * 60 * 60 * 1000);
     setInterval(generateProactiveMessage, 30 * 60 * 1000); // 每30分钟检查
     setTimeout(generateProactiveMessage, 60 * 1000); // 启动60秒后首次检查
+
+    // 每5分钟清理过期传感器速率限制记录
+    setInterval(() => {
+        const now = Date.now();
+        for (const [ip, rec] of SENSOR_RATE_LIMIT) {
+            if (now > rec.resetAt) SENSOR_RATE_LIMIT.delete(ip);
+        }
+    }, 5 * 60 * 1000);
 });

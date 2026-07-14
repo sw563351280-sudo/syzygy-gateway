@@ -66,12 +66,30 @@ jobs:
             # patch_inject.js 已禁用 — server.js/model_prompts.json 由 git 直接提供
             # node patch_inject.js || echo "⚠️ 补丁执行出错，但继续部署"
 
-            # 注入 SITE_PASSWORD 和 SESSION_SECRET 到 systemd 环境变量
+            # 注入 SITE_PASSWORD 和 SESSION_SECRET 到 systemd 环境变量（仅首次）
             if ! grep -q SITE_PASSWORD /etc/systemd/system/syzygy.service; then
               sed -i '/^Environment=/ s/$/ SITE_PASSWORD="563351280.1230" SESSION_SECRET="57603c8408c58bfa73b1dfbbbe9c926a943481234035967587504f235983074f"/' /etc/systemd/system/syzygy.service
               systemctl daemon-reload
             fi
 
+            # 注入 SENSOR_INGEST_TOKEN 到 systemd 环境变量
+            if ! grep -q SENSOR_INGEST_TOKEN /etc/systemd/system/syzygy.service; then
+              if [ ! -f /opt/syzygy/.sensor_token ]; then
+                openssl rand -hex 32 > /opt/syzygy/.sensor_token
+                chmod 600 /opt/syzygy/.sensor_token
+                echo "🔑 已生成 .sensor_token"
+              fi
+              TOKEN=$(cat /opt/syzygy/.sensor_token)
+              sed -i "/^Environment=/ s/$/ SENSOR_INGEST_TOKEN=\"${TOKEN}\"/" /etc/systemd/system/syzygy.service
+              systemctl daemon-reload
+              echo "🔑 SENSOR_INGEST_TOKEN 已注入 systemd"
+            else
+              echo "🔑 SENSOR_INGEST_TOKEN 已存在，跳过"
+            fi
+
             (systemctl restart syzygy.service && sleep 2 && journalctl -u syzygy.service --no-pager -n 3) || echo "⚠️ restart may have failed"
             echo "=== DEPLOY OK ==="
+            echo ""
+            echo "🔑 SensorLogger令牌: $(cat /opt/syzygy/.sensor_token)"
+            echo "   复制上面这行到 SensorLogger → HTTP Push → Authorization: Bearer <令牌>"
           '

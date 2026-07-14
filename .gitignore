@@ -10,3 +10,4 @@ public/*.patch
 ring.json
 pub
 model_prompts_new.json
+.sensor_token
