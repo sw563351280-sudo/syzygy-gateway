@@ -2496,6 +2496,27 @@ ${body}
 </gateway_volatile_context>`;
 }
 
+// 天气快照：从缓存读取，不发起网络请求，过期不注入
+function buildWeatherSnapshot() {
+    try {
+        const s = latestSensorState;
+        if (!s || !s.location || !s.location.latitude) return null;
+        const gpsAge = Date.now() - new Date(s.received_at).getTime();
+        if (gpsAge > 60 * 60 * 1000) return null;
+        const rLat = Math.round(s.location.latitude * 100) / 100;
+        const rLon = Math.round(s.location.longitude * 100) / 100;
+        const wc = weatherCache.get(`${rLat},${rLon}`);
+        if (!wc || (Date.now() - wc.timestamp) > WEATHER_CACHE_TTL + 60 * 1000) return null;
+        const w = wc.weather; const ctx = buildWeatherContext(w, null, w.is_day);
+        const parts = [];
+        parts.push(`天气：${w.weather_desc} ${w.temperature}°C 体感${w.apparent_temperature}°C`);
+        if (w.relative_humidity_2m != null) parts.push(`湿度${w.relative_humidity_2m}%`);
+        const sens = getSensation(ctx); if (sens) parts.push(`体感：${sens}`);
+        parts.push(`天气更新时间：${new Date(w.fetched_at).toLocaleTimeString('zh-CN',{timeZone:'Asia/Shanghai'})}`);
+        return '【当前环境快照】\n' + parts.join('\n');
+    } catch(e) { return null; }
+}
+
 // ==========================================
 // 💓 Pulse 生理仿真 — 高频变化状态，只进 volatile context
 // ==========================================
@@ -3994,75 +4015,27 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         const newMessages = [...cleanMessages];
         const mpConfig = getModelPromptConfig(body.model || '');
         const modelPromptText = (mpConfig.prepend || '').trim();
-        const reinforcedSystemPrompt = modelPromptText
-            ? `${modelPromptText}
 
-${stableSystemPrompt}
-
-【本轮强制校验】
+        // === 1. 构建稳定 system block（model prepend + system_prompt.txt，固定顺序）===
+        const STABLE_CHECK = `【本轮强制校验】
 回复前必须再次检查并遵守最上方 model_prompt 中的行为约束，尤其是：
 1. 不要用空洞安慰代替解法。
 2. 不要否认江鱼痛苦的真实性。
 3. 不要替江鱼判断她"真正想要什么"。
 4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。
-5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。`
-            : stableSystemPrompt;
-
-        const volatileText = buildVolatileContext(volatileParts);
-        const lastMsg = newMessages.pop();
-        if (volatileText) newMessages.push({ role: 'user', content: volatileText });
-        newMessages.push(lastMsg);
-        newMessages.unshift({ role: 'system', content: reinforcedSystemPrompt });
-        console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=${modelPromptText ? 'yes' : 'no'}`);
-        try {
-            console.log('🧱 [PromptLayout]', {
-                stableSystemTokens: estimateTokens(reinforcedSystemPrompt),
-                volatileTokens: estimateTokens(volatileText || ''),
-                historyMessages: newMessages.length - 2 - (volatileText ? 1 : 0),
-                hasVolatileContext: Boolean(volatileText),
-                finalMessageRoles: newMessages.map(m => m.role),
-                volatileIndex: volatileText ? (() => { for (let i = newMessages.length - 1; i >= 0; i--) { if (typeof newMessages[i].content === 'string' && newMessages[i].content.includes('<gateway_volatile_context>')) return i; } return -1; })() : -1,
-                currentUserIndex: newMessages.length - 1,
-                volatileBeforeCurrentUser: volatileText ? (() => { for (let i = newMessages.length - 1; i >= 0; i--) { if (typeof newMessages[i].content === 'string' && newMessages[i].content.includes('<gateway_volatile_context>')) return i === newMessages.length - 2; } return false; })() : false
-            });
-        } catch (e) {
-            console.log('❌ [PromptLayout:Error]', e.message);
+5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。`;
+        const stableSystemBlock = modelPromptText
+            ? `${modelPromptText}\n\n${stableSystemPrompt}\n\n${STABLE_CHECK}`
+            : `${stableSystemPrompt}\n\n${STABLE_CHECK}`;
+        const isClaudeModel = (body.model || '').toLowerCase().includes('claude');
+        const systemMsg = { role: 'system', content: stableSystemBlock };
+        if (isClaudeModel) {
+            systemMsg.cache_control = { type: 'ephemeral' };
         }
 
-        // 把匹配到的照片 base64 注入到最后一条用户消息中
-        if (_albumPhotoBlocks.length > 0) {
-            const lastIdx = newMessages.length - 1;
-            const lastC = newMessages[lastIdx].content;
-            if (Array.isArray(lastC)) {
-                lastC.push(..._albumPhotoBlocks);
-            } else {
-                newMessages[lastIdx].content = [
-                    { type: 'text', text: typeof lastC === 'string' ? lastC : '' },
-                    ..._albumPhotoBlocks
-                ];
-            }
-        }
-
-        if (memoryContext.trim().length > 0) {
-    const lastMsgIndex = newMessages.length - 1;
-    const lastContent = newMessages[lastMsgIndex].content;
-
-    if (Array.isArray(lastContent)) {
-        const textPart = lastContent.find(p => p.type === 'text');
-        if (textPart) {
-            textPart.text = `${memoryContext}\n\n【我现在的最新消息】：\n${textPart.text}`;
-        } else {
-            lastContent.unshift({
-                type: "text",
-                text: `${memoryContext}\n\n【我现在的最新消息】：\n（发送了图片）`
-            });
-        }
-    } else {
-        newMessages[lastMsgIndex].content = `${memoryContext}\n\n【我现在的最新消息】：\n${lastContent}`;
-    }
-}
-
-        // 四层上下文注入
+        // === 2. 收集全部动态内容 → 合并进最后一条 user message ===
+        // 四层上下文 + mood snapshot
+        let dynamicBlocks = '';
         try {
             const liveCtx = await buildLiveStatePrompt();
             let activeChatId = req.body.activeChatId || 'main';
@@ -4073,22 +4046,50 @@ ${stableSystemPrompt}
             const shouldScan = shouldScanTranscript(currentUserMsgText);
             if (shouldScan) txCtx = await scanTranscriptRadar(currentUserMsgText);
             const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
-    // 先情绪指令，再剩余上下文，确保不被 slice 截掉
-    const mainCtx = [liveCtx, sumCtx, memCtx, txCtx].filter(Boolean).join('\n\n').substring(0, 11000);
-    const dctx = moodSnapshotInst + '\n\n' + mainCtx;
-    if (dctx) body.messages = injectAfterSystem(newMessages, { role: 'system', content: dctx });
-    else body.messages = newMessages;
-    _ctxDiag.last = { at: new Date().toISOString(), scanTranscript: shouldScan, transcriptLen: txCtx.length, liveStateLen: (liveCtx||'').length, summaryLen: (sumCtx||'').length, memoryLen: (memCtx||'').length, totalCtxLen: dctx.length, userText: (currentUserMsgText||'').substring(0, 120) };
-} catch(e) { body.messages = newMessages; _ctxDiag.last = { at: new Date().toISOString(), error: e.message, userText: (currentUserMsgText||'').substring(0, 120) }; }
+            dynamicBlocks = [moodSnapshotInst, liveCtx, sumCtx, memCtx, txCtx].filter(Boolean).join('\n\n').substring(0, 11000);
+            _ctxDiag.last = { at: new Date().toISOString(), scanTranscript: shouldScan, transcriptLen: txCtx.length, liveStateLen: (liveCtx||'').length, summaryLen: (sumCtx||'').length, memoryLen: (memCtx||'').length, totalCtxLen: dynamicBlocks.length, userText: (currentUserMsgText||'').substring(0, 120) };
+        } catch(e) { _ctxDiag.last = { at: new Date().toISOString(), error: e.message, userText: (currentUserMsgText||'').substring(0, 120) }; }
 
-const totalChars = JSON.stringify(newMessages).length;
-const estimatedTokens = Math.round(totalChars / 4);
-moodLog('[MOOD DEBUG] messages has instruction: ' + JSON.stringify(body.messages).includes('MOOD_SNAPSHOT'));
-console.log(`🔬 [X光] 最终发给API: ${newMessages.length}条消息, ${totalChars}字符 ≈ ${estimatedTokens} tokens`);
-newMessages.forEach((m, i) => {
-    const len = JSON.stringify(m.content).length;
-    if (len > 2000) console.log(`  💀 第${i}条[${m.role}] ${len}字符 - 异常大!`);
-});
+        // 构建 volatile context（含动态注入队列 + 四层上下文 + 天气快照 + memoryContext）
+        const volatileText = buildVolatileContext([
+            ...volatileParts,
+            dynamicBlocks,
+            memoryContext && memoryContext.trim() ? memoryContext.trim() : null,
+            buildWeatherSnapshot()
+        ].filter(Boolean));
+
+        // === 3. 组装最终 messages: system + history + (merged user) ===
+        const lastUserMsg = newMessages.pop();  // 当前用户原话
+        let finalUserContent = lastUserMsg.content;
+        if (volatileText) {
+            finalUserContent = Array.isArray(finalUserContent)
+                ? [{ type: 'text', text: volatileText + '\n\n' }, ...finalUserContent]
+                : volatileText + '\n\n' + finalUserContent;
+        }
+        if (_albumPhotoBlocks.length > 0) {
+            if (!Array.isArray(finalUserContent)) finalUserContent = [{ type: 'text', text: finalUserContent }];
+            finalUserContent.push(..._albumPhotoBlocks);
+        }
+        newMessages.push({ role: 'user', content: finalUserContent });
+        newMessages.unshift(systemMsg);
+
+        const bodyMessages = newMessages;
+        body.messages = bodyMessages;
+
+        // === 调试日志 ===
+        const stableHash = require('crypto').createHash('sha256').update(stableSystemBlock).digest('hex').substring(0, 12);
+        const volatileHash = volatileText ? require('crypto').createHash('sha256').update(volatileText).digest('hex').substring(0, 12) : '(none)';
+        const stableTokens = estimateTokens(stableSystemBlock);
+        const historyTokens = bodyMessages.reduce((s, m, i) => s + (i === 0 ? 0 : estimateTokens(typeof m.content === 'string' ? m.content : JSON.stringify(m.content))), 0);
+        console.log(`📐 [CacheOpt] stableHash=${stableHash} volatileHash=${volatileHash} stableTokens≈${stableTokens} historyTokens≈${historyTokens} totalMsg=${bodyMessages.length} roles=${bodyMessages.map(m=>m.role).join('→')} cache_control=${isClaudeModel?'ephemeral':'none'}`);
+        console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=${modelPromptText ? 'yes' : 'no'}`);
+        const totalChars = JSON.stringify(bodyMessages).length;
+        const estimatedTokens = Math.round(totalChars / 4);
+        console.log(`🔬 [X光] 最终发给API: ${bodyMessages.length}条消息, ${totalChars}字符 ≈ ${estimatedTokens} tokens`);
+        bodyMessages.forEach((m, i) => {
+            const len = JSON.stringify(m.content).length;
+            if (len > 2000) console.log(`  💀 第${i}条[${m.role}] ${len}字符 - 异常大!`);
+        });
         const isGemini = (body.model || '').toLowerCase().includes('gemini');
         if (!isGemini) { body.frequency_penalty = 0.4; body.presence_penalty = 0.4; }
                else { delete body.frequency_penalty; delete body.presence_penalty; delete body.logprobs; delete body.top_logprobs; delete body.n; delete body.best_of; }
@@ -5482,38 +5483,36 @@ app.post('/api/web-chat', async (req, res) => {
                 const webModelName = model || 'deepseek-chat';
                 const webMpConfig = getModelPromptConfig(webModelName || '');
                 const webModelPromptText = (webMpConfig.prepend || '').trim();
-                const webReinforcedSystemPrompt = webModelPromptText
-                    ? `${webModelPromptText}
-
-${stableSystemPrompt}
-
-【本轮强制校验】
+                const STABLE_CHECK_WEB = `【本轮强制校验】
 回复前必须再次检查并遵守最上方 model_prompt 中的行为约束，尤其是：
 1. 不要用空洞安慰代替解法。
 2. 不要否认江鱼痛苦的真实性。
 3. 不要替江鱼判断她"真正想要什么"。
 4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。
-5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。`
-                    : stableSystemPrompt;
+5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。`;
+                const webStableBlock = webModelPromptText
+                    ? `${webModelPromptText}\n\n${stableSystemPrompt}\n\n${STABLE_CHECK_WEB}`
+                    : `${stableSystemPrompt}\n\n${STABLE_CHECK_WEB}`;
+                const webIsClaude = (webModelName || model || '').toLowerCase().includes('claude');
+                const webSystemMsg = { role: "system", content: webStableBlock };
+                if (webIsClaude) webSystemMsg.cache_control = { type: 'ephemeral' };
 
-                const volatileText = buildVolatileContext(volatileParts);
+                const volatileText = buildVolatileContext([...volatileParts, buildWeatherSnapshot()]);
+                let finalUser = userContent;
+                if (volatileText) {
+                    finalUser = Array.isArray(finalUser)
+                        ? [{ type: 'text', text: volatileText + '\n\n' }, ...finalUser]
+                        : volatileText + '\n\n' + finalUser;
+                }
                 const apiMessages = [
-                    { role: "system", content: webReinforcedSystemPrompt },
+                    webSystemMsg,
                     ...historyMessages,
-                    ...(volatileText ? [{ role: "user", content: volatileText }] : []),
-                    { role: "user", content: userContent }
+                    { role: "user", content: finalUser }
                 ];
+
+                const wStableHash = require('crypto').createHash('sha256').update(webStableBlock).digest('hex').substring(0,12);
+                console.log(`📐 [CacheOpt-web] stableHash=${wStableHash} volatileHash=${volatileText?require('crypto').createHash('sha256').update(volatileText).digest('hex').substring(0,12):'(none)'} stableTokens≈${estimateTokens(webStableBlock)} totalMsg=${apiMessages.length} cache_control=${webIsClaude?'ephemeral':'none'}`);
                 console.log(`🎯 [web-chat模型策略] ${webModelName} → role=${webMpConfig.role} prepend=${webModelPromptText ? webModelPromptText.length + '字' : '无'} mergedIntoSystem=${webModelPromptText ? 'yes' : 'no'}`);
-                console.log('🧱 [PromptLayout]', {
-                    stableSystemTokens: estimateTokens(webReinforcedSystemPrompt),
-                    volatileTokens: estimateTokens(volatileText || ''),
-                    historyMessages: historyMessages.length,
-                    hasVolatileContext: Boolean(volatileText),
-                    finalMessageRoles: apiMessages.map(m => m.role),
-                    volatileIndex: volatileText ? (() => { for (let i = apiMessages.length - 1; i >= 0; i--) { if (typeof apiMessages[i].content === 'string' && apiMessages[i].content.includes('<gateway_volatile_context>')) return i; } return -1; })() : -1,
-                    currentUserIndex: apiMessages.length - 1,
-                    volatileBeforeCurrentUser: ((() => { for (let i = apiMessages.length - 1; i >= 0; i--) { if (typeof apiMessages[i].content === 'string' && apiMessages[i].content.includes('<gateway_volatile_context>')) return i === apiMessages.length - 2; } return false; })())
-                });
 
                 const cacheMode = detectCacheMode({ routeKey: '', baseUrl, model: webModelName || model });
                 console.log(`🧭 [CacheMode] route=(none) host=${getProviderHost(baseUrl)} model=${webModelName || model} mode=${cacheMode}`);
