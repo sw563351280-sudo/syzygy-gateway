@@ -241,6 +241,40 @@ app.post('/api/logout', (req, res) => {
 // ==========================================
 app.get('/health', (req, res) => res.json({ ok: true }));
 
+// 临时诊断：embedding 服务状态
+app.get('/api/diag/embedding', async (req, res) => {
+    const crypto = require('crypto');
+    const key = process.env.EMBEDDING_API_KEY;
+    const results = {
+        env_configured: !!key,
+        key_sha256_prefix: key ? crypto.createHash('sha256').update(key).digest('hex').substring(0, 8) : '(none)',
+        tests: []
+    };
+    if (!key) return res.json(results);
+    const models = ['BAAI/bge-m3', 'BAAI/bge-large-zh-v1.5'];
+    for (const model of models) {
+        try {
+            const r = await fetch('https://api.siliconflow.cn/v1/embeddings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+                body: JSON.stringify({ model, input: 'test', encoding_format: 'float' }),
+                signal: AbortSignal.timeout(10000)
+            });
+            const data = await r.json().catch(() => ({}));
+            results.tests.push({
+                model,
+                http_status: r.status,
+                siliconflow_code: data.error?.code || data.code || null,
+                siliconflow_message: data.error?.message || data.message || null,
+                siliconflow_request_id: r.headers.get('x-request-id') || data.request_id || null
+            });
+        } catch(e) {
+            results.tests.push({ model, error: e.message });
+        }
+    }
+    res.json(results);
+});
+
 // ==========================================
 // 传感器网页（免登录，Token 由服务端注入）
 // ==========================================
@@ -410,7 +444,7 @@ app.post('/api/sensors/ingest', express.urlencoded({ extended: false, limit: '4k
 // ==========================================
 // 全局认证中间件（放所有业务路由之前）
 // ==========================================
-const PUBLIC_PATHS = ['/login', '/api/login', '/health', '/api/sensors/ingest', '/sensors', '/api/sensors/battery'];
+const PUBLIC_PATHS = ['/login', '/api/login', '/health', '/api/sensors/ingest', '/sensors', '/api/sensors/battery', '/api/diag/embedding'];
 
 function isPublicPath(req) {
     if (req.path.startsWith('/api/sensors/battery/')) return true;
