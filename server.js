@@ -1096,12 +1096,6 @@ async function getEmbedding(text) {
             url: 'https://api.siliconflow.cn/v1/embeddings',
             model: 'BAAI/bge-m3',
             key: process.env.EMBEDDING_API_KEY
-        },
-        {
-            name: 'SiliconFlow-bge-large-zh',
-            url: 'https://api.siliconflow.cn/v1/embeddings',
-            model: 'BAAI/bge-large-zh-v1.5',
-            key: process.env.EMBEDDING_API_KEY
         }
     ];
 
@@ -1125,8 +1119,11 @@ async function getEmbedding(text) {
             if (!res.ok) {
                 const errBody = await res.text().catch(() => '(无法读取)');
                 console.log(`❌ [向量引擎] ${p.name} HTTP ${res.status}: ${errBody.substring(0, 300)}`);
-                if (res.status === 401 || res.status === 403 || res.status === 402 || (errBody||'').includes('balance')) {
-                    meltEmbedding(p.name, res.status, errBody);
+                const isBalance = (errBody||'').includes('balance') || (errBody||'').includes('30001');
+                if (res.status === 401 || res.status === 403 || res.status === 402 || isBalance) {
+                    const label = isBalance ? '余额不足' : res.status;
+                    meltEmbedding(p.name, res.status, label + ': ' + errBody.substring(0, 80));
+                    if (isBalance) console.log('💳 [Embedding] SiliconFlow 账户余额不足，请充值。熔断30分钟。');
                 }
                 continue;
             }
