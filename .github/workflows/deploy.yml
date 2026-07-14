@@ -73,21 +73,29 @@ jobs:
             fi
 
             # 注入 SENSOR_INGEST_TOKEN 到 systemd 环境变量
+            echo "🔍 [Deploy] 检查 SENSOR_INGEST_TOKEN..."
             if ! grep -q SENSOR_INGEST_TOKEN /etc/systemd/system/syzygy.service; then
+              echo "🔍 [Deploy] SENSOR_INGEST_TOKEN 未找到，准备注入..."
               if [ ! -f /opt/syzygy/.sensor_token ]; then
-                openssl rand -hex 32 > /opt/syzygy/.sensor_token
+                echo "🔍 [Deploy] 生成新的 .sensor_token..."
+                openssl rand -hex 32 > /opt/syzygy/.sensor_token || { echo "❌ 生成token失败"; exit 1; }
                 chmod 600 /opt/syzygy/.sensor_token
-                echo "🔑 已生成 .sensor_token"
+                echo "🔑 [Deploy] 已生成 .sensor_token"
+              else
+                echo "🔍 [Deploy] .sensor_token 已存在，复用"
               fi
               TOKEN=$(cat /opt/syzygy/.sensor_token)
-              sed -i "/^Environment=/ s/$/ SENSOR_INGEST_TOKEN=\"${TOKEN}\"/" /etc/systemd/system/syzygy.service
-              systemctl daemon-reload
-              echo "🔑 SENSOR_INGEST_TOKEN 已注入 systemd"
+              echo "🔍 [Deploy] Token长度: ${#TOKEN} 字符"
+              sed -i "/^Environment=/ s/$/ SENSOR_INGEST_TOKEN=\"${TOKEN}\"/" /etc/systemd/system/syzygy.service || { echo "❌ sed注入失败"; exit 1; }
+              echo "🔍 [Deploy] sed 注入完成，执行 daemon-reload..."
+              systemctl daemon-reload || { echo "❌ daemon-reload失败"; exit 1; }
+              echo "🔑 [Deploy] SENSOR_INGEST_TOKEN 已注入 systemd"
             else
-              echo "🔑 SENSOR_INGEST_TOKEN 已存在，跳过"
+              echo "🔑 [Deploy] SENSOR_INGEST_TOKEN 已存在，跳过"
             fi
 
-            (systemctl restart syzygy.service && sleep 2 && journalctl -u syzygy.service --no-pager -n 3) || echo "⚠️ restart may have failed"
+            echo "🔍 [Deploy] 重启服务..."
+            (systemctl restart syzygy.service && sleep 2 && journalctl -u syzygy.service --no-pager -n 5) || echo "⚠️ restart may have failed"
             echo "=== DEPLOY OK ==="
             echo ""
             echo "🔑 SensorLogger令牌: $(cat /opt/syzygy/.sensor_token)"
