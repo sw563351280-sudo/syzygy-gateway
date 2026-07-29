@@ -103,6 +103,36 @@ jobs:
             systemctl daemon-reload || { echo "❌ daemon-reload失败"; exit 1; }
             echo "🔑 [Deploy] SENSOR_INGEST_TOKEN 已就绪"
 
+            # === 确保 nginx client_max_body_size 足够大（图片上传不会 413） ===
+            echo "🔍 [Deploy] 检查 nginx client_max_body_size..."
+            NGINX_ENABLED=/etc/nginx/sites-enabled/syzygy
+            if [ -L "$NGINX_ENABLED" ]; then
+              NGINX_CONF=$(readlink -f "$NGINX_ENABLED")
+            elif [ -f "$NGINX_ENABLED" ]; then
+              NGINX_CONF="$NGINX_ENABLED"
+            elif [ -f /etc/nginx/sites-available/syzygy ]; then
+              NGINX_CONF=/etc/nginx/sites-available/syzygy
+            else
+              NGINX_CONF=""
+            fi
+            if [ -n "$NGINX_CONF" ] && [ -f "$NGINX_CONF" ]; then
+              echo "🔍 [Deploy] nginx 配置: $NGINX_CONF"
+              if grep -q 'client_max_body_size' "$NGINX_CONF"; then
+                echo "🔍 [Deploy] client_max_body_size 已存在: $(grep 'client_max_body_size' "$NGINX_CONF" | head -1)"
+              else
+                echo "🔧 [Deploy] 添加 client_max_body_size 50m 到 $NGINX_CONF"
+                sed -i '/^\s*server\s*{/a\    client_max_body_size 50m;' "$NGINX_CONF"
+                if nginx -t; then
+                  systemctl reload nginx && echo "✅ nginx client_max_body_size 50m 已生效"
+                else
+                  echo "❌ nginx -t 失败，请手动检查配置"
+                fi
+              fi
+              echo "🔍 [Deploy] 验证: $(nginx -T 2>/dev/null | grep 'client_max_body_size' | head -1 || echo '未找到 client_max_body_size')"
+            else
+              echo "⚠️ [Deploy] 找不到 nginx syzygy 配置文件，跳过"
+            fi
+
             echo "🔍 [Deploy] 重启服务..."
             (systemctl restart syzygy.service && sleep 2 && journalctl -u syzygy.service --no-pager -n 5) || echo "⚠️ restart may have failed"
             echo "=== DEPLOY OK ==="
