@@ -130,7 +130,10 @@ function isAuthenticated(req) {
 // ==========================================
 // CORS — 仅允许精确 Origin + 写操作校验
 // ==========================================
-const ALLOWED_ORIGIN = 'https://syrenth.uk';
+const ALLOWED_ORIGINS = [
+    'https://syrenth.uk',
+    'https://www.syrenth.uk'
+];
 
 function handleCORS(req, res) {
     const origin = req.headers.origin;
@@ -138,7 +141,7 @@ function handleCORS(req, res) {
 
     // 有 Origin 时校验
     if (origin) {
-        if (origin !== ALLOWED_ORIGIN) {
+        if (!ALLOWED_ORIGINS.includes(origin)) {
             res.set('Vary', 'Origin');
             return { allowed: false };
         }
@@ -177,7 +180,7 @@ function handleCORS(req, res) {
 app.use((req, res, next) => {
     const result = handleCORS(req, res);
     if (result.allowed === false) {
-        return res.status(403).json({ error: 'Origin 不被允许' });
+        return res.status(403).json({ error: 'Origin 不被允许', origin: req.headers.origin || '(none)', allowed: ALLOWED_ORIGINS });
     }
     if (result.isPreflight) {
         return res.sendStatus(204);
