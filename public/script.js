@@ -52,8 +52,8 @@ function stripInternalTags(text) { return (text||'').replace(/<MOOD_SNAPSHOT>[\s
 function renderMarkdown(text) { if (!text) return ''; if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
 
 // ==================== 版本化消息辅助函数 ====================
-function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; return v; } return msg; }
-function normalizeMessageVersionFields(msg) { if (!msg) return msg; if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0]; if (!v) return msg; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; return msg; } ensureVersioned(msg); return msg; }
+function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; if (v.toolCalls === undefined && msg.toolCalls !== undefined) v.toolCalls = msg.toolCalls; return v; } return msg; }
+function normalizeMessageVersionFields(msg) { if (!msg) return msg; if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0]; if (!v) return msg; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; if (v.toolCalls === undefined && msg.toolCalls !== undefined) v.toolCalls = msg.toolCalls; return msg; } ensureVersioned(msg); return msg; }
 function extractThinkingFromContent(content) {
     if (!content) return { thinking: '', visibleContent: '' };
 
@@ -1145,6 +1145,38 @@ function switchChatWindow(id){
     if(topTitleEl) topTitleEl.innerText = '通讯 · ' + getActiveSession().name;
 }
 
+function escapeToolHtml(value) {
+    return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function normalizeToolCall(toolCall) {
+    if (!toolCall || typeof toolCall !== 'object') return null;
+    const name = String(toolCall.name || 'unknown_tool').slice(0, 80);
+    const args = toolCall.arguments && typeof toolCall.arguments === 'object' ? toolCall.arguments : {};
+    return {
+        name,
+        arguments: args,
+        result: String(toolCall.result || '').slice(0, 5000),
+        elapsed: Math.max(0, Number(toolCall.elapsed) || 0)
+    };
+}
+
+function renderToolCall(toolCall) {
+    const item = normalizeToolCall(toolCall);
+    if (!item) return '';
+    let args = '{}';
+    try { args = JSON.stringify(item.arguments); } catch (_) {}
+    const argsPreview = args.length > 72 ? args.slice(0, 72) + '…' : args;
+    const elapsed = item.elapsed >= 1000 ? (item.elapsed / 1000).toFixed(1) + 's' : item.elapsed + 'ms';
+    return '<details class="tool-call-box"><summary class="tool-call-header"><span class="tool-call-icon">⌘</span><span class="tool-call-name">' + escapeToolHtml(item.name) + '</span><span class="tool-call-args">' + escapeToolHtml(argsPreview) + '</span><span class="tool-call-elapsed">' + elapsed + '</span></summary><div class="tool-call-result"><pre>' + escapeToolHtml(item.result || '（工具未返回可展示内容）') + '</pre></div></details>';
+}
+
+function createToolCallElement(toolCall) {
+    const template = document.createElement('template');
+    template.innerHTML = renderToolCall(toolCall);
+    return template.content.firstElementChild;
+}
+
 function renderChatMessages(){
     const win = document.getElementById('chatWindow');
     if(!win) return;
@@ -1180,6 +1212,12 @@ function renderChatMessages(){
         if (extractedThink.thinking) { displayContent = extractedThink.visibleContent; }
         const finalThinking = rawThinking || extractedThink.thinking || '';
         if(finalThinking) htmlContent += '<div class="think-box"><div class="think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">' + finalThinking.replace(/\n/g,'<br>') + '</div></div>';
+        // 渲染工具调用记录
+        var toolCalls = v.toolCalls || [];
+        for (var ti = 0; ti < toolCalls.length; ti++) {
+            var tc = toolCalls[ti];
+            htmlContent += '<div class="tool-call-box"><div class="tool-call-header tool-collapsed" onclick="var r=this.nextElementSibling;r.style.display=r.style.display===\'none\'?\'block\':\'none\';this.classList.toggle(\'tool-collapsed\')"><span class="tool-call-icon">▾</span> <span class="tool-call-name">' + escHtml(tc.name || '') + '</span> <span class="tool-call-args">' + escHtml(JSON.stringify(tc.arguments||{}).substring(0,60)) + '</span> <span class="tool-call-elapsed">' + (tc.elapsed||0) + 'ms</span></div><div class="tool-call-result" style="display:none"><pre>' + escHtml((tc.result||'').substring(0,2000)) + '</pre></div></div>';
+        }
         if (m.role === 'user') {
             htmlContent += '<div>' + (displayContent || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
         } else {
@@ -1319,6 +1357,7 @@ async function sendChat(options = {}) {
     sRow.appendChild(actionBtn);
 
     win.appendChild(sRow); win.scrollTop = win.scrollHeight;
+    var toolCallRecords = [];
 
     // 💥 1. 准备图片：复用模式从版本取，普通模式从相册取
     var imgsToSend = [];
@@ -1531,10 +1570,10 @@ try {
 
                         // 🔧 工具调用事件
                         if (parsed.type === 'tool_call') {
-                            const toolBox = document.createElement('div');
+                            toolCallRecords.push({ name: parsed.name, arguments: parsed.arguments || {}, result: parsed.result || '', elapsed: parsed.elapsed || 0 });
+                            var toolBox = document.createElement('div');
                             toolBox.className = 'tool-call-box';
-                            const resultPreview = (parsed.result || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                            toolBox.innerHTML = `<div class="tool-call-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';this.classList.toggle('tool-collapsed')"><span class="tool-call-icon">🔧</span> <b>${parsed.name}</b> <span class="tool-call-args">${JSON.stringify(parsed.arguments||{}).replace(/</g,'&lt;').substring(0,80)}</span> <span class="tool-call-elapsed">${parsed.elapsed||0}ms</span></div><div class="tool-call-result" style="display:none"><pre>${resultPreview}</pre></div>`;
+                            toolBox.innerHTML = '<div class="tool-call-header" onclick="var r=this.nextElementSibling;r.style.display=r.style.display===\'none\'?\'block\':\'none\';this.classList.toggle(\'tool-collapsed\')"><span class="tool-call-icon">▾</span> <span class="tool-call-name">' + escHtml(parsed.name) + '</span> <span class="tool-call-args">' + escHtml(JSON.stringify(parsed.arguments||{}).substring(0,60)) + '</span> <span class="tool-call-elapsed">' + (parsed.elapsed||0) + 'ms</span></div><div class="tool-call-result" style="display:none"><pre>' + escHtml((parsed.result || '').substring(0,2000)) + '</pre></div>';
                             sDiv.appendChild(toolBox);
                             win.scrollTop = win.scrollHeight;
                             continue;
@@ -1634,7 +1673,7 @@ try {
         // --- 5. 存入云端，思考链从 DOM 取（避免流解析丢数据）---
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
         const domThinking = thinkTextDiv && thinkBox && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || '');
-        const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '' }], activeVersion: 0 };
+        const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
         session.messages.push(assistantMsg);
         saveToCloud(true);  // 立即保存，不延迟
         fetchPulseStatus();  // 刷新 Pulse 面板
@@ -2541,16 +2580,17 @@ async function regenerateSend(aiMsgIndex) {
         const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream}) });
         if (!response.ok) { clearTimeout(reSilenceTimer); const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         let fullReply='', thinkContent='';
+        var toolCallRecords = [];
         if(isStream) {
             const reader = response.body.getReader(); const decoder = new TextDecoder('utf-8'); let buffer='', rawAcc='', reasoningAcc='';
             sDiv.innerHTML=''; const thinkBox=document.createElement('div'); thinkBox.className='think-box'; thinkBox.style.display='none'; thinkBox.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content"></div>'; const thinkTextDiv=thinkBox.querySelector('.think-content'); sDiv.appendChild(thinkBox);
             const mainTextDiv=document.createElement('div'); mainTextDiv.classList.add('md-content'); sDiv.appendChild(mainTextDiv);
-            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); const d=p.choices[0].delta; if(d.reasoning_content){reasoningAcc+=d.reasoning_content; thinkBox.style.display='block';} if(d.content){rawAcc+=d.content; const parsed=extractThinkingFromContent(rawAcc); fullReply=parsed.visibleContent; const combinedThink=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n'); if(combinedThink){thinkContent=combinedThink; thinkBox.style.display='block'; thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');} mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';} win.scrollTop=win.scrollHeight;}catch(e){}}}
+            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); if(p.type==='tool_call'){toolCallRecords.push({name:p.name,arguments:p.arguments||{},result:p.result||'',elapsed:p.elapsed||0}); var reToolBox=document.createElement('div');reToolBox.className='tool-call-box';reToolBox.innerHTML='<div class="tool-call-header" onclick="var r=this.nextElementSibling;r.style.display=r.style.display===\'none\'?\'block\':\'none\';this.classList.toggle(\'tool-collapsed\')"><span class="tool-call-icon">▾</span> <span class="tool-call-name">'+escHtml(p.name)+'</span> <span class="tool-call-args">'+escHtml(JSON.stringify(p.arguments||{}).substring(0,60))+'</span> <span class="tool-call-elapsed">'+(p.elapsed||0)+'ms</span></div><div class="tool-call-result" style="display:none"><pre>'+escHtml((p.result||'').substring(0,2000))+'</pre></div>';sDiv.appendChild(reToolBox);win.scrollTop=win.scrollHeight;continue;} const d=p.choices[0].delta; if(d.reasoning_content){reasoningAcc+=d.reasoning_content; thinkBox.style.display='block';} if(d.content){rawAcc+=d.content; const parsed=extractThinkingFromContent(rawAcc); fullReply=parsed.visibleContent; const combinedThink=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n'); if(combinedThink){thinkContent=combinedThink; thinkBox.style.display='block'; thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');} mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';} win.scrollTop=win.scrollHeight;}catch(e){}}}
             mainTextDiv.innerHTML=renderMarkdown(fullReply);
         } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){const tb=document.createElement('div');tb.className='think-box';tb.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content">'+thinkContent.replace(/\n/g,'<br>')+'</div>';sDiv.appendChild(tb);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
         sDiv.classList.remove('msg-loading');
         const timeStr=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
-        ensureVersioned(aiMsg); aiMsg.versions.push({content:fullReply,thinking:thinkContent,time:timeStr,model:selectedModel,fullTime:new Date().toISOString()}); aiMsg.activeVersion=aiMsg.versions.length-1; aiMsg._zepDirty=true;
+        ensureVersioned(aiMsg); aiMsg.versions.push({content:fullReply,thinking:thinkContent,time:timeStr,model:selectedModel,fullTime:new Date().toISOString(), toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined}); aiMsg.activeVersion=aiMsg.versions.length-1; aiMsg._zepDirty=true;
         saveToCloud(); renderChatMessages();
     } catch(err) { sDiv.innerHTML='<div class="msg-error"><div>【网络崩溃】</div><div class="msg-error-detail">'+err.message+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); }
 }

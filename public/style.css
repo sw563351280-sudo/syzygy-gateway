@@ -90,6 +90,16 @@
     --light-inline-btn-border:rgba(196,165,123,0.4);
     --light-inline-btn-color:#5C4033;
     --light-inline-btn-bg:rgba(196,165,123,0.08);
+    /* 工具调用气泡 */
+    --tool-border: rgba(201,169,97,0.2);
+    --tool-bg: rgba(201,169,97,0.03);
+    --tool-header-color: var(--dim);
+    --tool-hover-bg: rgba(201,169,97,0.06);
+    --tool-name-color: var(--gold);
+    --tool-args-color: var(--dim);
+    --tool-elapsed-color: var(--dim);
+    --tool-pre-bg: rgba(0,0,0,0.25);
+    --tool-pre-color: var(--cream-dim);
 }
 
 /* ============ 基底：夜空渐变 + 墨渍纹理 ============ */
@@ -1444,41 +1454,83 @@ body[data-view="chat"] #themeToggleBtn{display:none!important}
 /* ═══ 隐藏 Syzygy Line 连线 ═══ */
 #syzygy-line-svg{display:none!important}
 
-/* ═══ 工具调用框 ═══ */
+/* ═══ 工具调用气泡（紧凑版，四主题适配） ═══ */
 .tool-call-box {
-  margin: 6px 0 6px 12px;
-  border-left: 2px solid #4fc3f7;
-  border-radius: 0 6px 6px 0;
-  background: rgba(79,195,247,0.06);
-  font-size: 0.82em;
+  margin: 4px 0 4px 8px;
+  border-left: 1.5px solid var(--tool-border, rgba(150,150,150,0.3));
+  border-radius: 0 4px 4px 0;
+  background: var(--tool-bg, rgba(255,255,255,0.03));
+  font-size: 0.72em;
+  line-height: 1.4;
 }
 .tool-call-header {
-  padding: 6px 10px;
+  padding: 3px 8px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: #4fc3f7;
+  gap: 5px;
+  color: var(--tool-header-color, #999);
   user-select: none;
+  transition: background 0.15s;
 }
-.tool-call-header:hover { background: rgba(79,195,247,0.1); }
+.tool-call-header:hover { background: var(--tool-hover-bg, rgba(150,150,150,0.08)); }
 .tool-call-header.tool-collapsed .tool-call-icon { transform: rotate(-90deg); }
-.tool-call-icon { transition: transform 0.15s; display: inline-block; }
-.tool-call-args { color: #888; font-size: 0.85em; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool-call-elapsed { color: #666; font-size: 0.8em; margin-left: auto; }
-.tool-call-result { padding: 6px 10px 10px; }
+.tool-call-icon { transition: transform 0.15s; display: inline-block; font-size: 0.9em; }
+.tool-call-name { font-weight: 600; color: var(--tool-name-color, #aaa); }
+.tool-call-args { color: var(--tool-args-color, #777); font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-call-elapsed { color: var(--tool-elapsed-color, #666); font-size: 0.85em; margin-left: auto; }
+.tool-call-result { padding: 3px 8px 6px; }
 .tool-call-result pre {
   margin: 0;
-  padding: 8px;
-  background: rgba(0,0,0,0.2);
-  border-radius: 4px;
-  color: #bbb;
+  padding: 6px;
+  background: var(--tool-pre-bg, rgba(0,0,0,0.15));
+  border-radius: 3px;
+  color: var(--tool-pre-color, #999);
   font-size: 0.85em;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 300px;
+  max-height: 150px;
   overflow-y: auto;
   line-height: 1.4;
+}
+
+/* 白天模式 */
+body.light-mode {
+  --tool-border: rgba(196,165,123,0.25);
+  --tool-bg: rgba(196,165,123,0.04);
+  --tool-header-color: #8B7355;
+  --tool-hover-bg: rgba(196,165,123,0.08);
+  --tool-name-color: #5C4033;
+  --tool-args-color: #8B7355;
+  --tool-elapsed-color: #8B7355;
+  --tool-pre-bg: rgba(0,0,0,0.03);
+  --tool-pre-color: #5C4033;
+}
+
+/* 新拟态模式 */
+body.neu-mode {
+  --tool-border: rgba(90,143,202,0.2);
+  --tool-bg: rgba(90,143,202,0.04);
+  --tool-header-color: #718096;
+  --tool-hover-bg: rgba(90,143,202,0.06);
+  --tool-name-color: #5A8FCA;
+  --tool-args-color: #718096;
+  --tool-elapsed-color: #A0AEC0;
+  --tool-pre-bg: rgba(163,177,198,0.08);
+  --tool-pre-color: #4A5568;
+}
+
+/* 暗金模式 */
+body.dark-gold-mode {
+  --tool-border: rgba(212,160,74,0.15);
+  --tool-bg: rgba(212,160,74,0.03);
+  --tool-header-color: #8c7a65;
+  --tool-hover-bg: rgba(212,160,74,0.06);
+  --tool-name-color: #D4A04A;
+  --tool-args-color: #8c7a65;
+  --tool-elapsed-color: #584b38;
+  --tool-pre-bg: rgba(0,0,0,0.2);
+  --tool-pre-color: #c4b8ab;
 }
 
 
@@ -1791,13 +1843,6 @@ body.neu-mode #themeToggleBtn {
 }
 body.neu-mode #themeToggleBtn:hover {
     box-shadow: 2px 2px 4px rgba(163, 177, 198, 0.3), -2px -2px 4px rgba(255, 255, 255, 0.6) !important;
-}
-
-/* ── 工具调用框 ── */
-body.neu-mode .tool-call-box {
-    border-left-color: #5A8FCA;
-    background: rgba(90, 143, 202, 0.06);
-    color: #4A5568;
 }
 
 /* ── 时光信箱/胶囊 ── */
