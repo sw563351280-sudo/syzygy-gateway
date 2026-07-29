@@ -1284,6 +1284,32 @@ try {
         var silenceTimer = setTimeout(() => controller.abort(), toolTimeout);
         function resetSilenceTimer() { clearTimeout(silenceTimer); silenceTimer = setTimeout(() => controller.abort(), toolTimeout); }
 
+        // 🔍 诊断日志：请求 payload 大小
+        const reqBody = {
+            model: selectedModel,
+            messages: historyMsgs,
+            stream: isStream,
+            useCrossplatform: localStorage.getItem('syzygy_crossplatform') !== 'false'
+        };
+        const payloadText = JSON.stringify(reqBody);
+        console.log('[chat payload]', {
+            bytes: new Blob([payloadText]).size,
+            megabytes: (new Blob([payloadText]).size / 1024 / 1024).toFixed(2),
+            imageCount: imgsToSend.length
+        });
+        // 🔍 逐张图片字节数
+        if (imgsToSend.length > 0) {
+            console.table(imgsToSend.map((img, idx) => {
+                const base64 = img.split(',')[1] || '';
+                const byteSize = Math.ceil(base64.length * 0.75);
+                return {
+                    index: idx,
+                    bytes: byteSize,
+                    megabytes: (byteSize / 1024 / 1024).toFixed(2)
+                };
+            }));
+        }
+
         const response = await fetch(apiUrl, {
             method: 'POST',
             signal: controller.signal,
@@ -1292,18 +1318,25 @@ try {
                 'Authorization': `Bearer ${currentSup.key}`,
                 'X-Tab-Id': SYZYGY_TAB_ID
             },
-            body: JSON.stringify({
-                model: selectedModel,
-                messages: historyMsgs,
-                stream: isStream,
-                useCrossplatform: localStorage.getItem('syzygy_crossplatform') !== 'false'
-            })
+            body: payloadText
         });
 
         if (!response.ok) {
             clearTimeout(silenceTimer);
-            const err = await response.text();
-            sDiv.innerHTML = `【通讯中断】服务器返回: ${err}`;
+            const errText = await response.text().catch(() => '');
+            let hint;
+            if (response.status === 413) {
+                hint = '图片或本次请求仍然太大（413），请减少图片数量';
+            } else if (response.status === 403) {
+                if (errText.includes('Origin')) {
+                    hint = '当前访问域名不在允许列表（403 Origin）';
+                } else {
+                    hint = '请求被代理或安全规则拒绝（403）: ' + errText.slice(0, 100);
+                }
+            } else {
+                hint = '服务器返回 HTTP ' + response.status + ': ' + errText.slice(0, 100);
+            }
+            sDiv.innerHTML = '【通讯中断】' + hint;
             return;
         }
 
@@ -1762,8 +1795,30 @@ async function compressImageFile(file, options = {}) {
             const blob = await canvasToBlob(canvas, 'image/jpeg', quality);
 
             // 达标 或 已达最低限度 → 输出
-            if (blob.size <= targetBytes) return await blobToDataUrl(blob);
-            if (quality <= minQuality && Math.max(w, h) <= minDim) return await blobToDataUrl(blob);
+            if (blob.size <= targetBytes) {
+                console.log('[image compressed]', {
+                    name: file.name,
+                    originalBytes: file.size,
+                    compressedBytes: blob.size,
+                    compressedMegabytes: (blob.size / 1024 / 1024).toFixed(2),
+                    width: w, height: h,
+                    quality: quality,
+                    type: blob.type
+                });
+                return await blobToDataUrl(blob);
+            }
+            if (quality <= minQuality && Math.max(w, h) <= minDim) {
+                console.log('[image compressed - floor]', {
+                    name: file.name,
+                    originalBytes: file.size,
+                    compressedBytes: blob.size,
+                    compressedMegabytes: (blob.size / 1024 / 1024).toFixed(2),
+                    width: w, height: h,
+                    quality: quality,
+                    type: blob.type
+                });
+                return await blobToDataUrl(blob);
+            }
 
             // 还能降 quality？
             if (quality - qualityStep >= minQuality) {
@@ -1786,6 +1841,15 @@ async function compressImageFile(file, options = {}) {
             ctx2.fillRect(0, 0, w, h);
             ctx2.drawImage(img, 0, 0, w, h);
             const finalBlob = await canvasToBlob(canvas, 'image/jpeg', minQuality);
+            console.log('[image compressed - final]', {
+                name: file.name,
+                originalBytes: file.size,
+                compressedBytes: finalBlob.size,
+                compressedMegabytes: (finalBlob.size / 1024 / 1024).toFixed(2),
+                width: w, height: h,
+                quality: minQuality,
+                type: finalBlob.type
+            });
             return await blobToDataUrl(finalBlob);
         }
     } catch (e) {
