@@ -225,21 +225,30 @@ async function syncFromCloud() {
 
 let _saveTimer = null;
 // 🧹 清理超过 5 轮的老图片，只保留文本（同时清理 v.image 和 v.images）
+// 🧹 清理超过 5 轮的老图片，只保留文本
+// 兼容: message.image / message.images / versions[].image / versions[].images
 function cleanupOldImages(session) {
     if (!session || !session.messages) return;
     let imgCount = 0;
 
     for (let i = session.messages.length - 1; i >= 0; i--) {
         const m = session.messages[i];
-        if (!m.versions) continue;
+        if (m.role !== 'user') continue;
 
-        const hasImage = m.versions.some(v =>
-            v.image || (Array.isArray(v.images) && v.images.length)
+        const hasImage = !!(
+            m.image ||
+            (Array.isArray(m.images) && m.images.length) ||
+            (m.versions && m.versions.some(v =>
+                v.image || (Array.isArray(v.images) && v.images.length)
+            ))
         );
+        if (!hasImage) continue;
 
-        if (hasImage) {
-            imgCount++;
-            if (imgCount > 5) {
+        imgCount++;
+        if (imgCount > 5) {
+            delete m.image;
+            delete m.images;
+            if (m.versions) {
                 m.versions.forEach(v => {
                     delete v.image;
                     delete v.images;
@@ -268,6 +277,8 @@ function _showSaveWarning(show, errMsg) {
     }
 }
 
+// ⚠️ stripImagesForCloudSync 保留为公共函数，但 _doSave 不再使用
+// 如果需要完全剥离所有轮次图片，仍可调用此函数
 function stripImagesForCloudSync(sessions) {
     return sessions.map(session => ({
         ...session,
@@ -283,73 +294,104 @@ function stripImagesForCloudSync(sessions) {
     }));
 }
 
-async function _doSave() {
-    const MAX_SYNC_BYTES = 15 * 1024 * 1024; // 15 MB
+// 统计 sessions 中当前保留的图片轮次数
+function _countImgRounds(sessions) {
+    let n = 0;
+    for (const s of sessions) {
+        if (!s.messages) continue;
+        for (const m of s.messages) {
+            if (m.role !== 'user') continue;
+            if (m.image || (Array.isArray(m.images) && m.images.length)) { n++; continue; }
+            if (m.versions && m.versions.some(function(v){ return v.image || (Array.isArray(v.images) && v.images.length); })) { n++; }
+        }
+    }
+    return n;
+}
 
-    // 第一轮：常规 cleanup
-    const sessionsToSave1 = stripImagesForCloudSync(chatSessions);
-    for (const s of sessionsToSave1) {
+// 从 sessions 副本中移除最旧一个图片轮次的图片字段（不删消息文本）
+// 返回 true 表示移除了一轮，false 表示已无可移除的图片
+function _stripOldestImgRound(sessions) {
+    for (var si = 0; si < sessions.length; si++) {
+        var s = sessions[si];
+        if (!s.messages) continue;
+        for (var mi = 0; mi < s.messages.length; mi++) {
+            var m = s.messages[mi];
+            if (m.role !== 'user') continue;
+            var stripped = false;
+            if (m.image) { delete m.image; stripped = true; }
+            if (Array.isArray(m.images) && m.images.length) { delete m.images; stripped = true; }
+            if (m.versions) {
+                for (var vi = 0; vi < m.versions.length; vi++) {
+                    var v = m.versions[vi];
+                    if (v.image) { delete v.image; stripped = true; }
+                    if (Array.isArray(v.images) && v.images.length) { delete v.images; stripped = true; }
+                }
+            }
+            if (stripped) return true;
+        }
+    }
+    return false;
+}
+
+async function _doSave() {
+    var MAX_SYNC_BYTES = 15 * 1024 * 1024; // 15 MB
+
+    // 1. 深拷贝 chatSessions — 不影响内存中的原始数据
+    var clone;
+    try { clone = structuredClone(chatSessions); } catch (_e) { clone = JSON.parse(JSON.stringify(chatSessions)); }
+
+    // 2. 常规处理
+    for (var si = 0; si < clone.length; si++) {
+        var s = clone[si];
         if (!s.messages) continue;
         cleanupOldImages(s);
         s.messages = s.messages.slice(-200);
-        for (const m of s.messages) {
+        for (var mi = 0; mi < s.messages.length; mi++) {
+            var m = s.messages[mi];
             if (m.versions && m.versions.length > 5) {
-                m.versions = [m.versions[0], ...m.versions.slice(-4)];
+                m.versions = [m.versions[0], m.versions.slice(-4)];
                 if (m.activeVersion >= m.versions.length) m.activeVersion = m.versions.length - 1;
             }
             delete m._zepDirty;
         }
     }
-    let payload = JSON.stringify({ suppliers, chatSessions: sessionsToSave1, activeSupIndex, activeChatId, _version: _dataVersion });
 
-    // 超过 15 MB → 二次清理（更激进的图片删除）
-    if (payload.length > MAX_SYNC_BYTES) {
-        console.warn('[sync-config] payload 超 15 MB (' + (payload.length / 1024 / 1024).toFixed(1) + ' MB)，执行二次清理');
-        const sessionsToSave2 = stripImagesForCloudSync(chatSessions);
-        for (const s of sessionsToSave2) {
-            if (!s.messages) continue;
-            // 二次清理：再次调用 cleanupOldImages（针对 strip 后仍可能残留的大字段）
-            cleanupOldImages(s);
-            s.messages = s.messages.slice(-200);
-            for (const m of s.messages) {
-                if (m.versions && m.versions.length > 5) {
-                    m.versions = [m.versions[0], ...m.versions.slice(-4)];
-                    if (m.activeVersion >= m.versions.length) m.activeVersion = m.versions.length - 1;
-                }
-                delete m._zepDirty;
-            }
+    // 3. 构造 payload
+    var payloadObj = { suppliers: suppliers, chatSessions: clone, activeSupIndex: activeSupIndex, activeChatId: activeChatId, _version: _dataVersion };
+    var payloadText = JSON.stringify(payloadObj);
+    var payloadBytes = new Blob([payloadText]).size;
+
+    // 4. 超过 15 MB → 从最旧的图片轮次开始逐轮移除
+    if (payloadBytes > MAX_SYNC_BYTES) {
+        console.warn('[sync-config] payload 超 15 MB (' + (payloadBytes / 1024 / 1024).toFixed(1) + ' MB)，逐轮移除最旧图片');
+        while (payloadBytes > MAX_SYNC_BYTES && _stripOldestImgRound(clone)) {
+            payloadText = JSON.stringify(payloadObj);
+            payloadBytes = new Blob([payloadText]).size;
         }
-        payload = JSON.stringify({ suppliers, chatSessions: sessionsToSave2, activeSupIndex, activeChatId, _version: _dataVersion });
-
-        if (payload.length > MAX_SYNC_BYTES) {
-            console.error('[sync-config] 二次清理后仍超 15 MB (' + (payload.length / 1024 / 1024).toFixed(1) + ' MB)，拒绝发送');
-            throw new Error('数据量过大 (' + (payload.length / 1024 / 1024).toFixed(1) + ' MB)，同步失败。请清理旧频道或刷新页面。');
+        if (payloadBytes > MAX_SYNC_BYTES) {
+            console.error('[sync-config] 逐轮移除后仍超 15 MB (' + (payloadBytes / 1024 / 1024).toFixed(1) + ' MB)，最新图片过大');
+            throw new Error('最新图片过大，云端同步失败。请减少图片或清理旧频道后重试。');
         }
     }
 
-    console.log('[sync-config] payload size MB:', (payload.length / 1024 / 1024).toFixed(2));
-    const r = await fetch('/api/sync-config', {
+    var keptRounds = _countImgRounds(clone);
+    console.log('[sync-config] ' + (payloadBytes / 1024 / 1024).toFixed(2) + ' MB, 保留 ' + keptRounds + ' 个图片轮次');
+
+    // 5. 发送
+    var r = await fetch('/api/sync-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: payload
+        body: payloadText
     });
     if (!r.ok) {
-        const text = await r.text().catch(() => '');
-        let hint = 'HTTP ' + r.status;
-        if (r.status === 413) {
-            hint += ' 数据仍过大，请清理旧频道或刷新页面';
-        } else if (r.status === 403) {
-            if (text.includes('Origin')) {
-                hint += ' 当前访问域名不在允许列表';
-            } else {
-                hint += ' 请求被代理或安全规则拒绝: ' + text.slice(0, 100);
-            }
-        } else {
-            hint += ' ' + text.slice(0, 200);
-        }
+        var text = await r.text().catch(function(){ return ''; });
+        var hint = 'HTTP ' + r.status;
+        if (r.status === 413) { hint += ' 数据仍过大，请清理旧频道或刷新页面'; }
+        else if (r.status === 403) { hint += text.indexOf('Origin') >= 0 ? ' 当前访问域名不在允许列表' : ' 请求被代理或安全规则拒绝: ' + text.slice(0, 100); }
+        else { hint += ' ' + text.slice(0, 200); }
         throw new Error(hint);
     }
-    const d = await r.json();
+    var d = await r.json();
     if (d._version) _dataVersion = d._version;
     if (d._rejected) { console.warn('🛡️ [版本落后] 本次保存被拒绝，请刷新页面'); }
 }
@@ -1743,81 +1785,79 @@ async function compressImageFile(file, options = {}) {
         resetQuality = 0.78
     } = options;
 
+    var startedAt = performance.now();
+    var encodeAttempts = 0;
+    var objectUrl = null;
+    var img = null;
+    var canvas = null;
+
     try {
         // 1. 加载图片，优先使用 createImageBitmap 矫正 EXIF 方向
-        let img;
         try {
             img = await createImageBitmap(file, { imageOrientation: 'from-image' });
         } catch (_bitmapErr) {
             // 回退到传统 Image
             img = await new Promise((resolve, reject) => {
                 const image = new Image();
+                objectUrl = URL.createObjectURL(file);
                 image.onload = () => resolve(image);
                 image.onerror = () => reject(new Error('图片加载失败'));
-                image.src = URL.createObjectURL(file);
+                image.src = objectUrl;
             });
         }
 
-        let w = img.width, h = img.height;
+        var w = img.width, h = img.height;
 
         // 2. 第一步：限制最长边
-        const longer = Math.max(w, h);
+        var longer = Math.max(w, h);
         if (longer > maxDim) {
-            const ratio = maxDim / longer;
+            var ratio = maxDim / longer;
             w = Math.round(w * ratio);
             h = Math.round(h * ratio);
         }
 
+        canvas = document.createElement('canvas');
+
         // 3. 如果原始尺寸已经很小，先试一次低保真
         if (longer <= 640 && file.size < targetBytes) {
-            const canvas = document.createElement('canvas');
             canvas.width = w; canvas.height = h;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(0, 0, w, h);
-            ctx.drawImage(img, 0, 0, w, h);
-            const blob = await canvasToBlob(canvas, 'image/jpeg', 0.88);
-            if (blob.size <= targetBytes) return await blobToDataUrl(blob);
+            var ctx0 = canvas.getContext('2d');
+            ctx0.fillStyle = '#FFFFFF';
+            ctx0.fillRect(0, 0, w, h);
+            ctx0.drawImage(img, 0, 0, w, h);
+            encodeAttempts++;
+            var smallBlob = await canvasToBlob(canvas, 'image/jpeg', 0.88);
+            if (smallBlob.size <= targetBytes) {
+                var smallResult = await blobToDataUrl(smallBlob);
+                console.log('[image timing]', { name: file.name, originalMB: (file.size / 1024 / 1024).toFixed(2), outputKB: Math.round(smallBlob.size / 1024), width: w, height: h, elapsedMs: Math.round(performance.now() - startedAt), encodeAttempts: encodeAttempts });
+                return smallResult;
+            }
         }
 
-        let quality = startQuality;
-        const canvas = document.createElement('canvas');
+        var quality = startQuality;
 
         // 4. 循环压缩直到达标
         while (true) {
             canvas.width = w; canvas.height = h;
-            const ctx = canvas.getContext('2d');
+            var ctx = canvas.getContext('2d');
             // 白色背景，避免透明 PNG → JPEG 变黑底
             ctx.fillStyle = '#FFFFFF';
             ctx.fillRect(0, 0, w, h);
             ctx.drawImage(img, 0, 0, w, h);
 
-            const blob = await canvasToBlob(canvas, 'image/jpeg', quality);
+            encodeAttempts++;
+            var blob = await canvasToBlob(canvas, 'image/jpeg', quality);
 
             // 达标 或 已达最低限度 → 输出
             if (blob.size <= targetBytes) {
-                console.log('[image compressed]', {
-                    name: file.name,
-                    originalBytes: file.size,
-                    compressedBytes: blob.size,
-                    compressedMegabytes: (blob.size / 1024 / 1024).toFixed(2),
-                    width: w, height: h,
-                    quality: quality,
-                    type: blob.type
-                });
-                return await blobToDataUrl(blob);
+                var result = await blobToDataUrl(blob);
+                console.log('[image timing]', { name: file.name, originalMB: (file.size / 1024 / 1024).toFixed(2), outputKB: Math.round(blob.size / 1024), width: w, height: h, elapsedMs: Math.round(performance.now() - startedAt), encodeAttempts: encodeAttempts });
+                return result;
             }
             if (quality <= minQuality && Math.max(w, h) <= minDim) {
-                console.log('[image compressed - floor]', {
-                    name: file.name,
-                    originalBytes: file.size,
-                    compressedBytes: blob.size,
-                    compressedMegabytes: (blob.size / 1024 / 1024).toFixed(2),
-                    width: w, height: h,
-                    quality: quality,
-                    type: blob.type
-                });
-                return await blobToDataUrl(blob);
+                var floorResult = await blobToDataUrl(blob);
+                console.log('[image timing]', { name: file.name, originalMB: (file.size / 1024 / 1024).toFixed(2), outputKB: Math.round(blob.size / 1024), width: w, height: h, elapsedMs: Math.round(performance.now() - startedAt), encodeAttempts: encodeAttempts, floor: true });
+                return floorResult;
             }
 
             // 还能降 quality？
@@ -1836,71 +1876,103 @@ async function compressImageFile(file, options = {}) {
 
             // 到底了 — 用最低 quality 输出
             canvas.width = w; canvas.height = h;
-            const ctx2 = canvas.getContext('2d');
+            var ctx2 = canvas.getContext('2d');
             ctx2.fillStyle = '#FFFFFF';
             ctx2.fillRect(0, 0, w, h);
             ctx2.drawImage(img, 0, 0, w, h);
-            const finalBlob = await canvasToBlob(canvas, 'image/jpeg', minQuality);
-            console.log('[image compressed - final]', {
-                name: file.name,
-                originalBytes: file.size,
-                compressedBytes: finalBlob.size,
-                compressedMegabytes: (finalBlob.size / 1024 / 1024).toFixed(2),
-                width: w, height: h,
-                quality: minQuality,
-                type: finalBlob.type
-            });
-            return await blobToDataUrl(finalBlob);
+            encodeAttempts++;
+            var finalBlob = await canvasToBlob(canvas, 'image/jpeg', minQuality);
+            var finalResult = await blobToDataUrl(finalBlob);
+            console.log('[image timing]', { name: file.name, originalMB: (file.size / 1024 / 1024).toFixed(2), outputKB: Math.round(finalBlob.size / 1024), width: w, height: h, elapsedMs: Math.round(performance.now() - startedAt), encodeAttempts: encodeAttempts, floor: true });
+            return finalResult;
         }
     } catch (e) {
         console.error('compressImageFile 失败:', e);
         throw new Error('图片处理失败，请换一张或截图后重试');
+    } finally {
+        // 释放资源
+        if (img && typeof img.close === 'function') { try { img.close(); } catch (_) {} }
+        if (objectUrl) { URL.revokeObjectURL(objectUrl); }
+        if (canvas) { canvas.width = 1; canvas.height = 1; }
     }
 }
 
 const MAX_IMAGE_COUNT = 8;       // 单次最多 8 张
 const MAX_TOTAL_IMG_BYTES = 12 * 1024 * 1024; // 全部 data URL 总字节数 ≤ 12 MB
+var _uploading = false;         // 防止压缩期间重复触发
 
 let currentImgBase64List = [];
 
-// 💥 多图上传监听 — 从 File 直接压缩，保持顺序，禁用发送按钮
+// 💥 多图上传监听 — 2 并发 worker 压缩，保持选择顺序
 document.getElementById('imgUpload')?.addEventListener('change', async function(e){
-    const files = Array.from(e.target.files || []);
+    if (_uploading) { e.target.value = ''; return; }
+    var files = Array.from(e.target.files || []);
     if (files.length === 0) return;
 
-    // 限制最多 8 张
-    const totalAfterAdd = currentImgBase64List.length + files.length;
+    var totalAfterAdd = currentImgBase64List.length + files.length;
     if (totalAfterAdd > MAX_IMAGE_COUNT) {
         toast('一次最多选择 ' + MAX_IMAGE_COUNT + ' 张图片，当前已有 ' + currentImgBase64List.length + ' 张');
         e.target.value = '';
         return;
     }
 
-    const sendBtn = document.querySelector('.chat-send-btn');
+    _uploading = true;
+    var sendBtn = document.querySelector('.chat-send-btn');
     if (sendBtn) sendBtn.disabled = true;
 
-    let failCount = 0;
+    var compressionStart = performance.now();
+    var results = new Array(files.length);
+    var completed = 0;
+    var total = files.length;
+    var nextIdx = 0;
+
     try {
-        // 保持用户选择顺序 — 依次压缩（await 保证顺序）
-        for (let i = 0; i < files.length; i++) {
-            try {
-                const compressed = await compressImageFile(files[i]);
-                currentImgBase64List.push(compressed);
-                updateImagePreview();
-            } catch (err) {
-                failCount++;
-                console.error('图片压缩失败:', err.message);
-                toast(err.message || '图片处理失败，请换一张或截图后重试');
+        async function worker() {
+            while (nextIdx < total) {
+                var idx = nextIdx++;
+                var f = files[idx];
+                var t0 = performance.now();
+                try {
+                    var dataUrl = await compressImageFile(f);
+                    var t1 = performance.now();
+                    results[idx] = { ok: true, dataUrl: dataUrl, ms: Math.round(t1 - t0) };
+                    completed++;
+                    toast('处理中 ' + completed + '/' + total + ' 张');
+                } catch (err) {
+                    completed++;
+                    results[idx] = { ok: false, error: err.message, name: f.name };
+                    toast('失败: ' + (f.name || '图片' + (idx + 1)) + ' — ' + (err.message || '处理错误'));
+                }
             }
         }
-    } finally {
-        if (sendBtn) sendBtn.disabled = false;
-        // 清空 input 让再次选择同一张图仍能触发 change
-        e.target.value = '';
-    }
 
-    if (failCount > 0 && currentImgBase64List.length === 0) {
-        console.warn('所有图片均处理失败');
+        // 启动 2 个并发 worker
+        await Promise.all([worker(), worker()]);
+
+        // 按原始顺序收集成功结果
+        for (var i = 0; i < results.length; i++) {
+            if (results[i] && results[i].ok) {
+                currentImgBase64List.push(results[i].dataUrl);
+            }
+        }
+        updateImagePreview();
+
+        var compressionMs = Math.round(performance.now() - compressionStart);
+        var totalBytes = 0;
+        for (var j = 0; j < currentImgBase64List.length; j++) {
+            totalBytes += dataUrlByteSize(currentImgBase64List[j]);
+        }
+        console.log('[images done]', {
+            total: total,
+            successful: currentImgBase64List.length,
+            compressionMs: compressionMs,
+            totalImgMB: (totalBytes / 1024 / 1024).toFixed(2)
+        });
+
+    } finally {
+        _uploading = false;
+        if (sendBtn) sendBtn.disabled = false;
+        e.target.value = '';
     }
 });
 
