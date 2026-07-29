@@ -137,7 +137,7 @@ jobs:
             echo "🔧 [Deploy] 配置 VPS 控制台..."
 
             # 检测本地 SSH 端口
-            LOCAL_SSH_PORT=$(grep -E '^Port ' /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+            LOCAL_SSH_PORT=$(grep -E "^Port " /etc/ssh/sshd_config 2>/dev/null | awk "{print \$2}")
             LOCAL_SSH_PORT=${LOCAL_SSH_PORT:-22}
             echo "🔍 [Deploy] 本地 SSH 端口: ${LOCAL_SSH_PORT}"
 
@@ -174,7 +174,7 @@ jobs:
               echo "🔍 [Deploy] 主机指纹: ${FINGERPRINT}"
 
               # 注入 VPS_CONSOLE_* 环境变量到 systemd
-              if grep -q 'VPS_CONSOLE_HOST=' /etc/systemd/system/syzygy.service; then
+              if grep -q "VPS_CONSOLE_HOST=" /etc/systemd/system/syzygy.service; then
                 echo "🔍 [Deploy] VPS_CONSOLE_* 已存在，更新指纹和端口..."
                 sed -i "s/VPS_CONSOLE_HOST_FINGERPRINT=\"[^\"]*\"/VPS_CONSOLE_HOST_FINGERPRINT=\"${FINGERPRINT}\"/" /etc/systemd/system/syzygy.service
                 sed -i "s/VPS_CONSOLE_PORT=\"[^\"]*\"/VPS_CONSOLE_PORT=\"${LOCAL_SSH_PORT}\"/" /etc/systemd/system/syzygy.service
