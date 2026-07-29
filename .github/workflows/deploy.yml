@@ -133,6 +133,59 @@ jobs:
               echo "⚠️ [Deploy] 找不到 nginx syzygy 配置文件，跳过"
             fi
 
+            # === VPS 控制台自动配置 ===
+            echo "🔧 [Deploy] 配置 VPS 控制台..."
+
+            # 检测本地 SSH 端口
+            LOCAL_SSH_PORT=$(grep -E '^Port ' /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+            LOCAL_SSH_PORT=${LOCAL_SSH_PORT:-22}
+            echo "🔍 [Deploy] 本地 SSH 端口: ${LOCAL_SSH_PORT}"
+
+            # 生成专用密钥对（仅首次）
+            if [ ! -f /opt/syzygy/console_key ]; then
+              ssh-keygen -t ed25519 -f /opt/syzygy/console_key -N "" -C "syzygy-console" || { echo "❌ 生成控制台密钥失败"; exit 1; }
+              chmod 600 /opt/syzygy/console_key
+              echo "🔑 [Deploy] 已生成控制台密钥对"
+            else
+              echo "🔍 [Deploy] 控制台密钥已存在，跳过生成"
+            fi
+
+            # 授权公钥（仅首次）
+            if ! grep -q "syzygy-console" /root/.ssh/authorized_keys 2>/dev/null; then
+              mkdir -p /root/.ssh
+              chmod 700 /root/.ssh
+              cat /opt/syzygy/console_key.pub >> /root/.ssh/authorized_keys
+              chmod 600 /root/.ssh/authorized_keys
+              echo "🔓 [Deploy] 已授权控制台公钥"
+            else
+              echo "🔍 [Deploy] 控制台公钥已授权，跳过"
+            fi
+
+            # 获取主机指纹（优先读文件，不依赖网络）
+            FINGERPRINT=""
+            if [ -f /etc/ssh/ssh_host_ed25519_key.pub ]; then
+              FINGERPRINT=$(cat /etc/ssh/ssh_host_ed25519_key.pub | awk "{print \$2}" | base64 -d | sha256sum | awk "{print \$1}")
+            elif [ -f /etc/ssh/ssh_host_rsa_key.pub ]; then
+              FINGERPRINT=$(cat /etc/ssh/ssh_host_rsa_key.pub | awk "{print \$2}" | base64 -d | sha256sum | awk "{print \$1}")
+            fi
+            if [ -z "$FINGERPRINT" ]; then
+              echo "⚠️ [Deploy] 无法读取主机密钥文件，跳过控制台配置"
+            else
+              echo "🔍 [Deploy] 主机指纹: ${FINGERPRINT}"
+
+              # 注入 VPS_CONSOLE_* 环境变量到 systemd
+              if grep -q 'VPS_CONSOLE_HOST=' /etc/systemd/system/syzygy.service; then
+                echo "🔍 [Deploy] VPS_CONSOLE_* 已存在，更新指纹和端口..."
+                sed -i "s/VPS_CONSOLE_HOST_FINGERPRINT=\"[^\"]*\"/VPS_CONSOLE_HOST_FINGERPRINT=\"${FINGERPRINT}\"/" /etc/systemd/system/syzygy.service
+                sed -i "s/VPS_CONSOLE_PORT=\"[^\"]*\"/VPS_CONSOLE_PORT=\"${LOCAL_SSH_PORT}\"/" /etc/systemd/system/syzygy.service
+              else
+                echo "🔧 [Deploy] 追加 VPS_CONSOLE_* 环境变量..."
+                sed -i "/^Environment=/ s/$/ VPS_CONSOLE_HOST=\"127.0.0.1\" VPS_CONSOLE_PORT=\"${LOCAL_SSH_PORT}\" VPS_CONSOLE_USERNAME=\"root\" VPS_CONSOLE_PRIVATE_KEY_PATH=\"\/opt\/syzygy\/console_key\" VPS_CONSOLE_HOST_FINGERPRINT=\"${FINGERPRINT}\" VPS_CONSOLE_LABEL=\"溯星 VPS\"/" /etc/systemd/system/syzygy.service
+              fi
+              systemctl daemon-reload
+              echo "✅ [Deploy] VPS 控制台配置完成"
+            fi
+
             echo "🔍 [Deploy] 重启服务..."
             (systemctl restart syzygy.service && sleep 2 && journalctl -u syzygy.service --no-pager -n 5) || echo "⚠️ restart may have failed"
             echo "=== DEPLOY OK ==="
