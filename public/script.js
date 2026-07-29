@@ -496,22 +496,122 @@ function toast(msg){
 
 function goView(viewId) {
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state' };
+    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state' };
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
-    const VIEWS = ['home','chat','data','favorites','flo','calendar','album','state'];
+    const VIEWS = ['home','chat','data','favorites','console','flo','calendar','album','state'];
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);
     if (viewId === 'chat') { setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300); fetchPulseStatus(); }
     if (viewId === 'home') { updateDays && updateDays(); if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuInitHome(); }
     if (viewId === 'favorites') loadAndRenderFavorites();
+    if (viewId === 'console') consoleOpen();
     if (viewId === 'flo') floRender();
     if (viewId === 'calendar') calRender();
     if (viewId === 'album') { albumInitMonthFilter(); albumLoad(); }
     if (viewId === 'state') stateRender();
     if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuUpdateNav();
 }
+
+// ==================== VPS 控制台 ====================
+let consoleSocket = null;
+let consoleOpening = false;
+
+function consoleSetStatus(text, state) {
+    const el = document.getElementById('consoleStatus');
+    if (!el) return;
+    el.textContent = text;
+    el.dataset.state = state || '';
+}
+
+function consoleWrite(text, type) {
+    const output = document.getElementById('consoleOutput');
+    if (!output) return;
+    const line = document.createElement('span');
+    line.className = type ? 'console-line console-' + type : 'console-line';
+    // SSH 输出可能含 ANSI 控制符；本页以安全纯文本显示，避免任何 HTML 被执行。
+    line.textContent = String(text).replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g, '');
+    output.appendChild(line);
+    output.scrollTop = output.scrollHeight;
+}
+
+async function consoleOpen() {
+    if (consoleSocket && (consoleSocket.readyState === WebSocket.OPEN || consoleSocket.readyState === WebSocket.CONNECTING)) return;
+    if (consoleOpening) return;
+    consoleOpening = true;
+    consoleSetStatus('检查配置…', 'loading');
+    try {
+        const res = await fetch('/api/console/status', { cache: 'no-store' });
+        const info = await res.json();
+        const name = document.getElementById('consoleServerName');
+        if (name) name.textContent = info.label || 'VPS 控制台';
+        if (!res.ok || !info.enabled) {
+            consoleSetStatus('尚未配置', 'error');
+            consoleWrite(info.error || '控制台尚未在服务器上配置。', 'notice');
+            return;
+        }
+        consoleConnect();
+    } catch (_) {
+        consoleSetStatus('状态检查失败', 'error');
+        consoleWrite('无法确认控制台状态，请检查网络后重试。', 'notice');
+    } finally {
+        consoleOpening = false;
+    }
+}
+
+function consoleConnect() {
+    if (consoleSocket && consoleSocket.readyState === WebSocket.OPEN) return;
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    consoleSetStatus('连接中…', 'loading');
+    consoleSocket = new WebSocket(proto + '//' + location.host + '/ws/console');
+    consoleSocket.onopen = () => {
+        consoleSetStatus('正在建立 SSH…', 'loading');
+        consoleSocket.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }));
+    };
+    consoleSocket.onmessage = (event) => {
+        let message;
+        try { message = JSON.parse(event.data); } catch (_) { return; }
+        if (message.type === 'ready') {
+            consoleSetStatus('已连接', 'ready');
+            document.getElementById('consoleInput')?.focus();
+        } else if (message.type === 'output') {
+            consoleWrite(message.data);
+        } else if (message.type === 'error') {
+            consoleSetStatus('连接失败', 'error');
+            consoleWrite(message.message || '控制台连接失败。', 'notice');
+        }
+    };
+    consoleSocket.onclose = () => {
+        if (document.body.dataset.view === 'console') consoleSetStatus('已断开', 'error');
+        consoleSocket = null;
+    };
+    consoleSocket.onerror = () => { consoleSetStatus('连接失败', 'error'); };
+}
+
+function consoleReconnect() {
+    if (consoleSocket) consoleSocket.close();
+    const output = document.getElementById('consoleOutput');
+    if (output) output.replaceChildren();
+    consoleOpen();
+}
+
+function consoleSendInput() {
+    const input = document.getElementById('consoleInput');
+    if (!input || !input.value || !consoleSocket || consoleSocket.readyState !== WebSocket.OPEN) return;
+    consoleSocket.send(JSON.stringify({ type: 'input', data: input.value + '\n' }));
+    input.value = '';
+    input.style.height = '';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const input = document.getElementById('consoleInput');
+    if (!input) return;
+    input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); consoleSendInput(); }
+    });
+    input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; });
+});
 function neuGetMemoryPwd() {
     let pwd = localStorage.getItem('memoryPwd') || '';
     if (!pwd) {

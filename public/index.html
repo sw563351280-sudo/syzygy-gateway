@@ -8,7 +8,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=31">
+    <link rel="stylesheet" href="style.css?v=32">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
@@ -132,8 +132,8 @@
             <div class="neu-nav-item" data-nav="data" onclick="goView('data')">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
             </div>
-            <div class="neu-nav-item" data-nav="favorites" onclick="goView('favorites')">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+            <div class="neu-nav-item" data-nav="console" onclick="goView('console')" title="控制台">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,17 10,11 4,5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
             </div>
         </div>
 
@@ -257,6 +257,25 @@
     </div>
     <div style="padding:12px 16px;display:flex;gap:8px;flex-wrap:wrap;" id="favTagBar"></div>
     <div id="favList" style="padding:0 16px 80px 16px;overflow-y:auto;max-height:calc(100vh - 120px);display:flex;flex-direction:column;gap:12px;"></div>
+</div>
+
+<div class="section" id="sec-console">
+    <div class="view-topbar">
+        <button class="view-back" onclick="goView('home')">←</button>
+        <span class="view-title">控制台</span>
+        <span id="consoleStatus" class="console-status" aria-live="polite">正在检查…</span>
+        <button class="console-action" onclick="consoleReconnect()" title="重新连接">↻</button>
+    </div>
+    <div class="console-page">
+        <div class="console-meta"><span id="consoleServerName">VPS 控制台</span><span>SSH · 已登录保护</span></div>
+        <div id="consoleOutput" class="console-output" role="log" aria-live="polite" aria-label="VPS 终端输出"></div>
+        <div class="console-input-row">
+            <span class="console-prompt">›</span>
+            <textarea id="consoleInput" class="console-input" rows="1" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="输入命令，Enter 发送，Shift+Enter 换行"></textarea>
+            <button class="console-send" onclick="consoleSendInput()">发送</button>
+        </div>
+        <p class="console-hint">此终端会直接执行 VPS 命令。请勿粘贴密码、令牌或不信任的命令。</p>
+    </div>
 </div>
 
 <div class="section" id="sec-flo">
@@ -402,7 +421,7 @@
     </div>
 </div>
 
-	<script src="script.js?v=29"></script>
+<script src="script.js?v=30"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>
         <div id="menuModel" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🤖 模型: -</div>

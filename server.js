@@ -1,6 +1,7 @@
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
+const { Client: SSHClient } = require('ssh2');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -43,6 +44,27 @@ const AUTH_PASSWORD = process.env.SITE_PASSWORD;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const AUTH_COOKIE = 'syzygy_session';
 const SESSION_MAX_AGE = 30 * 24 * 60 * 60 * 1000; // 30 天
+
+// VPS 控制台只由服务端发起 SSH 连接。浏览器永远拿不到私钥、密码或主机指纹。
+// 为避免被误连到伪造主机，未配置指纹时控制台保持禁用。
+const CONSOLE_CONFIG = {
+    host: process.env.VPS_CONSOLE_HOST || '',
+    port: Number(process.env.VPS_CONSOLE_PORT || 22),
+    username: process.env.VPS_CONSOLE_USERNAME || '',
+    privateKeyPath: process.env.VPS_CONSOLE_PRIVATE_KEY_PATH || '',
+    password: process.env.VPS_CONSOLE_PASSWORD || '',
+    hostFingerprint: (process.env.VPS_CONSOLE_HOST_FINGERPRINT || '').replace(/^SHA256:/i, ''),
+    label: process.env.VPS_CONSOLE_LABEL || 'VPS 控制台',
+};
+
+function isConsoleConfigured() {
+    return Boolean(
+        CONSOLE_CONFIG.host &&
+        CONSOLE_CONFIG.username &&
+        CONSOLE_CONFIG.hostFingerprint &&
+        (CONSOLE_CONFIG.privateKeyPath || CONSOLE_CONFIG.password)
+    );
+}
 
 // ==========================================
 // 签名会话 Cookie（HMAC-SHA256，防伪造）
@@ -6636,6 +6658,104 @@ app.get('/test-interact', async (req, res) => {
 // ==========================================
 // 🚀 启动服务器
 // ==========================================
+// ==========================================
+// VPS 控制台 — 认证后的浏览器 WebSocket 代理到受固定配置约束的 SSH shell
+// ==========================================
+app.get('/api/console/status', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    if (!isConsoleConfigured()) {
+        return res.status(503).json({
+            enabled: false,
+            error: '控制台尚未配置。请在服务器环境变量中补齐 VPS_CONSOLE_* 配置。',
+        });
+    }
+    res.json({ enabled: true, label: CONSOLE_CONFIG.label });
+});
+
+function sendConsoleEvent(ws, event) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event));
+}
+
+function attachConsoleClient(ws) {
+    if (!isConsoleConfigured()) {
+        sendConsoleEvent(ws, { type: 'error', message: '控制台尚未配置。' });
+        ws.close(1011, 'Console is not configured');
+        return;
+    }
+
+    let ssh = null;
+    let shell = null;
+    let closed = false;
+    let cols = 100;
+    let rows = 30;
+
+    const closeSession = () => {
+        if (closed) return;
+        closed = true;
+        try { shell?.end(); } catch (_) {}
+        try { ssh?.end(); } catch (_) {}
+    };
+    const reportError = (error) => {
+        // 详细错误仅留在服务器日志，避免把网络和认证细节暴露给浏览器。
+        console.error('[VPS console] SSH connection error:', error.message);
+        sendConsoleEvent(ws, { type: 'error', message: '无法建立 VPS SSH 连接。请检查服务器配置和 SSH 服务。' });
+    };
+
+    let privateKey;
+    try {
+        if (CONSOLE_CONFIG.privateKeyPath) privateKey = fs.readFileSync(CONSOLE_CONFIG.privateKeyPath);
+    } catch (error) {
+        console.error('[VPS console] Cannot read private key:', error.message);
+        sendConsoleEvent(ws, { type: 'error', message: '服务器无法读取 VPS 私钥。' });
+        ws.close(1011, 'Private key unavailable');
+        return;
+    }
+
+    ssh = new SSHClient();
+    ssh.on('ready', () => {
+        ssh.shell({ term: 'xterm-256color', cols, rows }, (error, stream) => {
+            if (error) { reportError(error); return closeSession(); }
+            shell = stream;
+            sendConsoleEvent(ws, { type: 'ready' });
+            stream.on('data', (chunk) => sendConsoleEvent(ws, { type: 'output', data: chunk.toString('utf8') }));
+            stream.stderr.on('data', (chunk) => sendConsoleEvent(ws, { type: 'output', data: chunk.toString('utf8') }));
+            stream.on('close', () => closeSession());
+            stream.on('error', reportError);
+        });
+    });
+    ssh.on('error', (error) => { if (!closed) reportError(error); });
+    ssh.on('close', () => { if (!closed) sendConsoleEvent(ws, { type: 'error', message: 'VPS SSH 会话已关闭。' }); });
+
+    ws.on('message', (raw) => {
+        let message;
+        try { message = JSON.parse(raw.toString()); } catch (_) { return; }
+        if (message.type === 'resize') {
+            cols = Math.max(20, Math.min(240, Number(message.cols) || cols));
+            rows = Math.max(8, Math.min(100, Number(message.rows) || rows));
+            if (shell) shell.setWindow(rows, cols, 0, 0);
+            return;
+        }
+        if (message.type === 'input' && shell && typeof message.data === 'string' && message.data.length <= 16 * 1024) {
+            shell.write(message.data);
+        }
+    });
+    ws.on('close', closeSession);
+    ws.on('error', closeSession);
+
+    ssh.connect({
+        host: CONSOLE_CONFIG.host,
+        port: CONSOLE_CONFIG.port,
+        username: CONSOLE_CONFIG.username,
+        privateKey,
+        password: CONSOLE_CONFIG.password || undefined,
+        hostHash: 'sha256',
+        hostVerifier: (actualHash) => constantTimeEqual(actualHash, CONSOLE_CONFIG.hostFingerprint),
+        readyTimeout: 15_000,
+        keepaliveInterval: 20_000,
+        keepaliveCountMax: 2,
+    });
+}
+
 const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 
@@ -6653,12 +6773,22 @@ server.on('upgrade', (request, socket, head) => {
         socket.destroy();
         return;
     }
+    const pathname = new URL(request.url, 'http://localhost').pathname;
+    if (pathname !== '/' && pathname !== '/ws/console') {
+        socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
+        socket.destroy();
+        return;
+    }
     wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request);
     });
 });
 
 wss.on('connection', (ws, req) => {
+    if (new URL(req.url, 'http://localhost').pathname === '/ws/console') {
+        attachConsoleClient(ws);
+        return;
+    }
     const client = { ws, tabId: null };
     wsClients.add(client);
     console.log(`🌐 [WS] 新连接，当前${wsClients.size}个客户端`);
