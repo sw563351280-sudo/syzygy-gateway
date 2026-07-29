@@ -1454,37 +1454,106 @@ body[data-view="chat"] #themeToggleBtn{display:none!important}
 /* ═══ 隐藏 Syzygy Line 连线 ═══ */
 #syzygy-line-svg{display:none!important}
 
-/* ═══ 工具调用气泡（紧凑版，四主题适配） ═══ */
-.tool-call-box {
-  margin: 4px 0 4px 8px;
-  border-left: 1.5px solid var(--tool-border, rgba(150,150,150,0.3));
-  border-radius: 0 4px 4px 0;
-  background: var(--tool-bg, rgba(255,255,255,0.03));
-  font-size: 0.72em;
+/* ═══ 工具调用组（整组折叠汇总） ═══ */
+.tool-call-group {
+  width: fit-content;
+  max-width: 100%;
+  min-height: 38px;
+  margin: 6px 0 6px 4px;
+  font-size: 13px;
   line-height: 1.4;
 }
-.tool-call-header {
-  padding: 3px 8px;
-  cursor: pointer;
+.tool-call-group-summary {
   display: flex;
   align-items: center;
-  gap: 5px;
-  color: var(--tool-header-color, #999);
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 18px;
+  background: var(--tool-group-bg, rgba(255,255,255,0.04));
+  border: 1px solid var(--tool-group-border, rgba(150,150,150,0.12));
+  box-shadow: 0 1px 3px var(--tool-group-shadow, rgba(0,0,0,0.06));
+  cursor: pointer;
   user-select: none;
   transition: background 0.15s;
 }
-.tool-call-header:hover { background: var(--tool-hover-bg, rgba(150,150,150,0.08)); }
-.tool-call-header.tool-collapsed .tool-call-icon { transform: rotate(-90deg); }
-.tool-call-icon { transition: transform 0.15s; display: inline-block; font-size: 0.9em; }
-.tool-call-name { font-weight: 600; color: var(--tool-name-color, #aaa); }
-.tool-call-args { color: var(--tool-args-color, #777); font-size: 0.85em; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool-call-elapsed { color: var(--tool-elapsed-color, #666); font-size: 0.85em; margin-left: auto; }
-.tool-call-result { padding: 3px 8px 6px; }
-.tool-call-result pre {
+.tool-call-group-summary:hover { background: var(--tool-group-hover, rgba(255,255,255,0.06)); }
+.tool-call-group-chevron {
+  display: inline-block;
+  transition: transform 0.2s;
+  font-size: 11px;
+  color: var(--tool-chevron-color, #999);
+  flex-shrink: 0;
+}
+.tool-call-group.tool-expanded > .tool-call-group-summary .tool-call-group-chevron {
+  transform: rotate(90deg);
+}
+.tool-call-group-label { font-weight: 500; color: var(--tool-label-color, #ccc); }
+.tool-call-group-label strong { font-weight: 700; color: var(--tool-label-strong, #ddd); }
+.tool-call-group-total {
+  margin-left: auto;
+  color: var(--tool-total-color, #888);
+  font-size: 0.92em;
+  white-space: nowrap;
+}
+.tool-call-group-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tool-call-item {
+  border-radius: 8px;
+  overflow: hidden;
+}
+.tool-call-item-header {
+  display: grid;
+  grid-template-columns: 14px 48px minmax(0, 1fr) max-content;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 8px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 8px;
+  line-height: 32px;
+  min-height: 36px;
+  transition: background 0.15s;
+}
+.tool-call-item-header:hover { background: var(--tool-item-hover, rgba(150,150,150,0.06)); }
+.tool-call-item-chevron {
+  font-size: 10px;
+  color: var(--tool-chevron-color, #999);
+  transition: transform 0.15s;
+  text-align: center;
+}
+.tool-call-item-header:not(.tool-collapsed) .tool-call-item-chevron {
+  transform: rotate(90deg);
+}
+.tool-call-item-name {
+  font-weight: 600;
+  color: var(--tool-name-color, #aaa);
+  white-space: nowrap;
+  overflow: hidden;
+  font-size: 0.92em;
+}
+.tool-call-item-args {
+  color: var(--tool-args-color, #777);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.9em;
+}
+.tool-call-item-time {
+  color: var(--tool-elapsed-color, #666);
+  white-space: nowrap;
+  font-size: 0.85em;
+  text-align: right;
+}
+.tool-call-item-body { padding: 2px 8px 8px 26px; }
+.tool-call-item-body pre {
   margin: 0;
-  padding: 6px;
+  padding: 6px 8px;
   background: var(--tool-pre-bg, rgba(0,0,0,0.15));
-  border-radius: 3px;
+  border-radius: 4px;
   color: var(--tool-pre-color, #999);
   font-size: 0.85em;
   white-space: pre-wrap;
@@ -1494,43 +1563,64 @@ body[data-view="chat"] #themeToggleBtn{display:none!important}
   line-height: 1.4;
 }
 
+/* 暗夜模式（继承 :root 的 --tool-* 变量） */
+:root {
+  --tool-group-bg: rgba(255,255,255,0.03);
+  --tool-group-border: rgba(201,169,97,0.12);
+  --tool-group-shadow: rgba(0,0,0,0.08);
+  --tool-group-hover: rgba(201,169,97,0.05);
+  --tool-chevron-color: var(--dim);
+  --tool-label-color: var(--cream-dim);
+  --tool-label-strong: var(--gold);
+  --tool-total-color: var(--dim);
+  --tool-item-hover: rgba(201,169,97,0.05);
+}
+
 /* 白天模式 */
 body.light-mode {
-  --tool-border: rgba(196,165,123,0.25);
-  --tool-bg: rgba(196,165,123,0.04);
-  --tool-header-color: #8B7355;
-  --tool-hover-bg: rgba(196,165,123,0.08);
-  --tool-name-color: #5C4033;
-  --tool-args-color: #8B7355;
-  --tool-elapsed-color: #8B7355;
-  --tool-pre-bg: rgba(0,0,0,0.03);
-  --tool-pre-color: #5C4033;
+  --tool-group-bg: rgba(255,255,255,0.5);
+  --tool-group-border: rgba(196,165,123,0.18);
+  --tool-group-shadow: rgba(0,0,0,0.04);
+  --tool-group-hover: rgba(196,165,123,0.06);
+  --tool-chevron-color: #B5A48C;
+  --tool-label-color: #5C4033;
+  --tool-label-strong: #3E2723;
+  --tool-total-color: #8B7355;
+  --tool-item-hover: rgba(196,165,123,0.06);
 }
 
 /* 新拟态模式 */
 body.neu-mode {
-  --tool-border: rgba(90,143,202,0.2);
-  --tool-bg: rgba(90,143,202,0.04);
-  --tool-header-color: #718096;
-  --tool-hover-bg: rgba(90,143,202,0.06);
-  --tool-name-color: #5A8FCA;
-  --tool-args-color: #718096;
-  --tool-elapsed-color: #A0AEC0;
-  --tool-pre-bg: rgba(163,177,198,0.08);
-  --tool-pre-color: #4A5568;
+  --tool-group-bg: #E8EFF7;
+  --tool-group-border: rgba(163,177,198,0.3);
+  --tool-group-shadow: 2px 2px 6px rgba(163,177,198,0.2), -2px -2px 6px rgba(255,255,255,0.4);
+  --tool-group-hover: rgba(90,143,202,0.06);
+  --tool-chevron-color: #718096;
+  --tool-label-color: #4A5568;
+  --tool-label-strong: #5A8FCA;
+  --tool-total-color: #718096;
+  --tool-item-hover: rgba(90,143,202,0.05);
 }
 
 /* 暗金模式 */
 body.dark-gold-mode {
-  --tool-border: rgba(212,160,74,0.15);
-  --tool-bg: rgba(212,160,74,0.03);
-  --tool-header-color: #8c7a65;
-  --tool-hover-bg: rgba(212,160,74,0.06);
-  --tool-name-color: #D4A04A;
-  --tool-args-color: #8c7a65;
-  --tool-elapsed-color: #584b38;
-  --tool-pre-bg: rgba(0,0,0,0.2);
-  --tool-pre-color: #c4b8ab;
+  --tool-group-bg: rgba(30,26,24,0.5);
+  --tool-group-border: rgba(212,160,74,0.12);
+  --tool-group-shadow: rgba(0,0,0,0.08);
+  --tool-group-hover: rgba(212,160,74,0.05);
+  --tool-chevron-color: #584b38;
+  --tool-label-color: #c4b8ab;
+  --tool-label-strong: #D4A04A;
+  --tool-total-color: #8c7a65;
+  --tool-item-hover: rgba(212,160,74,0.05);
+}
+
+/* 手机端微调 */
+@media (max-width: 480px) {
+  .tool-call-group { max-width: 100%; }
+  .tool-call-group-summary { padding: 6px 10px; gap: 4px; font-size: 12px; }
+  .tool-call-item-header { padding: 2px 6px; gap: 2px; font-size: 11px; grid-template-columns: 12px 40px minmax(0, 1fr) max-content; }
+  .tool-call-item-body { padding: 2px 6px 6px 20px; }
 }
 
 

@@ -1149,32 +1149,41 @@ function escapeToolHtml(value) {
     return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-function normalizeToolCall(toolCall) {
-    if (!toolCall || typeof toolCall !== 'object') return null;
-    const name = String(toolCall.name || 'unknown_tool').slice(0, 80);
-    const args = toolCall.arguments && typeof toolCall.arguments === 'object' ? toolCall.arguments : {};
-    return {
-        name,
-        arguments: args,
-        result: String(toolCall.result || '').slice(0, 5000),
-        elapsed: Math.max(0, Number(toolCall.elapsed) || 0)
-    };
+function renderToolCallGroupHTML(toolCalls, isStreaming) {
+    if (!toolCalls || toolCalls.length === 0) return '';
+    var totalMs = 0;
+    for (var i = 0; i < toolCalls.length; i++) { totalMs += (toolCalls[i].elapsed || 0); }
+    var totalStr = totalMs >= 1000 ? (totalMs / 1000).toFixed(1) + 's' : totalMs + 'ms';
+    var label = isStreaming ? '正在调用工具 · <strong>' + toolCalls.length + '</strong>' : '调用了 <strong>' + toolCalls.length + '</strong> 次工具';
+    var html = '<div class="tool-call-group">';
+    html += '<div class="tool-call-group-summary tool-collapsed" onclick="var g=this.parentElement;var l=g.querySelector(\'.tool-call-group-list\');var s=l.style.display;l.style.display=s===\'none\'?\'block\':\'none\';g.classList.toggle(\'tool-expanded\',s===\'none\');this.classList.toggle(\'tool-collapsed\',s!==\'none\')">';
+    html += '<span class="tool-call-group-chevron">▸</span>';
+    html += '<span class="tool-call-group-label">' + label + '</span>';
+    html += '<span class="tool-call-group-total">' + totalStr + '</span>';
+    html += '</div>';
+    html += '<div class="tool-call-group-list" style="display:none">';
+    for (var i = 0; i < toolCalls.length; i++) {
+        var tc = toolCalls[i];
+        var argsPreview = '{}';
+        try { argsPreview = JSON.stringify(tc.arguments || {}).substring(0, 80); } catch (e) { argsPreview = '{}'; }
+        var itemMs = tc.elapsed || 0;
+        var itemTime = itemMs >= 1000 ? (itemMs / 1000).toFixed(1) + 's' : itemMs + 'ms';
+        html += '<div class="tool-call-item">';
+        html += '<div class="tool-call-item-header tool-collapsed" onclick="event.stopPropagation();var r=this.nextElementSibling;r.style.display=r.style.display===\'none\'?\'block\':\'none\';this.classList.toggle(\'tool-collapsed\')">';
+        html += '<span class="tool-call-item-chevron">▸</span>';
+        html += '<span class="tool-call-item-name">' + escHtml(tc.name || '') + '</span>';
+        html += '<span class="tool-call-item-args">' + escHtml(argsPreview) + '</span>';
+        html += '<span class="tool-call-item-time">' + itemTime + '</span>';
+        html += '</div>';
+        html += '<div class="tool-call-item-body" style="display:none"><pre>' + escHtml((tc.result || '').substring(0, 2000)) + '</pre></div>';
+        html += '</div>';
+    }
+    html += '</div></div>';
+    return html;
 }
 
-function renderToolCall(toolCall) {
-    const item = normalizeToolCall(toolCall);
-    if (!item) return '';
-    let args = '{}';
-    try { args = JSON.stringify(item.arguments); } catch (_) {}
-    const argsPreview = args.length > 72 ? args.slice(0, 72) + '…' : args;
-    const elapsed = item.elapsed >= 1000 ? (item.elapsed / 1000).toFixed(1) + 's' : item.elapsed + 'ms';
-    return '<details class="tool-call-box"><summary class="tool-call-header"><span class="tool-call-icon">⌘</span><span class="tool-call-name">' + escapeToolHtml(item.name) + '</span><span class="tool-call-args">' + escapeToolHtml(argsPreview) + '</span><span class="tool-call-elapsed">' + elapsed + '</span></summary><div class="tool-call-result"><pre>' + escapeToolHtml(item.result || '（工具未返回可展示内容）') + '</pre></div></details>';
-}
-
-function createToolCallElement(toolCall) {
-    const template = document.createElement('template');
-    template.innerHTML = renderToolCall(toolCall);
-    return template.content.firstElementChild;
+function updateToolGroupDOM(el, toolCalls, isStreaming) {
+    el.innerHTML = renderToolCallGroupHTML(toolCalls, isStreaming);
 }
 
 function renderChatMessages(){
@@ -1212,12 +1221,8 @@ function renderChatMessages(){
         if (extractedThink.thinking) { displayContent = extractedThink.visibleContent; }
         const finalThinking = rawThinking || extractedThink.thinking || '';
         if(finalThinking) htmlContent += '<div class="think-box"><div class="think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">' + finalThinking.replace(/\n/g,'<br>') + '</div></div>';
-        // 渲染工具调用记录
-        var toolCalls = v.toolCalls || [];
-        for (var ti = 0; ti < toolCalls.length; ti++) {
-            var tc = toolCalls[ti];
-            htmlContent += '<div class="tool-call-box"><div class="tool-call-header tool-collapsed" onclick="var r=this.nextElementSibling;r.style.display=r.style.display===\'none\'?\'block\':\'none\';this.classList.toggle(\'tool-collapsed\')"><span class="tool-call-icon">▾</span> <span class="tool-call-name">' + escHtml(tc.name || '') + '</span> <span class="tool-call-args">' + escHtml(JSON.stringify(tc.arguments||{}).substring(0,60)) + '</span> <span class="tool-call-elapsed">' + (tc.elapsed||0) + 'ms</span></div><div class="tool-call-result" style="display:none"><pre>' + escHtml((tc.result||'').substring(0,2000)) + '</pre></div></div>';
-        }
+        // 渲染工具调用记录（整组折叠）
+        if (v.toolCalls && v.toolCalls.length > 0) htmlContent += renderToolCallGroupHTML(v.toolCalls, false);
         if (m.role === 'user') {
             htmlContent += '<div>' + (displayContent || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
         } else {
@@ -1550,6 +1555,11 @@ try {
             mainTextDiv.classList.add('md-content');
             sDiv.appendChild(mainTextDiv);
 
+            const toolGroupEl = document.createElement('div');
+            toolGroupEl.className = 'tool-call-group-wrap';
+            toolGroupEl.style.display = 'none';
+            sDiv.appendChild(toolGroupEl);
+
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
@@ -1571,10 +1581,8 @@ try {
                         // 🔧 工具调用事件
                         if (parsed.type === 'tool_call') {
                             toolCallRecords.push({ name: parsed.name, arguments: parsed.arguments || {}, result: parsed.result || '', elapsed: parsed.elapsed || 0 });
-                            var toolBox = document.createElement('div');
-                            toolBox.className = 'tool-call-box';
-                            toolBox.innerHTML = '<div class="tool-call-header tool-collapsed" onclick="var r=this.nextElementSibling;r.style.display=r.style.display===\'none\'?\'block\':\'none\';this.classList.toggle(\'tool-collapsed\')"><span class="tool-call-icon">▾</span> <span class="tool-call-name">' + escHtml(parsed.name) + '</span> <span class="tool-call-args">' + escHtml(JSON.stringify(parsed.arguments||{}).substring(0,60)) + '</span> <span class="tool-call-elapsed">' + (parsed.elapsed||0) + 'ms</span></div><div class="tool-call-result" style="display:none"><pre>' + escHtml((parsed.result || '').substring(0,2000)) + '</pre></div>';
-                            sDiv.appendChild(toolBox);
+                            toolGroupEl.style.display = 'block';
+                            updateToolGroupDOM(toolGroupEl, toolCallRecords, true);
                             win.scrollTop = win.scrollHeight;
                             continue;
                         }
@@ -1642,6 +1650,8 @@ try {
                 }
             }
             mainTextDiv.innerHTML = renderMarkdown(fullReply);
+            // 流结束：将工具调用组从"正在调用"切换为"调用了 N 次"
+            if (toolCallRecords.length > 0) updateToolGroupDOM(toolGroupEl, toolCallRecords, false);
 
         } else {
             // ==========================================
@@ -2585,8 +2595,10 @@ async function regenerateSend(aiMsgIndex) {
             const reader = response.body.getReader(); const decoder = new TextDecoder('utf-8'); let buffer='', rawAcc='', reasoningAcc='';
             sDiv.innerHTML=''; const thinkBox=document.createElement('div'); thinkBox.className='think-box'; thinkBox.style.display='none'; thinkBox.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content"></div>'; const thinkTextDiv=thinkBox.querySelector('.think-content'); sDiv.appendChild(thinkBox);
             const mainTextDiv=document.createElement('div'); mainTextDiv.classList.add('md-content'); sDiv.appendChild(mainTextDiv);
-            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); if(p.type==='tool_call'){toolCallRecords.push({name:p.name,arguments:p.arguments||{},result:p.result||'',elapsed:p.elapsed||0}); var reToolBox=document.createElement('div');reToolBox.className='tool-call-box';reToolBox.innerHTML='<div class="tool-call-header tool-collapsed" onclick="var r=this.nextElementSibling;r.style.display=r.style.display===\'none\'?\'block\':\'none\';this.classList.toggle(\'tool-collapsed\')"><span class="tool-call-icon">▾</span> <span class="tool-call-name">'+escHtml(p.name)+'</span> <span class="tool-call-args">'+escHtml(JSON.stringify(p.arguments||{}).substring(0,60))+'</span> <span class="tool-call-elapsed">'+(p.elapsed||0)+'ms</span></div><div class="tool-call-result" style="display:none"><pre>'+escHtml((p.result||'').substring(0,2000))+'</pre></div>';sDiv.appendChild(reToolBox);win.scrollTop=win.scrollHeight;continue;} const d=p.choices[0].delta; if(d.reasoning_content){reasoningAcc+=d.reasoning_content; thinkBox.style.display='block';} if(d.content){rawAcc+=d.content; const parsed=extractThinkingFromContent(rawAcc); fullReply=parsed.visibleContent; const combinedThink=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n'); if(combinedThink){thinkContent=combinedThink; thinkBox.style.display='block'; thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');} mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';} win.scrollTop=win.scrollHeight;}catch(e){}}}
+            const toolGroupEl=document.createElement('div'); toolGroupEl.className='tool-call-group-wrap'; toolGroupEl.style.display='none'; sDiv.appendChild(toolGroupEl);
+            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); if(p.type==='tool_call'){toolCallRecords.push({name:p.name,arguments:p.arguments||{},result:p.result||'',elapsed:p.elapsed||0}); toolGroupEl.style.display='block'; updateToolGroupDOM(toolGroupEl,toolCallRecords,true); win.scrollTop=win.scrollHeight;continue;} const d=p.choices[0].delta; if(d.reasoning_content){reasoningAcc+=d.reasoning_content; thinkBox.style.display='block';} if(d.content){rawAcc+=d.content; const parsed=extractThinkingFromContent(rawAcc); fullReply=parsed.visibleContent; const combinedThink=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n'); if(combinedThink){thinkContent=combinedThink; thinkBox.style.display='block'; thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');} mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';} win.scrollTop=win.scrollHeight;}catch(e){}}}
             mainTextDiv.innerHTML=renderMarkdown(fullReply);
+            if(toolCallRecords.length>0)updateToolGroupDOM(toolGroupEl,toolCallRecords,false);
         } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){const tb=document.createElement('div');tb.className='think-box';tb.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content">'+thinkContent.replace(/\n/g,'<br>')+'</div>';sDiv.appendChild(tb);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
         sDiv.classList.remove('msg-loading');
         const timeStr=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
