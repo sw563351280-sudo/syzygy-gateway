@@ -3358,6 +3358,8 @@ if (_configChanged) { saveToolsConfig(TOOLS_ENABLED); console.log('🔧 [工具�
 
 // 轻量工具（始终可见，不触发工具循环）
 const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'bark_push', 'check_phone', 'search_transcript', 'check_environment']);
+// toy MCP 工具
+const TOY_TOOLS = new Set(['toy_vibrate', 'toy_stop_vibration', 'toy_status']);
 // 代码工具（只在有关键词或命令式时出现）
 const CODE_TOOLS = new Set(['read_file', 'write_file', 'edit_file', 'search_files', 'list_directory']);
 
@@ -3372,7 +3374,6 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
     const mcpAlways = TOOLS_ENABLED.mcp ? optionalTools.filter(t => MCP_READ_ONLY.has(t.function?.name)) : [];
 
     // toy 工具注入：仅当 toy_enabled=true 且用户明确表达振动/玩具意图时注入
-    const TOY_TOOLS = new Set(['toy_vibrate', 'toy_stop_vibration', 'toy_status']);
     const hasToyIntent = TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false && (
         /振动|震动|玩具|啵啵|强度|停止.*振动|开启.*振动|调.*强度|toy|vibrat/i.test(textLower)
     );
