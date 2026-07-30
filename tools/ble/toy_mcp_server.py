@@ -312,10 +312,30 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    # Register shutdown via FastAPI lifespan
     @app.on_event("shutdown")
     async def _on_shutdown():
         await _shutdown()
+
+    # Start ngrok tunnel
+    public_url = None
+    try:
+        from pyngrok import ngrok as pyngrok_mod, conf as ngrok_conf
+        ngrok_conf.get_default().auth_token = MCP_TOKEN[:32]  # dummy, real token in env
+        # Try using saved authtoken from ngrok config
+        import os as _os2
+        ngrok_yml = _os2.path.expanduser("~/AppData/Local/ngrok/ngrok.yml")
+        if _os2.path.exists(ngrok_yml):
+            ngrok_conf.get_default().config_path = ngrok_yml
+
+        tunnel = pyngrok_mod.connect(LISTEN_PORT, "http")
+        public_url = tunnel.public_url
+        logger.info("ngrok tunnel: %s -> http://127.0.0.1:%d", public_url, LISTEN_PORT)
+        print(f"\n{'='*60}")
+        print(f"  PUBLIC URL: {public_url}/mcp")
+        print(f"  TOY_MCP_URL for VPS: {public_url}/mcp")
+        print(f"{'='*60}\n")
+    except Exception as exc:
+        logger.warning("ngrok failed: %s. Server still running on localhost.", exc)
 
     logger.info("Starting toy-mcp-server on %s:%d", LISTEN_HOST, LISTEN_PORT)
     uvicorn.run(app, host=LISTEN_HOST, port=LISTEN_PORT, log_level="info")

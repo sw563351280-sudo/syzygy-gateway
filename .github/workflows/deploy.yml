@@ -60,8 +60,11 @@ jobs:
             # 将当前 transcript_buffer 归档到当月文件，防止未满6轮的消息丢失
             node archive_buffer.js || echo "⚠️ buffer 归档失败"
 
-            # 从对话原文恢复可能被旧标签页覆盖的消息
-            node restore_transcript_to_chat.js || echo "⚠️ 恢复脚本失败"
+            # 从对话原文恢复可能被旧标签页覆盖的消息（已禁用：会在顶部插入重复旧消息）
+            echo "⏭️ 跳过 restore_transcript_to_chat.js（已禁用）"
+
+            # 清理重复消息 + 按时间排序（修复 restore_transcript_to_chat.js 的副作用）
+            node dedup_messages.js || echo "⚠️ 去重脚本失败"
 
             # === 强制补丁：确保 model_prompt 注入不被本地备份覆盖 ===
             # patch_inject.js 已禁用 — server.js/model_prompts.json 由 git 直接提供

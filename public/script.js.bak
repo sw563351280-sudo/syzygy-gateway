@@ -52,8 +52,8 @@ function stripInternalTags(text) { return (text||'').replace(/<MOOD_SNAPSHOT>[\s
 function renderMarkdown(text) { if (!text) return ''; if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
 
 // ==================== 版本化消息辅助函数 ====================
-function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; if (v.toolCalls === undefined && msg.toolCalls !== undefined) v.toolCalls = msg.toolCalls; return v; } return msg; }
-function normalizeMessageVersionFields(msg) { if (!msg) return msg; if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0]; if (!v) return msg; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; if (v.toolCalls === undefined && msg.toolCalls !== undefined) v.toolCalls = msg.toolCalls; return msg; } ensureVersioned(msg); return msg; }
+function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; return v; } return msg; }
+function normalizeMessageVersionFields(msg) { if (!msg) return msg; if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0]; if (!v) return msg; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; return msg; } ensureVersioned(msg); return msg; }
 function extractThinkingFromContent(content) {
     if (!content) return { thinking: '', visibleContent: '' };
 
@@ -212,12 +212,8 @@ async function syncFromCloud() {
         }
 
     } catch(e) {
-        console.error('[sync] load failed:', e.message);
-        // Don't wipe in-memory chat data on transient errors
-        if (!chatSessions || !chatSessions.length) {
-            suppliers    = [{ name: "默认接口", url: "https://api.dzzi.ai/v1", key: "" }];
-            chatSessions = [{ id: 'main', name: '主频道', messages: [] }];
-        }
+        suppliers    = [{ name: "默认接口", url: "https://api.dzzi.ai/v1", key: "" }];
+        chatSessions = [{ id: 'main', name: '主频道', messages: [] }];
         renderSuppliers();
         renderChatSidebar();
         renderChatMessages();
@@ -229,30 +225,21 @@ async function syncFromCloud() {
 
 let _saveTimer = null;
 // 🧹 清理超过 5 轮的老图片，只保留文本（同时清理 v.image 和 v.images）
-// 🧹 清理超过 5 轮的老图片，只保留文本
-// 兼容: message.image / message.images / versions[].image / versions[].images
 function cleanupOldImages(session) {
     if (!session || !session.messages) return;
     let imgCount = 0;
 
     for (let i = session.messages.length - 1; i >= 0; i--) {
         const m = session.messages[i];
-        if (m.role !== 'user') continue;
+        if (!m.versions) continue;
 
-        const hasImage = !!(
-            m.image ||
-            (Array.isArray(m.images) && m.images.length) ||
-            (m.versions && m.versions.some(v =>
-                v.image || (Array.isArray(v.images) && v.images.length)
-            ))
+        const hasImage = m.versions.some(v =>
+            v.image || (Array.isArray(v.images) && v.images.length)
         );
-        if (!hasImage) continue;
 
-        imgCount++;
-        if (imgCount > 5) {
-            delete m.image;
-            delete m.images;
-            if (m.versions) {
+        if (hasImage) {
+            imgCount++;
+            if (imgCount > 5) {
                 m.versions.forEach(v => {
                     delete v.image;
                     delete v.images;
@@ -281,8 +268,6 @@ function _showSaveWarning(show, errMsg) {
     }
 }
 
-// ⚠️ stripImagesForCloudSync 保留为公共函数，但 _doSave 不再使用
-// 如果需要完全剥离所有轮次图片，仍可调用此函数
 function stripImagesForCloudSync(sessions) {
     return sessions.map(session => ({
         ...session,
@@ -298,104 +283,32 @@ function stripImagesForCloudSync(sessions) {
     }));
 }
 
-// 统计 sessions 中当前保留的图片轮次数
-function _countImgRounds(sessions) {
-    let n = 0;
-    for (const s of sessions) {
-        if (!s.messages) continue;
-        for (const m of s.messages) {
-            if (m.role !== 'user') continue;
-            if (m.image || (Array.isArray(m.images) && m.images.length)) { n++; continue; }
-            if (m.versions && m.versions.some(function(v){ return v.image || (Array.isArray(v.images) && v.images.length); })) { n++; }
-        }
-    }
-    return n;
-}
-
-// 从 sessions 副本中移除最旧一个图片轮次的图片字段（不删消息文本）
-// 返回 true 表示移除了一轮，false 表示已无可移除的图片
-function _stripOldestImgRound(sessions) {
-    for (var si = 0; si < sessions.length; si++) {
-        var s = sessions[si];
-        if (!s.messages) continue;
-        for (var mi = 0; mi < s.messages.length; mi++) {
-            var m = s.messages[mi];
-            if (m.role !== 'user') continue;
-            var stripped = false;
-            if (m.image) { delete m.image; stripped = true; }
-            if (Array.isArray(m.images) && m.images.length) { delete m.images; stripped = true; }
-            if (m.versions) {
-                for (var vi = 0; vi < m.versions.length; vi++) {
-                    var v = m.versions[vi];
-                    if (v.image) { delete v.image; stripped = true; }
-                    if (Array.isArray(v.images) && v.images.length) { delete v.images; stripped = true; }
-                }
-            }
-            if (stripped) return true;
-        }
-    }
-    return false;
-}
-
 async function _doSave() {
-    var MAX_SYNC_BYTES = 15 * 1024 * 1024; // 15 MB
-
-    // 1. 深拷贝 chatSessions — 不影响内存中的原始数据
-    var clone;
-    try { clone = structuredClone(chatSessions); } catch (_e) { clone = JSON.parse(JSON.stringify(chatSessions)); }
-
-    // 2. 常规处理
-    for (var si = 0; si < clone.length; si++) {
-        var s = clone[si];
+    const sessionsToSave = stripImagesForCloudSync(chatSessions);
+    for (const s of sessionsToSave) {
         if (!s.messages) continue;
         cleanupOldImages(s);
         s.messages = s.messages.slice(-200);
-        for (var mi = 0; mi < s.messages.length; mi++) {
-            var m = s.messages[mi];
+        for (const m of s.messages) {
             if (m.versions && m.versions.length > 5) {
-                m.versions = [m.versions[0], m.versions.slice(-4)];
+                m.versions = [m.versions[0], ...m.versions.slice(-4)];
                 if (m.activeVersion >= m.versions.length) m.activeVersion = m.versions.length - 1;
             }
             delete m._zepDirty;
         }
     }
-
-    // 3. 构造 payload
-    var payloadObj = { suppliers: suppliers, chatSessions: clone, activeSupIndex: activeSupIndex, activeChatId: activeChatId, _version: _dataVersion };
-    var payloadText = JSON.stringify(payloadObj);
-    var payloadBytes = new Blob([payloadText]).size;
-
-    // 4. 超过 15 MB → 从最旧的图片轮次开始逐轮移除
-    if (payloadBytes > MAX_SYNC_BYTES) {
-        console.warn('[sync-config] payload 超 15 MB (' + (payloadBytes / 1024 / 1024).toFixed(1) + ' MB)，逐轮移除最旧图片');
-        while (payloadBytes > MAX_SYNC_BYTES && _stripOldestImgRound(clone)) {
-            payloadText = JSON.stringify(payloadObj);
-            payloadBytes = new Blob([payloadText]).size;
-        }
-        if (payloadBytes > MAX_SYNC_BYTES) {
-            console.error('[sync-config] 逐轮移除后仍超 15 MB (' + (payloadBytes / 1024 / 1024).toFixed(1) + ' MB)，最新图片过大');
-            throw new Error('最新图片过大，云端同步失败。请减少图片或清理旧频道后重试。');
-        }
-    }
-
-    var keptRounds = _countImgRounds(clone);
-    console.log('[sync-config] ' + (payloadBytes / 1024 / 1024).toFixed(2) + ' MB, 保留 ' + keptRounds + ' 个图片轮次');
-
-    // 5. 发送
-    var r = await fetch('/api/sync-config', {
+    const payload = JSON.stringify({ suppliers, chatSessions: sessionsToSave, activeSupIndex, activeChatId, _version: _dataVersion });
+    console.log('[sync-config] payload size MB:', (payload.length / 1024 / 1024).toFixed(2));
+    const r = await fetch('/api/sync-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: payloadText
+        body: payload
     });
     if (!r.ok) {
-        var text = await r.text().catch(function(){ return ''; });
-        var hint = 'HTTP ' + r.status;
-        if (r.status === 413) { hint += ' 数据仍过大，请清理旧频道或刷新页面'; }
-        else if (r.status === 403) { hint += text.indexOf('Origin') >= 0 ? ' 当前访问域名不在允许列表' : ' 请求被代理或安全规则拒绝: ' + text.slice(0, 100); }
-        else { hint += ' ' + text.slice(0, 200); }
-        throw new Error(hint);
+        const text = await r.text().catch(() => '');
+        throw new Error('HTTP ' + r.status + ' ' + text.slice(0, 200));
     }
-    var d = await r.json();
+    const d = await r.json();
     if (d._version) _dataVersion = d._version;
     if (d._rejected) { console.warn('🛡️ [版本落后] 本次保存被拒绝，请刷新页面'); }
 }
@@ -500,122 +413,22 @@ function toast(msg){
 
 function goView(viewId) {
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state' };
+    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state' };
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
-    const VIEWS = ['home','chat','data','favorites','console','flo','calendar','album','state'];
+    const VIEWS = ['home','chat','data','favorites','flo','calendar','album','state'];
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);
     if (viewId === 'chat') { setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300); fetchPulseStatus(); }
     if (viewId === 'home') { updateDays && updateDays(); if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuInitHome(); }
     if (viewId === 'favorites') loadAndRenderFavorites();
-    if (viewId === 'console') consoleOpen();
     if (viewId === 'flo') floRender();
     if (viewId === 'calendar') calRender();
     if (viewId === 'album') { albumInitMonthFilter(); albumLoad(); }
     if (viewId === 'state') stateRender();
     if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuUpdateNav();
 }
-
-// ==================== VPS 控制台 ====================
-let consoleSocket = null;
-let consoleOpening = false;
-
-function consoleSetStatus(text, state) {
-    const el = document.getElementById('consoleStatus');
-    if (!el) return;
-    el.textContent = text;
-    el.dataset.state = state || '';
-}
-
-function consoleWrite(text, type) {
-    const output = document.getElementById('consoleOutput');
-    if (!output) return;
-    const line = document.createElement('span');
-    line.className = type ? 'console-line console-' + type : 'console-line';
-    // SSH 输出可能含 ANSI 控制符；本页以安全纯文本显示，避免任何 HTML 被执行。
-    line.textContent = String(text).replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g, '');
-    output.appendChild(line);
-    output.scrollTop = output.scrollHeight;
-}
-
-async function consoleOpen() {
-    if (consoleSocket && (consoleSocket.readyState === WebSocket.OPEN || consoleSocket.readyState === WebSocket.CONNECTING)) return;
-    if (consoleOpening) return;
-    consoleOpening = true;
-    consoleSetStatus('检查配置…', 'loading');
-    try {
-        const res = await fetch('/api/console/status', { cache: 'no-store' });
-        const info = await res.json();
-        const name = document.getElementById('consoleServerName');
-        if (name) name.textContent = info.label || 'VPS 控制台';
-        if (!res.ok || !info.enabled) {
-            consoleSetStatus('尚未配置', 'error');
-            consoleWrite(info.error || '控制台尚未在服务器上配置。', 'notice');
-            return;
-        }
-        consoleConnect();
-    } catch (_) {
-        consoleSetStatus('状态检查失败', 'error');
-        consoleWrite('无法确认控制台状态，请检查网络后重试。', 'notice');
-    } finally {
-        consoleOpening = false;
-    }
-}
-
-function consoleConnect() {
-    if (consoleSocket && consoleSocket.readyState === WebSocket.OPEN) return;
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    consoleSetStatus('连接中…', 'loading');
-    consoleSocket = new WebSocket(proto + '//' + location.host + '/ws/console');
-    consoleSocket.onopen = () => {
-        consoleSetStatus('正在建立 SSH…', 'loading');
-        consoleSocket.send(JSON.stringify({ type: 'resize', cols: 100, rows: 30 }));
-    };
-    consoleSocket.onmessage = (event) => {
-        let message;
-        try { message = JSON.parse(event.data); } catch (_) { return; }
-        if (message.type === 'ready') {
-            consoleSetStatus('已连接', 'ready');
-            document.getElementById('consoleInput')?.focus();
-        } else if (message.type === 'output') {
-            consoleWrite(message.data);
-        } else if (message.type === 'error') {
-            consoleSetStatus('连接失败', 'error');
-            consoleWrite(message.message || '控制台连接失败。', 'notice');
-        }
-    };
-    consoleSocket.onclose = () => {
-        if (document.body.dataset.view === 'console') consoleSetStatus('已断开', 'error');
-        consoleSocket = null;
-    };
-    consoleSocket.onerror = () => { consoleSetStatus('连接失败', 'error'); };
-}
-
-function consoleReconnect() {
-    if (consoleSocket) consoleSocket.close();
-    const output = document.getElementById('consoleOutput');
-    if (output) output.replaceChildren();
-    consoleOpen();
-}
-
-function consoleSendInput() {
-    const input = document.getElementById('consoleInput');
-    if (!input || !input.value || !consoleSocket || consoleSocket.readyState !== WebSocket.OPEN) return;
-    consoleSocket.send(JSON.stringify({ type: 'input', data: input.value + '\n' }));
-    input.value = '';
-    input.style.height = '';
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-    const input = document.getElementById('consoleInput');
-    if (!input) return;
-    input.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); consoleSendInput(); }
-    });
-    input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px'; });
-});
 function neuGetMemoryPwd() {
     let pwd = localStorage.getItem('memoryPwd') || '';
     if (!pwd) {
@@ -1100,22 +913,6 @@ async function askShenWang(text, images = []) {
                 apiKey: currentSup.key
             })
         });
-        if (!response.ok) {
-            const text = await response.text().catch(() => '');
-            let hint = 'HTTP ' + response.status;
-            if (response.status === 413) {
-                hint = '图片或本次请求仍然太大，请减少图片数量（413）';
-            } else if (response.status === 403) {
-                if (text.includes('Origin')) {
-                    hint = '当前访问域名不在允许列表（403 Origin）';
-                } else {
-                    hint = '请求被代理或安全规则拒绝（403）: ' + text.slice(0, 100);
-                }
-            } else {
-                hint += ' ' + text.slice(0, 100);
-            }
-            return { reply: '【' + hint + '】', thinking: '' };
-        }
         const data = await response.json();
         return { ...data, usedModel: selectedModel };
     } catch (e) {
@@ -1147,47 +944,6 @@ function switchChatWindow(id){
     if(titleEl) titleEl.innerText = '⊹ ' + getActiveSession().name;
     const topTitleEl = document.getElementById('chatViewTitle');
     if(topTitleEl) topTitleEl.innerText = '通讯 · ' + getActiveSession().name;
-}
-
-function escapeToolHtml(value) {
-    return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-function renderToolCallGroupHTML(toolCalls, isStreaming) {
-    if (!toolCalls || toolCalls.length === 0) return '';
-    var totalMs = 0;
-    for (var i = 0; i < toolCalls.length; i++) { totalMs += (toolCalls[i].elapsed || 0); }
-    var totalStr = totalMs >= 1000 ? (totalMs / 1000).toFixed(1) + 's' : totalMs + 'ms';
-    var label = isStreaming ? '正在调用工具 · <strong>' + toolCalls.length + '</strong>' : '调用了 <strong>' + toolCalls.length + '</strong> 次工具';
-    var html = '<div class="tool-call-group">';
-    html += '<div class="tool-call-group-summary tool-collapsed" onclick="var g=this.parentElement;var l=g.querySelector(\'.tool-call-group-list\');var s=l.style.display;l.style.display=s===\'none\'?\'block\':\'none\';g.classList.toggle(\'tool-expanded\',s===\'none\');this.classList.toggle(\'tool-collapsed\',s!==\'none\')">';
-    html += '<span class="tool-call-group-chevron">▸</span>';
-    html += '<span class="tool-call-group-label">' + label + '</span>';
-    html += '<span class="tool-call-group-total">' + totalStr + '</span>';
-    html += '</div>';
-    html += '<div class="tool-call-group-list" style="display:none">';
-    for (var i = 0; i < toolCalls.length; i++) {
-        var tc = toolCalls[i];
-        var argsPreview = '{}';
-        try { argsPreview = JSON.stringify(tc.arguments || {}).substring(0, 80); } catch (e) { argsPreview = '{}'; }
-        var itemMs = tc.elapsed || 0;
-        var itemTime = itemMs >= 1000 ? (itemMs / 1000).toFixed(1) + 's' : itemMs + 'ms';
-        html += '<div class="tool-call-item">';
-        html += '<div class="tool-call-item-header tool-collapsed" onclick="event.stopPropagation();var r=this.nextElementSibling;r.style.display=r.style.display===\'none\'?\'block\':\'none\';this.classList.toggle(\'tool-collapsed\')">';
-        html += '<span class="tool-call-item-chevron">▸</span>';
-        html += '<span class="tool-call-item-name">' + escHtml(tc.name || '') + '</span>';
-        html += '<span class="tool-call-item-args">' + escHtml(argsPreview) + '</span>';
-        html += '<span class="tool-call-item-time">' + itemTime + '</span>';
-        html += '</div>';
-        html += '<div class="tool-call-item-body" style="display:none"><pre>' + escHtml((tc.result || '').substring(0, 2000)) + '</pre></div>';
-        html += '</div>';
-    }
-    html += '</div></div>';
-    return html;
-}
-
-function updateToolGroupDOM(el, toolCalls, isStreaming) {
-    el.innerHTML = renderToolCallGroupHTML(toolCalls, isStreaming);
 }
 
 function renderChatMessages(){
@@ -1225,8 +981,6 @@ function renderChatMessages(){
         if (extractedThink.thinking) { displayContent = extractedThink.visibleContent; }
         const finalThinking = rawThinking || extractedThink.thinking || '';
         if(finalThinking) htmlContent += '<div class="think-box"><div class="think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">' + finalThinking.replace(/\n/g,'<br>') + '</div></div>';
-        // 渲染工具调用记录（整组折叠）
-        if (v.toolCalls && v.toolCalls.length > 0) htmlContent += renderToolCallGroupHTML(v.toolCalls, false);
         if (m.role === 'user') {
             htmlContent += '<div>' + (displayContent || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
         } else {
@@ -1366,7 +1120,6 @@ async function sendChat(options = {}) {
     sRow.appendChild(actionBtn);
 
     win.appendChild(sRow); win.scrollTop = win.scrollHeight;
-    var toolCallRecords = [];
 
     // 💥 1. 准备图片：复用模式从版本取，普通模式从相册取
     var imgsToSend = [];
@@ -1380,20 +1133,7 @@ async function sendChat(options = {}) {
     } else {
         imgsToSend = [...currentImgBase64List];
         clearImage();
-    }
-
-    // 📏 检查所有图片 data URL 总字节数 — 超过 12 MB 阻止发送
-    if (imgsToSend.length > 0) {
-        let totalImgBytes = 0;
-        for (const img of imgsToSend) totalImgBytes += dataUrlByteSize(img);
-        if (totalImgBytes > MAX_TOTAL_IMG_BYTES) {
-            toast('图片总大小 ' + (totalImgBytes / 1024 / 1024).toFixed(1) + ' MB 超过上限（12 MB），请减少图片数量');
-            // 把图片放回相册，方便用户删减后重新发送
-            currentImgBase64List = imgsToSend;
-            updateImagePreview();
-            return;
-        }
-    }
+    } 
 
     // ❌ 已经彻底删除了那句双倍烧钱的 await askShenWang！
 
@@ -1474,32 +1214,6 @@ try {
         var silenceTimer = setTimeout(() => controller.abort(), toolTimeout);
         function resetSilenceTimer() { clearTimeout(silenceTimer); silenceTimer = setTimeout(() => controller.abort(), toolTimeout); }
 
-        // 🔍 诊断日志：请求 payload 大小
-        const reqBody = {
-            model: selectedModel,
-            messages: historyMsgs,
-            stream: isStream,
-            useCrossplatform: localStorage.getItem('syzygy_crossplatform') !== 'false'
-        };
-        const payloadText = JSON.stringify(reqBody);
-        console.log('[chat payload]', {
-            bytes: new Blob([payloadText]).size,
-            megabytes: (new Blob([payloadText]).size / 1024 / 1024).toFixed(2),
-            imageCount: imgsToSend.length
-        });
-        // 🔍 逐张图片字节数
-        if (imgsToSend.length > 0) {
-            console.table(imgsToSend.map((img, idx) => {
-                const base64 = img.split(',')[1] || '';
-                const byteSize = Math.ceil(base64.length * 0.75);
-                return {
-                    index: idx,
-                    bytes: byteSize,
-                    megabytes: (byteSize / 1024 / 1024).toFixed(2)
-                };
-            }));
-        }
-
         const response = await fetch(apiUrl, {
             method: 'POST',
             signal: controller.signal,
@@ -1508,25 +1222,18 @@ try {
                 'Authorization': `Bearer ${currentSup.key}`,
                 'X-Tab-Id': SYZYGY_TAB_ID
             },
-            body: payloadText
+            body: JSON.stringify({
+                model: selectedModel,
+                messages: historyMsgs,
+                stream: isStream,
+                useCrossplatform: localStorage.getItem('syzygy_crossplatform') !== 'false'
+            })
         });
 
         if (!response.ok) {
             clearTimeout(silenceTimer);
-            const errText = await response.text().catch(() => '');
-            let hint;
-            if (response.status === 413) {
-                hint = '图片或本次请求仍然太大（413），请减少图片数量';
-            } else if (response.status === 403) {
-                if (errText.includes('Origin')) {
-                    hint = '当前访问域名不在允许列表（403 Origin）';
-                } else {
-                    hint = '请求被代理或安全规则拒绝（403）: ' + errText.slice(0, 100);
-                }
-            } else {
-                hint = '服务器返回 HTTP ' + response.status + ': ' + errText.slice(0, 100);
-            }
-            sDiv.innerHTML = '【通讯中断】' + hint;
+            const err = await response.text();
+            sDiv.innerHTML = `【通讯中断】服务器返回: ${err}`;
             return;
         }
 
@@ -1559,11 +1266,6 @@ try {
             mainTextDiv.classList.add('md-content');
             sDiv.appendChild(mainTextDiv);
 
-            const toolGroupEl = document.createElement('div');
-            toolGroupEl.className = 'tool-call-group-wrap';
-            toolGroupEl.style.display = 'none';
-            sDiv.appendChild(toolGroupEl);
-
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
@@ -1584,9 +1286,11 @@ try {
 
                         // 🔧 工具调用事件
                         if (parsed.type === 'tool_call') {
-                            toolCallRecords.push({ name: parsed.name, arguments: parsed.arguments || {}, result: parsed.result || '', elapsed: parsed.elapsed || 0 });
-                            toolGroupEl.style.display = 'block';
-                            updateToolGroupDOM(toolGroupEl, toolCallRecords, true);
+                            const toolBox = document.createElement('div');
+                            toolBox.className = 'tool-call-box';
+                            const resultPreview = (parsed.result || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            toolBox.innerHTML = `<div class="tool-call-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';this.classList.toggle('tool-collapsed')"><span class="tool-call-icon">🔧</span> <b>${parsed.name}</b> <span class="tool-call-args">${JSON.stringify(parsed.arguments||{}).replace(/</g,'&lt;').substring(0,80)}</span> <span class="tool-call-elapsed">${parsed.elapsed||0}ms</span></div><div class="tool-call-result" style="display:none"><pre>${resultPreview}</pre></div>`;
+                            sDiv.appendChild(toolBox);
                             win.scrollTop = win.scrollHeight;
                             continue;
                         }
@@ -1654,8 +1358,6 @@ try {
                 }
             }
             mainTextDiv.innerHTML = renderMarkdown(fullReply);
-            // 流结束：将工具调用组从"正在调用"切换为"调用了 N 次"
-            if (toolCallRecords.length > 0) updateToolGroupDOM(toolGroupEl, toolCallRecords, false);
 
         } else {
             // ==========================================
@@ -1687,7 +1389,7 @@ try {
         // --- 5. 存入云端，思考链从 DOM 取（避免流解析丢数据）---
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
         const domThinking = thinkTextDiv && thinkBox && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || '');
-        const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
+        const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '' }], activeVersion: 0 };
         session.messages.push(assistantMsg);
         saveToCloud(true);  // 立即保存，不延迟
         fetchPulseStatus();  // 刷新 Pulse 面板
@@ -1875,257 +1577,58 @@ function resetAll(){
  * @param {string} base64 - 原始 data:image/...;base64,... 字符串
  * @param {number} maxDim - 最大边长（默认 2048px）
  * @param {number} quality - JPEG 质量（默认 0.8）
- * 保留旧签名为兼容（其他地方可能直接调用 compressImage(base64)），
- * 但实际逻辑已委托给 compressImageFile；这里只做一层 base64→Blob→File 的桥接。
+ * @returns {Promise<string>} 压缩后的 base64 data URL
  */
-function compressImage(base64, maxDim, quality) {
-    // 兼容旧调用：将 base64 转成 Blob 再包装成 File
-    const parts = base64.split(',');
-    const mime = (parts[0].match(/data:(.*?);/) || [])[1] || 'image/jpeg';
-    const binary = atob(parts[1]);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const blob = new Blob([bytes], { type: mime });
-    const file = new File([blob], 'legacy-image.' + (mime.includes('png') ? 'png' : 'jpg'), { type: mime });
-    return compressImageFile(file, { maxDim: maxDim || 2048, startQuality: quality || 0.8 });
-}
-
-// ─── 图片压缩新工具函数 ───
-
-/** 计算 data URL 的真实字节大小（Base64 → bytes） */
-function dataUrlByteSize(dataUrl) {
-    if (!dataUrl) return 0;
-    const base64 = dataUrl.split(',')[1];
-    if (!base64) return 0;
-    return Math.ceil(base64.length * 0.75);
-}
-
-/** Canvas → Blob（统一输出 image/jpeg） */
-function canvasToBlob(canvas, type, quality) {
+function compressImage(base64, maxDim = 2048, quality = 0.8) {
     return new Promise((resolve, reject) => {
-        canvas.toBlob(blob => {
-            if (blob) resolve(blob);
-            else reject(new Error('Canvas toBlob 失败'));
-        }, type || 'image/jpeg', quality);
-    });
-}
-
-/** Blob → data URL */
-function blobToDataUrl(blob) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error('Blob 读取失败'));
-        reader.readAsDataURL(blob);
-    });
-}
-
-/**
- * 核心：从 File 对象开始压缩，按最终字节数循环降质/降尺寸
- * @param {File} file - 原始图片文件
- * @param {object} options
- * @returns {Promise<string>} 压缩后的 data URL
- */
-async function compressImageFile(file, options = {}) {
-    const {
-        maxDim = 1920,
-        targetBytes = 900 * 1024,   // 单张目标 ≤ 900 KB
-        startQuality = 0.82,
-        qualityStep = 0.08,
-        minQuality = 0.5,
-        minDim = 960,
-        scaleFactor = 0.85,
-        resetQuality = 0.78
-    } = options;
-
-    var startedAt = performance.now();
-    var encodeAttempts = 0;
-    var objectUrl = null;
-    var img = null;
-    var canvas = null;
-
-    try {
-        // 1. 加载图片，优先使用 createImageBitmap 矫正 EXIF 方向
-        try {
-            img = await createImageBitmap(file, { imageOrientation: 'from-image' });
-        } catch (_bitmapErr) {
-            // 回退到传统 Image
-            img = await new Promise((resolve, reject) => {
-                const image = new Image();
-                objectUrl = URL.createObjectURL(file);
-                image.onload = () => resolve(image);
-                image.onerror = () => reject(new Error('图片加载失败'));
-                image.src = objectUrl;
-            });
-        }
-
-        var w = img.width, h = img.height;
-
-        // 2. 第一步：限制最长边
-        var longer = Math.max(w, h);
-        if (longer > maxDim) {
-            var ratio = maxDim / longer;
+        const img = new Image();
+        img.onload = function() {
+            let w = img.width, h = img.height;
+            if (w <= maxDim && h <= maxDim && base64.length < 200000) {
+                // 图已经很小了，跳过压缩
+                resolve(base64);
+                return;
+            }
+            // 计算缩放比例
+            const ratio = Math.min(maxDim / w, maxDim / h, 1);
             w = Math.round(w * ratio);
             h = Math.round(h * ratio);
-        }
-
-        canvas = document.createElement('canvas');
-
-        // 3. 如果原始尺寸已经很小，先试一次低保真
-        if (longer <= 640 && file.size < targetBytes) {
-            canvas.width = w; canvas.height = h;
-            var ctx0 = canvas.getContext('2d');
-            ctx0.fillStyle = '#FFFFFF';
-            ctx0.fillRect(0, 0, w, h);
-            ctx0.drawImage(img, 0, 0, w, h);
-            encodeAttempts++;
-            var smallBlob = await canvasToBlob(canvas, 'image/jpeg', 0.88);
-            if (smallBlob.size <= targetBytes) {
-                var smallResult = await blobToDataUrl(smallBlob);
-                console.log('[image timing]', { name: file.name, originalMB: (file.size / 1024 / 1024).toFixed(2), outputKB: Math.round(smallBlob.size / 1024), width: w, height: h, elapsedMs: Math.round(performance.now() - startedAt), encodeAttempts: encodeAttempts });
-                return smallResult;
-            }
-        }
-
-        var quality = startQuality;
-
-        // 4. 循环压缩直到达标
-        while (true) {
-            canvas.width = w; canvas.height = h;
-            var ctx = canvas.getContext('2d');
-            // 白色背景，避免透明 PNG → JPEG 变黑底
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(0, 0, w, h);
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, w, h);
-
-            encodeAttempts++;
-            var blob = await canvasToBlob(canvas, 'image/jpeg', quality);
-
-            // 达标 或 已达最低限度 → 输出
-            if (blob.size <= targetBytes) {
-                var result = await blobToDataUrl(blob);
-                console.log('[image timing]', { name: file.name, originalMB: (file.size / 1024 / 1024).toFixed(2), outputKB: Math.round(blob.size / 1024), width: w, height: h, elapsedMs: Math.round(performance.now() - startedAt), encodeAttempts: encodeAttempts });
-                return result;
-            }
-            if (quality <= minQuality && Math.max(w, h) <= minDim) {
-                var floorResult = await blobToDataUrl(blob);
-                console.log('[image timing]', { name: file.name, originalMB: (file.size / 1024 / 1024).toFixed(2), outputKB: Math.round(blob.size / 1024), width: w, height: h, elapsedMs: Math.round(performance.now() - startedAt), encodeAttempts: encodeAttempts, floor: true });
-                return floorResult;
-            }
-
-            // 还能降 quality？
-            if (quality - qualityStep >= minQuality) {
-                quality = Math.max(minQuality, +(quality - qualityStep).toFixed(2));
-                continue;
-            }
-
-            // 还能缩尺寸？
-            if (Math.max(w, h) > minDim) {
-                w = Math.round(w * scaleFactor);
-                h = Math.round(h * scaleFactor);
-                quality = resetQuality;
-                continue;
-            }
-
-            // 到底了 — 用最低 quality 输出
-            canvas.width = w; canvas.height = h;
-            var ctx2 = canvas.getContext('2d');
-            ctx2.fillStyle = '#FFFFFF';
-            ctx2.fillRect(0, 0, w, h);
-            ctx2.drawImage(img, 0, 0, w, h);
-            encodeAttempts++;
-            var finalBlob = await canvasToBlob(canvas, 'image/jpeg', minQuality);
-            var finalResult = await blobToDataUrl(finalBlob);
-            console.log('[image timing]', { name: file.name, originalMB: (file.size / 1024 / 1024).toFixed(2), outputKB: Math.round(finalBlob.size / 1024), width: w, height: h, elapsedMs: Math.round(performance.now() - startedAt), encodeAttempts: encodeAttempts, floor: true });
-            return finalResult;
-        }
-    } catch (e) {
-        console.error('compressImageFile 失败:', e);
-        throw new Error('图片处理失败，请换一张或截图后重试');
-    } finally {
-        // 释放资源
-        if (img && typeof img.close === 'function') { try { img.close(); } catch (_) {} }
-        if (objectUrl) { URL.revokeObjectURL(objectUrl); }
-        if (canvas) { canvas.width = 1; canvas.height = 1; }
-    }
+            resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = function() { reject(new Error('图片加载失败')); };
+        img.src = base64;
+    });
 }
-
-const MAX_IMAGE_COUNT = 8;       // 单次最多 8 张
-const MAX_TOTAL_IMG_BYTES = 12 * 1024 * 1024; // 全部 data URL 总字节数 ≤ 12 MB
-var _uploading = false;         // 防止压缩期间重复触发
 
 let currentImgBase64List = [];
 
-// 💥 多图上传监听 — 2 并发 worker 压缩，保持选择顺序
-document.getElementById('imgUpload')?.addEventListener('change', async function(e){
-    if (_uploading) { e.target.value = ''; return; }
-    var files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
+// 💥 多图上传监听（带压缩，防止原图过大导致 413）
+document.getElementById('imgUpload')?.addEventListener('change', function(e){
+    const files = e.target.files;
+    if(!files || files.length === 0) return;
 
-    var totalAfterAdd = currentImgBase64List.length + files.length;
-    if (totalAfterAdd > MAX_IMAGE_COUNT) {
-        toast('一次最多选择 ' + MAX_IMAGE_COUNT + ' 张图片，当前已有 ' + currentImgBase64List.length + ' 张');
-        e.target.value = '';
-        return;
-    }
-
-    _uploading = true;
-    var sendBtn = document.querySelector('.chat-send-btn');
-    if (sendBtn) sendBtn.disabled = true;
-
-    var compressionStart = performance.now();
-    var results = new Array(files.length);
-    var completed = 0;
-    var total = files.length;
-    var nextIdx = 0;
-
-    try {
-        async function worker() {
-            while (nextIdx < total) {
-                var idx = nextIdx++;
-                var f = files[idx];
-                var t0 = performance.now();
-                try {
-                    var dataUrl = await compressImageFile(f);
-                    var t1 = performance.now();
-                    results[idx] = { ok: true, dataUrl: dataUrl, ms: Math.round(t1 - t0) };
-                    completed++;
-                    toast('处理中 ' + completed + '/' + total + ' 张');
-                } catch (err) {
-                    completed++;
-                    results[idx] = { ok: false, error: err.message, name: f.name };
-                    toast('失败: ' + (f.name || '图片' + (idx + 1)) + ' — ' + (err.message || '处理错误'));
-                }
+    // 循环读取你选的每一张图片
+    for(let i = 0; i < files.length; i++){
+        const reader = new FileReader();
+        reader.onload = async function(event){
+            try {
+                // 压缩后再塞进相册
+                const compressed = await compressImage(event.target.result);
+                currentImgBase64List.push(compressed);
+                updateImagePreview(); // 刷新预览区
+            } catch(err) {
+                console.error('图片压缩失败:', err);
+                // 兜底：用原图（压缩挂了也不能丢图）
+                currentImgBase64List.push(event.target.result);
+                updateImagePreview();
             }
-        }
-
-        // 启动 2 个并发 worker
-        await Promise.all([worker(), worker()]);
-
-        // 按原始顺序收集成功结果
-        for (var i = 0; i < results.length; i++) {
-            if (results[i] && results[i].ok) {
-                currentImgBase64List.push(results[i].dataUrl);
-            }
-        }
-        updateImagePreview();
-
-        var compressionMs = Math.round(performance.now() - compressionStart);
-        var totalBytes = 0;
-        for (var j = 0; j < currentImgBase64List.length; j++) {
-            totalBytes += dataUrlByteSize(currentImgBase64List[j]);
-        }
-        console.log('[images done]', {
-            total: total,
-            successful: currentImgBase64List.length,
-            compressionMs: compressionMs,
-            totalImgMB: (totalBytes / 1024 / 1024).toFixed(2)
-        });
-
-    } finally {
-        _uploading = false;
-        if (sendBtn) sendBtn.disabled = false;
-        e.target.value = '';
+        };
+        reader.readAsDataURL(files[i]);
     }
 });
 
@@ -2133,20 +1636,20 @@ document.getElementById('imgUpload')?.addEventListener('change', async function(
 function updateImagePreview() {
     const wrap = document.getElementById('imgPreviewWrap');
     if (!wrap) return;
-
+    
     // 如果相册空了，就把预览区藏起来
     if (currentImgBase64List.length === 0) {
         wrap.style.display = 'none';
-        wrap.innerHTML = '';
+        wrap.innerHTML = ''; 
         return;
     }
-
+    
     // 否则，横向排列显示所有图片
-    wrap.style.display = 'flex';
+    wrap.style.display = 'flex'; 
     wrap.style.flexWrap = 'wrap';
     wrap.style.gap = '10px';
     wrap.style.padding = '8px 0';
-
+    
     let html = '';
     for (let i = 0; i < currentImgBase64List.length; i++) {
         html += `<div style="position:relative; display:inline-block;">
@@ -2161,13 +1664,18 @@ function updateImagePreview() {
 function removeImg(index) {
     currentImgBase64List.splice(index, 1); // 从相册里把这张图抽走
     updateImagePreview(); // 重新排版
+    // 如果删光了，顺手把 input 里的缓存清空
+    if(currentImgBase64List.length === 0) {
+        const upload = document.getElementById('imgUpload');
+        if(upload) upload.value = '';
+    }
 }
 
 // 💥 发送完毕后，一键清空相册
 function clearImage(){
     currentImgBase64List = [];
     updateImagePreview();
-    const upload = document.getElementById('imgUpload');
+    const upload = document.getElementById('imgUpload'); 
     if(upload) upload.value = '';
 }
 
@@ -2594,19 +2102,16 @@ async function regenerateSend(aiMsgIndex) {
         const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream}) });
         if (!response.ok) { clearTimeout(reSilenceTimer); const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         let fullReply='', thinkContent='';
-        var toolCallRecords = [];
         if(isStream) {
             const reader = response.body.getReader(); const decoder = new TextDecoder('utf-8'); let buffer='', rawAcc='', reasoningAcc='';
             sDiv.innerHTML=''; const thinkBox=document.createElement('div'); thinkBox.className='think-box'; thinkBox.style.display='none'; thinkBox.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content"></div>'; const thinkTextDiv=thinkBox.querySelector('.think-content'); sDiv.appendChild(thinkBox);
             const mainTextDiv=document.createElement('div'); mainTextDiv.classList.add('md-content'); sDiv.appendChild(mainTextDiv);
-            const toolGroupEl=document.createElement('div'); toolGroupEl.className='tool-call-group-wrap'; toolGroupEl.style.display='none'; sDiv.appendChild(toolGroupEl);
-            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); if(p.type==='tool_call'){toolCallRecords.push({name:p.name,arguments:p.arguments||{},result:p.result||'',elapsed:p.elapsed||0}); toolGroupEl.style.display='block'; updateToolGroupDOM(toolGroupEl,toolCallRecords,true); win.scrollTop=win.scrollHeight;continue;} const d=p.choices[0].delta; if(d.reasoning_content){reasoningAcc+=d.reasoning_content; thinkBox.style.display='block';} if(d.content){rawAcc+=d.content; const parsed=extractThinkingFromContent(rawAcc); fullReply=parsed.visibleContent; const combinedThink=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n'); if(combinedThink){thinkContent=combinedThink; thinkBox.style.display='block'; thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');} mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';} win.scrollTop=win.scrollHeight;}catch(e){}}}
+            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); const d=p.choices[0].delta; if(d.reasoning_content){reasoningAcc+=d.reasoning_content; thinkBox.style.display='block';} if(d.content){rawAcc+=d.content; const parsed=extractThinkingFromContent(rawAcc); fullReply=parsed.visibleContent; const combinedThink=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n'); if(combinedThink){thinkContent=combinedThink; thinkBox.style.display='block'; thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');} mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';} win.scrollTop=win.scrollHeight;}catch(e){}}}
             mainTextDiv.innerHTML=renderMarkdown(fullReply);
-            if(toolCallRecords.length>0)updateToolGroupDOM(toolGroupEl,toolCallRecords,false);
         } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){const tb=document.createElement('div');tb.className='think-box';tb.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content">'+thinkContent.replace(/\n/g,'<br>')+'</div>';sDiv.appendChild(tb);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
         sDiv.classList.remove('msg-loading');
         const timeStr=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
-        ensureVersioned(aiMsg); aiMsg.versions.push({content:fullReply,thinking:thinkContent,time:timeStr,model:selectedModel,fullTime:new Date().toISOString(), toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined}); aiMsg.activeVersion=aiMsg.versions.length-1; aiMsg._zepDirty=true;
+        ensureVersioned(aiMsg); aiMsg.versions.push({content:fullReply,thinking:thinkContent,time:timeStr,model:selectedModel,fullTime:new Date().toISOString()}); aiMsg.activeVersion=aiMsg.versions.length-1; aiMsg._zepDirty=true;
         saveToCloud(); renderChatMessages();
     } catch(err) { sDiv.innerHTML='<div class="msg-error"><div>【网络崩溃】</div><div class="msg-error-detail">'+err.message+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); }
 }
