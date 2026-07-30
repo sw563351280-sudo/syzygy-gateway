@@ -12,3 +12,8 @@ ring.json
 pub
 model_prompts_new.json
 .sensor_token
+
+# Python 虚拟环境
+.venv/
+__pycache__/
+*.pyc

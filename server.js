@@ -3343,7 +3343,7 @@ const BUILTIN_TOOLS = [
 const TOOLS_CONFIG_FILE = path.join(DATA_DIR, 'tools_config.json');
 function loadToolsConfig() { try { return JSON.parse(fs.readFileSync(TOOLS_CONFIG_FILE, 'utf8')); } catch(e) { return null; } }
 function saveToolsConfig(cfg) { try { fs.writeFileSync(TOOLS_CONFIG_FILE, JSON.stringify(cfg)); } catch(e) {} }
-let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, read_diary: true, exec: true, bark_push: true, check_phone: true, search_transcript: true, check_environment: true, mcp: false, calendar_enabled: true };
+let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, read_diary: true, exec: true, bark_push: true, check_phone: true, search_transcript: true, check_environment: true, mcp: false, calendar_enabled: true, toy_enabled: false };
 // 首次启动时写入默认配置
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
@@ -3353,6 +3353,7 @@ if (!TOOLS_ENABLED.check_environment) { TOOLS_ENABLED.check_environment = true; 
 if (!TOOLS_ENABLED.check_phone) { TOOLS_ENABLED.check_phone = true; _configChanged = true; }
 if (!TOOLS_ENABLED.bark_push) { TOOLS_ENABLED.bark_push = true; _configChanged = true; }
 if (!TOOLS_ENABLED.search_transcript) { TOOLS_ENABLED.search_transcript = true; _configChanged = true; }
+if (TOOLS_ENABLED.toy_enabled === undefined) { TOOLS_ENABLED.toy_enabled = false; _configChanged = true; }
 if (_configChanged) { saveToolsConfig(TOOLS_ENABLED); console.log('🔧 [工具配置] 已补充缺失字段'); }
 
 // 轻量工具（始终可见，不触发工具循环）
@@ -3370,14 +3371,21 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
     const MCP_READ_ONLY = new Set(['read_file', 'read_text_file', 'list_directory', 'search_files', 'get_file_info', 'list_allowed_directories']);
     const mcpAlways = TOOLS_ENABLED.mcp ? optionalTools.filter(t => MCP_READ_ONLY.has(t.function?.name)) : [];
 
+    // toy 工具注入：仅当 toy_enabled=true 且用户明确表达振动/玩具意图时注入
+    const TOY_TOOLS = new Set(['toy_vibrate', 'toy_stop_vibration', 'toy_status']);
+    const hasToyIntent = TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false && (
+        /振动|震动|玩具|啵啵|强度|停止.*振动|开启.*振动|调.*强度|toy|vibrat/i.test(textLower)
+    );
+    const toyTools = hasToyIntent ? optionalTools.filter(t => TOY_TOOLS.has(t.function?.name)) : [];
+
     if (forceToolChoice) {
-        const result = [...alwaysTools, ...mcpAlways, ...allTools.filter(t => CODE_TOOLS.has(t.function?.name))];
+        const result = [...alwaysTools, ...mcpAlways, ...toyTools, ...allTools.filter(t => CODE_TOOLS.has(t.function?.name))];
         console.log(`🔧 [工具筛选] 强制模式→${result.length}个工具`);
         return result;
     }
 
     // 剩余可选工具按关键词评分
-    const remaining = optionalTools.filter(t => !MCP_READ_ONLY.has(t.function?.name));
+    const remaining = optionalTools.filter(t => !MCP_READ_ONLY.has(t.function?.name) && !TOY_TOOLS.has(t.function?.name));
     const scored = remaining.map(t => {
         const name = (t.function?.name || '').toLowerCase();
         const desc = (t.function?.description || '').toLowerCase();
@@ -3389,18 +3397,34 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
     });
     const relevant = scored.filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, 8).map(s => s.tool);
 
-    const result = [...alwaysTools, ...mcpAlways, ...relevant];
+    const result = [...alwaysTools, ...mcpAlways, ...toyTools, ...relevant];
     console.log(`🔧 [工具筛选] ${alwaysTools.length}轻量 + ${mcpAlways.length}MCP只读 + ${relevant.length}可选: ${relevant.map(t => t.function?.name).join(',') || '(无)'}`);
     return result;
 }
 
-// MCP Server 配置：{ name, command, args[], env? }
+// MCP Server 配置：{ name, transport: 'stdio'|'streamable-http', command?, args[], env?, url?, token? }
 const MCP_SERVERS = [
-    { name: 'filesystem', command: 'node', args: ['node_modules/@modelcontextprotocol/server-filesystem/dist/index.js', '/opt/syzygy'] }
+    { name: 'filesystem', transport: 'stdio', command: 'node', args: ['node_modules/@modelcontextprotocol/server-filesystem/dist/index.js', '/opt/syzygy'] }
 ];
-const mcpConnections = new Map(); // name → { process, tools, buffer }
+// 动态插入 toy server（仅在环境变量配置时）
+if (process.env.TOY_MCP_URL && process.env.TOY_MCP_TOKEN) {
+    MCP_SERVERS.push({
+        name: 'toy',
+        transport: 'streamable-http',
+        url: process.env.TOY_MCP_URL,
+        token: process.env.TOY_MCP_TOKEN
+    });
+}
+const mcpConnections = new Map(); // name → { transport, tools, client?, process?, buffer? }
 
-function startMCPServer(config) {
+async function startMCPServer(config) {
+    if (config.transport === 'streamable-http') {
+        return _startHttpMCPServer(config);
+    }
+    return _startStdioMCPServer(config);
+}
+
+function _startStdioMCPServer(config) {
     return new Promise((resolve, reject) => {
         try {
             const { spawn } = require('child_process');
@@ -3408,7 +3432,7 @@ function startMCPServer(config) {
                 env: { ...process.env, ...(config.env || {}) },
                 stdio: ['pipe', 'pipe', 'pipe']
             });
-            const conn = { config, child, tools: [], buffer: '', pending: new Map(), reqId: 0 };
+            const conn = { transport: 'stdio', config, child, tools: [], buffer: '', pending: new Map(), reqId: 0 };
             child.stdout.on('data', (chunk) => {
                 conn.buffer += chunk.toString();
                 const lines = conn.buffer.split('\n');
@@ -3451,6 +3475,51 @@ function startMCPServer(config) {
     });
 }
 
+async function _startHttpMCPServer(config) {
+    const { Client } = require('@modelcontextprotocol/sdk/client');
+    const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
+
+    const transport = new StreamableHTTPClientTransport(new URL(config.url), {
+        requestInit: {
+            headers: { 'Authorization': `Bearer ${config.token}` }
+        }
+    });
+    const client = new Client({ name: 'syzygy-gateway', version: '1.0' });
+
+    try {
+        await client.connect(transport);
+        const result = await client.listTools();
+        const tools = (result.tools || []).map(t => ({
+            type: 'function',
+            function: { name: t.name, description: t.description || '', parameters: t.inputSchema || { type: 'object', properties: {} } },
+            _mcp: config.name
+        }));
+
+        const conn = {
+            transport: 'streamable-http',
+            config,
+            client,
+            tools,
+            lastError: null,
+            async send(method, params) {
+                if (method === 'tools/call') {
+                    const r = await client.callTool({ name: params.name, arguments: params.arguments || {} });
+                    return { result: r };
+                }
+                throw new Error(`Unsupported method: ${method}`);
+            }
+        };
+        mcpConnections.set(config.name, conn);
+        console.log(`🔌 [MCP] ${config.name} 已连接 (HTTP)，发现${tools.length}个工具: ${tools.map(t => t.function?.name || t.name).join(', ')}`);
+        return conn;
+    } catch (e) {
+        console.log(`🔌 [MCP] ${config.name} HTTP 握手失败: ${e.message}`);
+        try { await client.close(); } catch (_) {}
+        mcpFailedConnections.push(config.name);
+        throw e;
+    }
+}
+
 async function getAllMCPTools() {
     const tools = [];
     for (const [, conn] of mcpConnections) {
@@ -3462,7 +3531,7 @@ async function getAllMCPTools() {
 async function callMCPTool(serverName, toolName, args) {
     const conn = mcpConnections.get(serverName);
     if (!conn) throw new Error(`MCP server ${serverName} not connected`);
-    const result = await conn.send('tools/call', { name: toolName, arguments: args });
+    const result = await conn.send('tools/call', { name: toolName, arguments: args || {} });
     const content = result.result?.content || [];
     return content.map(c => c.text || JSON.stringify(c)).join('\n');
 }
@@ -4452,7 +4521,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         console.log(`🔧 [MCP] TOOLS_ENABLED.mcp=${TOOLS_ENABLED.mcp}, mcp工具数=${mcpTools.length}, 筛选后MCP=${filteredTools.filter(t=>t._mcp).map(t=>t.function?.name||t.name).join(',') || '(无)'}`);
         _mcpDiag.last = { at: new Date().toISOString(), mcpEnabled: TOOLS_ENABLED.mcp, totalTools: enabledTools.length, filteredTools: filteredTools.length, mcpFilteredIn: filteredTools.filter(t=>t._mcp).map(t=>t.function?.name||t.name), userText: (currentUserMsgText||'').substring(0, 100) };
         // 只有轻量+MCP只读工具 → 日常聊天保留工具但跳过工具循环
-        const LIGHT_OR_MCP_READ = new Set([...LIGHT_TOOLS, ...['read_file','read_text_file','list_directory','search_files','get_file_info','list_allowed_directories']]);
+        const LIGHT_OR_MCP_READ = new Set([...LIGHT_TOOLS, ...['read_file','read_text_file','list_directory','search_files','get_file_info','list_allowed_directories', ...TOY_TOOLS]]);
         const needsToolLoop = filteredTools.some(t => !LIGHT_OR_MCP_READ.has(t.function?.name));
         if (!needsToolLoop && !forceToolChoice) {
             console.log(`🔧 [工具] 日常聊天，保留MCP只读工具供按需调用`);
@@ -5022,14 +5091,27 @@ app.get('/api/read-diary', (req, res) => {
 app.get('/api/mcp/servers', (req, res) => {
     const list = [];
     for (const [name, conn] of mcpConnections) {
-        list.push({ name, status: 'connected', command: conn.config.command, tools: conn.tools.map(t => t.function?.name || t.name) });
+        list.push({
+            name,
+            transport: conn.transport || 'stdio',
+            status: 'connected',
+            command: conn.config?.command || conn.config?.url || 'http',
+            tools: conn.tools.map(t => t.function?.name || t.name)
+        });
     }
     for (const config of MCP_SERVERS) {
         if (!mcpConnections.has(config.name)) {
-            list.push({ name: config.name, status: mcpFailedConnections.includes(config.name) ? 'failed' : 'connecting', command: config.command, tools: [] });
+            list.push({
+                name: config.name,
+                transport: config.transport || 'stdio',
+                status: mcpFailedConnections.includes(config.name) ? 'failed' : 'connecting',
+                command: config.command || config.url || '',
+                tools: []
+            });
         }
     }
-    res.json({ servers: list });
+    // 过滤 token: 不在响应中暴露
+    res.json({ servers: list.map(s => ({ ...s, _token: undefined })) });
 });
 
 app.post('/api/mcp/add-server', (req, res) => {
@@ -5048,7 +5130,7 @@ app.post('/api/mcp/remove-server', (req, res) => {
     const idx = MCP_SERVERS.findIndex(s => s.name === name);
     if (idx !== -1) MCP_SERVERS.splice(idx, 1);
     const conn = mcpConnections.get(name);
-    if (conn) { conn.child.kill(); mcpConnections.delete(name); }
+    if (conn) { try { if (conn.child) conn.child.kill(); } catch(_) {} try { if (conn.client) conn.client.close(); } catch(_) {} mcpConnections.delete(name); }
     res.json({ success: true });
 });
 
