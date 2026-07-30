@@ -3481,7 +3481,10 @@ async function _startHttpMCPServer(config) {
 
     const transport = new StreamableHTTPClientTransport(new URL(config.url), {
         requestInit: {
-            headers: { 'Authorization': `Bearer ${config.token}` }
+            headers: {
+                'Authorization': `Bearer ${config.token}`,
+                'User-Agent': 'syzygy-gateway/1.0'
+            }
         }
     });
     const client = new Client({ name: 'syzygy-gateway', version: '1.0' });
