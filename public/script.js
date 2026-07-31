@@ -213,10 +213,16 @@ async function syncFromCloud() {
 
     } catch(e) {
         console.error('[sync] load failed:', e.message);
-        // Don't wipe in-memory chat data on transient errors
+        // Never wipe in-memory data. On first load, keep trying.
         if (!chatSessions || !chatSessions.length) {
             suppliers    = [{ name: "默认接口", url: "https://api.dzzi.ai/v1", key: "" }];
-            chatSessions = [{ id: 'main', name: '主频道', messages: [] }];
+            chatSessions = [{ id: 'main', name: '加载中...（请刷新）', messages: [{
+                role: 'assistant',
+                versions: [{ content: '数据加载失败，请刷新页面重试。', fullTime: new Date().toISOString(), time: new Date().toLocaleTimeString('zh-CN', {hour:'2-digit',minute:'2-digit'}) }],
+                activeVersion: 0
+            }] }];
+            // Retry in 3s
+            setTimeout(syncFromCloud, 3000);
         }
         renderSuppliers();
         renderChatSidebar();
@@ -338,6 +344,11 @@ function _stripOldestImgRound(sessions) {
 }
 
 async function _doSave() {
+    // Never save if we haven't loaded cloud data yet (prevents wiping real data with empty state)
+    if (!_dataVersion) {
+        console.warn('[sync-config] Skipping save: no cloud data loaded yet (_dataVersion=0)');
+        return;
+    }
     var MAX_SYNC_BYTES = 15 * 1024 * 1024; // 15 MB
 
     // 1. 深拷贝 chatSessions — 不影响内存中的原始数据
