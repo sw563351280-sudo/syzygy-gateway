@@ -533,6 +533,56 @@ console.log   = (...a) => { _ringPush('LOG',   ...a); _origConsole.log(...a); };
 console.error = (...a) => { _ringPush('ERROR', ...a); _origConsole.error(...a); };
 console.warn  = (...a) => { _ringPush('WARN',  ...a); _origConsole.warn(...a); };
 
+// ========== 对话链路 Trace ==========
+const _traceRing = [];
+const _TRACE_RING_MAX = 100;
+
+function traceStart(meta) {
+    const t = {
+        id: 'tr_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 4),
+        startedAt: Date.now(), startedAtISO: new Date().toISOString(),
+        meta, events: [], seq: 0, done: false
+    };
+    _traceRing.push(t);
+    if (_traceRing.length > _TRACE_RING_MAX) _traceRing.shift();
+    return t;
+}
+function traceEvent(t, phase, label, detail) {
+    if (!t) return;
+    try {
+        const ev = { seq: ++t.seq, ms: Date.now() - t.startedAt, phase, label, detail: detail || null };
+        // 截断规则
+        if (ev.detail && typeof ev.detail === 'object' && !Array.isArray(ev.detail)) {
+            const d = {};
+            for (const [k, v] of Object.entries(ev.detail)) {
+                if (k === 'apiKey' || k === 'authorization') continue;
+                if (typeof v === 'string') d[k] = v.substring(0, 200);
+                else if (Array.isArray(v)) d[k] = v.slice(0, 10);
+                else d[k] = v;
+            }
+            ev.detail = d;
+        }
+        t.events.push(ev);
+        if (t.meta && t.meta.tabId) wsTraceToTab(t.meta.tabId, { type: 'trace_event', traceId: t.id, event: ev });
+    } catch (e) { /* 埋点永不抛异常 */ }
+}
+function traceEnd(t, extra) {
+    if (!t) return;
+    try {
+        t.done = true; t.durationMs = Date.now() - t.startedAt;
+        Object.assign(t, extra || {});
+        if (t.meta && t.meta.tabId) wsTraceToTab(t.meta.tabId, { type: 'trace_done', traceId: t.id, durationMs: t.durationMs });
+    } catch (e) { }
+}
+function wsTraceToTab(tabId, data) {
+    try {
+        const payload = JSON.stringify(data);
+        for (const c of wsClients) {
+            if (c.tabId === tabId && c.ws && c.ws.readyState === 1) c.ws.send(payload);
+        }
+    } catch (e) { }
+}
+
 const CONTRADICTION_DETECTION_ENABLED = true;
 const ZEP_URL = 'http://127.0.0.1:9999'; // Zep已废弃，指向本地不存在的端口快速失败
 const SESSION_ID = "syzygy_01";
@@ -2654,7 +2704,7 @@ const RADAR_TOPK = {
     unresolved: Number(process.env.RADAR_UNRESOLVED_TOPK || 2)
 };
 
-function buildFinalSystemPrompt(injectionQueue) {
+function buildFinalSystemPrompt(injectionQueue, tr) {
     // === 动态记忆召回 token 硬上限（bullet 级） ===
     const priorityOrder = ['RP雷达', '长期记忆雷达', '对话原文'];
     const sourceMap = { 'RP雷达': 'roleplay', '长期记忆雷达': 'long_term', '对话原文': 'transcript' };
@@ -2688,7 +2738,7 @@ function buildFinalSystemPrompt(injectionQueue) {
         console.error('❌ [MemoryBudget:Exceeded]', { usedTokens, maxTokens: MEMORY_RECALL_TOKEN_BUDGET });
     }
 
-    console.log('🧠 [MemoryBudget]', {
+    const budgetObj = {
         maxTokens, usedTokens,
         kept: kept.length, dropped,
         rpCount: rpKept + rpDropped, ltCount: ltKept + ltDropped, txCount: txKept + txDropped,
@@ -2696,7 +2746,9 @@ function buildFinalSystemPrompt(injectionQueue) {
         rpDropped, ltDropped, txDropped,
         tokensBySource: { rpTokens, ltTokens, txTokens },
         avgTokensPerKept
-    });
+    };
+    console.log('🧠 [MemoryBudget]', budgetObj);
+    traceEvent(tr, 'budget', 'token预算裁剪', budgetObj);
 
     // === 替换动态召回内容为裁剪后版本 ===
     for (const label of priorityOrder) {
@@ -4154,8 +4206,16 @@ function findZepAnchor(cleanMessages, zepMessages) {
 // ==========================================
 app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (req, res) => {
     console.log('🧪 [CacheDebug] ENTER via handler', { routeKey: req.params?.platform, path: req.path, originalUrl: req.originalUrl });
+    let _tr = null;
     try {
-                let body = req.body;
+        _tr = traceStart({
+            model: req.body?.model,
+            stream: req.body?.stream === true,
+            tabId: req.headers['x-tab-id'] || null,
+            noMemory: req.headers['x-no-memory'] === 'true',
+            userPreview: ''
+        });
+        let body = req.body;
         const noMemory = req.headers['x-no-memory'] === 'true';
         const sourceTabId = req.headers['x-tab-id'] || null;
 
@@ -4185,6 +4245,9 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             const lastUserMsg = [...cleanMessages].reverse().find(m => m.role === 'user');
             if (lastUserMsg) currentUserMsgText = extractText(lastUserMsg.content);
         }
+
+        _tr.meta.userPreview = (currentUserMsgText || '').substring(0, 80);
+        traceEvent(_tr, 'start', '请求进入', { msgCount: cleanMessages.length });
 
        if (currentUserMsgText) updateRpTracker(currentUserMsgText, 'main');
 
@@ -4380,6 +4443,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         }
 
         const { coreRadar: coreRadar_raw, longTermRadar: longTerm_raw, rpRadar: rpRadarContext, unresolved: unresolved_raw, transcriptRadar: transcript_raw } = await scanAllRadars(currentUserMsgText);
+        traceEvent(_tr, 'recall', '记忆召回完成', { coreLen: coreRadar_raw.length, longTermLen: longTerm_raw.length, rpLen: rpRadarContext.length, unresolvedLen: unresolved_raw.length, transcriptLen: transcript_raw.length });
         const recallBlocks = dedupRecallAcrossBlocks([
             { label: '核心雷达', content: coreRadar_raw },
             { label: '长期记忆雷达', content: longTerm_raw },
@@ -4390,6 +4454,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         const longTermContext = recallBlocks.find(b => b.label === '长期记忆雷达').content;
         const unresolvedContext = recallBlocks.find(b => b.label === '相关记忆浮现').content;
         const transcriptContext = recallBlocks.find(b => b.label === '对话原文').content;
+        traceEvent(_tr, 'dedup', '跨区块去重', { blocks: recallBlocks.map(b => ({ label: b.label, len: (b.content || '').length })) });
 
         const physioContext = await buildPhysioContext(currentUserMsgText);
 
@@ -4405,7 +4470,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             { label: '对话原文', content: transcriptContext },
             { label: '状态备忘录', content: dynamicStatePrompt },
             { label: '生理仿真状态', content: physioContext },
-        ]);
+        ], _tr);
 
         const newMessages = [...cleanMessages];
         const mpConfig = getModelPromptConfig(body.model || '');
@@ -4522,6 +4587,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             else if (hasUrl) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
         }
         let filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
+        traceEvent(_tr, 'tools', '工具筛选', { total: enabledTools.length, filtered: filteredTools.length, names: filteredTools.map(t => t.function?.name).slice(0, 10) });
         console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
         console.log(`🔧 [MCP] TOOLS_ENABLED.mcp=${TOOLS_ENABLED.mcp}, mcp工具数=${mcpTools.length}, 筛选后MCP=${filteredTools.filter(t=>t._mcp).map(t=>t.function?.name||t.name).join(',') || '(无)'}`);
         _mcpDiag.last = { at: new Date().toISOString(), mcpEnabled: TOOLS_ENABLED.mcp, totalTools: enabledTools.length, filteredTools: filteredTools.length, mcpFilteredIn: filteredTools.filter(t=>t._mcp).map(t=>t.function?.name||t.name), userText: (currentUserMsgText||'').substring(0, 100) };
@@ -4822,6 +4888,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
         }
     } catch (error) {
+        traceEnd(_tr, { ok: false, error: error.message });
         _boom.last = { at: new Date().toISOString(), error: error.message, stack: (error.stack || '').substring(0, 600), model: req.body?.model };
         console.error('大门重组异常:', error.stack?.substring(0, 300));
         res.status(500).json({ error: "大门重组异常：" + error.message });
@@ -5153,6 +5220,7 @@ app.get('/debug-mood-logs', (req, res) => {
     res.json({ logs: _moodLog.slice(-50), count: _moodLog.length });
 });
 app.get('/debug-console', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '需要管理密码' });
     const filter = (req.query.filter || '').toLowerCase();
     const n = parseInt(req.query.n) || 100;
     let entries = _consoleRing.slice(-n);
@@ -5160,6 +5228,26 @@ app.get('/debug-console', (req, res) => {
         try { return e.m.toLowerCase().includes(filter); } catch(_) { return e.m.includes(req.query.filter || ''); }
     });
     res.json({ count: _consoleRing.length, shown: entries.length, entries });
+});
+
+app.get('/api/traces', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '需要管理密码' });
+    const n = Math.min(parseInt(req.query.n) || 30, 100);
+    res.json({
+        total: _traceRing.length,
+        traces: _traceRing.slice(-n).reverse().map(t => ({
+            id: t.id, startedAtISO: t.startedAtISO, durationMs: t.durationMs,
+            done: t.done, ok: t.ok !== false, error: t.error || null,
+            meta: t.meta, eventCount: t.events.length, replyLen: t.replyLen
+        }))
+    });
+});
+
+app.get('/api/traces/:id', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '需要管理密码' });
+    const t = _traceRing.find(x => x.id === req.params.id);
+    if (!t) return res.status(404).json({ error: '未找到，可能已被环形缓冲挤出' });
+    res.json(t);
 });
 app.get('/grep-source', (req, res) => {
     const q = req.query.q || '';
@@ -5884,7 +5972,7 @@ app.post('/api/web-chat', async (req, res) => {
                 { label: '对话原文', content: transcriptContext },
                 { label: '状态备忘录', content: dynamicStatePrompt },
                 { label: '生理仿真状态', content: physioContext },
-            ]);
+            ], null);
 
             let userContent;
             const imgList = images?.length ? images : (image ? [image] : []);
