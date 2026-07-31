@@ -63,6 +63,9 @@ _write_lock = asyncio.Lock()
 _stop_timer_task: asyncio.Task[Any] | None = None
 _connected = False
 _last_error: str | None = None
+_last_connect_attempt_at: float | None = None
+_last_connect_attempt_ok: bool = False
+_maintain_task: asyncio.Task[Any] | None = None
 
 
 def _make_client() -> BleakClient:
@@ -97,6 +100,35 @@ async def _disconnect() -> None:
             pass
     _client = None
     _connected = False
+
+
+def _is_live() -> bool:
+    return _client is not None and _client.is_connected
+
+
+async def _maintain_connection() -> None:
+    """Background task: keep BLE connected. Merged with auto-stop timer management."""
+    global _connected, _client, _last_error, _last_connect_attempt_at, _last_connect_attempt_ok
+    backoff = 2.0
+    while True:
+        try:
+            if not _is_live():
+                _last_connect_attempt_at = time.monotonic()
+                await _connect()
+                _last_connect_attempt_ok = True
+                backoff = 2.0
+                logger.info("Connection warmup OK")
+            else:
+                _last_connect_attempt_ok = True
+            await asyncio.sleep(15)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _last_connect_attempt_ok = False
+            _last_error = str(exc)
+            logger.warning("Connection maintain failed (retry in %.1fs): %s", backoff, exc)
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 60)
 
 
 async def _do_vibrate(intensity: int) -> None:
@@ -242,7 +274,9 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
 
         if not _connected:
             try:
-                await _connect()
+                await asyncio.wait_for(_connect(), timeout=8)
+            except asyncio.TimeoutError:
+                return "Error: connection timeout (8s). Retry."
             except Exception as exc:
                 return f"Error: connection failed: {exc}"
 
@@ -284,7 +318,26 @@ async def mcp_endpoint(request: Request):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "connected": _connected}
+    return {
+        "status": "ok",
+        "connected": _connected,
+        "last_connect_attempt_at": _last_connect_attempt_at,
+        "last_connect_attempt_ok": _last_connect_attempt_ok,
+        "last_error": _last_error,
+    }
+
+
+@app.on_event("startup")
+async def _on_startup():
+    global _maintain_task
+    _maintain_task = asyncio.create_task(_maintain_connection())
+    logger.info("Connection maintain task started")
+
+
+@app.on_event("shutdown")
+async def _on_shutdown():
+    await _shutdown()
+
 
 
 # ---------------------------------------------------------------------------
@@ -311,31 +364,6 @@ def _handle_signal(signum: int, frame: Any) -> None:
 def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
-
-    @app.on_event("shutdown")
-    async def _on_shutdown():
-        await _shutdown()
-
-    # Start ngrok tunnel
-    public_url = None
-    try:
-        from pyngrok import ngrok as pyngrok_mod, conf as ngrok_conf
-        ngrok_conf.get_default().auth_token = MCP_TOKEN[:32]  # dummy, real token in env
-        # Try using saved authtoken from ngrok config
-        import os as _os2
-        ngrok_yml = _os2.path.expanduser("~/AppData/Local/ngrok/ngrok.yml")
-        if _os2.path.exists(ngrok_yml):
-            ngrok_conf.get_default().config_path = ngrok_yml
-
-        tunnel = pyngrok_mod.connect(LISTEN_PORT, "http")
-        public_url = tunnel.public_url
-        logger.info("ngrok tunnel: %s -> http://127.0.0.1:%d", public_url, LISTEN_PORT)
-        print(f"\n{'='*60}")
-        print(f"  PUBLIC URL: {public_url}/mcp")
-        print(f"  TOY_MCP_URL for VPS: {public_url}/mcp")
-        print(f"{'='*60}\n")
-    except Exception as exc:
-        logger.warning("ngrok failed: %s. Server still running on localhost.", exc)
 
     logger.info("Starting toy-mcp-server on %s:%d", LISTEN_HOST, LISTEN_PORT)
     uvicorn.run(app, host=LISTEN_HOST, port=LISTEN_PORT, log_level="info")
