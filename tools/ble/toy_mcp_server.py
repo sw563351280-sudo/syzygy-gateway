@@ -272,7 +272,7 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
         if not (1 <= duration <= 30):
             return f"Error: duration_seconds must be 1-30, got {duration}"
 
-        if not _connected:
+        if not _is_live():
             try:
                 await asyncio.wait_for(_connect(), timeout=8)
             except asyncio.TimeoutError:
@@ -285,14 +285,19 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
         return f"OK intensity={intensity} duration={duration}"
 
     elif name == "toy_stop_vibration":
-        if not _connected:
-            return "Not connected (no active vibration)"
+        if not _is_live():
+            try:
+                await asyncio.wait_for(_connect(), timeout=8)
+            except asyncio.TimeoutError:
+                return "Error: connection timeout (8s). Retry."
+            except Exception as exc:
+                return f"Error: connection failed: {exc}"
         await _do_stop_vibration()
         return "OK stopped"
 
     elif name == "toy_status":
-        status = "connected" if _connected else "disconnected"
-        msg = status
+        live = _is_live()
+        msg = "connected" if live else "disconnected"
         if _last_error:
             msg += "  last_error: " + _last_error
         return msg
