@@ -183,26 +183,26 @@ _session_store: dict[str, Any] = {}
 TOOLS_DEF = [
     {
         "name": "toy_vibrate",
-        "description": "Start vibration at given intensity for a specified duration. Auto-stops when duration expires.",
+        "description": "控制江鱼身上设备的振动强度。直接调用即可，不需要先调用 toy_status 或检查连接状态，连接由服务端自动维持。改变强度时直接再次调用本工具覆盖，不要先调用 toy_stop_vibration。",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "intensity": {"type": "integer", "minimum": 1, "maximum": 100,
-                              "description": "Vibration intensity 1-100"},
+                              "description": "振动强度 1-100"},
                 "duration_seconds": {"type": "integer", "minimum": 1, "maximum": 30,
-                                     "description": "Duration in seconds (1-30)"},
+                                     "description": "持续时间（秒），1-30"},
             },
             "required": ["intensity", "duration_seconds"],
         },
     },
     {
         "name": "toy_stop_vibration",
-        "description": "Immediately stop any active vibration.",
+        "description": "停止振动。仅用于完全停止，不用于切换强度。切换强度请直接再次调用 toy_vibrate。",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "toy_status",
-        "description": "Report BLE connection status and last error.",
+        "description": "查询设备连接状态。仅在江鱼主动询问设备状态、或振动指令返回错误需要诊断时使用。开始振动前不需要调用本工具。",
         "inputSchema": {"type": "object", "properties": {}},
     },
 ]
@@ -282,19 +282,19 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
 
         await _do_vibrate(intensity)
         _schedule_auto_stop(float(duration))
-        return f"Vibration started: intensity={intensity}, duration={duration}s (auto-stop scheduled)"
+        return f"OK intensity={intensity} duration={duration}"
 
     elif name == "toy_stop_vibration":
         if not _connected:
             return "Not connected (no active vibration)"
         await _do_stop_vibration()
-        return "Vibration stopped"
+        return "OK stopped"
 
     elif name == "toy_status":
         status = "connected" if _connected else "disconnected"
-        msg = f"Status: {status}"
+        msg = status
         if _last_error:
-            msg += f"  last_error: {_last_error}"
+            msg += "  last_error: " + _last_error
         return msg
 
     return f"Unknown tool: {name}"
