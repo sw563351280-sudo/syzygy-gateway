@@ -121,6 +121,8 @@ function drawNebula(ctx, w, h) {
 // ==================== WebSocket 实时推送 ====================
 const SYZYGY_TAB_ID = 'tab_' + Math.random().toString(36).substr(2, 8);
 let _ws = null, _wsReconnectTimer = null;
+let _lastResyncAt = 0;
+let _wsConnectedOnce = false;
 function connectWebSocket() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     _ws = new WebSocket(proto + '//' + location.host);
@@ -176,15 +178,6 @@ function handleCrossPlatformMessage(msg) {
 }
 function handleDreamDone(msg) { toast('🌙 沈望做了个梦：' + (msg.summary || '整理完成')); }
 function handleMemorySaved(msg) { toast('💎 沈望悄悄记住了什么…'); }
-connectWebSocket();
-
-// 切回前台 / 网络恢复时补数据
-document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) resyncIfStale('visible');
-});
-window.addEventListener('online', function () {
-    resyncIfStale('online');
-});
 
 // ==================== 核心数据 ====================
 const START_DATE = '2025-04-20';
@@ -496,9 +489,6 @@ async function resyncAndMerge(reason) {
     }
 }
 
-let _lastResyncAt = 0;
-let _wsConnectedOnce = false;
-
 async function resyncIfStale(reason) {
     if (!mergeSyncEnabled()) return;
     if (Date.now() - _lastResyncAt < 5000) return;   // 5 秒内不重复拉
@@ -533,7 +523,7 @@ async function _doSave() {
         for (var mi = 0; mi < s.messages.length; mi++) {
             var m = s.messages[mi];
             if (m.versions && m.versions.length > 5) {
-                m.versions = [m.versions[0], m.versions.slice(-4)];
+                m.versions = [m.versions[0], ...m.versions.slice(-4)];
                 if (m.activeVersion >= m.versions.length) m.activeVersion = m.versions.length - 1;
             }
             delete m._zepDirty;
@@ -3399,3 +3389,14 @@ async function stateSnapshot() {
         } else toast('失败: ' + (d.error || ''));
     } catch(e) { toast('网络错误'); }
 }
+
+// ==================== 初始化（文件末尾） ====================
+connectWebSocket();
+
+// 切回前台 / 网络恢复时补数据
+document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) resyncIfStale('visible');
+});
+window.addEventListener('online', function () {
+    resyncIfStale('online');
+});
