@@ -4529,8 +4529,8 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         ].filter(Boolean));
         volatileRaw = volatileRaw ? dedupSections(volatileRaw) : null;
         logSectionSizes(volatileRaw);
-        traceEvent(_tr, 'inject', 'volatile 组装', { totalLen: (volatileText || '').length, sections: (volatileText || '').split(/\n(?=【)/).map(s => ({ key: (s.match(/^【([^】]+)】/) || [])[1] || '?', len: s.length })).slice(0, 20) });
         const volatileText = volatileRaw;
+        traceEvent(_tr, 'inject', 'volatile 组装', { totalLen: (volatileText || '').length, sections: (volatileText || '').split(/\n(?=【)/).map(s => ({ key: (s.match(/^【([^】]+)】/) || [])[1] || '?', len: s.length })).slice(0, 20) });
 
         // === 3. 组装最终 messages: system + history + (merged user) ===
         const lastUserMsg = newMessages.pop();  // 当前用户原话
