@@ -2410,18 +2410,25 @@ function dedupRecallAcrossBlocks(blocks) {
 // ==========================================
 //记忆写入统一入口（透传 arousal）
 // ==========================================
-function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5, userMsg = null) {
+function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5, userMsg = null, tr = null) {
     const validTags = (tags || []).filter(t => t.length >= 2);
     if (!content || content.trim().length < 10 || validTags.length === 0) {
         console.log(`🛡️ [统一守门] 拦截低质量记忆: ${(content || '').substring(0, 30)}`);
+        traceEvent(tr, 'memory_write', '被拦截·质量不足', { reason: (!content || content.trim().length < 10) ? 'content<10字' : '无有效tag', preview: (content || '').substring(0, 60), tags: validTags });
         return null;
     }
     if (validTags.some(t => ['roleplay','rp','副本','游戏','设定','语c','卡带'].includes(t.toLowerCase()))) {
+        traceEvent(tr, 'memory_write', 'RP卡带写入', { preview: content.substring(0, 60), tags: validTags, ttl });
         return addRoleplayMemory(content, validTags, ttl);
     }
     const effectiveArousal = source === 'ai_active' ? Math.max(arousal, 0.8) : arousal;
     const emoWeight = (userMsg && source === 'ai_active') ? detectEmotion(userMsg) : 0;
     const result = addLongTermMemory(content, source, validTags, ttl, effectiveArousal, emoWeight);
+    if (result) {
+        traceEvent(tr, 'memory_write', '已写入', { id: result.id, preview: content.substring(0, 60), tags: validTags, ttl, arousal: effectiveArousal });
+    } else {
+        traceEvent(tr, 'memory_write', '被拦截·重复', { reason: '内容完全重复 或 语义相似度>0.6', preview: content.substring(0, 60), tags: validTags });
+    }
     if (source === 'ai_active' && result) {
         wsBroadcast({ type: 'memory_saved', preview: content.trim().substring(0, 60), tags: validTags, source: 'ai_active' });
         try {
@@ -3363,7 +3370,7 @@ async function saveToZep(userMsg, aiMsg) {
     } catch(e) { console.log("写入金库遇到波动: ", e.message); }
 }
 
-async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages, metadata = {}) {
+async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages, metadata = {}, tr = null) {
     if (!userMsg) return;
     updateLastInteraction();
     if (userMsg === lastUserContent) {
@@ -3373,6 +3380,7 @@ async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages, m
     const rpPrefix = isRpActiveForSession('main') ? '[RP模式] ' : '';
     await saveToZep(rpPrefix + userMsg, rpPrefix + aiMsg);
     await appendToTranscript(userMsg, aiMsg, metadata);
+    traceEvent(tr, 'persist', '落库', { transcriptAppended: true, zepFailed: true });
     wsBroadcast({ type: 'new_message', user: { content: userMsg, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }) }, assistant: { content: aiMsg, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), model: metadata.model || '' }, fullTime: new Date().toISOString(), platform: metadata.platform || 'unknown' }, metadata.sourceTabId || null);
 }
 
@@ -3882,7 +3890,7 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
             const capped = summaryJson.permanent_memories.slice(0, 8);
             for (const mem of capped) {
                 if (typeof mem === 'object' && mem.content && mem.content.trim()) {
-                    const writeResult = smartMemoryWrite(mem.content, mem.tags, 'butler_summary', mem.ttl || '1m', mem.arousal || 0.5);
+                    const writeResult = smartMemoryWrite(mem.content, mem.tags, 'butler_summary', mem.ttl || '1m', mem.arousal || 0.5, null, null);
                     diag.steps.push(`memWrite: tags=${JSON.stringify(mem.tags||[])}, ttl=${mem.ttl||'1m'}, written=${!!writeResult}, content前40字="${(mem.content||'').substring(0, 40)}"`);
                     if (!writeResult) diag.errors.push(`统一守门拦截: tags=${JSON.stringify(mem.tags||[])}, content="${(mem.content||'').substring(0, 60)}"`);
                     dreamLog.results.consolidated.new_memories++;
@@ -4436,6 +4444,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                         } catch(e) {}
                     }
                     dynamicStatePrompt += albumPrompt;
+                    traceEvent(_tr, 'album', '相册匹配', { matched: matched.length, injected: _albumPhotoBlocks.length });
                 } else if (searchWords.length > 0) {
                     dynamicStatePrompt += `\n\n【相册】没有找到和"${searchWords.join(' ')}"相关的照片。共${allPhotos.length}张。`;
                 }
@@ -4520,6 +4529,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         ].filter(Boolean));
         volatileRaw = volatileRaw ? dedupSections(volatileRaw) : null;
         logSectionSizes(volatileRaw);
+        traceEvent(_tr, 'inject', 'volatile 组装', { totalLen: (volatileText || '').length, sections: (volatileText || '').split(/\n(?=【)/).map(s => ({ key: (s.match(/^【([^】]+)】/) || [])[1] || '?', len: s.length })).slice(0, 20) });
         const volatileText = volatileRaw;
 
         // === 3. 组装最终 messages: system + history + (merged user) ===
@@ -4546,6 +4556,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         const stableTokens = estimateTokens(stableSystemBlock);
         const historyTokens = bodyMessages.reduce((s, m, i) => s + (i === 0 ? 0 : estimateTokens(typeof m.content === 'string' ? m.content : JSON.stringify(m.content))), 0);
         console.log(`📐 [CacheOpt] stableHash=${stableHash} volatileHash=${volatileHash} stableTokens≈${stableTokens} historyTokens≈${historyTokens} totalMsg=${bodyMessages.length} roles=${bodyMessages.map(m=>m.role).join('→')} cache_control=${isClaudeModel?'ephemeral':'none'}`);
+        traceEvent(_tr, 'inject', '最终 payload', { stableHash, volatileHash, stableTokens, historyTokens, msgCount: bodyMessages.length, roles: bodyMessages.map(m => m.role).join('→'), cacheControl: isClaudeModel ? 'ephemeral' : 'none' });
         console.log(`🎯 [模型策略] ${body.model} → role=${mpConfig.role} prepend=${modelPromptText ? modelPromptText.length + '字' : '无'} mergedIntoSystem=${modelPromptText ? 'yes' : 'no'}`);
         const totalChars = JSON.stringify(bodyMessages).length;
         const estimatedTokens = Math.round(totalChars / 4);
@@ -4639,6 +4650,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
             const toolData = await toolResponse.json();
             if (toolData?.usage) console.log('📦 [UpstreamUsage:tool]', { model: toolData?.model || body.model, promptTokens: toolData.usage?.prompt_tokens, completionTokens: toolData.usage?.completion_tokens, totalTokens: toolData.usage?.total_tokens, cachedTokens: toolData.usage?.prompt_tokens_details?.cached_tokens, cacheRead: toolData.usage?.cache_read_input_tokens, cacheWrite: toolData.usage?.cache_creation_input_tokens, details: toolData.usage?.prompt_tokens_details });
+            traceEvent(_tr, 'model', '模型请求·工具轮', { round: toolRound, status: toolResponse.status, usage: toolData?.usage || null, cacheMode: cacheMode2 });
             const curMessage = toolData.choices?.[0]?.message;
 
             if (curMessage?.tool_calls && curMessage.tool_calls.length > 0) {
@@ -4659,6 +4671,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     const result = await executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null);
                     if (tc.function.name === 'write_file' || tc.function.name === 'edit_file') fileModified = true;
                     const elapsed = Date.now() - startTime;
+                    traceEvent(_tr, 'tool', tc.function.name, { args: JSON.stringify(fnArgs).substring(0, 200), elapsed, resultLen: result.length, resultPreview: result.substring(0, 200), mcp: toolDef?._mcp || null });
                     if (isStreamMode) {
                         res.write(`data: ${JSON.stringify({ type: 'tool_call', name: tc.function.name, arguments: fnArgs, result: result.substring(0, 5000), elapsed })}\n\n`);
                     }
@@ -4681,14 +4694,14 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             const finalThink = reasoning || thinkFromTag;
 
             const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(cleanForFinal);
-            for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+            for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
             const todoClean = extractAndProcessTodoTags(ntMems.length > 0 ? ntClean : cleanForFinal);
             const finalContent = todoClean;
 
             if (isStreamMode) {
                 // 先剥离 MOOD_SNAPSHOT 标签再发送前端
                 moodLog('[MOOD DEBUG] tool-path stream before strip has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
-                const visibleContent = handleMoodSnapshotsFromAssistantContent(finalContent);
+                const visibleContent = handleMoodSnapshotsFromAssistantContent(finalContent, _tr);
                 if (finalThink) {
                     res.write(`data: ${JSON.stringify({ id: 'think', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { reasoning_content: finalThink }, finish_reason: null }] })}\n\n`);
                 }
@@ -4701,21 +4714,23 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 res.write('data: [DONE]\n\n');
                 res.end();
                 if (!noMemory) {
-                    await saveToZepWithCounter(currentUserMsgText, visibleContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
+                    await saveToZepWithCounter(currentUserMsgText, visibleContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, visibleContent);
+                traceEnd(_tr, { ok: true, replyLen: visibleContent.length, path: 'tool-stream' });
                 return;
             } else {
                 if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
                 if (finalThink) toolData.choices[0].message.reasoning_content = finalThink;
-                const moodCleaned = handleMoodSnapshotsFromAssistantContent(finalContent);
+                const moodCleaned = handleMoodSnapshotsFromAssistantContent(finalContent, _tr);
                 moodLog('[MOOD DEBUG] tool-path non-stream finalContent has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
                 if (!noMemory) {
-                    await saveToZepWithCounter(currentUserMsgText, moodCleaned, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
+                    await saveToZepWithCounter(currentUserMsgText, moodCleaned, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, moodCleaned);
+                traceEnd(_tr, { ok: true, replyLen: (moodCleaned || '').length, path: 'tool-json' });
                 return res.status(200).json(toolData);
             }
         }
@@ -4839,21 +4854,22 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     moodLog('[MOOD DEBUG] fullAiResponse has tag:', fullAiResponse.includes('<MOOD_SNAPSHOT>') || fullAiResponse.includes('[[MOOD_SNAPSHOT]]'));
                     moodLog('[MOOD DEBUG] fullAiResponse tail:', fullAiResponse.slice(-1200));
                     const { cleanText: memClean, memories: streamMemories } = extractSaveMemoryTag(fullAiResponse);
-                    for (const mem of streamMemories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+                    for (const mem of streamMemories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
                     let streamCleanText = memClean || fullAiResponse;
                     const todoCleanMaybe = extractAndProcessTodoTags(streamCleanText);
                     if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
                     moodLog('[MOOD DEBUG] before mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     const beforeMood = streamCleanText;
-                    streamCleanText = handleMoodSnapshotsFromAssistantContent(streamCleanText);
+                    streamCleanText = handleMoodSnapshotsFromAssistantContent(streamCleanText, _tr);
                     moodLog('[MOOD DEBUG] after mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     moodLog('[MOOD DEBUG] mood handler text changed:', beforeMood !== streamCleanText);
-                    if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }); tryAutoDream(currentUserMsgText); }
+                    if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr); tryAutoDream(currentUserMsgText); }
                     if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, streamCleanText);
                     moodLog('[MOOD DEBUG] stream finalize done');
                 } catch(e) { moodLog('[MOOD ERROR] stream finalize error:', e && (e.stack || e.message || e)); }
             }
             await finalizeStreamAssistant();
+            traceEnd(_tr, { ok: true, replyLen: fullAiResponse.length, path: 'stream' });
         } else {
             const rawText = await response.text();
             try {
@@ -4864,7 +4880,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     const { cleanText, memories } = extractSaveMemoryTag(assistantContent);
                     if (!noMemory) {
                         for (const mem of memories) {
-                           smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText);
+                           smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
                         }
                     }
                     const todoClean = extractAndProcessTodoTags(memories.length > 0 ? cleanText : assistantContent);
@@ -4876,14 +4892,15 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 // 非流式：先处理 MOOD_SNAPSHOT，再保存
                 moodLog('[MOOD DEBUG] non-stream content has tag before: ' + String(finalContent || '').includes('<MOOD_SNAPSHOT>'));
                 if (finalContent) {
-                    finalContent = handleMoodSnapshotsFromAssistantContent(finalContent);
+                    finalContent = handleMoodSnapshotsFromAssistantContent(finalContent, _tr);
                     moodLog('[MOOD DEBUG] non-stream after mood handler has tag: ' + finalContent.includes('<MOOD_SNAPSHOT>'));
                 }
                 if (!noMemory) {
-                    await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' });
+                    await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, finalContent);
+                traceEnd(_tr, { ok: true, replyLen: (finalContent || '').length, path: 'json' });
                 res.status(response.status).json(data);
             } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
         }
@@ -6101,10 +6118,10 @@ app.post('/api/web-chat', async (req, res) => {
                     }
                     const cleanAiContent = aiContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
                     const { cleanText, memories } = extractSaveMemoryTag(cleanAiContent);
-                    for (const mem of memories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text);
+                    for (const mem of memories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
                     const todoClean = extractAndProcessTodoTags(memories.length > 0 ? cleanText : cleanAiContent);
                     const finalReply = todoClean;
-                    await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model });
+                    await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
                     tryAutoDream(text);
                     resolve({ text: finalReply, thinking });
                     return;
@@ -6151,11 +6168,11 @@ app.post('/api/web-chat', async (req, res) => {
 
                 const { cleanText, memories } = extractSaveMemoryTag(aiReply);
                 for (const mem of memories) {
-                    smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text);
+                    smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
                 }
                 aiReply = extractAndProcessTodoTags(memories.length > 0 ? cleanText : aiReply);
 
-                await saveToZepWithCounter(text || '（发送了一张图片）', aiReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model });
+                await saveToZepWithCounter(text || '（发送了一张图片）', aiReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
                 tryAutoDream(text);
 
                 resolve({ text: aiReply, thinking: thinking });
@@ -6249,13 +6266,15 @@ function extractMoodSnapshotTags(content) {
     clean = clean.replace(/\[\[MOOD_SNAPSHOT\]\]([\s\S]*?)\[\[MOOD_SNAPSHOT\]\]/g, (match, raw) => { const p = tryParseJsonFromText(raw); if (p) snapshots.push(p); else moodLog('[MOOD ERROR] parse [[MOOD]] tag: no valid JSON found in', raw.substring(0, 100)); return ''; });
     return { cleanContent: clean.trim(), snapshots };
 }
-function handleMoodSnapshotsFromAssistantContent(content) {
+function handleMoodSnapshotsFromAssistantContent(content, tr = null) {
     const { cleanContent, snapshots } = extractMoodSnapshotTags(content);
     moodLog('[MOOD DEBUG] handler: found', snapshots.length, 'snapshots');
+    traceEvent(tr, 'mood', '心情快照', { found: snapshots.length });
     for (const s of snapshots) {
         try {
             moodLog('[MOOD DEBUG] handler: writing snapshot', JSON.stringify(s).substring(0, 80));
-            appendMoodSnapshotToDiary(s);
+            const appended = appendMoodSnapshotToDiary(s);
+            if (!appended) traceEvent(tr, 'mood', '快照被跳过', { reason: 'empty 或 low importance' });
             moodLog('[MOOD DEBUG] handler: snapshot written OK');
         } catch(e) { moodLog('[MOOD ERROR] handler append failed:', e.message, e.stack); }
     }
