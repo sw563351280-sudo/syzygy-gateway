@@ -343,11 +343,155 @@ function _stripOldestImgRound(sessions) {
     return false;
 }
 
+function mergeSyncEnabled() {
+    return localStorage.getItem('syzygy_merge_sync') !== 'false';
+}
+
+// ===== 同步合并工具 =====
+
+// 本会话内被用户删除过的频道 id，防止合并时把已删除频道从服务端复活
+const _deletedSessionIds = new Set();
+
+function msgSortTime(m) {
+    const v = getActiveVersion(m);
+    return v.fullTime || '';
+}
+
+// 消息唯一键：优先 fullTime，缺失则退化为 role + 正文前 60 字
+function msgKey(m) {
+    const v = getActiveVersion(m);
+    if (v.fullTime) return 'T' + v.fullTime;
+    let c = v.content;
+    if (Array.isArray(c)) {
+        c = c.filter(function (p) { return p.type === 'text'; })
+             .map(function (p) { return p.text || ''; }).join(' ');
+    }
+    if (typeof c !== 'string') c = '';
+    return 'C' + m.role + '|' + c.substring(0, 60);
+}
+
+// 合并两条消息数组，按 key 去重，按时间排序
+function mergeMessageLists(serverMsgs, localMsgs) {
+    const out = [];
+    const seen = new Map(); // key -> out 中的下标
+
+    function push(m) {
+        if (!m) return;
+        const k = msgKey(m);
+        if (seen.has(k)) {
+            const i = seen.get(k);
+            if (getVersionCount(m) > getVersionCount(out[i])) out[i] = m;
+            return;
+        }
+        seen.set(k, out.length);
+        out.push(m);
+    }
+
+    (serverMsgs || []).forEach(push);
+    (localMsgs || []).forEach(push);
+
+    let last = '';
+    const keyed = out.map(function (m, i) {
+        let t = msgSortTime(m);
+        if (!t) t = last; else last = t;
+        return { m: m, t: t, i: i };
+    });
+    keyed.sort(function (a, b) {
+        if (a.t === b.t) return a.i - b.i;
+        return a.t < b.t ? -1 : 1;
+    });
+    return keyed.map(function (x) { return x.m; });
+}
+
+// 合并频道列表
+function mergeSessionLists(serverSessions, localSessions) {
+    const map = new Map();
+    (serverSessions || []).forEach(function (s) {
+        if (!s || !s.id) return;
+        if (_deletedSessionIds.has(s.id)) return;
+        map.set(s.id, { ...s, messages: s.messages || [] });
+    });
+    (localSessions || []).forEach(function (ls) {
+        if (!ls || !ls.id) return;
+        const ss = map.get(ls.id);
+        if (!ss) { map.set(ls.id, ls); return; }
+        map.set(ls.id, {
+            ...ss,
+            name: ls.name || ss.name,
+            messages: mergeMessageLists(ss.messages, ls.messages || [])
+        });
+    });
+    const order = [];
+    (serverSessions || []).forEach(function (s) {
+        if (s && s.id && !_deletedSessionIds.has(s.id)) order.push(s.id);
+    });
+    (localSessions || []).forEach(function (s) {
+        if (s && s.id && order.indexOf(s.id) === -1) order.push(s.id);
+    });
+    return order.map(function (id) { return map.get(id); }).filter(Boolean);
+}
+
+// ===== 重同步与合并 =====
+
+let _syncing = false;
+
+// 从服务端拉取并与本地合并。返回 { serverAdded, localOnly } 或 null
+async function resyncAndMerge(reason) {
+    if (_syncing) return null;
+    _syncing = true;
+    try {
+        const r = await fetch('/api/sync-config', { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        const serverSessions = data.chatSessions || [];
+
+        let serverAdded = 0, localOnly = 0;
+        const localById = {};
+        (chatSessions || []).forEach(function (s) { if (s && s.id) localById[s.id] = s; });
+        serverSessions.forEach(function (ss) {
+            if (_deletedSessionIds.has(ss.id)) return;
+            const ls = localById[ss.id];
+            const localKeys = new Set(((ls && ls.messages) || []).map(msgKey));
+            (ss.messages || []).forEach(function (m) { if (!localKeys.has(msgKey(m))) serverAdded++; });
+            const serverKeys = new Set((ss.messages || []).map(msgKey));
+            ((ls && ls.messages) || []).forEach(function (m) { if (!serverKeys.has(msgKey(m))) localOnly++; });
+        });
+
+        chatSessions = mergeSessionLists(serverSessions, chatSessions);
+        _dataVersion = data._version || 0;
+
+        for (const s of chatSessions) {
+            if (!s.messages) continue;
+            for (const m of s.messages) normalizeMessageVersionFields(m);
+        }
+        if (!chatSessions.find(function (s) { return s.id === activeChatId; })) {
+            activeChatId = chatSessions[0] ? chatSessions[0].id : 'main';
+        }
+
+        renderChatSidebar();
+        renderChatMessages();
+
+        console.log('[resync] reason=' + reason + ' serverAdded=' + serverAdded +
+                    ' localOnly=' + localOnly + ' version=' + _dataVersion);
+        if (serverAdded > 0) toast('已补回 ' + serverAdded + ' 条消息');
+        return { serverAdded: serverAdded, localOnly: localOnly };
+    } catch (e) {
+        console.error('[resync] 失败: ' + e.message);
+        return null;
+    } finally {
+        _syncing = false;
+    }
+}
+
 async function _doSave() {
     // Never save if we haven't loaded cloud data yet (prevents wiping real data with empty state)
     if (!_dataVersion) {
-        console.warn('[sync-config] Skipping save: no cloud data loaded yet (_dataVersion=0)');
-        return;
+        console.warn('[sync-config] 云端数据未加载，先尝试拉取');
+        await resyncAndMerge('pre-save-bootstrap');
+        if (!_dataVersion) {
+            _showSaveWarning(true, '云端数据未加载，暂不保存，请刷新页面');
+            throw new Error('云端数据未加载');
+        }
     }
     var MAX_SYNC_BYTES = 15 * 1024 * 1024; // 15 MB
 
@@ -407,8 +551,17 @@ async function _doSave() {
         throw new Error(hint);
     }
     var d = await r.json();
+    if (d._rejected) {
+        if (mergeSyncEnabled()) {
+            console.warn('🛡️ [版本落后] 服务端有更新，拉取合并后重试');
+            await resyncAndMerge('version-conflict');
+            throw new Error('版本冲突，已重新同步，重试保存');
+        }
+        if (d._version) _dataVersion = d._version;
+        console.warn('🛡️ [版本落后] 本次保存被拒绝，请刷新页面');
+        return;
+    }
     if (d._version) _dataVersion = d._version;
-    if (d._rejected) { console.warn('🛡️ [版本落后] 本次保存被拒绝，请刷新页面'); }
 }
 
 function saveToCloud(immediate) {
@@ -1283,6 +1436,7 @@ function deleteChatWindow(e, id){
     e.stopPropagation();
     if(chatSessions.length <= 1) return toast('至少保留一个频道');
     if(!confirm('确定关闭？')) return;
+    _deletedSessionIds.add(id);
     chatSessions = chatSessions.filter(s => s.id !== id);
     if(activeChatId === id) activeChatId = chatSessions[0].id;
     saveToCloud(); renderChatSidebar(); renderChatMessages();
