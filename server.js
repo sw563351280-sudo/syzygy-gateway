@@ -4072,6 +4072,7 @@ function insertProactiveToConfig(content) {
         if (!mainS.messages) mainS.messages = [];
         mainS.messages.push({ role:'assistant', versions:[{ content, fullTime: new Date().toISOString(), time: new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Shanghai'}), model:'proactive' }], activeVersion:0 });
         if (mainS.messages.length > 200) mainS.messages = mainS.messages.slice(-200);
+        config._version = (config._version || 0) + 1;
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
     } catch(e) {}
 }

@@ -124,7 +124,12 @@ let _ws = null, _wsReconnectTimer = null;
 function connectWebSocket() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     _ws = new WebSocket(proto + '//' + location.host);
-    _ws.onopen = () => { _ws.send(JSON.stringify({ type: 'register', tabId: SYZYGY_TAB_ID })); };
+    _ws.onopen = () => {
+        _ws.send(JSON.stringify({ type: 'register', tabId: SYZYGY_TAB_ID }));
+        // 首次连接由 startSystem() 的 syncFromCloud 负责，这里只处理"重连"
+        if (_wsConnectedOnce) resyncIfStale('ws-reconnect');
+        _wsConnectedOnce = true;
+    };
     _ws.onmessage = (e) => { try { const msg = JSON.parse(e.data); handleWSMessage(msg); } catch(e) {} };
     _ws.onclose = () => { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = setTimeout(connectWebSocket, 3000); };
     _ws.onerror = () => { _ws.close(); };
@@ -172,6 +177,14 @@ function handleCrossPlatformMessage(msg) {
 function handleDreamDone(msg) { toast('🌙 沈望做了个梦：' + (msg.summary || '整理完成')); }
 function handleMemorySaved(msg) { toast('💎 沈望悄悄记住了什么…'); }
 connectWebSocket();
+
+// 切回前台 / 网络恢复时补数据
+document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) resyncIfStale('visible');
+});
+window.addEventListener('online', function () {
+    resyncIfStale('online');
+});
 
 // ==================== 核心数据 ====================
 const START_DATE = '2025-04-20';
@@ -481,6 +494,18 @@ async function resyncAndMerge(reason) {
     } finally {
         _syncing = false;
     }
+}
+
+let _lastResyncAt = 0;
+let _wsConnectedOnce = false;
+
+async function resyncIfStale(reason) {
+    if (!mergeSyncEnabled()) return;
+    if (Date.now() - _lastResyncAt < 5000) return;   // 5 秒内不重复拉
+    _lastResyncAt = Date.now();
+    const res = await resyncAndMerge(reason);
+    // 本地有服务端没有的消息，立刻补存回去
+    if (res && res.localOnly > 0) saveToCloud(true);
 }
 
 async function _doSave() {
