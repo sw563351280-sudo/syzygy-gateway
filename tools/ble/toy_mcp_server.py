@@ -321,6 +321,7 @@ async def health():
     return {
         "status": "ok",
         "connected": _connected,
+        "is_live": _is_live(),
         "last_connect_attempt_at": _last_connect_attempt_at,
         "last_connect_attempt_ok": _last_connect_attempt_ok,
         "last_error": _last_error,
