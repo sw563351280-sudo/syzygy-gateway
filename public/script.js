@@ -142,6 +142,8 @@ function handleWSMessage(msg) {
         case 'dream_done': handleDreamDone(msg); break;
         case 'memory_saved': handleMemorySaved(msg); break;
         case 'proactive_message': handleProactiveMessage(msg); break;
+        case 'trace_event':
+        case 'trace_done': handleTraceWS(msg); break;
     }
 }
 function handleProactiveMessage(msg) {
@@ -712,8 +714,12 @@ function switchConsoleTab(name) {
         if (pane) pane.style.display = k === name ? 'block' : 'none';
     });
     localStorage.setItem('syzygy_console_tab', name);
-    // 切到日志 tab 时加载
+    // 切到日志/链路 tab 时加载
     if (name === 'logs') loadRawLogs();
+    if (name === 'trace') loadTraces();
+    // 切换时清理非活跃 tab 的定时器
+    if (name !== 'logs') { clearInterval(_logAutoTimer); _logAutoTimer = null; }
+    if (name !== 'trace') { clearInterval(_traceAutoTimer); _traceAutoTimer = null; }
 }
 
 // ==================== 原始日志 ====================
@@ -748,6 +754,180 @@ function toggleLogAutoRefresh() {
     } else {
         clearInterval(_logAutoTimer); _logAutoTimer = null;
     }
+}
+
+// ==================== 对话链路 ====================
+let _traceCache = [];
+let _traceAutoTimer = null;
+let _traceWsTimer = null;
+
+function escHtml(s) { const d = document.createElement('div'); d.textContent = (s == null ? '' : String(s)); return d.innerHTML; }
+
+async function loadTraces() {
+    let pwd = localStorage.getItem('memoryPwd');
+    if (!pwd) { pwd = prompt('管理密码:'); if (!pwd) return; localStorage.setItem('memoryPwd', pwd); }
+    try {
+        const r = await fetch('/api/traces?n=30&pwd=' + encodeURIComponent(pwd));
+        if (!r.ok) return;
+        const data = await r.json();
+        _traceCache = data.traces || [];
+        document.getElementById('traceCount').textContent = '共 ' + (data.total || _traceCache.length) + ' 条';
+        renderTraceList();
+    } catch(e) {}
+}
+
+function renderTraceList() {
+    const list = document.getElementById('traceList');
+    if (!list) return;
+    list.innerHTML = '';
+    _traceCache.forEach(function(t) {
+        const row = document.createElement('div');
+        row.className = 'trace-row' + (t.ok === false ? ' trace-error' : '');
+        const time = new Date(t.startedAtISO).toLocaleTimeString('zh-CN', { hour12: false });
+        const dur = t.durationMs === undefined ? '—' : (t.durationMs >= 1000 ? (t.durationMs / 1000).toFixed(1) + 's' : t.durationMs + 'ms');
+        const icon = t.ok === false ? '✕' : (t.done ? '✓' : '⋯');
+        const iconCls = t.ok === false ? 'trace-icon-err' : (t.done ? 'trace-icon-ok' : 'trace-icon-pending');
+        const model = (t.meta?.model || '').substring(0, 24);
+        const preview = escHtml((t.meta?.userPreview || '').substring(0, 40));
+        row.innerHTML = '<span class="' + iconCls + '">' + icon + '</span> ' +
+            time + '  <b>' + preview + '</b>' +
+            '  <span style="color:#888">' + dur + '</span>' +
+            '  ' + escHtml(model) +
+            '  <span style="color:#666">' + (t.eventCount || 0) + '事件</span>' +
+            (t.ok === false ? '<div style="font-size:0.8rem;color:#e74c3c;margin-left:20px">' + escHtml(t.error || '') + '</div>' : '');
+        row.onclick = function() { openTrace(t.id); };
+        list.appendChild(row);
+    });
+}
+
+function formatEventSummary(ev) {
+    const d = ev.detail;
+    if (!d) return '(无详情)';
+    switch (ev.phase) {
+        case 'start':
+            return '消息 ' + (d.msgCount || 0) + ' 条';
+        case 'recall': {
+            let s = '核心 ' + (d.coreLen||0) + '字 · 长期 ' + (d.longTermLen||0) + '字 · RP ' + (d.rpLen||0) + '字 · 浮现 ' + (d.unresolvedLen||0) + '字 · 原文 ' + (d.transcriptLen||0) + '字';
+            if (ev.ms > 5000) s += ' <span style="color:#e74c3c;font-weight:bold">⚠ 耗时 ' + (ev.ms/1000).toFixed(1) + 's</span>';
+            return s;
+        }
+        case 'dedup':
+            return (d.blocks || []).map(function(b) { return escHtml(b.label) + ' ' + b.len; }).join(' · ');
+        case 'budget': {
+            let s = '上限 ' + d.maxTokens + ' · 用了 ' + d.usedTokens + ' · 保留 ' + d.kept + ' 条 · 丢弃 ' + d.dropped + ' 条';
+            if (d.dropped > 0) s += ' <span style="color:#e74c3c">⚠</span>';
+            return s;
+        }
+        case 'inject':
+            if (ev.label === 'volatile 组装') {
+                let s = '共 ' + (d.totalLen||0) + ' 字 · ' + (d.sections||[]).length + ' 个区块';
+                if (d.sections && d.sections.length) s += '<br>' + d.sections.map(function(sec) { return escHtml(sec.key) + ':' + sec.len; }).join(' · ');
+                return s;
+            }
+            if (ev.label === '最终 payload') {
+                return 'stable ' + (d.stableTokens||0) + ' tok · history ' + (d.historyTokens||0) + ' tok · ' + (d.msgCount||0) + ' 条消息 · cache=' + (d.cacheControl||'none');
+            }
+            return JSON.stringify(d).substring(0, 120);
+        case 'tools':
+            return '全部 ' + (d.total||0) + ' → 筛选 ' + (d.filtered||0) + '：' + (d.names||[]).join(', ');
+        case 'tool': {
+            let s = escHtml(d.args||'') + ' → ' + (d.resultLen||0) + '字 · ' + (d.elapsed||0) + 'ms' + (d.mcp ? ' [MCP:' + escHtml(d.mcp) + ']' : '');
+            const rp = d.resultPreview || '';
+            if (rp.charAt(0) === '[' && (rp.indexOf('失败') >= 0 || rp.indexOf('error') >= 0 || rp.indexOf('Error') >= 0)) {
+                s = '<span style="color:#e74c3c">' + s + '</span>';
+            }
+            return s;
+        }
+        case 'model': {
+            const usage = pickUsage(d.usage);
+            const input = usage ? usage.input : 0;
+            const output = usage ? usage.output : 0;
+            const cacheRead = usage ? usage.cacheRead : 0;
+            const cacheWrite = usage ? (usage.cacheWrite || 0) : 0;
+            const roundLabel = d.round != null ? ('第' + d.round + '轮') : '最终';
+            let s = roundLabel + ' · HTTP ' + (d.status||'?') + ' · 输入 ' + input + ' / 输出 ' + output + ' · 缓存读 ' + cacheRead + ' 写 ' + cacheWrite + ' · ' + (d.cacheMode||'');
+            if (input > 5000 && cacheRead === 0) s += ' <span style="color:#e67e22">⚠ 未命中缓存</span>';
+            return s;
+        }
+        case 'memory_write': {
+            let s = '"' + escHtml(d.preview||'') + '" tags=[' + (d.tags||[]).join(',') + ']' + (d.ttl ? ' ttl=' + escHtml(d.ttl) : '') + (d.reason ? ' · ' + escHtml(d.reason) : '');
+            if ((ev.label||'').indexOf('被拦截') >= 0) s = '<span style="color:#e74c3c">' + s + '</span>';
+            else if ((ev.label||'').indexOf('已写入') >= 0) s = '<span style="color:#27ae60">' + s + '</span>';
+            return s;
+        }
+        case 'mood':
+            return d.found !== undefined ? ('解析到 ' + d.found + ' 条') : (d.reason || '');
+        case 'persist':
+            return 'transcript 已写入' + (d.zepFailed ? ' · Zep 已废弃(预期失败)' : '');
+        case 'album':
+            return '匹配 ' + (d.matched||0) + ' 张 · 注入 ' + (d.injected||0) + ' 张';
+        case 'dream':
+            return ev.label || '';
+        default:
+            return JSON.stringify(d).substring(0, 120);
+    }
+}
+
+function pickUsage(u) {
+    if (!u) return null;
+    const cu = (u.billing_usage && u.billing_usage.claude_usage) || {};
+    return {
+        input: u.prompt_tokens ?? u.input_tokens ?? 0,
+        output: u.completion_tokens ?? 0,
+        cacheRead: cu.cache_read_input_tokens ?? u.cache_read_input_tokens ?? (u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens) ?? 0,
+        cacheWrite: cu.cache_creation_input_tokens ?? u.cache_creation_input_tokens ?? 0
+    };
+}
+
+async function openTrace(id) {
+    let pwd = localStorage.getItem('memoryPwd');
+    if (!pwd) { pwd = prompt('管理密码:'); if (!pwd) return; localStorage.setItem('memoryPwd', pwd); }
+    try {
+        const r = await fetch('/api/traces/' + id + '?pwd=' + encodeURIComponent(pwd));
+        if (r.status === 404) { toast('该 trace 已被环形缓冲挤出'); return; }
+        const t = await r.json();
+        const detail = document.getElementById('traceDetail');
+        if (!detail) return;
+        const PHASES = { start: '#95a5a6', recall: '#3498db', dedup: '#3498db', budget: '#9b59b6', inject: '#9b59b6', tools: '#1abc9c', tool: '#1abc9c', model: '#e67e22', memory_write: '#f1c40f', mood: '#e91e63', persist: '#95a5a6', dream: '#9b59b6', album: '#1abc9c' };
+        let html = '<div style="padding:12px;border:1px solid #444;border-radius:8px;margin-bottom:16px">';
+        html += '<b>完整时间</b>: ' + escHtml(t.startedAtISO) + '<br>';
+        html += '<b>模型</b>: ' + escHtml(t.meta?.model || '') + ' · <b>' + (t.meta?.stream ? '流式' : '非流式') + '</b> · path=' + escHtml(t.path||'') + '<br>';
+        html += '<b>耗时</b>: ' + (t.durationMs||0) + 'ms · <b>回复字数</b>: ' + (t.replyLen||0) + ' · <b>tabId</b>: ' + escHtml(t.meta?.tabId||'') + '<br>';
+        html += '<button class="console-action" onclick="document.getElementById(\'traceDetail\').style.display=\'none\'" style="margin-top:8px">关闭</button>';
+        html += '</div><div style="padding-left:8px">';
+        (t.events||[]).forEach(function(ev) {
+            const msLabel = ev.ms >= 1000 ? ('+' + (ev.ms/1000).toFixed(1) + 's') : ('+' + ev.ms + 'ms');
+            const phaseClr = PHASES[ev.phase] || '#888';
+            html += '<div class="trace-event" style="margin-bottom:10px;cursor:pointer" onclick="var p=this.nextElementSibling;p.style.display=p.style.display===\'none\'?\'block\':\'none\'">';
+            html += '<span style="color:#888;width:70px;display:inline-block">' + msLabel + '</span>';
+            html += '<span style="background:' + phaseClr + ';color:#fff;padding:1px 6px;border-radius:3px;font-size:0.8rem;margin-right:6px">' + escHtml(ev.phase) + '</span>';
+            html += '<span>' + escHtml(ev.label) + '</span>';
+            html += '<div style="color:#aaa;font-size:0.85rem;margin-left:70px">' + formatEventSummary(ev) + '</div>';
+            html += '</div>';
+            html += '<pre class="trace-detail-json" style="display:none;margin-left:70px;font-size:0.8rem;background:#1a1a1a;color:#aaa;padding:8px;border-radius:4px;max-height:300px;overflow:auto">' + escHtml(JSON.stringify(ev.detail, null, 2)) + '</pre>';
+        });
+        html += '</div>';
+        detail.innerHTML = html;
+        detail.style.display = 'block';
+        detail.scrollIntoView({ behavior: 'smooth' });
+    } catch(e) { toast('加载失败: ' + e.message); }
+}
+
+function toggleTraceAutoRefresh() {
+    const cb = document.getElementById('traceAutoRefresh');
+    if (cb && cb.checked) {
+        _traceAutoTimer = setInterval(loadTraces, 5000);
+    } else {
+        clearInterval(_traceAutoTimer); _traceAutoTimer = null;
+    }
+}
+
+function handleTraceWS(msg) {
+    const pane = document.getElementById('consolePaneTrace');
+    if (!pane || pane.style.display === 'none') return;
+    if (document.body.dataset.view !== 'console') return;
+    clearTimeout(_traceWsTimer);
+    _traceWsTimer = setTimeout(loadTraces, 800);
 }
 
 // ==================== VPS 控制台 ====================

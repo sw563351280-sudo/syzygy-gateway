@@ -286,9 +286,17 @@
         </div>
     </div>
 
-    <!-- 对话链路（占位） -->
+    <!-- 对话链路 -->
     <div id="consolePaneTrace" class="console-pane" style="display:none">
-        <div style="padding:40px;text-align:center;color:#888">等待接入</div>
+        <div class="console-page">
+            <div class="console-log-toolbar">
+                <button class="console-action" onclick="loadTraces()" title="刷新">↻</button>
+                <label><input type="checkbox" id="traceAutoRefresh" onchange="toggleTraceAutoRefresh()"> 自动刷新</label>
+                <span id="traceCount" style="margin-left:8px;font-size:0.85rem;color:#888">共 0 条</span>
+            </div>
+            <div id="traceList" class="trace-list"></div>
+            <div id="traceDetail" class="trace-detail" style="display:none"></div>
+        </div>
     </div>
 
     <!-- 原始日志 -->
