@@ -266,15 +266,41 @@
         <span id="consoleStatus" class="console-status" aria-live="polite">正在检查…</span>
         <button class="console-action" onclick="consoleReconnect()" title="重新连接">↻</button>
     </div>
-    <div class="console-page">
-        <div class="console-meta"><span id="consoleServerName">VPS 控制台</span><span>SSH · 已登录保护</span></div>
-        <div id="consoleOutput" class="console-output" role="log" aria-live="polite" aria-label="VPS 终端输出"></div>
-        <div class="console-input-row">
-            <span class="console-prompt">›</span>
-            <textarea id="consoleInput" class="console-input" rows="1" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="输入命令，Enter 发送，Shift+Enter 换行"></textarea>
-            <button class="console-send" onclick="consoleSendInput()">发送</button>
+    <div class="console-tabs">
+        <button id="consoleTabTerminal" class="console-tab active" onclick="switchConsoleTab('terminal')">终端</button>
+        <button id="consoleTabTrace" class="console-tab" onclick="switchConsoleTab('trace')">对话链路</button>
+        <button id="consoleTabLogs" class="console-tab" onclick="switchConsoleTab('logs')">原始日志</button>
+    </div>
+
+    <!-- 终端 -->
+    <div id="consolePaneTerminal" class="console-pane" style="display:block">
+        <div class="console-page">
+            <div class="console-meta"><span id="consoleServerName">VPS 控制台</span><span>SSH · 已登录保护</span></div>
+            <div id="consoleOutput" class="console-output" role="log" aria-live="polite" aria-label="VPS 终端输出"></div>
+            <div class="console-input-row">
+                <span class="console-prompt">›</span>
+                <textarea id="consoleInput" class="console-input" rows="1" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="输入命令，Enter 发送，Shift+Enter 换行"></textarea>
+                <button class="console-send" onclick="consoleSendInput()">发送</button>
+            </div>
+            <p class="console-hint">此终端会直接执行 VPS 命令。请勿粘贴密码、令牌或不信任的命令。</p>
         </div>
-        <p class="console-hint">此终端会直接执行 VPS 命令。请勿粘贴密码、令牌或不信任的命令。</p>
+    </div>
+
+    <!-- 对话链路（占位） -->
+    <div id="consolePaneTrace" class="console-pane" style="display:none">
+        <div style="padding:40px;text-align:center;color:#888">等待接入</div>
+    </div>
+
+    <!-- 原始日志 -->
+    <div id="consolePaneLogs" class="console-pane" style="display:none">
+        <div class="console-page">
+            <div class="console-log-toolbar">
+                <input id="logFilterInput" class="log-filter-input" placeholder="过滤关键字…" oninput="logFilterDebounce()">
+                <button class="console-action" onclick="loadRawLogs()" title="刷新">↻</button>
+                <label><input type="checkbox" id="logAutoRefresh" onchange="toggleLogAutoRefresh()"> 自动刷新</label>
+            </div>
+            <pre id="logOutput" class="console-log-output"></pre>
+        </div>
     </div>
 </div>
 

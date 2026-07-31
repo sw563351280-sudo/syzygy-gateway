@@ -689,12 +689,65 @@ function goView(viewId) {
     if (viewId === 'chat') { setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300); fetchPulseStatus(); }
     if (viewId === 'home') { updateDays && updateDays(); if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuInitHome(); }
     if (viewId === 'favorites') loadAndRenderFavorites();
-    if (viewId === 'console') consoleOpen();
+    if (viewId === 'console') { const tab = localStorage.getItem('syzygy_console_tab') || 'logs'; switchConsoleTab(tab); if (tab === 'terminal') consoleOpen(); }
     if (viewId === 'flo') floRender();
     if (viewId === 'calendar') calRender();
     if (viewId === 'album') { albumInitMonthFilter(); albumLoad(); }
     if (viewId === 'state') stateRender();
     if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuUpdateNav();
+}
+
+// ==================== 控制台 Tab 切换 ====================
+function switchConsoleTab(name) {
+    const tabs = { terminal: 'consoleTabTerminal', trace: 'consoleTabTrace', logs: 'consoleTabLogs' };
+    const panes = { terminal: 'consolePaneTerminal', trace: 'consolePaneTrace', logs: 'consolePaneLogs' };
+    // 切换按钮 active
+    Object.entries(tabs).forEach(([k, id]) => {
+        const btn = document.getElementById(id);
+        if (btn) btn.classList.toggle('active', k === name);
+    });
+    // 切换面板显示
+    Object.entries(panes).forEach(([k, id]) => {
+        const pane = document.getElementById(id);
+        if (pane) pane.style.display = k === name ? 'block' : 'none';
+    });
+    localStorage.setItem('syzygy_console_tab', name);
+    // 切到日志 tab 时加载
+    if (name === 'logs') loadRawLogs();
+}
+
+// ==================== 原始日志 ====================
+let _logAutoTimer = null;
+function loadRawLogs() {
+    let pwd = localStorage.getItem('memoryPwd');
+    if (!pwd) { pwd = prompt('管理密码:'); if (!pwd) return; localStorage.setItem('memoryPwd', pwd); }
+    const filter = document.getElementById('logFilterInput')?.value || '';
+    const url = '/debug-console?n=200&pwd=' + encodeURIComponent(pwd) + (filter ? '&filter=' + encodeURIComponent(filter) : '');
+    fetch(url).then(r => r.json()).then(data => {
+        const pre = document.getElementById('logOutput');
+        if (!pre) return;
+        pre.innerHTML = ''; // 清空后逐行用 textContent 追加，避免 XSS
+        (data.entries || []).forEach(e => {
+            const line = document.createElement('span');
+            const t = e.t ? new Date(e.t).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+            line.textContent = '[' + t + '] [' + (e.l || 'LOG') + '] ' + (e.m || '');
+            if (e.l === 'WARN') line.style.color = '#e67e22';
+            else if (e.l === 'ERROR') line.style.color = '#e74c3c';
+            pre.appendChild(line);
+            pre.appendChild(document.createTextNode('\n'));
+        });
+        pre.scrollTop = pre.scrollHeight;
+    }).catch(() => {});
+}
+let _logFilterTimer = null;
+function logFilterDebounce() { clearTimeout(_logFilterTimer); _logFilterTimer = setTimeout(loadRawLogs, 400); }
+function toggleLogAutoRefresh() {
+    const cb = document.getElementById('logAutoRefresh');
+    if (cb && cb.checked) {
+        _logAutoTimer = setInterval(loadRawLogs, 5000);
+    } else {
+        clearInterval(_logAutoTimer); _logAutoTimer = null;
+    }
 }
 
 // ==================== VPS 控制台 ====================
