@@ -2136,6 +2136,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         const domThinking = thinkTextDiv && thinkBox && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || '');
         assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
         getLiveSession(sessionId).messages.push(assistantMsg);
+        console.log('[sendChat] pushed assistantMsg, total msgs:', getLiveSession(sessionId).messages.length, 'content len:', (fullReply||'').length, 'sessionId:', sessionId);
         // 先存本地备份，再尝试云端同步
         try { localStorage.setItem('syzygy_urgent_bak', JSON.stringify({ sessions: chatSessions, ver: _dataVersion, ts: Date.now() })); } catch(_) {}
         saveToCloud(true);  // 立即保存，不延迟
@@ -2160,6 +2161,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         clearTimeout(toolHintTimer); clearTimeout(toolHintTimer2);
         _isStreamingReply = false;
         _renderDeferred = false;
+        console.log('[sendChat] finally render, msgs:', getActiveSession().messages.length, 'streaming was:', true);
         renderChatMessages();
         if (_resyncPendingReason) {
             var _pr = _resyncPendingReason; _resyncPendingReason = null;
