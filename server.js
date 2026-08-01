@@ -7090,7 +7090,12 @@ server.listen(PORT, () => {
 
     // 启动后延迟 10 秒在后台进行增量向量索引重建，补全可能缺失的存量记忆向量缓存
     setTimeout(() => {
-        reindexAllEmbeddings().catch(e => console.log('🧲 [启动向量索引] 失败:', e.message));
+        reindexAllEmbeddings().then(r => {
+            if (r && r.failed > 0) {
+                console.log('🧲 [启动向量索引] 有' + r.failed + '条失败，10分钟后重试');
+                setTimeout(() => reindexAllEmbeddings().catch(e => console.log('🧲 [重试向量] 失败:', e.message)), 10 * 60 * 1000);
+            }
+        }).catch(e => console.log('🧲 [启动向量索引] 失败:', e.message));
     }, 10000);
 
     setInterval(cleanAndArchiveMemories, 6 * 60 * 60 * 1000);
