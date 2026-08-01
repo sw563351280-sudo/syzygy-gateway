@@ -5040,19 +5040,18 @@ app.patch('/api/long-term-memories/:id', (req, res) => {
     if (resolved !== undefined) targetMemory.resolved = resolved;
     targetMemory.updated_at = new Date().toISOString();
 
-    // 只有明确传了 tags 才做分类迁移，否则放回原位
-    if (parsedTags !== undefined && isRP) {
-        targetMemory.source = 'roleplay';
-        rpMemories.push(targetMemory); saveRoleplayMemories(rpMemories);
-        if (activeIdx !== -1) saveLongTermMemories(activeMemories);
-    } else if (parsedTags !== undefined && !isRP) {
+    // RP库→长期库：如果当前在RP库但标签不含RP关键词，迁回长期记忆
+    if (rpIdx !== -1 && parsedTags !== undefined && !isRP) {
+        targetMemory.last_accessed = Date.now();
+        targetMemory.source = 'manual';
+        activeMemories.push(targetMemory);
+        saveLongTermMemories(activeMemories);
+        saveRoleplayMemories(rpMemories);
+    } else if (activeIdx !== -1) {
         targetMemory.last_accessed = Date.now();
         activeMemories.push(targetMemory); saveLongTermMemories(activeMemories);
-        if (rpIdx !== -1) saveRoleplayMemories(rpMemories);
-    } else {
-        // 没改 tags（比如只改了 resolved），放回原位
-        if (activeIdx !== -1) { activeMemories.push(targetMemory); saveLongTermMemories(activeMemories); }
-        else if (rpIdx !== -1) { rpMemories.push(targetMemory); saveRoleplayMemories(rpMemories); }
+    } else if (rpIdx !== -1) {
+        rpMemories.push(targetMemory); saveRoleplayMemories(rpMemories);
     }
     res.json({ success: true, memory: targetMemory });
 });
