@@ -1344,6 +1344,8 @@ function _keywordRankSearch(queryText, memories, topK = 10) {
         let score = 0;
         let hitTags = [];
         if (m.tags && m.tags.length > 0) {
+            const isTarget = m.id === 'mnliei3tteto';
+            if (isTarget) console.log('🔬 [KW:ring] tags=' + JSON.stringify(m.tags) + ' query=' + (queryText||'').substring(0,200));
             hitTags = m.tags.filter(tag => {
                 if (!tag || tag.length < 2) return false;
                 if (tag.length === 2) {
@@ -1351,7 +1353,9 @@ function _keywordRankSearch(queryText, memories, topK = 10) {
                     if (TWO_CHAR_STOP_WORDS.has(tag)) return false;
                     if (!TWO_CHAR_DOMAIN_TERMS.has(tag) && !textLower.includes(tag)) return false;
                 }
-                return isTagMatch(tag, queryText);
+                const matched = isTagMatch(tag, queryText);
+                if (isTarget) console.log('🔬 [KW:ring] tag=' + tag + ' matched=' + matched);
+                return matched;
             });
             score += hitTags.length * 1.5;
         }
