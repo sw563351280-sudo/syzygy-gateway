@@ -168,9 +168,38 @@ function showProactiveNotification(content) {
 }
 function onProactiveClick() { dismissProactive(); goView('chat'); if (activeChatId !== 'main') switchChatWindow('main'); setTimeout(() => { const inp = document.getElementById('chatInput'); if (inp) inp.focus(); forceScrollToChatBottom(); }, 300); }
 function dismissProactive() { const inner = document.getElementById('proactiveNotifInner'); if (inner) inner.style.top = '-120px'; setTimeout(() => { const n = document.getElementById('proactiveNotif'); if (n) n.remove(); }, 500); }
+/* 归一化去重：去掉 ||| 和所有空白，让 "a|||b" 和 "a\nb" 得到同一个串 */
+function normForDedup(s) {
+  return String(s || '').replace(/\|\|\|/g, '').replace(/\s+/g, '');
+}
+
+function tailHasContent(session, content, lookback) {
+  const target = normForDedup(content);
+  if (!target) return false;
+  const msgs = session.messages || [];
+  for (let i = msgs.length - 1, n = 0; i >= 0 && n < (lookback || 6); i--, n++) {
+    const m = msgs[i];
+    const v = (typeof getActiveVersion === 'function') ? getActiveVersion(m) : m;
+    const cands = [v.content, m.content, (m.segments || v.segments || []).join('')];
+    for (const c of cands) {
+      if (typeof c === 'string' && normForDedup(c) === target) return true;
+    }
+  }
+  return false;
+}
+
 function handleCrossPlatformMessage(msg) {
     const mainSession = chatSessions.find(s => s.id === 'main');
     if (!mainSession) return;
+
+    // 避免回灌重复：本地尾巴里已有同内容就跳过
+    const uc = msg.user?.content, ac = msg.assistant?.content;
+    if ((uc && tailHasContent(mainSession, uc)) ||
+        (ac && tailHasContent(mainSession, ac))) {
+      console.log('[cross-platform] 本地已有同内容，跳过回灌');
+      return;
+    }
+
     if (msg.user?.content) mainSession.messages.push({ _id: 'cp_' + (msg.fullTime || Date.now()), role: 'user', versions: [{ content: msg.user.content, fullTime: msg.fullTime || new Date().toISOString(), _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
     if (msg.assistant?.content) mainSession.messages.push({ _id: 'cp_' + (msg.fullTime || Date.now()) + '_a', role: 'assistant', versions: [{ content: msg.assistant.content, fullTime: msg.fullTime || new Date().toISOString(), model: msg.assistant.model || '', _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
     saveToCloud();

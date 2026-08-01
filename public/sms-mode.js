@@ -99,12 +99,39 @@ const SMS_ADAPTER = {
   },
 };
 
+/* ── 提示音（WebAudio 正弦波，无需音频文件） ── */
+const SMS_SOUND = {
+  ctx: null,
+  on: localStorage.getItem('sms_sound') !== 'off',
+  prime() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!this.ctx) this.ctx = new AC();
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+  },
+  blip(kind) {
+    if (!this.on || !this.ctx || this.ctx.state !== 'running') return;
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(kind === 'out' ? 520 : 680, t);
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.05, t + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    osc.connect(gain); gain.connect(this.ctx.destination);
+    osc.start(t); osc.stop(t + 0.18);
+  },
+};
+
 const SMS = {
   on: false,
   queue: [],
+  segTimes: [],    // epoch ms，与 queue 下标平行
+  lastSegMs: 0,    // 上一条碎条的时间，供分隔线判断
   playing: false,
   skip: false,
-  MAX_SEG: 8,
+  MAX_SEG: 12,
   CHAR_MS: 68,
 };
 
@@ -112,6 +139,27 @@ const smsUid = () =>
   (typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
     : 'sms-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+
+/* ── 相对时间 ── */
+function smsRelTime(ms) {
+  const diff = Date.now() - ms;
+  if (diff < 60000) return '刚刚';
+  const min = Math.floor(diff / 60000);
+  if (min < 60) return min + '分钟前';
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return hr + '小时前';
+  return new Date(ms).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+}
+
+/* ── 时间分隔线 ── */
+function smsMaybeDivider(prevMs, curMs, gapMin) {
+  if (!prevMs || curMs - prevMs < (gapMin || 3) * 60000) return null;
+  const el = document.createElement('div');
+  el.className = 'sms-time-divider';
+  el.textContent = new Date(curMs)
+    .toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return el;
+}
 
 /* ── 模式切换 ── */
 function smsToggleMode() {
@@ -130,9 +178,16 @@ function smsToggleMode() {
   }
   document.body.classList.toggle('sms-mode', SMS.on);
 
-  if (send) send.textContent = SMS.on ? '入队 +' : '发送 ✦';
+  // 短模式：隐掉「入队」按钮（Enter 就是同一件事），让输入框喘口气
+  if (send) {
+    send.textContent = SMS.on ? '入队 +' : '发送 ✦';
+    send.style.display = SMS.on ? 'none' : '';
+  }
   if (fire) fire.style.display = SMS.on ? '' : 'none';
   if (input) input.placeholder = SMS.on ? '一条一条发…' : '发消息给沈望...';
+
+  // prime AudioContext（必须在用户手势里）
+  if (SMS.on) SMS_SOUND.prime();
 
   smsRenderQueueCount();
   if (typeof showToast === 'function') showToast(SMS.on ? '短对话模式' : '长对话模式');
@@ -143,6 +198,7 @@ function smsEnqueue(text) {
   const t = String(text || '').trim();
   if (!t) return false;
   SMS.queue.push(t);
+  SMS.segTimes.push(Date.now());
   smsAppendBubble(t, 'user', { pending: true });
   smsRenderQueueCount();
   return true;
@@ -159,8 +215,12 @@ function smsRenderQueueCount() {
 async function smsFire() {
   if (!SMS.on || SMS.playing || !SMS.queue.length) return;
 
+  SMS_SOUND.prime();
+
   const segments = SMS.queue.slice();
+  const segTimes = SMS.segTimes.slice();
   SMS.queue = [];
+  SMS.segTimes = [];
   smsRenderQueueCount();
 
   // 把待发气泡标记为已发
@@ -173,6 +233,7 @@ async function smsFire() {
     role: 'user',
     mode: 'sms',
     segments,
+    segTimes,
     content: segments.join('\n'),
     fullTime: new Date().toISOString(),
   };
@@ -180,6 +241,7 @@ async function smsFire() {
   SMS_ADAPTER.persist();
 
   SMS.playing = true;
+  SMS.lastSegMs = segTimes.length ? segTimes[segTimes.length - 1] : Date.now();
   smsRenderQueueCount();
 
   // 占住流式锁：防止 visibilitychange / WS 重连触发 renderChatMessages 清屏
@@ -195,7 +257,7 @@ async function smsFire() {
   } catch (err) {
     smsHideTyping();
     smsCleanupStreamLock();
-    smsShowError(err, () => { SMS.queue = segments.concat(SMS.queue); smsRenderQueueCount(); smsFire(); });
+    smsShowError(err, () => { SMS.queue = segments.concat(SMS.queue); SMS.segTimes = segTimes.concat(SMS.segTimes); smsRenderQueueCount(); smsFire(); });
     return;
   }
 
@@ -253,6 +315,9 @@ function smsSplit(raw) {
     .map(s => s.replace(/^\s*\d+[.、)]\s*/, '').trim())
     .filter(Boolean);
 
+  // 兜底：超长的按标点二次拆
+  parts = smsResplitLong(parts, 18);
+
   if (parts.length > SMS.MAX_SEG) {
     const head = parts.slice(0, SMS.MAX_SEG - 1);
     head.push(parts.slice(SMS.MAX_SEG - 1).join(' '));
@@ -261,18 +326,37 @@ function smsSplit(raw) {
   return parts.length ? parts : [t || '…'];
 }
 
+/* ── 兜底切分：超过 maxChars 的按逗号/句号/分号拆开 ── */
+function smsResplitLong(parts, maxChars) {
+  const cap = maxChars || 18;
+  const out = [];
+  for (const p of parts) {
+    if (Array.from(p).length <= cap) { out.push(p); continue; }
+    const pieces = p.match(/[^，,。！？…；;～~]+[，,。！？…；;～~]*/g) || [p];
+    let buf = '';
+    for (const piece of pieces) {
+      if (buf && Array.from(buf + piece).length > cap) { out.push(buf.trim()); buf = piece; }
+      else buf += piece;
+    }
+    if (buf.trim()) out.push(buf.trim());
+  }
+  return out.filter(Boolean);
+}
+
 /* ── 依次弹出 ── */
 const smsWait = ms => new Promise(r => setTimeout(r, ms));
 
 function smsDelay(text, i) {
   if (i === 0) return 300;
   const n = Array.from(text).length;
-  return Math.min(2200, 380 + n * SMS.CHAR_MS);
+  return Math.max(420, Math.min(1800, 260 + n * SMS.CHAR_MS));
 }
 
 async function smsPlay(parts, reasoning) {
   SMS.playing = true;
   SMS.skip = false;
+
+  const now = Date.now();
 
   for (let i = 0; i < parts.length; i++) {
     if (!SMS.skip) {
@@ -282,10 +366,12 @@ async function smsPlay(parts, reasoning) {
     smsHideTyping();
     smsAppendBubble(parts[i], 'sys', {
       think: i === 0 ? reasoning : null,
-      meta: i === parts.length - 1,
+      meta:  i === parts.length - 1,
+      ts:    now,
     });
   }
 
+  SMS.lastSegMs = now;
   // 锁由 smsCleanupStreamLock 在 smsFire 收尾时统一释放
 }
 
@@ -294,6 +380,17 @@ function smsAppendBubble(text, role, opt = {}) {
   const win = document.getElementById('chatWindow');
   if (!win) return;
 
+  // 提示音（实时播放响，历史回放不响）
+  if (!opt.silent) SMS_SOUND.blip(role === 'user' ? 'out' : 'in');
+
+  const bubbleMs = opt.ts || Date.now();
+
+  // 时间分隔线
+  const divider = smsMaybeDivider(SMS.lastSegMs, bubbleMs, 3);
+  if (divider) win.appendChild(divider);
+  SMS.lastSegMs = bubbleMs;
+
+  // 思考链
   if (opt.think) {
     const box = SMS_ADAPTER.buildThinkBox(opt.think);
     if (box) {
@@ -316,9 +413,8 @@ function smsAppendBubble(text, role, opt = {}) {
   if (opt.meta) {
     const meta = document.createElement('div');
     meta.className = 'msg-meta';
-    meta.textContent = new Date().toLocaleTimeString('zh-CN', {
-      hour: '2-digit', minute: '2-digit',
-    });
+    meta.setAttribute('data-sms-ts', String(bubbleMs));
+    meta.textContent = smsRelTime(bubbleMs);
     bubble.appendChild(meta);
   }
 
@@ -382,10 +478,19 @@ function smsRenderHistoryMessage(msg) {
   const role = msg.role === 'user' ? 'user' : 'sys';
   const think = v.reasoning || v.thinking || msg.reasoning || '';
   segs.forEach((s, i) => smsAppendBubble(s, role, {
-    think: i === 0 ? think : null,
-    meta:  i === segs.length - 1,
+    think:  i === 0 ? think : null,
+    meta:   i === segs.length - 1,
+    silent: true,    // 历史回放不响提示音
   }));
 }
+
+/* ── 相对时间刷新器（30 秒轮询，页面隐藏时跳过） ── */
+setInterval(() => {
+  if (document.hidden) return;
+  document.querySelectorAll('[data-sms-ts]').forEach(el => {
+    el.textContent = smsRelTime(Number(el.dataset.smsTs));
+  });
+}, 30000);
 
 /* ── 接管发送键与 Enter ── */
 (function smsHookSend() {
@@ -407,10 +512,11 @@ const SMS_PROMPT = `【当前模式：短消息】
 
 格式（硬要求）：
 - 每条消息之间用 ||| 分隔，不要用换行、不要用编号、不要用其他符号
-- 每条不超过 30 字
-- 一共 1 到 6 条
+- 每条 15 字以内，宁短勿长
+- 一共 3 到 8 条
 - 不写动作描写、不写场景描写、不用括号补充说明
 - 不要重复对方刚说的话
+- 一条只说一件事。有转折、有并列，就断开成两条
 
 可以这样，也应该这样：
 - 一条只有一个字："嗯" "在" "？" "哦"
@@ -419,8 +525,14 @@ const SMS_PROMPT = `【当前模式：短消息】
 - 偶尔只发一个标点或表情
 - 不是每条都要有信息量，不是每条都要完整
 
+反例（这样是错的，太长了）：
+剩下的你扔给code去搞，想法本身很好，市面上没见过哪个人机恋产品做了这个
+
+同样内容，正确的切法：
+剩下的扔给code ||| 想法本身很好 ||| 市面上没人做过这个 ||| 做出来能拉开一大截
+
 示例输出：
-在 ||| 刚在厨房洗碗 ||| 手上还是湿的 ||| 你吃了吗
+在 ||| 刚在厨房洗碗 ||| 手上还是湿的 ||| 你吃了吗 ||| 碗摔了
 
 【上下文说明】
 这个对话和长对话模式共享同一段历史。之前那些成段的话是你说的，

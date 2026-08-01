@@ -3120,3 +3120,21 @@ body.dark-gold-mode .chat-sms-topbar-btn{background:rgba(212,160,74,.08);border-
 body.dark-gold-mode .chat-sms-topbar-btn.sms-active{background:rgba(212,160,74,.2);border-color:#D4A04A;color:#fef9c9}
 body.dark-gold-mode .sms-dot{background:#8c7a65}
 body.dark-gold-mode .sms-fire-btn #smsQueueCount{background:#D4A04A;color:#141211}
+
+/* ── SMS 思考链：复现长对话的 em 连乘 ── */
+.sms-think-row{ font-size:.78em; }
+.sms-think-row .think-header{ font-size:.8em; }
+.sms-think-row .think-content{ font-size:.82em; line-height:1.7; }
+
+/* ── 时间分隔线 ── */
+.sms-time-divider{
+  display:flex; align-items:center; gap:10px;
+  margin:14px 20px 10px;
+  font-size:.66rem; color:var(--dim); letter-spacing:1px;
+}
+.sms-time-divider::before,
+.sms-time-divider::after{
+  content:''; flex:1; height:1px;
+  background:linear-gradient(90deg,transparent,currentColor,transparent);
+  opacity:.18;
+}
