@@ -1799,6 +1799,12 @@ async function sendChat(options = {}) {
     var firstChunkReceived = false;
     var sDiv = null; var sRow = null; var toolHintTimer = null; var toolHintTimer2 = null;
     var assistantMsg = null;
+    var silenceTimer = null;
+
+    const modelEl = document.getElementById('modelSelect');
+    var selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按量]gemini-3-flash-preview';
+    const streamToggle = document.getElementById('streamToggle');
+    var isStream = streamToggle ? streamToggle.checked : true;
 
     _isStreamingReply = true;
     try {
@@ -1811,11 +1817,6 @@ async function sendChat(options = {}) {
     toolHintTimer = setTimeout(() => { if (!firstChunkReceived) { const el = sDiv.querySelector('.loading-indicator'); if (el) el.innerHTML = '🔧 沈望正在使用工具获取信息…<br><span style="font-size:0.75em;opacity:0.6;">（读取网页可能需要几秒钟）</span>'; } }, 3000);
     toolHintTimer2 = setTimeout(() => { if (!firstChunkReceived) { const el = sDiv.querySelector('.loading-indicator'); if (el) el.innerHTML = '🔧 多轮工具调用中，请稍候…'; } }, 8000);
     win.appendChild(sRow); win.scrollTop = win.scrollHeight;
-    const modelEl = document.getElementById('modelSelect');
-    const selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按量]gemini-3-flash-preview';
-    
-    const streamToggle = document.getElementById('streamToggle');
-    const isStream = streamToggle ? streamToggle.checked : true; // 默认开启
 
    // --- 4. 💥 组装请求参数 (带严谨 Base64 格式护盾) ---
     // 喝水同步：水量变化后第一条消息携带 [💧 x/8]
@@ -1878,7 +1879,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
 
         const useToolsTO = document.getElementById('useToolsToggle')?.checked;
         const toolTimeout = useToolsTO ? 300000 : 120000;
-        var silenceTimer = setTimeout(() => controller.abort(), toolTimeout);
+        silenceTimer = setTimeout(() => controller.abort(), toolTimeout);
         function resetSilenceTimer() { clearTimeout(silenceTimer); silenceTimer = setTimeout(() => controller.abort(), toolTimeout); }
 
         // 🔍 诊断日志：请求 payload 大小
@@ -3018,16 +3019,18 @@ async function flushDirtyToZep(session) {
 function retryLastMessage(btn) {
     const session = getActiveSession();
     if (!session.messages.length) return;
+    // 移除尾部所有 _failed 占位
+    while (session.messages.length) {
+        const last = session.messages[session.messages.length - 1];
+        const lv = getActiveVersion(last);
+        if (last.role === 'assistant' && (last._failed || lv._failed)) session.messages.pop();
+        else break;
+    }
     const last = session.messages[session.messages.length - 1];
-    if (last.role === 'assistant' && last._failed) session.messages.pop();
-    const lastUser = [...session.messages].reverse().find(m => m.role === 'user');
-    if (!lastUser) return;
-    const userIdx = session.messages.lastIndexOf(lastUser);
-    session.messages.splice(userIdx);
-    const v = getActiveVersion(lastUser);
-    const input = document.getElementById('chatInput');
-    if (input) input.value = v.content || '';
-    saveToCloud(); renderChatMessages(); sendChat();
+    if (!last || last.role !== 'user') return toast('没有可重发的消息');
+    saveToCloud();
+    renderChatMessages();
+    sendChat({ reuseLastUser: true });
 }
 
 // ═══ 共鸣核心 ═══
