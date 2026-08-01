@@ -3381,8 +3381,13 @@ async function saveToZep(userMsg, aiMsg) {
 async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages, metadata = {}, tr = null) {
     if (!userMsg) return;
     if (!aiMsg || !String(aiMsg).trim()) {
-        console.error('⚠️ [空回复] aiMsg 为空，跳过 transcript 与广播。userPreview=' + String(userMsg||'').substring(0,40));
-        traceEvent(tr, 'persist', '空回复·已跳过', { userLen: String(userMsg||'').length, aiLen: 0 });
+        console.error('⚠️ [空回复] aiMsg 为空, 仍写 transcript 但不广播空回复。userPreview=' + String(userMsg||'').substring(0,40));
+        // 只写 transcript，不广播（避免前端收到空 assistant 产生重复 user 消息）
+        updateLastInteraction();
+        const rpPrefix2 = isRpActiveForSession('main') ? '[RP模式] ' : '';
+        await saveToZep(rpPrefix2 + userMsg, rpPrefix2 + '(empty reply)');
+        await appendToTranscript(userMsg, '[空回复]', metadata);
+        traceEvent(tr, 'persist', '空回复·已标记', { userLen: String(userMsg||'').length, aiLen: 0 });
         return;
     }
     updateLastInteraction();
@@ -4864,13 +4869,14 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 if (streamFinalized) return;
                 streamFinalized = true;
                 try {
-                    if (!fullAiResponse || !fullAiResponse.trim()) {
-                        if (fullReasoning && fullReasoning.trim()) {
-                            console.error('⚠️ [流式累加] fullAiResponse 为空但 reasoning 有内容。用 reasoning 兜底写入 transcript。reasoning长度=' + fullReasoning.length);
-                            fullAiResponse = fullReasoning;
-                        } else {
-                            console.error('⚠️ [流式累加为空] fullAiResponse 长度 0，客户端可能已收到内容但服务端未累加。');
-                        }
+                    console.log('🔬 [StreamFinalize] fullAiResponse length=' + (fullAiResponse ? fullAiResponse.length : 0) +
+                        ' fullReasoning length=' + (fullReasoning ? fullReasoning.length : 0) +
+                        ' contentBuffer length=' + (contentBuffer ? contentBuffer.length : 0));
+                    if ((!fullAiResponse || !fullAiResponse.trim()) && fullReasoning && fullReasoning.trim()) {
+                        console.error('⚠️ [流式累加] fullAiResponse 为空但 reasoning 有内容。用 reasoning 兜底。');
+                        fullAiResponse = fullReasoning;
+                    } else if (!fullAiResponse || !fullAiResponse.trim()) {
+                        console.error('⚠️ [流式累加为空] 服务端未累加到任何文本。');
                     }
                     moodLog('[MOOD DEBUG] stream finalize start, full length:', fullAiResponse ? fullAiResponse.length : 0);
                     moodLog('[MOOD DEBUG] fullAiResponse has tag:', fullAiResponse.includes('<MOOD_SNAPSHOT>') || fullAiResponse.includes('[[MOOD_SNAPSHOT]]'));
