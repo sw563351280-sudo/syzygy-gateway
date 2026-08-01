@@ -2,6 +2,56 @@
    短对话模式 · SMS mode
    ══════════════════════════════════════════ */
 
+/* ── 碎条结构编码：分隔符写进 content，穿透所有存储层 ── */
+const SMS_SEP = '';          // 任务 0 验证失败则改成 '⁣'
+const SMS_SEP_RE = //g;      // 同步改成 /⁣/g
+
+/* 碎条数组 → 单个 content 字符串 */
+function smsPack(segs) {
+  const clean = (segs || [])
+    .map(s => String(s).replace(SMS_SEP_RE, ' ').trim())
+    .filter(Boolean);
+  return clean.length > 1 ? clean.join(SMS_SEP) : (clean[0] || '') + SMS_SEP;
+}
+
+/* content 字符串 → 碎条数组 */
+function smsUnpack(content) {
+  return String(content || '').split(SMS_SEP).map(s => s.trim()).filter(Boolean);
+}
+
+/* 是否是 SMS 结构 */
+function smsHasSep(content) {
+  return typeof content === 'string' && content.indexOf(SMS_SEP) !== -1;
+}
+
+/* 转成纯文本：给模型、记忆、收藏、去重用 */
+function smsPlain(content) {
+  if (Array.isArray(content)) {
+    return content
+      .filter(x => x && x.type === 'text')
+      .map(x => smsPlain(x.text || ''))
+      .join(' ');
+  }
+  return String(content || '').replace(SMS_SEP_RE, '\n');
+}
+
+/* 取消息正文 */
+function msgContentOf(m) {
+  if (!m) return '';
+  const v = (typeof getActiveVersion === 'function') ? getActiveVersion(m) : m;
+  const c = (v && v.content !== undefined) ? v.content : m.content;
+  return typeof c === 'string' ? c : '';
+}
+
+// 挂到 window，script.js 也要用
+window.SMS_SEP = SMS_SEP;
+window.SMS_SEP_RE = SMS_SEP_RE;
+window.smsPack = smsPack;
+window.smsUnpack = smsUnpack;
+window.smsHasSep = smsHasSep;
+window.smsPlain = smsPlain;
+window.msgContentOf = msgContentOf;
+
 /* ── 适配器：全部接线到 script.js 实函数 ── */
 const SMS_ADAPTER = {
   getMessages: () => {
@@ -25,7 +75,7 @@ const SMS_ADAPTER = {
 
     const historyMsgs = session.messages.slice(-31, -1).map(function(m) {
       const v = getActiveVersion(m);
-      let c = m.segments ? m.segments.join('\n') : v.content;
+      let c = smsPlain(m.segments ? m.segments.join('\n') : v.content || m.content);
       if (Array.isArray(c)) {
         c = c.filter(function(x) { return x && x.type === 'text'; })
              .map(function(x) { return x.text || ''; }).join(' ') || '（发送了图片）';
@@ -261,7 +311,7 @@ async function smsFire() {
   const segments = items.map(x => x.text);
   const allImages = items.reduce((a, x) => { if (x.images) for (const im of x.images) a.push(im); return a; }, []);
 
-  // 用户侧：一条消息，多个碎条（走 versions 壳，和 sendChat 一致）
+  // 用户侧：一条消息，多个碎条（content 里编码分隔符，穿透所有存储层）
   const userMsg = {
     _id: smsUid(),
     role: 'user',
@@ -271,8 +321,8 @@ async function smsFire() {
     segImages: items.map(x => x.images || []),
     images: allImages.length ? allImages : undefined,
     image: allImages.length ? allImages[0] : undefined,
-    versions: [{ content: segments.join('\n'), fullTime: new Date().toISOString() }],
-    activeVersion: 0,
+    content: smsPack(segments),
+    fullTime: new Date().toISOString(),
   };
   SMS_ADAPTER.getMessages().push(userMsg);
   SMS_ADAPTER.persist();
@@ -304,7 +354,7 @@ async function smsFire() {
     role: 'assistant',
     mode: 'sms',
     segments: parts,
-    content: parts.join('\n'),
+    content: smsPack(parts),
     reasoning: reasoning || undefined,
     fullTime: new Date().toISOString(),
   };
@@ -528,9 +578,11 @@ function smsShowError(err, retry) {
 function smsRenderHistoryMessage(msg) {
   const gv = (typeof getActiveVersion === 'function') ? getActiveVersion : (m) => (m.versions && m.versions.length > 0 ? m.versions[m.activeVersion || 0] || m.versions[0] : m);
   const v = gv(msg);
-  // ensureVersioned 会把 content/segments 复制进 versions[0] 并删除顶层 content
-  const segs = msg.segments || v.segments ||
-               String(v.content || msg.content || '').split('\n').filter(Boolean);
+  const packed = (typeof msgContentOf === 'function') ? msgContentOf(msg) : String(v.content || msg.content || '');
+  // 三级优先：分隔符（最可靠）→ 字段快路径 → 换行兜底
+  const segs = (typeof smsHasSep === 'function' && smsHasSep(packed))
+    ? smsUnpack(packed)
+    : (msg.segments || v.segments || String(packed).split('\n').filter(Boolean));
   const role = msg.role === 'user' ? 'user' : 'sys';
   const think = v.reasoning || v.thinking || msg.reasoning || '';
   const times = msg.segTimes || [];

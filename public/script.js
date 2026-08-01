@@ -49,7 +49,7 @@ const starState = { pendingMeteor: false, pendingNebula: false };
 // ==================== Markdown 渲染 ====================
 if (typeof marked !== 'undefined') { marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false }); }
 function stripInternalTags(text) { return (text||'').replace(/<MOOD_SNAPSHOT>[\s\S]*?<\/MOOD_SNAPSHOT>/g, '').replace(/\[\[MOOD_SNAPSHOT\]\][\s\S]*?\[\[MOOD_SNAPSHOT\]\]/g, '').replace(/<SAVE_MEMORY[\s\S]*?<\/SAVE_MEMORY>/g, '').replace(/<ADD_TODO>[\s\S]*?<\/ADD_TODO>/g, '').replace(/<DONE_TODO[^>]*\/>/g, '').trim(); }
-function renderMarkdown(text) { if (!text) return ''; if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
+function renderMarkdown(text) { if (!text) return ''; text = String(text).replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : //g, '\n'); if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
 
 // ==================== 版本化消息辅助函数 ====================
 function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; if (v.toolCalls === undefined && msg.toolCalls !== undefined) v.toolCalls = msg.toolCalls; return v; } return msg; }
@@ -102,7 +102,7 @@ function extractThinkingFromContent(content) {
 }
 function getVersionCount(msg) { return (msg.versions && msg.versions.length) ? msg.versions.length : 1; }
 function getActiveVersionIndex(msg) { if (msg.versions && msg.versions.length > 0) return msg.activeVersion || 0; return 0; }
-function ensureVersioned(msg) { if (msg.versions) return; const { role, ...rest } = msg; msg.versions = [rest]; msg.activeVersion = 0; delete msg.content; delete msg.thinking; delete msg.time; delete msg.model; delete msg.fullTime; delete msg.image; }
+function ensureVersioned(msg) { if (msg.versions) return; if (msg.mode === 'sms') return; const { role, ...rest } = msg; msg.versions = [rest]; msg.activeVersion = 0; delete msg.content; delete msg.thinking; delete msg.time; delete msg.model; delete msg.fullTime; delete msg.image; }
 
 function drawMeteor(ctx, w, h) {
     const sx = Math.random() * w * 0.7 + w * 0.15, sy = Math.random() * h * 0.3;
@@ -170,7 +170,7 @@ function onProactiveClick() { dismissProactive(); goView('chat'); if (activeChat
 function dismissProactive() { const inner = document.getElementById('proactiveNotifInner'); if (inner) inner.style.top = '-120px'; setTimeout(() => { const n = document.getElementById('proactiveNotif'); if (n) n.remove(); }, 500); }
 /* 归一化去重：去掉 ||| 和所有空白，让 "a|||b" 和 "a\nb" 得到同一个串 */
 function normForDedup(s) {
-  return String(s || '').replace(/\|\|\|/g, '').replace(/\s+/g, '');
+  return String(s || '').replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : //g, '').replace(/\|\|\|/g, '').replace(/\s+/g, '');
 }
 
 function tailHasContent(session, content, lookback) {
@@ -204,7 +204,7 @@ function handleCrossPlatformMessage(msg) {
     if (msg.assistant?.content) mainSession.messages.push({ _id: 'cp_' + (msg.fullTime || Date.now()) + '_a', role: 'assistant', versions: [{ content: msg.assistant.content, fullTime: msg.fullTime || new Date().toISOString(), model: msg.assistant.model || '', _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
     saveToCloud();
     if (activeChatId === 'main') renderChatMessages();
-    const preview = (msg.assistant?.content || '').substring(0, 30);
+    const preview = (typeof smsPlain === 'function' ? smsPlain(msg.assistant?.content || '') : (msg.assistant?.content || '')).substring(0, 30);
     if (preview) toast('⊹ 沈望在别处说了："' + preview + (preview.length >= 30 ? '…' : '') + '"');
 }
 function handleDreamDone(msg) { toast('🌙 沈望做了个梦：' + (msg.summary || '整理完成')); }
@@ -431,6 +431,7 @@ function msgKey(m) {
 
 function simpleContentHash(c) {
     if (typeof c !== 'string') c = JSON.stringify(c || '');
+    c = c.replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : //g, '');
     var h = 0, i; for (i = 0; i < c.length; i++) { h = ((h << 5) - h + c.charCodeAt(i)) | 0; }
     return Math.abs(h).toString(36).substring(0, 8);
 }
@@ -442,7 +443,7 @@ function normMsgText(m) {
   if (Array.isArray(c)) {
     c = c.filter(function(x) { return x && x.type === 'text'; }).map(function(x) { return x.text || ''; }).join('');
   }
-  return String(c).replace(/\|\|\|/g, '').replace(/\s+/g, '');
+  return String(c).replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : //g, '').replace(/\|\|\|/g, '').replace(/\s+/g, '');
 }
 
 /* 丢弃服务端回声：id 为空或以 cp_ 开头，且内容已在亲手写的消息里出现过 */
@@ -468,6 +469,20 @@ function dropServerEchoes(msgs) {
   });
 }
 
+/* 消息信息量评分：SMS 结构完整的那份优先 */
+function smsRichness(m) {
+  if (!m) return -1;
+  const v = (typeof getActiveVersion === 'function' ? getActiveVersion(m) : {}) || {};
+  let n = 0;
+  const c = (typeof msgContentOf === 'function') ? msgContentOf(m) : '';
+  if (typeof smsHasSep === 'function' && smsHasSep(c)) n += 8;
+  if (m.mode === 'sms' || v.mode === 'sms') n += 4;
+  if ((m.segments || v.segments || []).length) n += 4;
+  if ((m.segTimes || v.segTimes || []).length) n += 1;
+  if (m.images || v.images || m.image || v.image) n += 1;
+  return n;
+}
+
 // 合并两条消息数组，按 key 去重，按时间排序
 function mergeMessageLists(serverMsgs, localMsgs) {
     const out = [];
@@ -478,7 +493,11 @@ function mergeMessageLists(serverMsgs, localMsgs) {
         const k = msgKey(m);
         if (seen.has(k)) {
             const i = seen.get(k);
-            if (getVersionCount(m) > getVersionCount(out[i])) out[i] = m;
+            const cur = out[i];
+            const rm = smsRichness(m), rc = smsRichness(cur);
+            if (rm > rc || (rm === rc && getVersionCount(m) > getVersionCount(cur))) {
+              out[i] = m;
+            }
             return;
         }
         seen.set(k, out.length);
@@ -1746,7 +1765,11 @@ function renderChatMessages(){
         const index = session.messages.length - msgs.length + subIndex;
 
         // 短对话消息：碎条铺开，不走下面的单气泡渲染
-        if (m.mode === 'sms' && typeof smsRenderHistoryMessage === 'function') {
+        const rawContent = (typeof msgContentOf === 'function') ? msgContentOf(m) : '';
+        const isSms = (typeof smsHasSep === 'function' && smsHasSep(rawContent))
+                      || m.mode === 'sms'
+                      || (getActiveVersion(m) || {}).mode === 'sms';
+        if (isSms && typeof smsRenderHistoryMessage === 'function') {
             smsRenderHistoryMessage(m);
             return;
         }
@@ -1778,7 +1801,7 @@ function renderChatMessages(){
         // 渲染工具调用记录（整组折叠）
         if (v.toolCalls && v.toolCalls.length > 0) htmlContent += renderToolCallGroupHTML(v.toolCalls, false);
         if (m.role === 'user') {
-            htmlContent += '<div>' + (displayContent || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
+            htmlContent += '<div>' + String(displayContent || '').replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : //g, '\n').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
         } else {
             htmlContent += '<div class="md-content">' + renderMarkdown(displayContent || '') + '</div>';
         }
@@ -2001,6 +2024,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
     if (typeof safeContent === 'string' && safeContent.includes('data:image')) {
         safeContent = '（发送了图片）';
     }
+    if (typeof smsPlain === 'function') safeContent = smsPlain(safeContent);
     return { role: m.role, content: safeContent };
 });
 
@@ -3125,7 +3149,7 @@ async function regenerateSend(aiMsgIndex) {
     if (!currentSup) { sDiv.innerHTML = '<div class="msg-error"><div>【未配置供应商】</div></div>'; return; }
     const modelEl = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
-    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; return {role:m.role,content:c}; });
+    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; if(typeof smsPlain==='function')c=smsPlain(c); return {role:m.role,content:c}; });
     if (historyMsgs.length > 50) historyMsgs = historyMsgs.slice(-50);
     try {
         let apiUrl = '/v1/chat/completions';
@@ -3166,8 +3190,11 @@ async function flushDirtyToZep(session) {
         const v = getActiveVersion(msg);
         let userContent = '';
         for (let j = i - 1; j >= 0; j--) { if (session.messages[j].role === 'user') { userContent = getActiveVersion(session.messages[j]).content || ''; if (Array.isArray(userContent)) userContent = userContent.filter(c => c.type === 'text').map(c => c.text).join(' ') || '（发送了图片）'; break; } }
+        if (typeof smsPlain === 'function') { userContent = smsPlain(userContent); }
+        let aiContent = v.content || '';
+        if (typeof smsPlain === 'function') aiContent = smsPlain(aiContent);
         try {
-            await fetch('/api/flush-zep', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userContent:userContent,aiContent:v.content||''}) });
+            await fetch('/api/flush-zep', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userContent:userContent,aiContent:aiContent}) });
             console.log('✅ [延迟Zep] 已冲刷第'+i+'条消息');
         } catch(e) { console.log('❌ [延迟Zep] 冲刷失败: '+e.message); }
         delete msg._zepDirty;
@@ -3268,7 +3295,10 @@ window.addEventListener('beforeunload', function() {
                 break;
             }
         }
-        navigator.sendBeacon('/api/flush-zep', JSON.stringify({ userContent, aiContent: v.content || '' }));
+        if (typeof smsPlain === 'function') { userContent = smsPlain(userContent); }
+        let _aiBeacon = v.content || '';
+        if (typeof smsPlain === 'function') _aiBeacon = smsPlain(_aiBeacon);
+        navigator.sendBeacon('/api/flush-zep', JSON.stringify({ userContent, aiContent: _aiBeacon }));
         delete msg._zepDirty;
     }
 });
@@ -3297,6 +3327,8 @@ function openFavDialog(index) {
         }
     }
     const aiContent = typeof aiV.content === 'string' ? aiV.content : '';
+    if (typeof smsPlain === 'function') { userContent = smsPlain(userContent); }
+    if (typeof smsPlain === 'function') aiContent = smsPlain(aiContent);
     document.getElementById('favPreview').innerHTML = '<div style="margin-bottom:8px;color:var(--dim);font-size:0.8em;">👤 江鱼：</div><div style="margin-bottom:12px;padding:8px 12px;background:rgba(79,195,247,0.06);border-left:2px solid #4fc3f7;border-radius:4px;">' + (userContent || '(空)').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div><div style="margin-bottom:8px;color:var(--dim);font-size:0.8em;">🤖 沈望：</div><div style="padding:8px 12px;background:rgba(201,169,97,0.06);border-left:2px solid var(--gold);border-radius:4px;">' + (aiContent || '(空)').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
     document.getElementById('favTags').value = '';
     document.getElementById('favNote').value = '';
@@ -3331,8 +3363,8 @@ async function confirmFavorite() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 messages: [
-                    { role: 'user', content: userContent || '（发送了图片）' },
-                    { role: 'assistant', content: aiV.content || '', thinking: aiV.thinking || '' }
+                    { role: 'user', content: (typeof smsPlain === 'function' ? smsPlain(userContent) : userContent) || '（发送了图片）' },
+                    { role: 'assistant', content: (typeof smsPlain === 'function' ? smsPlain(aiV.content || '') : (aiV.content || '')), thinking: aiV.thinking || '' }
                 ],
                 note, tags
             })
@@ -3385,8 +3417,8 @@ function renderFavList(items) {
     let html = '';
     items.forEach((f, fi) => {
         const dt = new Date(f.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-        const userC = f.messages[0]?.content || '';
-        const aiC = f.messages[1]?.content || '';
+        const userC = (typeof smsPlain === 'function' ? smsPlain(f.messages[0]?.content || '') : (f.messages[0]?.content || ''));
+        const aiC = (typeof smsPlain === 'function' ? smsPlain(f.messages[1]?.content || '') : (f.messages[1]?.content || ''));
         const tagsHtml = (f.tags || []).map(t => '<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(201,169,97,0.08);color:var(--gold);font-size:0.75em;margin-right:4px;">' + t.replace(/</g,'&lt;') + '</span>').join('');
         html += '<div class="fav-card" onclick="viewFavDetail(' + fi + ')" style="background:rgba(12,16,28,0.6);border:1px solid rgba(201,169,97,0.12);border-radius:12px;padding:10px 14px;cursor:pointer;transition:border-color 0.2s;">';
         html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
@@ -3405,8 +3437,8 @@ function viewFavDetail(fi) {
     const f = _favCache[fi];
     if (!f) return;
     const dt = new Date(f.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-    const userC = f.messages[0]?.content || '';
-    const aiC = f.messages[1]?.content || '';
+    const userC = (typeof smsPlain === 'function' ? smsPlain(f.messages[0]?.content || '') : (f.messages[0]?.content || ''));
+    const aiC = (typeof smsPlain === 'function' ? smsPlain(f.messages[1]?.content || '') : (f.messages[1]?.content || ''));
     const aiThinking = f.messages[1]?.thinking || '';
     const tagsHtml = (f.tags || []).map(t => '<span class="fav-detail-tag">' + t.replace(/</g,'&lt;') + '</span>').join('');
     const detail = document.getElementById('favDetail');
