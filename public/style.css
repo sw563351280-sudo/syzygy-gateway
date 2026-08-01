@@ -3026,3 +3026,97 @@ body.dark-gold-mode #sec-console{
   white-space:pre-wrap;overflow-wrap:anywhere;
   border:1px solid var(--con-border);
 }
+
+/* ═══ 短对话模式 ═══ */
+.chat-sms-topbar-btn{
+  width:30px;height:30px;border-radius:8px;
+  border:1px solid rgba(201,169,97,.15);
+  background:rgba(201,169,97,.05);
+  color:var(--dim);font-size:.85em;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;transition:all .2s;font-family:inherit;
+}
+.chat-sms-topbar-btn:hover{border-color:rgba(201,169,97,.35);color:var(--gold)}
+.chat-sms-topbar-btn.sms-active{
+  background:rgba(201,169,97,.18);border-color:var(--gold);color:var(--gold);font-weight:600;
+}
+.chat-sms-topbar-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+
+/* 碎条气泡：贴紧、去掉大圆角的孤立感 */
+.sms-row{margin-bottom:3px!important}
+.sms-row+.sms-row .sms-bubble.sys{border-top-left-radius:14px}
+.sms-bubble{
+  max-width:72%!important;
+  padding:9px 14px!important;
+  line-height:1.6!important;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+}
+.sms-bubble.sys{border-radius:14px 14px 14px 4px}
+.sms-bubble.user{border-radius:14px 14px 4px 14px}
+.sms-pending{opacity:.55;font-style:italic}
+.sms-think-row{margin-bottom:6px}
+
+/* 正在输入 */
+.sms-typing-row{display:flex;align-items:center;gap:8px;padding:0 20px;margin-bottom:6px}
+.sms-typing{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:9px 14px;border-radius:14px 14px 14px 4px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.06);
+}
+.sms-typing-label{font-size:.7rem;color:var(--dim);margin-left:4px;letter-spacing:1px}
+.sms-dot{
+  width:5px;height:5px;border-radius:50%;
+  background:var(--dim);opacity:.4;
+  animation:smsBlink 1.3s ease-in-out infinite;
+}
+.sms-dot:nth-child(2){animation-delay:.18s}
+.sms-dot:nth-child(3){animation-delay:.36s}
+@keyframes smsBlink{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:.9;transform:translateY(-2px)}}
+.sms-skip{
+  border:1px solid rgba(201,169,97,.25);background:transparent;
+  color:var(--dim);font-size:.7rem;font-family:inherit;
+  padding:4px 10px;border-radius:12px;cursor:pointer;
+}
+.sms-skip:hover{border-color:var(--gold);color:var(--gold)}
+
+/* 让他回 */
+.sms-fire-btn #smsQueueCount{
+  display:inline-block;min-width:16px;padding:0 4px;margin-left:4px;
+  border-radius:8px;background:var(--gold);color:var(--ink);
+  font-size:.75em;font-weight:700;
+}
+.sms-fire-btn:disabled{opacity:.4;cursor:default}
+
+@media(prefers-reduced-motion:reduce){.sms-dot{animation:none;opacity:.6}}
+
+/* ── 白天 ── */
+body.light-mode .sms-typing{background:rgba(255,255,255,.5);border-color:rgba(196,165,123,.15)}
+body.light-mode .chat-sms-topbar-btn{border-color:rgba(196,165,123,.2);color:#8B7355;background:rgba(196,165,123,.06)}
+body.light-mode .chat-sms-topbar-btn.sms-active{background:rgba(196,165,123,.2);border-color:#C4A57B;color:#5C4033}
+body.light-mode .sms-fire-btn #smsQueueCount{background:#8B6914;color:#FFFAF0}
+
+/* ── 新拟态 ── */
+body.neu-mode .sms-typing{
+  background:#E8EFF7;border:none;
+  box-shadow:inset 3px 3px 6px rgba(163,177,198,.3),inset -3px -3px 6px rgba(255,255,255,.6);
+}
+body.neu-mode .chat-sms-topbar-btn{
+  background:#E8EFF7;border:none;color:#718096;
+  box-shadow:3px 3px 6px rgba(163,177,198,.3),-3px -3px 6px rgba(255,255,255,.5);
+}
+body.neu-mode .chat-sms-topbar-btn.sms-active{
+  color:#5A8FCA;
+  box-shadow:inset 2px 2px 4px rgba(163,177,198,.35),inset -2px -2px 4px rgba(255,255,255,.6);
+}
+body.neu-mode .sms-dot{background:#718096}
+body.neu-mode .sms-fire-btn #smsQueueCount{background:#5A8FCA;color:#fff}
+body.neu-mode .sms-skip{border-color:rgba(90,143,202,.3);color:#718096}
+
+/* ── 暗金 ── */
+body.dark-gold-mode .sms-typing{background:rgba(30,26,24,.6);border-color:rgba(228,212,199,.06)}
+body.dark-gold-mode .chat-sms-topbar-btn{background:rgba(212,160,74,.08);border-color:rgba(212,160,74,.15);color:#D4A04A}
+body.dark-gold-mode .chat-sms-topbar-btn.sms-active{background:rgba(212,160,74,.2);border-color:#D4A04A;color:#fef9c9}
+body.dark-gold-mode .sms-dot{background:#8c7a65}
+body.dark-gold-mode .sms-fire-btn #smsQueueCount{background:#D4A04A;color:#141211}
