@@ -64,7 +64,7 @@ jobs:
             echo "⏭️ 跳过 restore_transcript_to_chat.js（已禁用）"
 
             # 诊断
-            node diag_expiry.js
+            node diag_file.js
 
             # 清理重复消息 + 加 stable id
             node dedup_daily.js || echo "⚠️ 去重流程结束"
