@@ -15,5 +15,17 @@ for (const f of stores) {
         }
     }
 }
-fs.writeFileSync(__dirname + '/data/diag_result.json', JSON.stringify({output: out || 'NO RING MEMORY FOUND'}));
+// Also dump raw tag format for ring memories
+let tagDiag = '';
+for (const f of ['long_term_memories.json']) {
+    const p = __dirname + '/data/' + f;
+    const ms = JSON.parse(fs.readFileSync(p, 'utf8'));
+    for (const m of (Array.isArray(ms)?ms:[])) {
+        if ((m.tags||[]).some(t => (t||'').includes('戒指'))) {
+            tagDiag += 'id:' + m.id + ' tags: ' + JSON.stringify(m.tags) + ' len:' + (m.tags||[]).length + '\n';
+        }
+    }
+}
+fs.writeFileSync(__dirname + '/data/diag_result.json', JSON.stringify({output: out, tagDiag: tagDiag || 'none'}));
+console.log(out); console.log(tagDiag);
 console.log(out || 'NO RING MEMORY FOUND');
