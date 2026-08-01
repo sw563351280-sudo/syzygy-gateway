@@ -23,15 +23,12 @@ const SMS_ADAPTER = {
       ? window.getActiveVersion
       : (m) => (m.versions && m.versions.length > 0 ? m.versions[m.activeVersion || 0] || m.versions[0] : m);
 
-    const historyMsgs = session.messages.slice(-31, -1).map(function(m) {
+    const historyMsgs = session.messages.slice(-30).map(function(m) {
       const v = getActiveVersion(m);
-      let safeContent = v.content;
-      if (Array.isArray(v.content)) {
-        const textParts = [];
-        for (let j = 0; j < v.content.length; j++) {
-          if (v.content[j].type === 'text') textParts.push(v.content[j].text || '');
-        }
-        safeContent = textParts.join(' ') || '（发送了图片）';
+      let safeContent = (m.segments || v.segments || []).join('\n') || v.content;
+      if (Array.isArray(safeContent)) {
+        safeContent = safeContent.filter(function(x) { return x && x.type === 'text'; })
+                                 .map(function(x) { return x.text || ''; }).join(' ') || '（发送了图片）';
       }
       if (typeof safeContent === 'string' && safeContent.includes('data:image')) {
         safeContent = '（发送了图片）';
@@ -477,9 +474,12 @@ function smsRenderHistoryMessage(msg) {
                String(v.content || msg.content || '').split('\n').filter(Boolean);
   const role = msg.role === 'user' ? 'user' : 'sys';
   const think = v.reasoning || v.thinking || msg.reasoning || '';
+  const times = msg.segTimes || [];
+  const baseMs = v.fullTime ? Date.parse(v.fullTime) : (msg.fullTime ? Date.parse(msg.fullTime) : Date.now());
   segs.forEach((s, i) => smsAppendBubble(s, role, {
     think:  i === 0 ? think : null,
     meta:   i === segs.length - 1,
+    ts:     times[i] || baseMs,
     silent: true,    // 历史回放不响提示音
   }));
 }

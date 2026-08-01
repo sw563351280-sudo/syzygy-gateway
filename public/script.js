@@ -431,6 +431,39 @@ function simpleContentHash(c) {
     return Math.abs(h).toString(36).substring(0, 8);
 }
 
+/* 归一化消息正文：用于跨来源内容比对 */
+function normMsgText(m) {
+  const v = (typeof getActiveVersion === 'function') ? getActiveVersion(m) : m;
+  let c = (m.segments || v.segments || []).join('') || v.content || m.content || '';
+  if (Array.isArray(c)) {
+    c = c.filter(function(x) { return x && x.type === 'text'; }).map(function(x) { return x.text || ''; }).join('');
+  }
+  return String(c).replace(/\|\|\|/g, '').replace(/\s+/g, '');
+}
+
+/* 丢弃服务端回声：id 为空或以 cp_ 开头，且内容已在亲手写的消息里出现过 */
+function dropServerEchoes(msgs) {
+  const authored = new Set();
+  for (var i = 0; i < msgs.length; i++) {
+    var m = msgs[i];
+    var id = String(m._id || m.id || '');
+    if (!id || id.indexOf('cp_') === 0) continue;
+    var t = normMsgText(m);
+    if (t) authored.add(m.role + '|' + t);
+  }
+  return msgs.filter(function (m) {
+    var id = String(m._id || m.id || '');
+    var isEcho = !id || id.indexOf('cp_') === 0 || m._crossPlatform;
+    if (!isEcho) return true;
+    var t = normMsgText(m);
+    if (t && authored.has(m.role + '|' + t)) {
+      console.log('[merge] 丢弃服务端回声: ' + t.slice(0, 30));
+      return false;
+    }
+    return true;
+  });
+}
+
 // 合并两条消息数组，按 key 去重，按时间排序
 function mergeMessageLists(serverMsgs, localMsgs) {
     const out = [];
@@ -461,7 +494,7 @@ function mergeMessageLists(serverMsgs, localMsgs) {
         if (a.t === b.t) return a.i - b.i;
         return a.t < b.t ? -1 : 1;
     });
-    return keyed.map(function (x) { return x.m; });
+    return dropServerEchoes(keyed.map(function (x) { return x.m; }));
 }
 
 // 合并频道列表
@@ -658,6 +691,7 @@ async function _doSave() {
         throw new Error('版本落后，保存被拒绝，请刷新页面');
     }
     if (d._version) _dataVersion = d._version;
+    _loopCount = 0; _loopLocalOnly = 0;
     console.log('[save:OK] v' + _dataVersion + ' ' + (Date.now()-_t0) + 'ms ' + (payloadBytes/1024).toFixed(0) + 'KB');
 }
 
