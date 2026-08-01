@@ -213,6 +213,7 @@ function renderArchive(){
     var act=m.category==='archived'?'<button onclick="restoreMem(\''+m.id+'\')">解封</button><button class="act-del" onclick="delArchMem(\''+m.id+'\')">🗑</button>':'<button onclick="editMem(\''+m.id+'\')">✏️</button><button onclick="toggleResolved(\''+m.id+'\','+!!m.resolved+')">'+(m.resolved?'✓已解决':'○未解决')+'</button><button class="act-del" onclick="delMem(\''+m.id+'\')">🗑</button>';
     return '<div class="mem-card src-'+srcKey(m)+'" id="card-'+m.id+'">'
       +selectBox
+      +((m.chunk_summary||m.summary)?'<div class="mem-summary" style="font-size:.75rem;color:var(--text-muted);margin-bottom:4px;padding:2px 6px;background:rgba(255,255,255,.03);border-radius:4px;border-left:2px solid #b99a5f">📋 '+(m.chunk_summary||m.summary).replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>':'')
       +'<div class="mem-content clamped" id="ctitle-'+m.id+'">'+(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>'
       +'<button class="mem-expand" id="expand-'+m.id+'" onclick="toggleCardExpand(\''+m.id+'\')">展开 ▾</button>'
       +(tags.length||ttl?'<div class="mem-tags">'+tags.join('')+(ttl?'<span class="mem-tag">'+ttl+'</span>':'')+'</div>':'')
