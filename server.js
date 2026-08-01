@@ -2006,7 +2006,7 @@ async function scanLongTermRadar(userText) {
             skipCount++;
         }
     }
-    const MAX_RADAR_LINES = 8;
+    const MAX_RADAR_LINES = 12;
     if (lines.length > MAX_RADAR_LINES) { lines.length = MAX_RADAR_LINES; console.log(`🪓 [雷达截断] 保留前${MAX_RADAR_LINES}条`); }
     console.log(`🔥 [热度分层] 全文${fullCount}条 | 摘要${summaryCount}条 | 跳过${skipCount}条`);
 
@@ -2717,7 +2717,7 @@ const MEMORY_RECALL_TOKEN_BUDGET = Number(process.env.MEMORY_RECALL_TOKEN_BUDGET
 
 const RADAR_TOPK = {
     core:       Number(process.env.RADAR_CORE_TOPK       || 3),
-    longTerm:   Number(process.env.RADAR_LONG_TERM_TOPK  || 5),
+    longTerm:   Number(process.env.RADAR_LONG_TERM_TOPK  || 8),
     roleplay:   Number(process.env.RADAR_ROLEPLAY_TOPK   || 5),
     transcript: Number(process.env.RADAR_TRANSCRIPT_TOPK || 4),
     unresolved: Number(process.env.RADAR_UNRESOLVED_TOPK || 2)
@@ -5068,6 +5068,8 @@ app.post('/api/archive-memories/:id/restore', (req, res) => {
     if (idx === -1) return res.status(404).json({ error: "未找到该冰封记忆" });
     const mem = archived.splice(idx, 1)[0];
     mem.last_accessed = Date.now();
+    mem.expires_at = null;
+    mem.ttl = 'perm';
     saveArchivedMemories(archived);
     const active = loadLongTermMemories(); active.push(mem); saveLongTermMemories(active);
     res.json({ success: true, memory: mem });
