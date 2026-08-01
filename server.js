@@ -1906,7 +1906,8 @@ function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', 
         heat: arousal || 0.5,
         emotional_weight: emotionalWeight || 0,
         last_recalled_at: null,
-        query_hashes: []
+        query_hashes: [],
+        chunk_summary: content.trim().substring(0, 60)
     };
     memories.push(entry); saveLongTermMemories(memories);
     ensureEmbedding(entry.id, entry.content).catch(e => console.log(`⚠️ [向量] 异步失败: ${e.message}`));
