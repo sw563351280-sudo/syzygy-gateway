@@ -49,7 +49,7 @@ const starState = { pendingMeteor: false, pendingNebula: false };
 // ==================== Markdown 渲染 ====================
 if (typeof marked !== 'undefined') { marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false }); }
 function stripInternalTags(text) { return (text||'').replace(/<MOOD_SNAPSHOT>[\s\S]*?<\/MOOD_SNAPSHOT>/g, '').replace(/\[\[MOOD_SNAPSHOT\]\][\s\S]*?\[\[MOOD_SNAPSHOT\]\]/g, '').replace(/<SAVE_MEMORY[\s\S]*?<\/SAVE_MEMORY>/g, '').replace(/<ADD_TODO>[\s\S]*?<\/ADD_TODO>/g, '').replace(/<DONE_TODO[^>]*\/>/g, '').trim(); }
-function renderMarkdown(text) { if (!text) return ''; text = String(text).replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : //g, '\n'); if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
+function renderMarkdown(text) { if (!text) return ''; text = String(text).replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '\n'); if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
 
 // ==================== 版本化消息辅助函数 ====================
 function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; if (v.toolCalls === undefined && msg.toolCalls !== undefined) v.toolCalls = msg.toolCalls; return v; } return msg; }
@@ -170,7 +170,7 @@ function onProactiveClick() { dismissProactive(); goView('chat'); if (activeChat
 function dismissProactive() { const inner = document.getElementById('proactiveNotifInner'); if (inner) inner.style.top = '-120px'; setTimeout(() => { const n = document.getElementById('proactiveNotif'); if (n) n.remove(); }, 500); }
 /* 归一化去重：去掉 ||| 和所有空白，让 "a|||b" 和 "a\nb" 得到同一个串 */
 function normForDedup(s) {
-  return String(s || '').replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : //g, '').replace(/\|\|\|/g, '').replace(/\s+/g, '');
+  return String(s || '').replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '').replace(/\|\|\|/g, '').replace(/\s+/g, '');
 }
 
 function tailHasContent(session, content, lookback) {
@@ -431,7 +431,7 @@ function msgKey(m) {
 
 function simpleContentHash(c) {
     if (typeof c !== 'string') c = JSON.stringify(c || '');
-    c = c.replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : //g, '');
+    c = c.replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '');
     var h = 0, i; for (i = 0; i < c.length; i++) { h = ((h << 5) - h + c.charCodeAt(i)) | 0; }
     return Math.abs(h).toString(36).substring(0, 8);
 }
@@ -443,7 +443,7 @@ function normMsgText(m) {
   if (Array.isArray(c)) {
     c = c.filter(function(x) { return x && x.type === 'text'; }).map(function(x) { return x.text || ''; }).join('');
   }
-  return String(c).replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : //g, '').replace(/\|\|\|/g, '').replace(/\s+/g, '');
+  return String(c).replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '').replace(/\|\|\|/g, '').replace(/\s+/g, '');
 }
 
 /* 丢弃服务端回声：id 为空或以 cp_ 开头，且内容已在亲手写的消息里出现过 */
@@ -1801,7 +1801,7 @@ function renderChatMessages(){
         // 渲染工具调用记录（整组折叠）
         if (v.toolCalls && v.toolCalls.length > 0) htmlContent += renderToolCallGroupHTML(v.toolCalls, false);
         if (m.role === 'user') {
-            htmlContent += '<div>' + String(displayContent || '').replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : //g, '\n').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
+            htmlContent += '<div>' + String(displayContent || '').replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '\n').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
         } else {
             htmlContent += '<div class="md-content">' + renderMarkdown(displayContent || '') + '</div>';
         }

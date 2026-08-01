@@ -3,25 +3,31 @@
    ══════════════════════════════════════════ */
 
 /* ── 碎条结构编码：分隔符写进 content，穿透所有存储层 ── */
-const SMS_SEP = '⁣';          // U+2063 INVISIBLE SEPARATOR，普通 Unicode 字符，绕过控制字符过滤
-const SMS_SEP_RE = /⁣/g;
+const SMS_SEP = '';          // 新消息写入用 U+001F
+const SMS_SEP_ANY = /[⁣]/;       // 识别：兼容 U+001F 和 U+2063（无 g，可安全 test/split）
+const SMS_SEP_STRIP = /[⁣]/g;    // 替换：删除两种分隔符
+const SMS_SEP_RE = SMS_SEP_STRIP;           // 兼容旧引用
 
 /* 碎条数组 → 单个 content 字符串 */
 function smsPack(segs) {
   const clean = (segs || [])
-    .map(s => String(s).replace(SMS_SEP_RE, ' ').trim())
+    .map(s => String(s).replace(SMS_SEP_STRIP, ' ').trim())
     .filter(Boolean);
   return clean.length > 1 ? clean.join(SMS_SEP) : (clean[0] || '') + SMS_SEP;
 }
 
-/* content 字符串 → 碎条数组 */
+/* content 字符串 → 碎条数组：先试分隔符，退化到换行 */
 function smsUnpack(content) {
-  return String(content || '').split(SMS_SEP).map(s => s.trim()).filter(Boolean);
+  const s = String(content || '');
+  if (SMS_SEP_ANY.test(s)) {
+    return s.split(SMS_SEP_ANY).map(x => x.trim()).filter(Boolean);
+  }
+  return s.split('\n').map(x => x.trim()).filter(Boolean);
 }
 
 /* 是否是 SMS 结构 */
 function smsHasSep(content) {
-  return typeof content === 'string' && content.indexOf(SMS_SEP) !== -1;
+  return typeof content === 'string' && SMS_SEP_ANY.test(content);
 }
 
 /* 转成纯文本：给模型、记忆、收藏、去重用 */
@@ -32,7 +38,7 @@ function smsPlain(content) {
       .map(x => smsPlain(x.text || ''))
       .join(' ');
   }
-  return String(content || '').replace(SMS_SEP_RE, '\n');
+  return String(content || '').replace(SMS_SEP_STRIP, '\n');
 }
 
 /* 取消息正文 */
@@ -45,6 +51,8 @@ function msgContentOf(m) {
 
 // 挂到 window，script.js 也要用
 window.SMS_SEP = SMS_SEP;
+window.SMS_SEP_ANY = SMS_SEP_ANY;
+window.SMS_SEP_STRIP = SMS_SEP_STRIP;
 window.SMS_SEP_RE = SMS_SEP_RE;
 window.smsPack = smsPack;
 window.smsUnpack = smsUnpack;
