@@ -346,8 +346,12 @@ function stripImagesForCloudSync(sessions) {
     return sessions.map(session => ({
         ...session,
         messages: (session.messages || []).map(msg => {
-            // SMS 扁平消息不经过 versions 映射，避免 versions:[] 覆盖
-            if (msg.mode === 'sms') return { ...msg };
+            // SMS 扁平消息：不经过 versions 映射，但剥掉图片字段
+            if (msg.mode === 'sms') {
+              const c = { ...msg };
+              delete c.image; delete c.images; delete c.segImages;
+              return c;
+            }
             return {
             ...msg,
             versions: (msg.versions || []).map(v => {

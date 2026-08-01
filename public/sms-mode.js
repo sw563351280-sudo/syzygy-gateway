@@ -11,30 +11,31 @@ const SMS_ADAPTER = {
   persist: () => {
     if (typeof saveToCloud === 'function') saveToCloud(true);
   },
-  requestOnce: async (extraSystem) => {
+  requestOnce: async (extraSystem, userText, allImages) => {
     const currentSup = (typeof suppliers !== 'undefined' && suppliers[activeSupIndex]) || null;
     if (!currentSup) throw new Error('未配置供应商');
 
     const session = (typeof getActiveSession === 'function') ? getActiveSession() : null;
     if (!session) throw new Error('无活跃会话');
 
-    // 组装历史（复用 sendChat 逻辑：最近 30 条，不含最后一条）
+    // 组装历史（和 sendChat 一致：slice(-31,-1) 去掉刚 push 的 userMsg，再手动补回含图版本）
     const getActiveVersion = (typeof window.getActiveVersion === 'function')
       ? window.getActiveVersion
       : (m) => (m.versions && m.versions.length > 0 ? m.versions[m.activeVersion || 0] || m.versions[0] : m);
 
-    const historyMsgs = session.messages.slice(-30).map(function(m) {
+    const historyMsgs = session.messages.slice(-31, -1).map(function(m) {
       const v = getActiveVersion(m);
-      let safeContent = (m.segments || v.segments || []).join('\n') || v.content;
-      if (Array.isArray(safeContent)) {
-        safeContent = safeContent.filter(function(x) { return x && x.type === 'text'; })
-                                 .map(function(x) { return x.text || ''; }).join(' ') || '（发送了图片）';
+      let c = m.segments ? m.segments.join('\n') : v.content;
+      if (Array.isArray(c)) {
+        c = c.filter(function(x) { return x && x.type === 'text'; })
+             .map(function(x) { return x.text || ''; }).join(' ') || '（发送了图片）';
       }
-      if (typeof safeContent === 'string' && safeContent.includes('data:image')) {
-        safeContent = '（发送了图片）';
-      }
-      return { role: m.role, content: safeContent };
+      if (typeof c === 'string' && c.includes('data:image')) c = '（发送了图片）';
+      return { role: m.role, content: c };
     });
+
+    // 补回当前用户消息（含多模态图）
+    historyMsgs.push({ role: 'user', content: smsBuildUserContent(userText || '', allImages || []) });
 
     // SMS system prompt 作为首条 system 消息（仅本次请求，不落盘）
     const messages = [{ role: 'system', content: extraSystem }, ...historyMsgs];
@@ -137,6 +138,19 @@ const smsUid = () =>
     ? crypto.randomUUID()
     : 'sms-' + Date.now() + '-' + Math.random().toString(36).slice(2));
 
+/* ── 组装多模态 user content（和 sendChat 同样的防代理站处理） ── */
+function smsBuildUserContent(text, images) {
+  if (!images || !images.length) return text;
+  const arr = [{ type: 'text', text: text || '（发送了图片）' }];
+  for (const img of images) {
+    const mm = (typeof img === 'string' ? img : '').match(/^data:(image\/\w+);base64,/);
+    const mime = mm ? mm[1] : 'image/jpeg';
+    const b64 = (typeof img === 'string' ? img : '').replace(/^data:image\/\w+;base64,/, '');
+    arr.push({ type: 'image_url', image_url: { url: 'data:' + mime + ';base64,' + b64 } });
+  }
+  return arr;
+}
+
 /* ── 相对时间 ── */
 function smsRelTime(ms) {
   const diff = Date.now() - ms;
@@ -191,12 +205,32 @@ function smsToggleMode() {
 }
 
 /* ── 入队 ── */
+function smsQueueBytes() {
+  let n = 0;
+  for (const item of SMS.queue) {
+    for (const img of (item.images || [])) n += dataUrlByteSize(img);
+  }
+  return n;
+}
+
 function smsEnqueue(text) {
   const t = String(text || '').trim();
-  if (!t) return false;
-  SMS.queue.push(t);
-  SMS.segTimes.push(Date.now());
-  smsAppendBubble(t, 'user', { pending: true });
+  const imgs = (typeof currentImgBase64List !== 'undefined' && currentImgBase64List.length)
+    ? [...currentImgBase64List] : [];
+  if (!t && !imgs.length) return false;
+
+  let add = 0;
+  for (const img of imgs) add += dataUrlByteSize(img);
+  if (smsQueueBytes() + add > (typeof MAX_TOTAL_IMG_BYTES !== 'undefined' ? MAX_TOTAL_IMG_BYTES : 12 * 1024 * 1024)) {
+    if (typeof showToast === 'function') showToast('队列里的图片总大小超过上限（12 MB），先点「让他回」发出去再继续');
+    return false;
+  }
+
+  const at = Date.now();
+  SMS.queue.push({ text: t, images: imgs, at: at });
+  SMS.segTimes.push(at);
+  smsAppendBubble(t, 'user', { pending: true, images: imgs });
+  if (imgs.length && typeof clearImage === 'function') clearImage();
   smsRenderQueueCount();
   return true;
 }
@@ -214,9 +248,9 @@ async function smsFire() {
 
   SMS_SOUND.prime();
 
-  const segments = SMS.queue.slice();
-  const segTimes = SMS.segTimes.slice();
+  const items = SMS.queue.slice();
   SMS.queue = [];
+  const segTimes = SMS.segTimes.slice();
   SMS.segTimes = [];
   smsRenderQueueCount();
 
@@ -224,15 +258,21 @@ async function smsFire() {
   document.querySelectorAll('#chatWindow .sms-pending')
     .forEach(el => el.classList.remove('sms-pending'));
 
-  // 用户侧：一条消息，多个碎条（扁平格式，兼容 getActiveVersion 回退）
+  const segments = items.map(x => x.text);
+  const allImages = items.reduce((a, x) => { if (x.images) for (const im of x.images) a.push(im); return a; }, []);
+
+  // 用户侧：一条消息，多个碎条（走 versions 壳，和 sendChat 一致）
   const userMsg = {
     _id: smsUid(),
     role: 'user',
     mode: 'sms',
     segments,
     segTimes,
-    content: segments.join('\n'),
-    fullTime: new Date().toISOString(),
+    segImages: items.map(x => x.images || []),
+    images: allImages.length ? allImages : undefined,
+    image: allImages.length ? allImages[0] : undefined,
+    versions: [{ content: segments.join('\n'), fullTime: new Date().toISOString() }],
+    activeVersion: 0,
   };
   SMS_ADAPTER.getMessages().push(userMsg);
   SMS_ADAPTER.persist();
@@ -248,13 +288,13 @@ async function smsFire() {
 
   let raw = '', reasoning = '';
   try {
-    const res = await SMS_ADAPTER.requestOnce(SMS_PROMPT);
+    const res = await SMS_ADAPTER.requestOnce(SMS_PROMPT, segments.join('\n'), allImages);
     raw = res.content ?? res ?? '';
     reasoning = res.reasoning ?? '';
   } catch (err) {
     smsHideTyping();
     smsCleanupStreamLock();
-    smsShowError(err, () => { SMS.queue = segments.concat(SMS.queue); SMS.segTimes = segTimes.concat(SMS.segTimes); smsRenderQueueCount(); smsFire(); });
+    smsShowError(err, () => { SMS.queue = items.concat(SMS.queue); SMS.segTimes = segTimes.concat(SMS.segTimes); smsRenderQueueCount(); smsFire(); });
     return;
   }
 
@@ -404,8 +444,27 @@ function smsAppendBubble(text, role, opt = {}) {
   const bubble = document.createElement('div');
   bubble.className = 'msg ' + (role === 'user' ? 'user' : 'sys') + ' sms-bubble';
   if (opt.pending) bubble.classList.add('sms-pending');
-  bubble.textContent = text;
-  row.appendChild(bubble);
+
+  if (opt.images && opt.images.length) {
+    const wrap = document.createElement('div');
+    wrap.className = 'sms-img-wrap';
+    opt.images.forEach((src, i) => {
+      const im = document.createElement('img');
+      im.src = src;
+      im.className = 'sms-img';
+      im.alt = '发送的图片 ' + (i + 1) + '，共 ' + opt.images.length + ' 张';
+      im.loading = 'lazy';
+      wrap.appendChild(im);
+    });
+    bubble.appendChild(wrap);
+  }
+
+  if (text) {
+    const span = document.createElement('span');
+    span.className = 'sms-text';
+    span.textContent = text;
+    bubble.appendChild(span);
+  }
 
   if (opt.meta) {
     const meta = document.createElement('div');
@@ -475,10 +534,12 @@ function smsRenderHistoryMessage(msg) {
   const role = msg.role === 'user' ? 'user' : 'sys';
   const think = v.reasoning || v.thinking || msg.reasoning || '';
   const times = msg.segTimes || [];
+  const allImgs = msg.segImages || [];
   const baseMs = v.fullTime ? Date.parse(v.fullTime) : (msg.fullTime ? Date.parse(msg.fullTime) : Date.now());
   segs.forEach((s, i) => smsAppendBubble(s, role, {
     think:  i === 0 ? think : null,
     meta:   i === segs.length - 1,
+    images: allImgs[i] && allImgs[i].length ? allImgs[i] : null,
     ts:     times[i] || baseMs,
     silent: true,    // 历史回放不响提示音
   }));

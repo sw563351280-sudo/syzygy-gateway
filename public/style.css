@@ -3138,3 +3138,13 @@ body.dark-gold-mode .sms-fire-btn #smsQueueCount{background:#D4A04A;color:#14121
   background:linear-gradient(90deg,transparent,currentColor,transparent);
   opacity:.18;
 }
+
+/* ── SMS 图片 ── */
+.sms-img-wrap{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
+.sms-img{
+  max-width:130px; max-height:130px;
+  border-radius:10px; object-fit:cover;
+  box-shadow:0 2px 8px rgba(0,0,0,.22);
+}
+.sms-bubble .sms-text{ display:block; }
+body.neu-mode .sms-img{ box-shadow:3px 3px 8px rgba(163,177,198,.4); }
