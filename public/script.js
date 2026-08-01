@@ -445,11 +445,13 @@ function mergeSessionLists(serverSessions, localSessions) {
 // ===== 重同步与合并 =====
 
 let _syncing = false;
+let _syncingPromise = null;
 
 // 从服务端拉取并与本地合并。返回 { serverAdded, localOnly } 或 null
 async function resyncAndMerge(reason) {
-    if (_syncing) return null;
+    if (_syncing) return await _syncingPromise;
     _syncing = true;
+    _syncingPromise = (async () => {
     try {
         const r = await fetch('/api/sync-config', { cache: 'no-store' });
         if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -491,7 +493,10 @@ async function resyncAndMerge(reason) {
         return null;
     } finally {
         _syncing = false;
+        _syncingPromise = null;
     }
+    })();
+    return await _syncingPromise;
 }
 
 async function resyncIfStale(reason) {
@@ -574,39 +579,49 @@ async function _doSave() {
     if (d._rejected) {
         if (mergeSyncEnabled()) {
             console.warn('🛡️ [版本落后] 服务端有更新，拉取合并后重试');
-            await resyncAndMerge('version-conflict');
+            const res = await resyncAndMerge('version-conflict');
+            if (!res) throw new Error('版本冲突且重新同步失败，稍后重试');
             throw new Error('版本冲突，已重新同步，重试保存');
         }
-        if (d._version) _dataVersion = d._version;
-        console.warn('🛡️ [版本落后] 本次保存被拒绝，请刷新页面');
-        return;
+        // 开关关闭时不能静默成功
+        throw new Error('版本落后，保存被拒绝，请刷新页面');
     }
     if (d._version) _dataVersion = d._version;
 }
 
+let _savingNow = false;
+let _saveQueued = false;
+
 function saveToCloud(immediate) {
     clearTimeout(_saveTimer);
     const doSave = async () => {
-        const delays = [1000, 2000, 4000]; // 指数退避
-        for (let attempt = 0; attempt <= delays.length; attempt++) {
-            try {
-                await _doSave();
-                _saveFailCount = 0;
-                _showSaveWarning(false);
-                return; // 成功
-            } catch(e) {
-                _lastSaveError = e.message;
-                console.log('💾 [保存失败] 第' + (attempt + 1) + '次: ' + e.message);
-                if (attempt < delays.length) {
-                    await new Promise(r => setTimeout(r, delays[attempt]));
+        if (_savingNow) { _saveQueued = true; return; }
+        _savingNow = true;
+        try {
+            const delays = [1000, 2000, 4000]; // 指数退避
+            for (let attempt = 0; attempt <= delays.length; attempt++) {
+                try {
+                    await _doSave();
+                    _saveFailCount = 0;
+                    _showSaveWarning(false);
+                    return; // 成功
+                } catch(e) {
+                    _lastSaveError = e.message;
+                    console.log('💾 [保存失败] 第' + (attempt + 1) + '次: ' + e.message);
+                    if (attempt < delays.length) {
+                        await new Promise(r => setTimeout(r, delays[attempt]));
+                    }
                 }
             }
+            // 3 次重试全失败
+            _saveFailCount++;
+            const lastErr = _lastSaveError || '未知错误';
+            console.error('❌ [保存] 重试耗尽: ' + lastErr);
+            _showSaveWarning(true, lastErr);
+        } finally {
+            _savingNow = false;
+            if (_saveQueued) { _saveQueued = false; saveToCloud(true); }
         }
-        // 3 次重试全失败
-        _saveFailCount++;
-        const lastErr = _lastSaveError || '未知错误';
-        console.error('❌ [保存] 重试耗尽: ' + lastErr);
-        _showSaveWarning(true, lastErr);
     };
     if (immediate) doSave(); else _saveTimer = setTimeout(doSave, 500);
 }
@@ -3605,8 +3620,33 @@ async function stateSnapshot() {
 connectWebSocket();
 
 // 切回前台 / 网络恢复时补数据
+function saveLocalBackup() {
+    try {
+        var clone;
+        try { clone = structuredClone(chatSessions); } catch (_) { clone = JSON.parse(JSON.stringify(chatSessions)); }
+        localStorage.setItem('syzygy_local_backup', JSON.stringify({ sessions: clone, suppliers: suppliers, activeSupIndex: activeSupIndex, activeChatId: activeChatId, time: Date.now() }));
+    } catch(e) { console.warn('[backup] localStorage write failed:', e.message); }
+}
+
+function buildSavePayload() {
+    var clone;
+    try { clone = structuredClone(chatSessions); } catch (_) { clone = JSON.parse(JSON.stringify(chatSessions)); }
+    for (var si = 0; si < clone.length; si++) {
+        var s = clone[si]; if (!s.messages) continue;
+        s.messages = s.messages.slice(-200);
+        for (var mi = 0; mi < s.messages.length; mi++) { delete s.messages[mi]._zepDirty; }
+    }
+    return JSON.stringify({ suppliers: suppliers, chatSessions: clone, activeSupIndex: activeSupIndex, activeChatId: activeChatId, _version: _dataVersion });
+}
+
 document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) resyncIfStale('visible');
+    if (!document.hidden) { resyncIfStale('visible'); }
+    else {
+        saveLocalBackup();
+        if (_savingNow || _dataVersion > 0) {
+            try { navigator.sendBeacon('/api/sync-config', new Blob([buildSavePayload()], { type: 'application/json' })); } catch(_) {}
+        }
+    }
 });
 window.addEventListener('online', function () {
     resyncIfStale('online');
