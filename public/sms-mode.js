@@ -532,6 +532,7 @@ function smsAppendBubble(text, role, opt = {}) {
     bubble.appendChild(meta);
   }
 
+  row.appendChild(bubble);
   win.appendChild(row);
   win.scrollTop = win.scrollHeight;
 }
