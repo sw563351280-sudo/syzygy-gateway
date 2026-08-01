@@ -4152,6 +4152,7 @@ function insertProactiveToConfig(content) {
         if (mainS.messages.length > 200) mainS.messages = mainS.messages.slice(-200);
         config._version = (config._version || 0) + 1;
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        console.log('✅ [proactive] 写入成功 v' + config._version + ' [Proactive消息写入]');
     } catch(e) {}
 }
 
@@ -6838,7 +6839,7 @@ app.post('/api/sync-config', (req, res) => {
         };
         fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2));
         const fileSize = fs.statSync(CONFIG_FILE).size;
-        console.log('✅ [sync-config] 写入成功 v' + newVersion + ' 文件 ' + (fileSize / 1024).toFixed(0) + ' KB');
+        console.log('✅ [sync-config] 写入成功 v' + newVersion + ' 文件 ' + (fileSize / 1024).toFixed(0) + ' KB  来源: ' + (req.headers['user-agent'] || '?').substring(0,60) + '  ip: ' + (req.ip || '?').substring(0,20));
         res.json({ success: true, _version: newVersion });
         setImmediate(() => { updateRollingSummaries(data.chatSessions).catch(e => console.log('rolling summary failed:', e.message)); });
     } catch(e) {

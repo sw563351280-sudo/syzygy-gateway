@@ -568,13 +568,13 @@ async function _doSave() {
 
     // 4. 超过 15 MB → 从最旧的图片轮次开始逐轮移除
     if (payloadBytes > MAX_SYNC_BYTES) {
-        console.warn('[sync-config] payload 超 15 MB (' + (payloadBytes / 1024 / 1024).toFixed(1) + ' MB)，逐轮移除最旧图片');
+        console.warn('[sync-config] payload 超 ' + (MAX_SYNC_BYTES / 1024 / 1024) + ' MB (' + (payloadBytes / 1024 / 1024).toFixed(1) + ' MB)，逐轮移除最旧图片');
         while (payloadBytes > MAX_SYNC_BYTES && _stripOldestImgRound(clone)) {
             payloadText = JSON.stringify(payloadObj);
             payloadBytes = new Blob([payloadText]).size;
         }
         if (payloadBytes > MAX_SYNC_BYTES) {
-            console.error('[sync-config] 逐轮移除后仍超 15 MB (' + (payloadBytes / 1024 / 1024).toFixed(1) + ' MB)，最新图片过大');
+            console.error('[sync-config] 逐轮移除后仍超限制 (' + (payloadBytes / 1024 / 1024).toFixed(1) + ' MB)，最新图片过大');
             throw new Error('最新图片过大，云端同步失败。请减少图片或清理旧频道后重试。');
         }
     }
@@ -3670,8 +3670,20 @@ function saveLocalBackup() {
     try {
         var clone;
         try { clone = structuredClone(chatSessions); } catch (_) { clone = JSON.parse(JSON.stringify(chatSessions)); }
+        // 剥掉图片 base64，只保留文本（不占用 localStorage 配额）
+        for (var si = 0; si < clone.length; si++) {
+            var s = clone[si]; if (!s.messages) continue;
+            for (var mi = 0; mi < s.messages.length; mi++) {
+                var m = s.messages[mi];
+                delete m.image; delete m.images;
+                if (m.versions) m.versions.forEach(function(v) { delete v.image; delete v.images; });
+            }
+        }
         localStorage.setItem('syzygy_local_backup', JSON.stringify({ sessions: clone, suppliers: suppliers, activeSupIndex: activeSupIndex, activeChatId: activeChatId, time: Date.now() }));
-    } catch(e) { console.warn('[backup] localStorage write failed:', e.message); }
+    } catch(e) {
+        console.warn('[backup] localStorage write failed:', e.message);
+        if (!document.hidden) toast('本地备份失败：存储空间不足');
+    }
 }
 
 function buildSavePayload() {
