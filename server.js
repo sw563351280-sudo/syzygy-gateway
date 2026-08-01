@@ -1293,6 +1293,7 @@ async function reindexAllEmbeddings() {
             cache[m.id] = embedding;
             indexed++;
         } else {
+            console.log(`🧲 [向量索引] 失败: id=${m.id} content=${(m.content||'').substring(0,80)}`);
             failed++;
         }
         await new Promise(r => setTimeout(r, 200));
