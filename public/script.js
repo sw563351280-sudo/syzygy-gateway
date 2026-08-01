@@ -459,9 +459,15 @@ function mergeSessionLists(serverSessions, localSessions) {
 
 let _syncing = false;
 let _syncingPromise = null;
+let _resyncPendingReason = null;
 
 // 从服务端拉取并与本地合并。返回 { serverAdded, localOnly } 或 null
 async function resyncAndMerge(reason) {
+    if (_isStreamingReply) {
+        console.log('[resync] 流式进行中，跳过: ' + reason);
+        _resyncPendingReason = reason;
+        return null;
+    }
     if (_syncing) return await _syncingPromise;
     _syncing = true;
     _syncingPromise = (async () => {
@@ -1575,6 +1581,10 @@ function renderChatSidebar(){
     `).join('');
 }
 
+function getLiveSession(id) {
+    return chatSessions.find(function(s) { return s.id === id; }) || getActiveSession();
+}
+
 function getActiveSession(){
     if(!chatSessions || chatSessions.length === 0) chatSessions = [{ id: 'main', name: '主频道', messages: [] }];
     return chatSessions.find(s => s.id === activeChatId) || chatSessions[0];
@@ -1745,6 +1755,7 @@ async function sendChat(options = {}) {
     if(!input) return;
 
     const session = getActiveSession();
+    const sessionId = session.id;
     const win = document.getElementById('chatWindow');
 
     let existingUserVersion = null;
@@ -2124,7 +2135,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
         const domThinking = thinkTextDiv && thinkBox && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || '');
         assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
-        session.messages.push(assistantMsg);
+        getLiveSession(sessionId).messages.push(assistantMsg);
         // 先存本地备份，再尝试云端同步
         try { localStorage.setItem('syzygy_urgent_bak', JSON.stringify({ sessions: chatSessions, ver: _dataVersion, ts: Date.now() })); } catch(_) {}
         saveToCloud(true);  // 立即保存，不延迟
@@ -2142,13 +2153,17 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
             versions: [{ content: '【发送失败】' + err.message, fullTime: new Date().toISOString(), time: new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}), model: selectedModel, _failed: true }],
             activeVersion: 0, _failed: true
         };
-        session.messages.push(failMsg);
+        getLiveSession(sessionId).messages.push(failMsg);
         saveToCloud(true);
         renderChatMessages();
     } finally {
         clearTimeout(toolHintTimer); clearTimeout(toolHintTimer2);
         _isStreamingReply = false;
         if (_renderDeferred) { _renderDeferred = false; renderChatMessages(); }
+        if (_resyncPendingReason) {
+            var _pr = _resyncPendingReason; _resyncPendingReason = null;
+            setTimeout(function(){ resyncAndMerge(_pr); }, 1500);
+        }
     }
     } catch (e) {
         console.error('sendChat exception:', e);
