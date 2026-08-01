@@ -2136,15 +2136,25 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         const domThinking = thinkTextDiv && thinkBox && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || '');
         assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
         getLiveSession(sessionId).messages.push(assistantMsg);
-        console.log('[sendChat] pushed assistantMsg, total msgs:', getLiveSession(sessionId).messages.length, 'content len:', (fullReply||'').length, 'sessionId:', sessionId);
         // 先存本地备份，再尝试云端同步
         try { localStorage.setItem('syzygy_urgent_bak', JSON.stringify({ sessions: chatSessions, ver: _dataVersion, ts: Date.now() })); } catch(_) {}
-        saveToCloud(true);  // 立即保存，不延迟
+        saveToCloud(true);
         fetchPulseStatus();
         clearTimeout(silenceTimer);
         if (window._coreStreamEnd) window._coreStreamEnd();
         triggerStarEffects(val, fullReply);
-        // renderChatMessages 统一在 finally 中延迟到 _isStreamingReply=false 之后执行
+        // 不调用 renderChatMessages() —— sDiv 已经有流式输出内容
+        // 追加 meta 和 action 按钮到现有气泡
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'msg-meta';
+        metaDiv.innerText = timeStr + (selectedModel ? ' · ' + selectedModel : '');
+        sDiv.appendChild(metaDiv);
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'msg-actions';
+        const msgIdx = getLiveSession(sessionId).messages.length - 1;
+        actionsDiv.innerHTML = '<button class="msg-inline-btn" onclick="regenerateAt(' + msgIdx + ')" title="重新生成">↻</button><button class="msg-inline-btn fav-star" id="favBtn_' + msgIdx + '" onclick="openFavDialog(' + msgIdx + ')" title="收藏">★</button>';
+        sDiv.appendChild(actionsDiv);
+        sDiv.classList.remove('msg-loading');
 
     } catch (err) {
         clearTimeout(silenceTimer);
@@ -2156,13 +2166,12 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         };
         getLiveSession(sessionId).messages.push(failMsg);
         saveToCloud(true);
-        renderChatMessages();
+        sDiv.innerHTML = '<div class="msg-error"><div>【网络崩溃】</div><div class="msg-error-detail">'+err.message+'</div><button class="msg-retry-btn" onclick="retryLastMessage(this)">↻ 重新发送</button></div>';
+        sDiv.classList.add('msg-failed');
     } finally {
         clearTimeout(toolHintTimer); clearTimeout(toolHintTimer2);
         _isStreamingReply = false;
-        _renderDeferred = false;
-        console.log('[sendChat] finally render, msgs:', getActiveSession().messages.length, 'streaming was:', true);
-        renderChatMessages();
+        if (_renderDeferred) { _renderDeferred = false; renderChatMessages(); }
         if (_resyncPendingReason) {
             var _pr = _resyncPendingReason; _resyncPendingReason = null;
             setTimeout(function(){ resyncAndMerge(_pr); }, 1500);
