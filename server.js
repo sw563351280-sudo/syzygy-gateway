@@ -264,7 +264,15 @@ app.post('/api/logout', (req, res) => {
 // ==========================================
 // 健康检查
 // ==========================================
-app.get('/health', (req, res) => res.json({ ok: true }));
+app.get('/health', (req, res) => {
+    try {
+        const d = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'web_config.json'), 'utf8'));
+        const ms = d.chatSessions[0].messages;
+        const last = ms[ms.length-1];
+        const v = (last.versions||[{}])[last.activeVersion||0]||{};
+        res.json({ ok: true, msgCount: ms.length, lastMsgTime: v.fullTime, lastRole: last.role });
+    } catch(e) { res.json({ ok: true, error: e.message }); }
+});
 
 // 临时诊断：embedding 服务状态
 // GET: 只读，不探测不重置
