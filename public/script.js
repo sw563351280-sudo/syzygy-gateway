@@ -181,6 +181,9 @@ function handleCrossPlatformMessage(msg) {
 function handleDreamDone(msg) { toast('🌙 沈望做了个梦：' + (msg.summary || '整理完成')); }
 function handleMemorySaved(msg) { toast('💎 沈望悄悄记住了什么…'); }
 
+let _isStreamingReply = false;
+let _renderDeferred = false;
+
 // ==================== 核心数据 ====================
 const START_DATE = '2025-04-20';
 
@@ -1429,10 +1432,6 @@ async function floDoBackfill() {
     } catch(e) { console.error(e); }
 }
 
-function escHtml(s) {
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
 // ═══ 喝水 ═══
 let needsWaterSync = false;
 function neuWaterKey() {
@@ -1603,6 +1602,7 @@ function updateToolGroupDOM(el, toolCalls, isStreaming) {
 }
 
 function renderChatMessages(){
+    if (_isStreamingReply) { _renderDeferred = true; return; }
     const win = document.getElementById('chatWindow');
     if(!win) return;
     win.innerHTML = '';
@@ -1654,7 +1654,14 @@ function renderChatMessages(){
             actionsHtml += '<div class="version-nav"><button class="ver-btn" onclick="switchVersion(' + index + ',-1)"' + (vIdx===0?' disabled':'') + '>‹</button><span class="ver-label">' + (vIdx+1) + ' / ' + vCount + '</span><button class="ver-btn" onclick="switchVersion(' + index + ',1)"' + (vIdx===vCount-1?' disabled':'') + '>›</button></div>';
         }
         if(m.role === 'user'){ actionsHtml += '<button class="msg-inline-btn" onclick="editUserMessage(' + index + ')" title="编辑">✎</button>'; actionsHtml += '<button class="msg-inline-btn" onclick="resendUserMessage(' + index + ')" title="重新发送">↻</button>'; }
-        if(m.role === 'assistant'){ actionsHtml += '<button class="msg-inline-btn" onclick="regenerateAt(' + index + ')" title="重新生成">↻</button>'; actionsHtml += '<button class="msg-inline-btn fav-star" id="favBtn_' + index + '" onclick="openFavDialog(' + index + ')" title="收藏">★</button>'; }
+        if(m.role === 'assistant'){
+            if (m._failed || v._failed) {
+                actionsHtml += '<button class="msg-inline-btn" onclick="retryLastMessage()" title="重发" style="color:#e74c3c">↻ 重发</button>';
+            } else {
+                actionsHtml += '<button class="msg-inline-btn" onclick="regenerateAt(' + index + ')" title="重新生成">↻</button>';
+            }
+            actionsHtml += '<button class="msg-inline-btn fav-star" id="favBtn_' + index + '" onclick="openFavDialog(' + index + ')" title="收藏">★</button>';
+        }
         actionsHtml += '</div>';
         htmlContent += actionsHtml;
 
@@ -1704,6 +1711,7 @@ function renameChatWindow(){
 }
 
 async function sendChat(options = {}) {
+    try {
     const reuseLastUser = !!options.reuseLastUser;
     const input = document.getElementById('chatInput');
     if(!input) return;
@@ -1760,30 +1768,8 @@ async function sendChat(options = {}) {
 
     }  // end if (!reuseLastUser)
 
-   // --- 2. 准备好沈望回复的空白气泡 ---
-    const sRow = document.createElement('div'); sRow.className = 'msg-row sys';
-    const sDiv = document.createElement('div'); sDiv.className = 'msg sys';
-    
-    sDiv.innerHTML = '<span class="loading-indicator">⟡ 信号传输中…</span>';
-    sDiv.classList.add('msg-loading');
-    sRow.appendChild(sDiv);
-    let firstChunkReceived = false;
-    const toolHintTimer = setTimeout(() => { if (!firstChunkReceived) { const el = sDiv.querySelector('.loading-indicator'); if (el) el.innerHTML = '🔧 沈望正在使用工具获取信息…<br><span style="font-size:0.75em;opacity:0.6;">（读取网页可能需要几秒钟）</span>'; } }, 3000);
-    const toolHintTimer2 = setTimeout(() => { if (!firstChunkReceived) { const el = sDiv.querySelector('.loading-indicator'); if (el) el.innerHTML = '🔧 多轮工具调用中，请稍候…'; } }, 8000);
-    
-    // 准备好小按键，打字时先隐身
-    const actionBtn = document.createElement('button');
-    actionBtn.className = 'msg-action-btn';
-    actionBtn.innerHTML = '⋮';
-    actionBtn.style.visibility = 'hidden'; 
-    sRow.appendChild(actionBtn);
-
-    win.appendChild(sRow); win.scrollTop = win.scrollHeight;
-    var toolCallRecords = [];
-
     // 💥 1. 准备图片：复用模式从版本取，普通模式从相册取
     var imgsToSend = [];
-
     if (reuseLastUser) {
         if (existingUserVersion.images && existingUserVersion.images.length > 0) {
             imgsToSend = [...existingUserVersion.images];
@@ -1795,27 +1781,36 @@ async function sendChat(options = {}) {
         clearImage();
     }
 
-    // 📏 检查所有图片 data URL 总字节数 — 超过 12 MB 阻止发送
+    // 📏 早退检查：必须在创建 sDiv 之前，避免孤儿气泡
     if (imgsToSend.length > 0) {
         let totalImgBytes = 0;
         for (const img of imgsToSend) totalImgBytes += dataUrlByteSize(img);
         if (totalImgBytes > MAX_TOTAL_IMG_BYTES) {
             toast('图片总大小 ' + (totalImgBytes / 1024 / 1024).toFixed(1) + ' MB 超过上限（12 MB），请减少图片数量');
-            // 把图片放回相册，方便用户删减后重新发送
-            currentImgBase64List = imgsToSend;
-            updateImagePreview();
+            currentImgBase64List = imgsToSend; updateImagePreview();
             return;
         }
     }
-
-    // ❌ 已经彻底删除了那句双倍烧钱的 await askShenWang！
-
-    // --- 3. 获取供应商、模型和流式开关 ---
     const currentSup = suppliers[activeSupIndex];
-    if(!currentSup) {
-        sDiv.innerHTML = '【系统提示】未配置供应商';
-        return;
-    }
+    if(!currentSup) { toast('未配置供应商'); return; }
+    // end early exits
+
+    var toolCallRecords = [];
+    var firstChunkReceived = false;
+    var sDiv = null; var sRow = null; var toolHintTimer = null; var toolHintTimer2 = null;
+    var assistantMsg = null;
+
+    _isStreamingReply = true;
+    try {
+   // --- 2. 准备好沈望回复的空白气泡 ---
+    sRow = document.createElement('div'); sRow.className = 'msg-row sys';
+    sDiv = document.createElement('div'); sDiv.className = 'msg sys';
+    sDiv.innerHTML = '<span class="loading-indicator">⟡ 信号传输中…</span>';
+    sDiv.classList.add('msg-loading');
+    sRow.appendChild(sDiv);
+    toolHintTimer = setTimeout(() => { if (!firstChunkReceived) { const el = sDiv.querySelector('.loading-indicator'); if (el) el.innerHTML = '🔧 沈望正在使用工具获取信息…<br><span style="font-size:0.75em;opacity:0.6;">（读取网页可能需要几秒钟）</span>'; } }, 3000);
+    toolHintTimer2 = setTimeout(() => { if (!firstChunkReceived) { const el = sDiv.querySelector('.loading-indicator'); if (el) el.innerHTML = '🔧 多轮工具调用中，请稍候…'; } }, 8000);
+    win.appendChild(sRow); win.scrollTop = win.scrollHeight;
     const modelEl = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按量]gemini-3-flash-preview';
     
@@ -1873,7 +1868,6 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
     // 最后一条用 userContent（包含你刚重写的完美图片数组）
     historyMsgs.push({ role: 'user', content: userContent });
 
-try {
         let apiUrl = '/v1/chat/completions';
         const viaMatch = currentSup.url.match(/\/via\/(\w+)\//);
         if (viaMatch) {
@@ -2100,33 +2094,35 @@ try {
         // --- 5. 存入云端，思考链从 DOM 取（避免流解析丢数据）---
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
         const domThinking = thinkTextDiv && thinkBox && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || '');
-        const assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
+        assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
         session.messages.push(assistantMsg);
         saveToCloud(true);  // 立即保存，不延迟
-        fetchPulseStatus();  // 刷新 Pulse 面板
+        fetchPulseStatus();
         clearTimeout(silenceTimer);
         if (window._coreStreamEnd) window._coreStreamEnd();
         triggerStarEffects(val, fullReply);
-
-        // 追加操作按钮到现有气泡（不动思考框）
-        const metaDiv = document.createElement('div');
-        metaDiv.className = 'msg-meta';
-        metaDiv.innerText = timeStr + (selectedModel ? ' · ' + selectedModel : '');
-        sDiv.appendChild(metaDiv);
-
-        const actionsDiv = document.createElement('div');
-        actionsDiv.className = 'msg-actions';
-        const msgIndex = session.messages.length - 1;
-        actionsDiv.innerHTML = '<button class="msg-inline-btn" onclick="regenerateAt(' + msgIndex + ')" title="重新生成">↻</button><button class="msg-inline-btn fav-star" id="favBtn_' + msgIndex + '" onclick="openFavDialog(' + msgIndex + ')" title="收藏">★</button>';
-        sDiv.appendChild(actionsDiv);
-
-        actionBtn.style.visibility = 'visible';
-        actionBtn.onclick = (e) => showContextMenu(e.clientX, e.clientY, { content: fullReply, thinking: thinkContent, time: timeStr, model: selectedModel, fullTime: new Date().toISOString() });
+        renderChatMessages();  // 统一渲染，不依赖裸节点
 
     } catch (err) {
         clearTimeout(silenceTimer);
-        sDiv.innerHTML = '<div class="msg-error"><div>【网络崩溃】</div><div class="msg-error-detail">'+err.message+'</div><button class="msg-retry-btn" onclick="retryLastMessage(this)">↻ 重新发送</button></div>';
-        sDiv.classList.add('msg-failed');
+        // 写入失败占位消息到 session，保证 re-render 不丢
+        const failMsg = {
+            role: 'assistant',
+            versions: [{ content: '【发送失败】' + err.message, fullTime: new Date().toISOString(), time: new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}), model: selectedModel, _failed: true }],
+            activeVersion: 0, _failed: true
+        };
+        session.messages.push(failMsg);
+        saveToCloud(true);
+        renderChatMessages();
+    } finally {
+        clearTimeout(toolHintTimer); clearTimeout(toolHintTimer2);
+        _isStreamingReply = false;
+        if (_renderDeferred) { _renderDeferred = false; renderChatMessages(); }
+    }
+    } catch (e) {
+        console.error('sendChat exception:', e);
+        toast('发送异常: ' + e.message);
+        _isStreamingReply = false;
     }
 }
 
@@ -2636,24 +2632,14 @@ function triggerRegenerate(){
     if(menu) menu.style.display = 'none';
     const session = getActiveSession();
     if(session.messages.length < 2) return;
-
-    const lastMsg = session.messages[session.messages.length - 1];
-    if(lastMsg.role === 'assistant'){
-        session.messages.pop();
-        const userMsg = session.messages.pop();
-        saveToCloud(); renderChatMessages();
-
-        const input = document.getElementById('chatInput');
-        const uv = getActiveVersion(userMsg);
-        if(input) input.value = typeof uv.content === 'string' ? uv.content : '';
-
-        // 💥 重新生成时，把历史消息里的图片重新塞回新相册
-        if(uv.image){
-            currentImgBase64List = [uv.image];
-            updateImagePreview();
+    // find last assistant message and regenerate at that index
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+        if (session.messages[i].role === 'assistant') {
+            regenerateAt(i);
+            return;
         }
-        toast('时光倒流...'); sendChat();
-    } else { toast('只能重置他的回复哦'); }
+    }
+    toast('没有可重新生成的回复');
 }
 
 // ==================== 日夜交替模式 ====================
@@ -2948,20 +2934,9 @@ function resendUserMessage(msgIndex) {
     const session = getActiveSession();
     const msg = session.messages[msgIndex];
     if (!msg || msg.role !== 'user') return;
-    const v = getActiveVersion(msg);
     session.messages.splice(msgIndex + 1);
-    const input = document.getElementById('chatInput');
-    if (input) input.value = v.content || '';
-    // 📸 从版本记录中恢复图片
-    if (v.images && v.images.length > 0) {
-        currentImgBase64List = [...v.images];
-        updateImagePreview();
-    } else if (v.image) {
-        currentImgBase64List = [v.image];
-        updateImagePreview();
-    }
     saveToCloud(); renderChatMessages();
-    sendChat();
+    sendChat({ reuseLastUser: true });
 }
 
 function regenerateAt(msgIndex) {
