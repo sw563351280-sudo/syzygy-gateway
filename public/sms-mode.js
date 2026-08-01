@@ -3,8 +3,8 @@
    ══════════════════════════════════════════ */
 
 /* ── 碎条结构编码：分隔符写进 content，穿透所有存储层 ── */
-const SMS_SEP = '';          // 任务 0 验证失败则改成 '⁣'
-const SMS_SEP_RE = //g;      // 同步改成 /⁣/g
+const SMS_SEP = '⁣';          // U+2063 INVISIBLE SEPARATOR，普通 Unicode 字符，绕过控制字符过滤
+const SMS_SEP_RE = /⁣/g;
 
 /* 碎条数组 → 单个 content 字符串 */
 function smsPack(segs) {
