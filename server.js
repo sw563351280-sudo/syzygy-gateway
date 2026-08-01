@@ -5006,7 +5006,7 @@ app.post('/api/long-term-memories', (req, res) => {
 
 //PATCH 接口：支持 resolved 字段 + 防御性守卫
 app.patch('/api/long-term-memories/:id', (req, res) => {
-    const { content, tags, resolved } = req.body;
+    const { content, tags, resolved, heat, chunk_summary } = req.body;
     let parsedTags = undefined;
     if (tags !== undefined) {
         if (Array.isArray(tags)) { parsedTags = tags.map(t => t.trim()).filter(Boolean); }
@@ -5025,6 +5025,8 @@ app.patch('/api/long-term-memories/:id', (req, res) => {
 
     if (content !== undefined) targetMemory.content = content.trim();
     if (parsedTags !== undefined) targetMemory.tags = parsedTags;
+    if (heat !== undefined) targetMemory.heat = parseFloat(heat);
+    if (chunk_summary !== undefined) targetMemory.chunk_summary = String(chunk_summary).trim();
     if (resolved !== undefined) targetMemory.resolved = resolved;
     targetMemory.updated_at = new Date().toISOString();
 

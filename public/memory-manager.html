@@ -217,7 +217,7 @@ function renderArchive(){
       +'<button class="mem-expand" id="expand-'+m.id+'" onclick="toggleCardExpand(\''+m.id+'\')">展开 ▾</button>'
       +(tags.length||ttl?'<div class="mem-tags">'+tags.join('')+(ttl?'<span class="mem-tag">'+ttl+'</span>':'')+'</div>':'')
       +'<div class="mem-meta"><span>'+new Date(m.created_at).toLocaleString('zh-CN')+' · '+srcLabel(m.source)+' '+heatBar+'</span><div class="mem-actions">'+act+'</div></div>'
-      +'<div class="edit-area" id="edit-'+m.id+'"><textarea id="ta-'+m.id+'">'+(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</textarea><input id="tags-'+m.id+'" value="'+(m.tags||[]).join(',')+'"><div class="btn-row"><button class="btn-sm accent" onclick="saveEdit(\''+m.id+'\')">保存</button><button class="btn-sm" onclick="cancelEdit(\''+m.id+'\')">取消</button></div></div>'
+      +'<div class="edit-area" id="edit-'+m.id+'"><textarea id="ta-'+m.id+'">'+(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</textarea><input id="tags-'+m.id+'" value="'+(m.tags||[]).join(',')+'" placeholder="标签,逗号分隔"><input id="heat-'+m.id+'" value="'+(m.heat||0.5)+'" placeholder="热度 0-1" style="width:80px"><input id="sum-'+m.id+'" value="'+(m.chunk_summary||'').replace(/"/g,'&quot;')+'" placeholder="摘要 (chunk_summary)"><div class="btn-row"><button class="btn-sm accent" onclick="saveEdit(\''+m.id+'\')">保存</button><button class="btn-sm" onclick="cancelEdit(\''+m.id+'\')">取消</button></div></div>'
       +'</div>';
   }).join('');
 }
@@ -246,7 +246,7 @@ document.getElementById('segHeat').classList.add('active');
 /* ── edit ── */
 function editMem(id){document.getElementById('ctitle-'+id).style.display='none';document.getElementById('expand-'+id).style.display='none';document.getElementById('edit-'+id).style.display='block'}
 function cancelEdit(id){document.getElementById('ctitle-'+id).style.display='';document.getElementById('expand-'+id).style.display='';document.getElementById('edit-'+id).style.display='none'}
-async function saveEdit(id){var c=document.getElementById('ta-'+id).value;var t=document.getElementById('tags-'+id).value.split(',').filter(Boolean);await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({content:c,tags:t})});loadArchive()}
+async function saveEdit(id){var c=document.getElementById('ta-'+id).value;var t=document.getElementById('tags-'+id).value.split(',').filter(Boolean);var h=parseFloat(document.getElementById('heat-'+id).value);var s=document.getElementById('sum-'+id).value;var body={content:c,tags:t};if(!isNaN(h))body.heat=h;if(s!==undefined)body.chunk_summary=s;await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});loadArchive()}
 
 /* ── single ops ── */
 async function delMem(id){if(confirm('删除这条记忆？')){await fetch('/api/long-term-memories/'+id,{method:'DELETE'});loadArchive()}}
