@@ -63,8 +63,8 @@ jobs:
             # 从对话原文恢复可能被旧标签页覆盖的消息（已禁用：会在顶部插入重复旧消息）
             echo "⏭️ 跳过 restore_transcript_to_chat.js（已禁用）"
 
-            # 导入浏览器导出的未同步消息
-            node import_rescue.js || echo "⚠️ 导入流程结束"
+            # 清理重复消息 + 加 stable id
+            node dedup_daily.js || echo "⚠️ 去重流程结束"
             node restore_recent.js || echo "⚠️ 恢复流程结束"
 
             # 清理重复消息 + 按时间排序

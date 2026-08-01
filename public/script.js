@@ -171,12 +171,12 @@ function dismissProactive() { const inner = document.getElementById('proactiveNo
 function handleCrossPlatformMessage(msg) {
     const mainSession = chatSessions.find(s => s.id === 'main');
     if (!mainSession) return;
-    if (msg.user?.content) mainSession.messages.push({ role: 'user', versions: [{ content: msg.user.content, fullTime: msg.fullTime || new Date().toISOString(), _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
-    if (msg.assistant?.content) mainSession.messages.push({ role: 'assistant', versions: [{ content: msg.assistant.content, fullTime: msg.fullTime || new Date().toISOString(), model: msg.assistant.model || '', _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
+    if (msg.user?.content) mainSession.messages.push({ _id: 'cp_' + (msg.fullTime || Date.now()), role: 'user', versions: [{ content: msg.user.content, fullTime: msg.fullTime || new Date().toISOString(), _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
+    if (msg.assistant?.content) mainSession.messages.push({ _id: 'cp_' + (msg.fullTime || Date.now()) + '_a', role: 'assistant', versions: [{ content: msg.assistant.content, fullTime: msg.fullTime || new Date().toISOString(), model: msg.assistant.model || '', _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
     saveToCloud();
     if (activeChatId === 'main') renderChatMessages();
     const preview = (msg.assistant?.content || '').substring(0, 30);
-    toast('⊹ 沈望在别处说了："' + preview + (preview.length >= 30 ? '…' : '') + '"');
+    if (preview) toast('⊹ 沈望在别处说了："' + preview + (preview.length >= 30 ? '…' : '') + '"');
 }
 function handleDreamDone(msg) { toast('🌙 沈望做了个梦：' + (msg.summary || '整理完成')); }
 function handleMemorySaved(msg) { toast('💎 沈望悄悄记住了什么…'); }
@@ -383,15 +383,19 @@ function msgSortTime(m) {
 
 // 消息唯一键：优先 fullTime，缺失则退化为 role + 正文前 60 字
 function msgKey(m) {
+    // 优先用稳定 id（新消息），回退到 fullTime，再回退到内容 hash
+    if (m._id) return 'I' + m._id;
+    if (m.id) return 'I' + m.id;
     const v = getActiveVersion(m);
+    if (m._id || v._id) return 'I' + (m._id || v._id);
     if (v.fullTime) return 'T' + v.fullTime;
-    let c = v.content;
-    if (Array.isArray(c)) {
-        c = c.filter(function (p) { return p.type === 'text'; })
-             .map(function (p) { return p.text || ''; }).join(' ');
-    }
-    if (typeof c !== 'string') c = '';
-    return 'C' + m.role + '|' + c.substring(0, 60);
+    return 'H' + m.role + '|' + simpleContentHash(v.content);
+}
+
+function simpleContentHash(c) {
+    if (typeof c !== 'string') c = JSON.stringify(c || '');
+    var h = 0, i; for (i = 0; i < c.length; i++) { h = ((h << 5) - h + c.charCodeAt(i)) | 0; }
+    return Math.abs(h).toString(36).substring(0, 8);
 }
 
 // 合并两条消息数组，按 key 去重，按时间排序
@@ -1818,7 +1822,7 @@ async function sendChat(options = {}) {
 
     // 📸 保存压缩后的图片到版本记录（保留最近 5 轮可查看/重新生成）
     const savedImages = currentImgBase64List.length > 0 ? [...currentImgBase64List] : null;
-    session.messages.push({ role: 'user', versions: [{ content: val, fullTime: new Date().toISOString(), image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
+    session.messages.push({ _id: crypto.randomUUID(), role: 'user', versions: [{ content: val, fullTime: new Date().toISOString(), image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
     saveToCloud(true);  // 立即保存，不延迟
 
     }  // end if (!reuseLastUser)
@@ -2150,7 +2154,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         // --- 5. 存入云端，思考链从 DOM 取（避免流解析丢数据）---
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
         const domThinking = thinkTextDiv && thinkBox && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || '');
-        assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
+        assistantMsg = { _id: crypto.randomUUID(), role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
         getLiveSession(sessionId).messages.push(assistantMsg);
         // 先存本地备份，再尝试云端同步
         try { localStorage.setItem('syzygy_urgent_bak', JSON.stringify({ sessions: chatSessions, ver: _dataVersion, ts: Date.now() })); } catch(_) {}
@@ -2176,6 +2180,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         clearTimeout(silenceTimer);
         // 写入失败占位消息到 session，保证 re-render 不丢
         const failMsg = {
+            _id: crypto.randomUUID(),
             role: 'assistant',
             versions: [{ content: '【发送失败】' + err.message, fullTime: new Date().toISOString(), time: new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}), model: selectedModel, _failed: true }],
             activeVersion: 0, _failed: true
