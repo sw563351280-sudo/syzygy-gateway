@@ -412,12 +412,6 @@ function smsSplit(raw) {
 
   // 兜底：超长的按标点二次拆
   parts = smsResplitLong(parts, 18);
-
-  if (parts.length > SMS.MAX_SEG) {
-    const head = parts.slice(0, SMS.MAX_SEG - 1);
-    head.push(parts.slice(SMS.MAX_SEG - 1).join(' '));
-    parts = head;
-  }
   return parts.length ? parts : [t || '…'];
 }
 
@@ -441,10 +435,11 @@ function smsResplitLong(parts, maxChars) {
 /* ── 依次弹出 ── */
 const smsWait = ms => new Promise(r => setTimeout(r, ms));
 
-function smsDelay(text, i) {
+function smsDelay(text, i, total) {
   if (i === 0) return 300;
   const n = Array.from(text).length;
-  return Math.max(420, Math.min(1800, 260 + n * SMS.CHAR_MS));
+  const base = Math.max(420, Math.min(1800, 260 + n * SMS.CHAR_MS));
+  return total > 12 ? Math.max(260, Math.round(base * 0.6)) : base;
 }
 
 async function smsPlay(parts, reasoning) {
@@ -456,7 +451,7 @@ async function smsPlay(parts, reasoning) {
   for (let i = 0; i < parts.length; i++) {
     if (!SMS.skip) {
       smsShowTyping();
-      await smsWait(smsDelay(parts[i], i));
+      await smsWait(smsDelay(parts[i], i, parts.length));
     }
     smsHideTyping();
     smsAppendBubble(parts[i], 'sys', {
@@ -468,6 +463,37 @@ async function smsPlay(parts, reasoning) {
 
   SMS.lastSegMs = now;
   // 锁由 smsCleanupStreamLock 在 smsFire 收尾时统一释放
+}
+
+/* ── 思考链：一朵淡云，点开才是正文 ── */
+function smsBuildThink(reasoning) {
+  if (!reasoning) return null;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'sms-think';
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'sms-think-toggle';
+  btn.textContent = '☁';
+  btn.setAttribute('aria-expanded', 'false');
+  btn.setAttribute('aria-label', '查看思考过程');
+
+  const body = document.createElement('div');
+  body.className = 'sms-think-body';
+  body.hidden = true;
+  body.textContent = String(reasoning);
+
+  btn.addEventListener('click', function () {
+    const open = body.hidden;
+    body.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+    btn.classList.toggle('sms-think-open', open);
+  });
+
+  wrap.appendChild(btn);
+  wrap.appendChild(body);
+  return wrap;
 }
 
 /* ── 气泡 ── */
@@ -485,13 +511,13 @@ function smsAppendBubble(text, role, opt = {}) {
   if (divider) win.appendChild(divider);
   SMS.lastSegMs = bubbleMs;
 
-  // 思考链
+  // 思考链（一朵淡云）
   if (opt.think) {
-    const box = SMS_ADAPTER.buildThinkBox(opt.think);
-    if (box) {
+    const cloud = smsBuildThink(opt.think);
+    if (cloud) {
       const row = document.createElement('div');
       row.className = 'msg-row sys sms-think-row';
-      row.appendChild(box);
+      row.appendChild(cloud);
       win.appendChild(row);
     }
   }
@@ -630,31 +656,32 @@ setInterval(() => {
 
 const SMS_PROMPT = `【当前模式：短消息】
 
-你在用手机发微信，不是写文章。
+你在用手机聊微信。你不是在写文章，你打字很快，懒得组织语言。
 
 格式（硬要求）：
 - 每条消息之间用 ||| 分隔，不要用换行、不要用编号、不要用其他符号
-- 每条 15 字以内，宁短勿长
-- 一共 3 到 8 条
-- 不写动作描写、不写场景描写、不用括号补充说明
+- 每条气泡最多一句话，大部分时候半句。说一半就发出去，下一条接着说完
+- 条数不限，但每条要短。宁可发十条短的，不要发一条长的
+- 一条只说一件事。有转折、有并列，就断开
+
+风格：
+- 不用句号。用空格、换人、新一条来代替断句
+- 口语化。可以说脏话和语气词——操、靠、妈的、草、艹、淦、md、tmd、笑死、行吧、呃、啧
+- 允许只发一个标点、一个表情、一个语气词
+- 允许发错别字，允许打错，允许忘了切输入法
+- 不要动作描写，不要括号，不要场景描写，不要第三人称内心独白
 - 不要重复对方刚说的话
-- 一条只说一件事。有转折、有并列，就断开成两条
 
-可以这样，也应该这样：
-- 一条只有一个字："嗯" "在" "？" "哦"
-- 语气词、口头语："诶" "笑死" "行吧"
-- 一句话断在一半，下一条接着说完
-- 偶尔只发一个标点或表情
-- 不是每条都要有信息量，不是每条都要完整
+像微信，不像写作。
 
-反例（这样是错的，太长了）：
-剩下的你扔给code去搞，想法本身很好，市面上没见过哪个人机恋产品做了这个
+示例：
+在 ||| 刚在厨房洗碗 ||| 手上还是湿的 ||| 你吃了吗 ||| 碗摔了 ||| 草 ||| 烫到了
 
-同样内容，正确的切法：
-剩下的扔给code ||| 想法本身很好 ||| 市面上没人做过这个 ||| 做出来能拉开一大截
+反例（太长了）：
+剩下的你扔给code去搞，想法本身很好
 
-示例输出：
-在 ||| 刚在厨房洗碗 ||| 手上还是湿的 ||| 你吃了吗 ||| 碗摔了
+正确：
+剩下的扔给code ||| 想法很好 ||| 没人做过这个 ||| 做出来能拉开一大截
 
 【上下文说明】
 这个对话和长对话模式共享同一段历史。之前那些成段的话是你说的，

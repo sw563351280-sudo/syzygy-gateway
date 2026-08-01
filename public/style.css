@@ -3121,10 +3121,8 @@ body.dark-gold-mode .chat-sms-topbar-btn.sms-active{background:rgba(212,160,74,.
 body.dark-gold-mode .sms-dot{background:#8c7a65}
 body.dark-gold-mode .sms-fire-btn #smsQueueCount{background:#D4A04A;color:#141211}
 
-/* ── SMS 思考链：复现长对话的 em 连乘 ── */
+/* ── SMS 思考链：一朵云 ── */
 .sms-think-row{ font-size:.78em; }
-.sms-think-row .think-header{ font-size:.8em; }
-.sms-think-row .think-content{ font-size:.82em; line-height:1.7; }
 
 /* ── 时间分隔线 ── */
 .sms-time-divider{
@@ -3148,3 +3146,23 @@ body.dark-gold-mode .sms-fire-btn #smsQueueCount{background:#D4A04A;color:#14121
 }
 .sms-bubble .sms-text{ display:block; }
 body.neu-mode .sms-img{ box-shadow:3px 3px 8px rgba(163,177,198,.4); }
+
+/* ── SMS 思考链：一朵云，无框 ── */
+.sms-think-row{margin-bottom:4px;padding:0 20px}
+.sms-think{display:flex;flex-direction:column;align-items:flex-start;gap:3px}
+.sms-think-toggle{
+  background:none;border:none;padding:0 2px;margin:0;
+  font-size:.95rem;line-height:1;color:var(--dim);
+  opacity:.3;cursor:pointer;transition:opacity .2s;
+}
+.sms-think-toggle:hover,
+.sms-think-toggle.sms-think-open{opacity:.7}
+.sms-think-toggle:focus-visible{
+  outline:1px solid var(--gold);outline-offset:3px;border-radius:4px;opacity:.7;
+}
+.sms-think-body{
+  max-width:72%;padding:0 0 2px 2px;
+  font-size:.72rem;line-height:1.65;color:var(--dim);opacity:.65;
+  white-space:pre-wrap;overflow-wrap:anywhere;
+  max-height:220px;overflow-y:auto;
+}
