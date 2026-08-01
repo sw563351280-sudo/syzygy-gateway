@@ -846,12 +846,14 @@ function renderTraceList() {
         const iconCls = t.ok === false ? 'trace-icon-err' : (t.done ? 'trace-icon-ok' : 'trace-icon-pending');
         const model = (t.meta?.model || '').substring(0, 24);
         const preview = escHtml((t.meta?.userPreview || '').substring(0, 40));
-        row.innerHTML = '<span class="' + iconCls + '">' + icon + '</span> ' +
-            time + '  <b>' + preview + '</b>' +
-            '  <span style="color:#888">' + dur + '</span>' +
-            '  ' + escHtml(model) +
-            '  <span style="color:#666">' + (t.eventCount || 0) + '事件</span>' +
-            (t.ok === false ? '<div style="font-size:0.8rem;color:#e74c3c;margin-left:20px">' + escHtml(t.error || '') + '</div>' : '');
+        row.innerHTML =
+            '<span class="' + iconCls + '">' + icon + '</span> ' +
+            '<span class="trace-time">' + time + '</span> ' +
+            '<b>' + preview + '</b>' +
+            ' <span class="trace-dur">' + dur + '</span>' +
+            ' <span class="trace-model">' + escHtml(model) + '</span>' +
+            ' <span class="trace-events">' + (t.eventCount || 0) + '事件</span>' +
+            (t.ok === false ? '<div class="trace-err-msg">' + escHtml(t.error || '') + '</div>' : '');
         row.onclick = function() { openTrace(t.id); };
         list.appendChild(row);
     });
@@ -865,14 +867,14 @@ function formatEventSummary(ev) {
             return '消息 ' + (d.msgCount || 0) + ' 条';
         case 'recall': {
             let s = '核心 ' + (d.coreLen||0) + '字 · 长期 ' + (d.longTermLen||0) + '字 · RP ' + (d.rpLen||0) + '字 · 浮现 ' + (d.unresolvedLen||0) + '字 · 原文 ' + (d.transcriptLen||0) + '字';
-            if (ev.ms > 5000) s += ' <span style="color:#e74c3c;font-weight:bold">⚠ 耗时 ' + (ev.ms/1000).toFixed(1) + 's</span>';
+            if (ev.ms > 5000) s += ' <span class="trace-warn">⚠ 耗时 ' + (ev.ms/1000).toFixed(1) + 's</span>';
             return s;
         }
         case 'dedup':
             return (d.blocks || []).map(function(b) { return escHtml(b.label) + ' ' + b.len; }).join(' · ');
         case 'budget': {
             let s = '上限 ' + d.maxTokens + ' · 用了 ' + d.usedTokens + ' · 保留 ' + d.kept + ' 条 · 丢弃 ' + d.dropped + ' 条';
-            if (d.dropped > 0) s += ' <span style="color:#e74c3c">⚠</span>';
+            if (d.dropped > 0) s += ' <span class="trace-warn">⚠</span>';
             return s;
         }
         case 'inject':
@@ -891,7 +893,7 @@ function formatEventSummary(ev) {
             let s = escHtml(d.args||'') + ' → ' + (d.resultLen||0) + '字 · ' + (d.elapsed||0) + 'ms' + (d.mcp ? ' [MCP:' + escHtml(d.mcp) + ']' : '');
             const rp = d.resultPreview || '';
             if (rp.charAt(0) === '[' && (rp.indexOf('失败') >= 0 || rp.indexOf('error') >= 0 || rp.indexOf('Error') >= 0)) {
-                s = '<span style="color:#e74c3c">' + s + '</span>';
+                s = '<span class="trace-warn">' + s + '</span>';
             }
             return s;
         }
@@ -903,13 +905,13 @@ function formatEventSummary(ev) {
             const cacheWrite = usage ? (usage.cacheWrite || 0) : 0;
             const roundLabel = d.round != null ? ('第' + d.round + '轮') : '最终';
             let s = roundLabel + ' · HTTP ' + (d.status||'?') + ' · 输入 ' + input + ' / 输出 ' + output + ' · 缓存读 ' + cacheRead + ' 写 ' + cacheWrite + ' · ' + (d.cacheMode||'');
-            if (input > 5000 && cacheRead === 0) s += ' <span style="color:#e67e22">⚠ 未命中缓存</span>';
+            if (input > 5000 && cacheRead === 0) s += ' <span class="trace-warn">⚠ 未命中缓存</span>';
             return s;
         }
         case 'memory_write': {
             let s = '"' + escHtml(d.preview||'') + '" tags=[' + (d.tags||[]).join(',') + ']' + (d.ttl ? ' ttl=' + escHtml(d.ttl) : '') + (d.reason ? ' · ' + escHtml(d.reason) : '');
-            if ((ev.label||'').indexOf('被拦截') >= 0) s = '<span style="color:#e74c3c">' + s + '</span>';
-            else if ((ev.label||'').indexOf('已写入') >= 0) s = '<span style="color:#27ae60">' + s + '</span>';
+            if ((ev.label||'').indexOf('被拦截') >= 0) s = '<span class="trace-warn">' + s + '</span>';
+            else if ((ev.label||'').indexOf('已写入') >= 0) s = '<span style="color:var(--con-ok)">' + s + '</span>';
             return s;
         }
         case 'mood':
@@ -946,22 +948,22 @@ async function openTrace(id) {
         const detail = document.getElementById('traceDetail');
         if (!detail) return;
         const PHASES = { start: '#95a5a6', recall: '#3498db', dedup: '#3498db', budget: '#9b59b6', inject: '#9b59b6', tools: '#1abc9c', tool: '#1abc9c', model: '#e67e22', memory_write: '#f1c40f', mood: '#e91e63', persist: '#95a5a6', dream: '#9b59b6', album: '#1abc9c' };
-        let html = '<div style="padding:12px;border:1px solid #444;border-radius:8px;margin-bottom:16px">';
-        html += '<b>完整时间</b>: ' + escHtml(t.startedAtISO) + '<br>';
-        html += '<b>模型</b>: ' + escHtml(t.meta?.model || '') + ' · <b>' + (t.meta?.stream ? '流式' : '非流式') + '</b> · path=' + escHtml(t.path||'') + '<br>';
-        html += '<b>耗时</b>: ' + (t.durationMs||0) + 'ms · <b>回复字数</b>: ' + (t.replyLen||0) + ' · <b>tabId</b>: ' + escHtml(t.meta?.tabId||'') + '<br>';
+        let html = '<div class="trace-header">';
+        html += '<b>完整时间</b> ' + escHtml(t.startedAtISO) + '<br>';
+        html += '<b>模型</b> ' + escHtml(t.meta?.model || '') + ' · <b>' + (t.meta?.stream ? '流式' : '非流式') + '</b> · <span class="trace-meta-dim">path=' + escHtml(t.path||'') + '</span><br>';
+        html += '<b>耗时</b> ' + (t.durationMs||0) + 'ms · <b>回复字数</b> ' + (t.replyLen||0) + ' · <span class="trace-meta-dim">tabId=' + escHtml(t.meta?.tabId||'') + '</span><br>';
         html += '<button class="console-action" onclick="document.getElementById(\'traceDetail\').style.display=\'none\'" style="margin-top:8px">关闭</button>';
-        html += '</div><div style="padding-left:8px">';
+        html += '</div><div>';
         (t.events||[]).forEach(function(ev) {
             const msLabel = ev.ms >= 1000 ? ('+' + (ev.ms/1000).toFixed(1) + 's') : ('+' + ev.ms + 'ms');
             const phaseClr = PHASES[ev.phase] || '#888';
-            html += '<div class="trace-event" style="margin-bottom:10px;cursor:pointer" onclick="var p=this.nextElementSibling;p.style.display=p.style.display===\'none\'?\'block\':\'none\'">';
-            html += '<span style="color:#888;width:70px;display:inline-block">' + msLabel + '</span>';
-            html += '<span style="background:' + phaseClr + ';color:#fff;padding:1px 6px;border-radius:3px;font-size:0.8rem;margin-right:6px">' + escHtml(ev.phase) + '</span>';
-            html += '<span>' + escHtml(ev.label) + '</span>';
-            html += '<div style="color:#aaa;font-size:0.85rem;margin-left:70px">' + formatEventSummary(ev) + '</div>';
+            html += '<div class="trace-event" onclick="var p=this.nextElementSibling;p.style.display=p.style.display===\'none\'?\'block\':\'none\'">';
+            html += '<span class="trace-ts">' + msLabel + '</span>';
+            html += '<span class="trace-phase-badge" style="background:' + phaseClr + '">' + escHtml(ev.phase) + '</span>';
+            html += '<span class="trace-label">' + escHtml(ev.label) + '</span>';
+            html += '<div class="trace-summary">' + formatEventSummary(ev) + '</div>';
             html += '</div>';
-            html += '<pre class="trace-detail-json" style="display:none;margin-left:70px;font-size:0.8rem;background:#1a1a1a;color:#aaa;padding:8px;border-radius:4px;max-height:300px;overflow:auto">' + escHtml(JSON.stringify(ev.detail, null, 2)) + '</pre>';
+            html += '<pre class="trace-detail-json">' + escHtml(JSON.stringify(ev.detail, null, 2)) + '</pre>';
         });
         html += '</div>';
         detail.innerHTML = html;

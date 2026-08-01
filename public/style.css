@@ -2610,3 +2610,419 @@ body.dark-gold-mode .cal-edit-textarea,body.dark-gold-mode .cal-edit-mood{backgr
 body.dark-gold-mode .album-edit-input{background:rgba(30,26,24,0.6);border:1px solid rgba(228,212,199,0.08);color:#e4d4c7}
 @media(max-width:374px){ body.dark-gold-mode #sec-home{padding:16px 12px 90px 12px} body.dark-gold-mode .neu-together-num{font-size:40px} }
 body.neu-mode .album-edit-input { background: #E8EFF7; border: none; box-shadow: inset 3px 3px 6px rgba(163,177,198,0.3), inset -3px -3px 6px rgba(255,255,255,0.5); }
+
+/* ═══════════════════════════════════════
+   控制台 · 四皮肤适配 + 补齐缺失样式
+   ═══════════════════════════════════════ */
+
+/* ── 主题变量：暗夜墨金（默认） ── */
+#sec-console{
+  --con-bg:#0a0e1a;
+  --con-surface:rgba(12,16,28,.72);
+  --con-sunken:rgba(0,0,0,.35);
+  --con-border:rgba(201,169,97,.18);
+  --con-border-strong:rgba(201,169,97,.4);
+  --con-text:#d4c5a0;
+  --con-dim:#7a6f5a;
+  --con-accent:#c9a961;
+  --con-accent-ink:#0a0e1a;
+  --con-shadow:0 2px 16px rgba(0,0,0,.4);
+  --con-err:#e57373;
+  --con-warn:#ffb74d;
+  --con-ok:#81c784;
+  --con-info:#64b5f6;
+}
+body.light-mode #sec-console{
+  --con-bg:#FFF9E6;
+  --con-surface:rgba(255,255,255,.62);
+  --con-sunken:rgba(0,0,0,.03);
+  --con-border:rgba(196,165,123,.28);
+  --con-border-strong:#C4A57B;
+  --con-text:#3E2723;
+  --con-dim:#8B7355;
+  --con-accent:#8B6914;
+  --con-accent-ink:#FFFAF0;
+  --con-shadow:0 2px 16px rgba(139,115,85,.1);
+  --con-err:#B3261E;
+  --con-warn:#8A5300;
+  --con-ok:#1B5E20;
+  --con-info:#0D47A1;
+}
+body.neu-mode #sec-console{
+  --con-bg:#E8EFF7;
+  --con-surface:#E8EFF7;
+  --con-sunken:#E8EFF7;
+  --con-border:rgba(163,177,198,.35);
+  --con-border-strong:#5A8FCA;
+  --con-text:#2D3748;
+  --con-dim:#718096;
+  --con-accent:#5A8FCA;
+  --con-accent-ink:#FFFFFF;
+  --con-shadow:6px 6px 12px rgba(163,177,198,.45),-6px -6px 12px rgba(255,255,255,.8);
+  --con-shadow-inset:inset 4px 4px 8px rgba(163,177,198,.4),inset -4px -4px 8px rgba(255,255,255,.7);
+  --con-err:#B3261E;
+  --con-warn:#8A5300;
+  --con-ok:#1B5E20;
+  --con-info:#1A4E8A;
+}
+body.dark-gold-mode #sec-console{
+  --con-bg:#141211;
+  --con-surface:rgba(30,26,24,.62);
+  --con-sunken:rgba(11,7,6,.55);
+  --con-border:rgba(228,212,199,.08);
+  --con-border-strong:rgba(212,160,74,.45);
+  --con-text:#fef9c9;
+  --con-dim:#8c7a65;
+  --con-accent:#D4A04A;
+  --con-accent-ink:#141211;
+  --con-shadow:0 8px 24px rgba(0,0,0,.35);
+  --con-err:#ef9a9a;
+  --con-warn:#ffcc80;
+  --con-ok:#a5d6a7;
+  --con-info:#90caf9;
+}
+
+/* ── 骨架：撑满高度，不用魔法数字 ── */
+#sec-console{
+  background:var(--con-bg)!important;
+  color:var(--con-text);
+  min-height:100dvh;
+  padding:0 0 env(safe-area-inset-bottom,0)!important;
+}
+#sec-console .console-page{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  height:calc(100dvh - 138px);
+  max-width:1120px;
+  margin:0 auto;
+  padding:14px 16px;
+  box-sizing:border-box;
+}
+/* 三个可滚动区统一由 flex 分配剩余高度 */
+#sec-console .console-output,
+#sec-console .console-log-output,
+#sec-console .trace-list{
+  flex:1 1 auto;
+  min-height:0;
+  overflow:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+}
+
+/* ── 顶栏状态 ── */
+#sec-console .console-status{
+  margin-left:auto;
+  font-size:12px;
+  color:var(--con-dim);
+  white-space:nowrap;
+}
+#sec-console .console-status[data-state="ready"]{color:var(--con-ok)}
+#sec-console .console-status[data-state="error"]{color:var(--con-err)}
+#sec-console .console-action{
+  border:1px solid var(--con-border);
+  background:var(--con-surface);
+  color:var(--con-accent);
+  font-size:16px;
+  width:34px;height:34px;
+  border-radius:10px;
+  cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;
+  flex-shrink:0;
+  transition:border-color .2s,background .2s;
+}
+#sec-console .console-action:hover{border-color:var(--con-border-strong)}
+#sec-console .console-action:focus-visible{outline:2px solid var(--con-accent);outline-offset:2px}
+
+/* ── Tab 分段控件（原来完全没有样式） ── */
+.console-tabs{
+  display:flex;
+  gap:4px;
+  max-width:1120px;
+  margin:12px auto 0;
+  padding:4px;
+  background:var(--con-sunken);
+  border:1px solid var(--con-border);
+  border-radius:12px;
+  box-shadow:var(--con-shadow-inset,none);
+  width:calc(100% - 32px);
+}
+.console-tab{
+  flex:1;
+  min-height:38px;
+  padding:8px 12px;
+  border:none;
+  border-radius:9px;
+  background:transparent;
+  color:var(--con-dim);
+  font-family:inherit;
+  font-size:.86rem;
+  letter-spacing:1px;
+  cursor:pointer;
+  transition:background .2s,color .2s;
+}
+.console-tab:hover{color:var(--con-text)}
+.console-tab.active{
+  background:var(--con-accent);
+  color:var(--con-accent-ink);
+  font-weight:600;
+}
+.console-tab:focus-visible{outline:2px solid var(--con-accent);outline-offset:2px}
+
+/* ── 终端输出 ── */
+#sec-console .console-meta{
+  display:flex;justify-content:space-between;gap:12px;
+  padding:0 4px;color:var(--con-dim);font-size:12px;flex-shrink:0;
+}
+#sec-console .console-meta span:first-child{color:var(--con-text);font-weight:600}
+#sec-console .console-output{
+  padding:14px 16px;
+  border:1px solid var(--con-border);
+  border-radius:14px;
+  background:var(--con-sunken);
+  box-shadow:var(--con-shadow-inset,inset 0 0 28px rgba(0,0,0,.35));
+  color:var(--con-text);
+  font:13px/1.6 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;   /* 长行换行，不再被切 */
+}
+#sec-console .console-line{display:block;min-height:1.6em}
+#sec-console .console-notice{color:var(--con-warn)}
+
+/* ── 输入行 ── */
+#sec-console .console-input-row{
+  display:flex;align-items:flex-end;gap:8px;
+  padding:8px 10px;flex-shrink:0;
+  border:1px solid var(--con-border);
+  border-radius:12px;
+  background:var(--con-surface);
+  box-shadow:var(--con-shadow-inset,none);
+}
+#sec-console .console-input-row:focus-within{border-color:var(--con-border-strong)}
+#sec-console .console-prompt{padding:5px 1px 5px 3px;color:var(--con-accent);font:18px/1 ui-monospace,monospace}
+#sec-console .console-input{
+  flex:1;max-height:120px;resize:none;border:0;outline:0;
+  background:transparent;color:var(--con-text);
+  font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;
+}
+#sec-console .console-input::placeholder{color:var(--con-dim)}
+#sec-console .console-send{
+  border:0;border-radius:9px;
+  background:var(--con-accent);color:var(--con-accent-ink);
+  min-height:38px;padding:8px 16px;
+  font-family:inherit;font-weight:700;cursor:pointer;flex-shrink:0;
+}
+#sec-console .console-send:focus-visible{outline:2px solid var(--con-accent);outline-offset:2px}
+#sec-console .console-hint{margin:0 4px;color:var(--con-dim);font-size:11px;line-height:1.5;flex-shrink:0}
+
+/* ── 日志 / 链路工具栏：吸顶 ── */
+.console-log-toolbar{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:8px 10px;flex-shrink:0;
+  position:sticky;top:0;z-index:2;
+  border:1px solid var(--con-border);
+  border-radius:12px;
+  background:var(--con-surface);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+}
+.console-log-toolbar label{
+  display:inline-flex;align-items:center;gap:6px;
+  color:var(--con-dim);font-size:.82rem;cursor:pointer;user-select:none;
+  min-height:32px;
+}
+.console-log-toolbar input[type="checkbox"]{accent-color:var(--con-accent);width:15px;height:15px;cursor:pointer}
+.log-filter-input{
+  flex:1;min-width:140px;min-height:34px;
+  padding:7px 12px;
+  border:1px solid var(--con-border);
+  border-radius:9px;
+  background:var(--con-sunken);
+  box-shadow:var(--con-shadow-inset,none);
+  color:var(--con-text);
+  font-family:inherit;font-size:.85rem;
+  outline:none;
+}
+.log-filter-input:focus{border-color:var(--con-border-strong)}
+.log-filter-input::placeholder{color:var(--con-dim)}
+
+/* ── 原始日志 ── */
+.console-log-output{
+  margin:0;padding:14px 16px;
+  border:1px solid var(--con-border);
+  border-radius:14px;
+  background:var(--con-sunken);
+  box-shadow:var(--con-shadow-inset,none);
+  color:var(--con-text);
+  font:12.5px/1.65 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  tab-size:2;
+}
+
+/* ── 对话链路 ── */
+.trace-list{display:flex;flex-direction:column;gap:8px}
+.trace-list>*{
+  padding:10px 14px;
+  border:1px solid var(--con-border);
+  border-left:2px solid var(--con-accent);
+  border-radius:4px 12px 12px 4px;
+  background:var(--con-surface);
+  box-shadow:var(--con-shadow);
+  color:var(--con-text);
+  font-size:.85rem;line-height:1.6;
+  cursor:pointer;
+  overflow-wrap:anywhere;
+  transition:border-color .2s,transform .15s;
+}
+.trace-list>*:hover{border-color:var(--con-border-strong);transform:translateY(-1px)}
+.trace-detail{
+  flex-shrink:0;max-height:42%;overflow:auto;
+  padding:14px 16px;
+  border:1px solid var(--con-border);
+  border-radius:14px;
+  background:var(--con-sunken);
+  box-shadow:var(--con-shadow-inset,none);
+  color:var(--con-text);
+  font-size:.85rem;line-height:1.7;
+  white-space:pre-wrap;overflow-wrap:anywhere;
+}
+#traceCount{color:var(--con-dim);font-size:.82rem;margin-left:auto}
+
+/* ── 日志级别色条（配合下面的 JS 用） ── */
+.log-line{display:block;padding-left:10px;border-left:2px solid transparent}
+.log-line.lv-error{border-left-color:var(--con-err);color:var(--con-err)}
+.log-line.lv-warn{border-left-color:var(--con-warn);color:var(--con-warn)}
+.log-line.lv-ok{border-left-color:var(--con-ok)}
+.log-line.lv-info{border-left-color:var(--con-info)}
+.log-repeat{
+  display:inline-block;margin-left:8px;padding:0 7px;
+  border-radius:9px;background:var(--con-accent);color:var(--con-accent-ink);
+  font-size:.72em;font-weight:700;vertical-align:1px;
+}
+
+/* ── 手机端 ── */
+@media(max-width:600px){
+  #sec-console .console-page{
+    height:calc(100dvh - 126px);
+    padding:10px 10px calc(10px + env(safe-area-inset-bottom,0));
+    gap:10px;
+  }
+  .console-tabs{width:calc(100% - 20px);margin-top:8px}
+  .console-tab{font-size:.8rem;letter-spacing:0;padding:8px 6px}
+  #sec-console .console-output,
+  .console-log-output{font-size:12px;padding:12px 12px;border-radius:12px}
+  #sec-console .console-meta{font-size:11px}
+  #sec-console .console-hint{font-size:10.5px}
+  .console-log-toolbar{padding:8px}
+  #sec-console .console-send{padding:8px 14px}
+}
+
+/* ═══════════════════════════════════════
+   控制台 · 链路列表 & 详情（补齐 + 去 inline）
+   ═══════════════════════════════════════ */
+
+/* ── 列表条目 ── */
+.trace-row{
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;
+  padding:10px 14px;
+  border:1px solid var(--con-border);
+  border-left:3px solid var(--con-accent);
+  border-radius:4px 12px 12px 4px;
+  background:var(--con-surface);
+  box-shadow:var(--con-shadow);
+  color:var(--con-text);
+  font-size:.85rem;line-height:1.6;
+  cursor:pointer;
+  transition:border-color .2s,transform .15s,box-shadow .2s;
+  overflow-wrap:anywhere;
+}
+.trace-row:hover{
+  border-color:var(--con-border-strong);
+  transform:translateY(-1px);
+  box-shadow:0 6px 20px rgba(0,0,0,.25);
+}
+.trace-row:focus-visible{outline:2px solid var(--con-accent);outline-offset:2px}
+.trace-row b{color:var(--con-text);font-weight:600}
+
+/* 失败条目 */
+.trace-row.trace-error{
+  border-left-color:var(--con-err);
+  background:color-mix(in srgb,var(--con-err) 6%,var(--con-surface));
+}
+
+/* 状态图标 */
+.trace-icon-ok{color:var(--con-ok);font-weight:bold;flex-shrink:0}
+.trace-icon-err{color:var(--con-err);font-weight:bold;flex-shrink:0}
+.trace-icon-pending{color:var(--con-dim);flex-shrink:0}
+.trace-row .trace-time{color:var(--con-dim);font-size:.82rem;white-space:nowrap}
+.trace-row .trace-dur{color:var(--con-dim);font-size:.8rem}
+.trace-row .trace-model{color:var(--con-dim);font-size:.8rem}
+.trace-row .trace-events{color:var(--con-dim);font-size:.78rem}
+.trace-row .trace-err-msg{
+  width:100%;font-size:.8rem;color:var(--con-err);
+  padding-left:20px;line-height:1.5;
+}
+
+/* ── 详情面板 ── */
+#traceDetail{
+  flex-shrink:0;max-height:45%;overflow:auto;
+  overscroll-behavior:contain;
+}
+#traceDetail .trace-header{
+  padding:12px 14px;
+  border:1px solid var(--con-border);
+  border-radius:14px;
+  background:var(--con-surface);
+  box-shadow:var(--con-shadow);
+  margin-bottom:16px;
+  font-size:.85rem;line-height:1.8;
+  color:var(--con-text);
+}
+#traceDetail .trace-header b{color:var(--con-accent)}
+#traceDetail .trace-header .trace-meta-dim{color:var(--con-dim);font-size:.82rem}
+
+/* 事件条目 */
+.trace-event{
+  margin-bottom:10px;cursor:pointer;
+  padding:6px 8px;
+  border-radius:8px;
+  border:1px solid transparent;
+  transition:background .15s,border-color .15s;
+}
+.trace-event:hover{background:var(--con-sunken);border-color:var(--con-border)}
+.trace-event .trace-ts{
+  display:inline-block;width:70px;
+  color:var(--con-dim);
+  font-size:.82rem;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
+  vertical-align:top;
+}
+.trace-event .trace-phase-badge{
+  display:inline-block;
+  padding:1px 7px;border-radius:4px;
+  color:#fff;font-size:.78rem;font-weight:600;
+  margin-right:6px;line-height:1.6;
+}
+.trace-event .trace-label{
+  color:var(--con-text);
+}
+.trace-event .trace-summary{
+  color:var(--con-dim);
+  font-size:.82rem;margin-left:70px;line-height:1.6;
+}
+.trace-event .trace-summary .trace-warn{
+  color:var(--con-warn);font-weight:bold;
+}
+
+/* JSON 展开区 */
+.trace-detail-json{
+  display:none;margin-left:70px;
+  font-size:.78rem;line-height:1.5;
+  background:var(--con-sunken);
+  box-shadow:var(--con-shadow-inset,none);
+  color:var(--con-dim);
+  padding:10px 14px;border-radius:8px;
+  max-height:300px;overflow:auto;
+  white-space:pre-wrap;overflow-wrap:anywhere;
+  border:1px solid var(--con-border);
+}
