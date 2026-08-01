@@ -1806,7 +1806,10 @@ function isTagMatch(tag, text) {
         return regex.test(text);
     }
 
-    return textLower.includes(tagLower);
+    // 双向：tag在text里 或 分词后的query词在tag里
+    if (textLower.includes(tagLower)) return true;
+    if (tagLower.includes(textLower)) return true;
+    return false;
 }
 
 
