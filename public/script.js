@@ -528,16 +528,18 @@ async function resyncIfStale(reason) {
 }
 
 async function _doSave() {
+    var _t0 = Date.now();
     // Never save if we haven't loaded cloud data yet (prevents wiping real data with empty state)
     if (!_dataVersion) {
         console.warn('[sync-config] 云端数据未加载，先尝试拉取');
         await resyncAndMerge('pre-save-bootstrap');
         if (!_dataVersion) {
             _showSaveWarning(true, '云端数据未加载，暂不保存，请刷新页面');
+            console.log('[save:ABORT] bootstrap failed ' + (Date.now()-_t0) + 'ms');
             throw new Error('云端数据未加载');
         }
     }
-    var MAX_SYNC_BYTES = 15 * 1024 * 1024; // 15 MB
+    var MAX_SYNC_BYTES = 3 * 1024 * 1024; // 3 MB
 
     // 1. 深拷贝 chatSessions — 不影响内存中的原始数据
     var clone;
@@ -600,12 +602,14 @@ async function _doSave() {
             console.warn('🛡️ [版本落后] 服务端有更新，拉取合并后重试');
             const res = await resyncAndMerge('version-conflict');
             if (!res) throw new Error('版本冲突且重新同步失败，稍后重试');
+            console.log('[save:RETRY] version-conflict ' + (Date.now()-_t0) + 'ms');
             throw new Error('版本冲突，已重新同步，重试保存');
         }
-        // 开关关闭时不能静默成功
+        console.log('[save:ABORT] rejected (merge disabled) ' + (Date.now()-_t0) + 'ms');
         throw new Error('版本落后，保存被拒绝，请刷新页面');
     }
     if (d._version) _dataVersion = d._version;
+    console.log('[save:OK] v' + _dataVersion + ' ' + (Date.now()-_t0) + 'ms ' + (payloadBytes/1024).toFixed(0) + 'KB');
 }
 
 let _savingNow = false;
@@ -614,7 +618,7 @@ let _saveQueued = false;
 function saveToCloud(immediate) {
     clearTimeout(_saveTimer);
     const doSave = async () => {
-        if (_savingNow) { _saveQueued = true; return; }
+        if (_savingNow) { _saveQueued = true; console.log('[save:LOCK] queued'); return; }
         _savingNow = true;
         try {
             const delays = [1000, 2000, 4000]; // 指数退避
