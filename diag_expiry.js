@@ -15,5 +15,5 @@ for (const f of stores) {
         }
     }
 }
-fs.writeFileSync(__dirname + '/public/diag_result.txt', out || 'NO RING MEMORY FOUND');
+fs.writeFileSync(__dirname + '/data/diag_result.json', JSON.stringify({output: out || 'NO RING MEMORY FOUND'}));
 console.log(out || 'NO RING MEMORY FOUND');

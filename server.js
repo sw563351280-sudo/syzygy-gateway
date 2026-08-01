@@ -270,7 +270,9 @@ app.get('/health', (req, res) => {
         const ms = d.chatSessions[0].messages;
         const last = ms[ms.length-1];
         const v = (last.versions||[{}])[last.activeVersion||0]||{};
-        res.json({ ok: true, msgCount: ms.length, lastMsgTime: v.fullTime, lastRole: last.role });
+        const diagPath = path.join(DATA_DIR, 'diag_result.json');
+        const diag = fs.existsSync(diagPath) ? JSON.parse(fs.readFileSync(diagPath, 'utf8')) : {};
+        res.json({ ok: true, msgCount: ms.length, lastMsgTime: v.fullTime, lastRole: last.role, diag: diag.output });
     } catch(e) { res.json({ ok: true, error: e.message }); }
 });
 
