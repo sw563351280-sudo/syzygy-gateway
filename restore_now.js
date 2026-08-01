@@ -1,33 +1,24 @@
-// Restore ALL missing messages from ALL transcript files
 const fs = require('fs'), path = require('path');
 const C = path.join(__dirname, 'data', 'web_config.json');
 const D = path.join(__dirname, 'data', 'transcripts');
-const config = JSON.parse(fs.readFileSync(C, 'utf8'));
-const main = config.chatSessions.find(s => s.id === 'main');
-const last = main.messages[main.messages.length - 1];
+const c = JSON.parse(fs.readFileSync(C, 'utf8'));
+const m = c.chatSessions.find(s => s.id === 'main').messages;
+const last = m[m.length - 1];
 const v = last ? ((last.versions || [{}])[last.activeVersion || 0] || {}) : {};
 const after = v.fullTime || '2026-07-01T00:00:00Z';
-console.log('Restoring after ' + after);
-let added = 0;
+let n = 0;
 for (const f of fs.readdirSync(D).sort().reverse()) {
     if (!f.endsWith('.json')) continue;
-    const tx = JSON.parse(fs.readFileSync(path.join(D, f), 'utf8'));
-    for (const chunk of tx) {
-        for (const m of chunk.messages || []) {
-            if (m.time > after && m.role && m.content) {
-                main.messages.push({
-                    role: m.role,
-                    versions: [{
-                        content: m.content,
-                        fullTime: m.time,
-                        time: new Date(m.time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' })
-                    }],
-                    activeVersion: 0
-                });
-                added++;
+    try {
+        for (const ch of JSON.parse(fs.readFileSync(path.join(D, f), 'utf8'))) {
+            for (const msg of ch.messages || []) {
+                if (msg.time > after && msg.role && msg.content) {
+                    m.push({ role: msg.role, versions: [{ content: msg.content, fullTime: msg.time, time: new Date(msg.time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }) }], activeVersion: 0 });
+                    n++;
+                }
             }
         }
-    }
+    } catch (_) {}
 }
-fs.writeFileSync(C, JSON.stringify(config, null, 2), 'utf8');
-console.log('Restored ' + added + ' messages. Total: ' + main.messages.length);
+fs.writeFileSync(C, JSON.stringify(c, null, 2), 'utf8');
+console.log('restored', n, 'total', m.length, 'last', (m[m.length-1]||{}).role);
