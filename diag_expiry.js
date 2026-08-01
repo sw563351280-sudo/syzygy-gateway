@@ -26,6 +26,6 @@ for (const f of ['long_term_memories.json']) {
         }
     }
 }
-fs.writeFileSync(__dirname + '/data/diag_result.json', JSON.stringify({output: out, tagDiag: tagDiag || 'none'}));
+fs.writeFileSync(__dirname + '/data/diag_result.json', JSON.stringify({raw: out, tagJSON: tagDiag || 'none'}));
 console.log(out); console.log(tagDiag);
 console.log(out || 'NO RING MEMORY FOUND');

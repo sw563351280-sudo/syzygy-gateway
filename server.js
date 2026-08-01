@@ -272,7 +272,7 @@ app.get('/health', (req, res) => {
         const v = (last.versions||[{}])[last.activeVersion||0]||{};
         const diagPath = path.join(DATA_DIR, 'diag_result.json');
         const diag = fs.existsSync(diagPath) ? JSON.parse(fs.readFileSync(diagPath, 'utf8')) : {};
-        res.json({ ok: true, msgCount: ms.length, lastMsgTime: v.fullTime, lastRole: last.role, diag: diag.output });
+        res.json({ ok: true, msgCount: ms.length, lastMsgTime: v.fullTime, lastRole: last.role, diag: diag.raw, tagJSON: diag.tagJSON });
     } catch(e) { res.json({ ok: true, error: e.message }); }
 });
 
