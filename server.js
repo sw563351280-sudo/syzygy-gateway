@@ -1344,8 +1344,8 @@ function _keywordRankSearch(queryText, memories, topK = 10) {
         let score = 0;
         let hitTags = [];
         if (m.tags && m.tags.length > 0) {
-            const isTarget = m.id === 'mnliei3tteto';
-            if (isTarget) console.log('🔬 [KW:ring] tags=' + JSON.stringify(m.tags) + ' query=' + (queryText||'').substring(0,200));
+            const isTarget = (m.content||'').includes('戒指') || (m.id||'').startsWith('mnliei3');
+            if (isTarget) console.log('🔬 [KW:ring] id=' + m.id + ' tags=' + JSON.stringify(m.tags) + ' tagsLen=' + (m.tags ? m.tags.length : 0) + ' query=' + (queryText||'').substring(0,100));
             hitTags = m.tags.filter(tag => {
                 if (!tag || tag.length < 2) return false;
                 if (tag.length === 2) {
