@@ -64,6 +64,7 @@ jobs:
             echo "⏭️ 跳过 restore_transcript_to_chat.js（已禁用）"
 
             # 补回最近丢失的消息
+            node restore_now.js || echo "⚠️ 恢复流程结束"
             node restore_recent.js || echo "⚠️ 恢复流程结束"
 
             # 清理重复消息 + 按时间排序
