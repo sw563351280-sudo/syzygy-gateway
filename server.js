@@ -3380,6 +3380,11 @@ async function saveToZep(userMsg, aiMsg) {
 
 async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages, metadata = {}, tr = null) {
     if (!userMsg) return;
+    if (!aiMsg || !String(aiMsg).trim()) {
+        console.error('⚠️ [空回复] aiMsg 为空，跳过 transcript 与广播。userPreview=' + String(userMsg||'').substring(0,40));
+        traceEvent(tr, 'persist', '空回复·已跳过', { userLen: String(userMsg||'').length, aiLen: 0 });
+        return;
+    }
     updateLastInteraction();
     if (userMsg === lastUserContent) {
         console.log('🔄 [防重复] 检测到重复用户消息，跳过保存');
@@ -4786,7 +4791,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             }
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
-            let sseBuffer = ''; let contentBuffer = ''; let isBuffering = false; let lastChunkTemplate = null; let fullAiResponse = '';
+            let sseBuffer = ''; let contentBuffer = ''; let isBuffering = false; let lastChunkTemplate = null; let fullAiResponse = ''; let fullReasoning = '';
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -4804,6 +4809,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     }
                     let parsed; try { parsed = JSON.parse(dataStr); } catch(e) { res.write(line + '\n'); continue; }
                     const delta = parsed.choices?.[0]?.delta;
+                    if (delta && delta.reasoning_content) fullReasoning += delta.reasoning_content;
                     if (!delta || delta.content === undefined) {
                         if ((body.model || '').toLowerCase().includes('gemini')) console.log('🔍 [Gemini诊断] 无content块:', JSON.stringify(parsed).substring(0, 200));
                         res.write(line + '\n'); continue;
@@ -4858,6 +4864,14 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 if (streamFinalized) return;
                 streamFinalized = true;
                 try {
+                    if (!fullAiResponse || !fullAiResponse.trim()) {
+                        if (fullReasoning && fullReasoning.trim()) {
+                            console.error('⚠️ [流式累加] fullAiResponse 为空但 reasoning 有内容。用 reasoning 兜底写入 transcript。reasoning长度=' + fullReasoning.length);
+                            fullAiResponse = fullReasoning;
+                        } else {
+                            console.error('⚠️ [流式累加为空] fullAiResponse 长度 0，客户端可能已收到内容但服务端未累加。');
+                        }
+                    }
                     moodLog('[MOOD DEBUG] stream finalize start, full length:', fullAiResponse ? fullAiResponse.length : 0);
                     moodLog('[MOOD DEBUG] fullAiResponse has tag:', fullAiResponse.includes('<MOOD_SNAPSHOT>') || fullAiResponse.includes('[[MOOD_SNAPSHOT]]'));
                     moodLog('[MOOD DEBUG] fullAiResponse tail:', fullAiResponse.slice(-1200));
@@ -6991,9 +7005,12 @@ wss.on('connection', (ws, req) => {
         attachConsoleClient(ws);
         return;
     }
-    const client = { ws, tabId: null };
+    // 优先从 query string 拿 tabId（连接瞬间就有），register 消息作为兜底
+    let tabId = null;
+    try { tabId = new URL(req.url, 'http://localhost').searchParams.get('tabId') || null; } catch(_) {}
+    const client = { ws, tabId };
     wsClients.add(client);
-    console.log(`🌐 [WS] 新连接，当前${wsClients.size}个客户端`);
+    console.log(`🌐 [WS] 新连接 tabId=${tabId || '(none)'}，当前${wsClients.size}个客户端`);
     ws.on('message', (raw) => {
         try { const msg = JSON.parse(raw); if (msg.type === 'register' && msg.tabId) { client.tabId = msg.tabId; } } catch(e) {}
     });
@@ -7002,7 +7019,12 @@ wss.on('connection', (ws, req) => {
 });
 function wsBroadcast(data, excludeTabId = null) {
     const payload = JSON.stringify(data); let sent = 0;
-    for (const c of wsClients) { if (c.ws.readyState !== WebSocket.OPEN) continue; if (excludeTabId && c.tabId === excludeTabId) continue; c.ws.send(payload); sent++; }
+    for (const c of wsClients) {
+        if (c.ws.readyState !== WebSocket.OPEN) continue;
+        if (data.type === 'new_message' && !c.tabId) continue; // 未注册 tabId 的客户端不参与 new_message
+        if (excludeTabId && c.tabId === excludeTabId) continue;
+        c.ws.send(payload); sent++;
+    }
     if (sent > 0) console.log(`🌐 [WS] 广播 ${data.type} → ${sent}个客户端`);
 }
 

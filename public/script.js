@@ -125,7 +125,7 @@ let _lastResyncAt = 0;
 let _wsConnectedOnce = false;
 function connectWebSocket() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    _ws = new WebSocket(proto + '//' + location.host);
+    _ws = new WebSocket(proto + '//' + location.host + '?tabId=' + SYZYGY_TAB_ID);
     _ws.onopen = () => {
         _ws.send(JSON.stringify({ type: 'register', tabId: SYZYGY_TAB_ID }));
         // 首次连接由 startSystem() 的 syncFromCloud 负责，这里只处理"重连"
