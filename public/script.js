@@ -2143,7 +2143,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         clearTimeout(silenceTimer);
         if (window._coreStreamEnd) window._coreStreamEnd();
         triggerStarEffects(val, fullReply);
-        renderChatMessages();  // 统一渲染，不依赖裸节点
+        // renderChatMessages 统一在 finally 中延迟到 _isStreamingReply=false 之后执行
 
     } catch (err) {
         clearTimeout(silenceTimer);
@@ -2159,7 +2159,8 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
     } finally {
         clearTimeout(toolHintTimer); clearTimeout(toolHintTimer2);
         _isStreamingReply = false;
-        if (_renderDeferred) { _renderDeferred = false; renderChatMessages(); }
+        _renderDeferred = false;
+        renderChatMessages();
         if (_resyncPendingReason) {
             var _pr = _resyncPendingReason; _resyncPendingReason = null;
             setTimeout(function(){ resyncAndMerge(_pr); }, 1500);
