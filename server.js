@@ -4144,6 +4144,7 @@ function insertProactiveToConfig(content) {
     try {
         const configPath = path.join(DATA_DIR, 'web_config.json');
         if (!fs.existsSync(configPath)) return;
+        // 增量修改，不整体覆盖：只 push 消息 + 版本号 +1
         const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
         const mainS = (config.chatSessions||[]).find(s => s.id === 'main');
         if (!mainS) return;
@@ -4152,8 +4153,9 @@ function insertProactiveToConfig(content) {
         if (mainS.messages.length > 200) mainS.messages = mainS.messages.slice(-200);
         config._version = (config._version || 0) + 1;
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-        console.log('✅ [proactive] 写入成功 v' + config._version + ' [Proactive消息写入]');
-    } catch(e) {}
+        const after = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        console.log('✅ [proactive] v' + config._version + ' msgs=' + ((after.chatSessions||[]).find(s => s.id==='main')||{}).messages?.length + ' [Proactive]');
+    } catch(e) { console.error('❌ [proactive] write failed:', e.message); }
 }
 
 

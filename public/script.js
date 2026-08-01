@@ -133,7 +133,7 @@ function connectWebSocket() {
         _wsConnectedOnce = true;
     };
     _ws.onmessage = (e) => { try { const msg = JSON.parse(e.data); handleWSMessage(msg); } catch(e) {} };
-    _ws.onclose = () => { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = setTimeout(connectWebSocket, 3000); };
+    _ws.onclose = (e) => { console.log('🔌 [WS] 断开 code=' + (e ? e.code : '?') + ' reason=' + (e ? (e.reason || '').substring(0,60) : '')); clearTimeout(_wsReconnectTimer); _wsReconnectTimer = setTimeout(connectWebSocket, 3000); };
     _ws.onerror = () => { _ws.close(); };
 }
 function handleWSMessage(msg) {
@@ -518,13 +518,25 @@ async function resyncAndMerge(reason) {
     return await _syncingPromise;
 }
 
+let _loopLocalOnly = 0; let _loopCount = 0;
+
 async function resyncIfStale(reason) {
     if (!mergeSyncEnabled()) return;
-    if (Date.now() - _lastResyncAt < 5000) return;   // 5 秒内不重复拉
+    if (Date.now() - _lastResyncAt < 10000) return;   // 10 秒内不重复拉
     _lastResyncAt = Date.now();
     const res = await resyncAndMerge(reason);
-    // 本地有服务端没有的消息，立刻补存回去
-    if (res && res.localOnly > 0) saveToCloud(true);
+    if (res && res.localOnly > 0) {
+        // 死循环保护：连续 3 次 localOnly 不下降就停止自动保存
+        if (res.localOnly >= _loopLocalOnly && _loopLocalOnly > 0) {
+            _loopCount++;
+            if (_loopCount >= 3) {
+                console.error('⚠️ [保存循环] localOnly=' + res.localOnly + ' 连续' + _loopCount + '次未下降，停止自动保存。可能是服务端写入竞态。');
+                return;
+            }
+        } else { _loopCount = 0; }
+        _loopLocalOnly = res.localOnly;
+        saveToCloud(true);
+    }
 }
 
 async function _doSave() {
