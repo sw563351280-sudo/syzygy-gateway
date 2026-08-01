@@ -5689,7 +5689,7 @@ app.get('/api/longterm-page-data', async (req, res) => {
     const rpMemories = loadRoleplayMemories();
     const profile = loadUserProfile();
     const dreamLogs = loadDreamLogs().slice(-3).reverse();
-    const allMems = [...activeMemories.map(m => ({ ...m, category: 'active', liveHeat: calculateHeat(m) })), ...archivedMemories.map(m => ({ ...m, category: 'archived', liveHeat: 0 })), ...rpMemories.map(m => ({ ...m, category: 'roleplay', liveHeat: m.heat || 0.5 }))].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const allMems = [...activeMemories.map(m => ({ ...m, category: 'active', liveHeat: (m.heat !== undefined && m.heat !== (m.arousal || 0.5)) ? m.heat : calculateHeat(m) })), ...archivedMemories.map(m => ({ ...m, category: 'archived', liveHeat: 0 })), ...rpMemories.map(m => ({ ...m, category: 'roleplay', liveHeat: m.heat || 0.5 }))].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     const counts = { all: activeMemories.length, manual: activeMemories.filter(m => m.source === 'manual').length, ai_active: activeMemories.filter(m => m.source === 'ai_active').length, butler_summary: activeMemories.filter(m => m.source === 'butler_summary').length, archived: archivedMemories.length, roleplay: rpMemories.length };
     let heatHigh = 0, heatMid = 0, heatLow = 0;
     for (const m of allMems) { if (m.category !== 'active') continue; if (m.liveHeat > 0.7) heatHigh++; else if (m.liveHeat >= 0.3) heatMid++; else heatLow++; }
