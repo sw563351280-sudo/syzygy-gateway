@@ -181,6 +181,10 @@ async function smsFire() {
 
   SMS.playing = true;
   smsRenderQueueCount();
+
+  // 占住流式锁：防止 visibilitychange / WS 重连触发 renderChatMessages 清屏
+  _isStreamingReply = true;
+  if (window._coreStreamStart) window._coreStreamStart();
   smsShowTyping();
 
   let raw = '', reasoning = '';
@@ -190,8 +194,7 @@ async function smsFire() {
     reasoning = res.reasoning ?? '';
   } catch (err) {
     smsHideTyping();
-    SMS.playing = false;
-    smsRenderQueueCount();
+    smsCleanupStreamLock();
     smsShowError(err, () => { SMS.queue = segments.concat(SMS.queue); smsRenderQueueCount(); smsFire(); });
     return;
   }
@@ -210,6 +213,25 @@ async function smsFire() {
   SMS_ADAPTER.persist();
 
   await smsPlay(parts, reasoning);
+  smsCleanupStreamLock();
+}
+
+/* 放掉流式锁，触发延迟的 render + resync */
+function smsCleanupStreamLock() {
+  SMS.playing = false;
+  SMS.skip = false;
+  smsRenderQueueCount();
+  _isStreamingReply = false;
+  if (window._coreStreamEnd) window._coreStreamEnd();
+  if (typeof _renderDeferred !== 'undefined' && _renderDeferred) {
+    _renderDeferred = false;
+    if (typeof renderChatMessages === 'function') renderChatMessages();
+  }
+  if (typeof _resyncPendingReason !== 'undefined' && _resyncPendingReason) {
+    const pr = _resyncPendingReason;
+    _resyncPendingReason = null;
+    setTimeout(() => { if (typeof resyncAndMerge === 'function') resyncAndMerge(pr); }, 1500);
+  }
 }
 
 /* ── 切分：分隔符优先，退化到标点 ── */
@@ -264,9 +286,7 @@ async function smsPlay(parts, reasoning) {
     });
   }
 
-  SMS.playing = false;
-  SMS.skip = false;
-  smsRenderQueueCount();
+  // 锁由 smsCleanupStreamLock 在 smsFire 收尾时统一释放
 }
 
 /* ── 气泡 ── */
@@ -354,11 +374,16 @@ function smsShowError(err, retry) {
 
 /* ── 历史回放：把存好的 segments 铺成多气泡 ── */
 function smsRenderHistoryMessage(msg) {
-  const segs = msg.segments || String(msg.content || '').split('\n').filter(Boolean);
+  const gv = (typeof getActiveVersion === 'function') ? getActiveVersion : (m) => (m.versions && m.versions.length > 0 ? m.versions[m.activeVersion || 0] || m.versions[0] : m);
+  const v = gv(msg);
+  // ensureVersioned 会把 content/segments 复制进 versions[0] 并删除顶层 content
+  const segs = msg.segments || v.segments ||
+               String(v.content || msg.content || '').split('\n').filter(Boolean);
   const role = msg.role === 'user' ? 'user' : 'sys';
+  const think = v.reasoning || v.thinking || msg.reasoning || '';
   segs.forEach((s, i) => smsAppendBubble(s, role, {
-    think: i === 0 ? msg.reasoning : null,
-    meta: i === segs.length - 1,
+    think: i === 0 ? think : null,
+    meta:  i === segs.length - 1,
   }));
 }
 

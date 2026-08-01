@@ -316,7 +316,10 @@ function _showSaveWarning(show, errMsg) {
 function stripImagesForCloudSync(sessions) {
     return sessions.map(session => ({
         ...session,
-        messages: (session.messages || []).map(msg => ({
+        messages: (session.messages || []).map(msg => {
+            // SMS 扁平消息不经过 versions 映射，避免 versions:[] 覆盖
+            if (msg.mode === 'sms') return { ...msg };
+            return {
             ...msg,
             versions: (msg.versions || []).map(v => {
                 const next = { ...v };
@@ -324,7 +327,8 @@ function stripImagesForCloudSync(sessions) {
                 delete next.images;
                 return next;
             })
-        }))
+        };
+        })
     }));
 }
 
@@ -1673,6 +1677,13 @@ function renderChatMessages(){
     const msgs = session.messages.slice(-30);
     msgs.forEach((m, subIndex) => {
         const index = session.messages.length - msgs.length + subIndex;
+
+        // 短对话消息：碎条铺开，不走下面的单气泡渲染
+        if (m.mode === 'sms' && typeof smsRenderHistoryMessage === 'function') {
+            smsRenderHistoryMessage(m);
+            return;
+        }
+
         const v = getActiveVersion(m);
         const vCount = getVersionCount(m);
         const vIdx = getActiveVersionIndex(m);
