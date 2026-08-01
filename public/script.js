@@ -224,6 +224,19 @@ async function syncFromCloud() {
 
     } catch(e) {
         console.error('[sync] load failed:', e.message);
+        // 尝试从本地紧急备份恢复
+        if ((!chatSessions || !chatSessions.length || !chatSessions[0]?.messages?.length) && !localStorage.getItem('syzygy_urgent_used')) {
+            try {
+                const bak = JSON.parse(localStorage.getItem('syzygy_urgent_bak') || 'null');
+                if (bak && bak.sessions && bak.sessions.length && bak.sessions[0]?.messages?.length) {
+                    chatSessions = bak.sessions;
+                    _dataVersion = bak.ver || 0;
+                    console.log('[sync] 从本地紧急备份恢复 ' + bak.sessions[0].messages.length + ' 条消息');
+                    localStorage.setItem('syzygy_urgent_used', '1');
+                    setTimeout(() => localStorage.removeItem('syzygy_urgent_used'), 60000);
+                }
+            } catch(_) {}
+        }
         // Never wipe in-memory data. On first load, keep trying.
         if (!chatSessions || !chatSessions.length) {
             suppliers    = [{ name: "默认接口", url: "https://api.dzzi.ai/v1", key: "" }];
@@ -2112,6 +2125,8 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         const domThinking = thinkTextDiv && thinkBox && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || '');
         assistantMsg = { role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
         session.messages.push(assistantMsg);
+        // 先存本地备份，再尝试云端同步
+        try { localStorage.setItem('syzygy_urgent_bak', JSON.stringify({ sessions: chatSessions, ver: _dataVersion, ts: Date.now() })); } catch(_) {}
         saveToCloud(true);  // 立即保存，不延迟
         fetchPulseStatus();
         clearTimeout(silenceTimer);
