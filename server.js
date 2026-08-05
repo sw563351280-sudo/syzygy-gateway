@@ -5736,7 +5736,7 @@ app.post('/api/fetch-models', async (req, res) => {
             const upstream = API_ROUTES[viaMatch[1]] || API_ROUTES['msui'];
             targetUrl = upstream.replace(/chat\/completions$/, 'models');
         } else if (baseUrl && !baseUrl.includes('syrenth.uk')) {
-            targetUrl = `${baseUrl.replace(/\/+$/, '')}/models`;
+            targetUrl = `${baseUrl.replace(/\/+$/, '').replace(/\/chat\/completions$/, '')}/models`;
         } else {
             targetUrl = 'https://www.msuicode.com/v1/models';
         }
