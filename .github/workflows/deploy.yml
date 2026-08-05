@@ -73,6 +73,9 @@ jobs:
             # 清理重复消息 + 按时间排序
             node dedup_messages.js || echo "⚠️ 去重脚本失败"
 
+            # 从 transcript 恢复最近20条消息（仅当会话被脏数据覆盖时）
+            node restore_from_transcripts.js || echo "⚠️ transcript恢复失败"
+
             # === 强制补丁：确保 model_prompt 注入不被本地备份覆盖 ===
             # patch_inject.js 已禁用 — server.js/model_prompts.json 由 git 直接提供
             # node patch_inject.js || echo "⚠️ 补丁执行出错，但继续部署"
