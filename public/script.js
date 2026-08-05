@@ -3830,7 +3830,7 @@ function saveLocalBackup() {
 
 function buildSavePayload() {
     // 🛡️ 拒绝序列化脏兜底状态
-    if (_hasDirtyFallbackState()) { console.warn('[save] 跳过：数据为脏兜底状态'); return '{}'; }
+    if (_hasDirtyFallbackState()) { console.warn('[save] 跳过：数据为脏兜底状态'); return null; }
     var clone;
     try { clone = structuredClone(chatSessions); } catch (_) { clone = JSON.parse(JSON.stringify(chatSessions)); }
     for (var si = 0; si < clone.length; si++) {
@@ -3846,7 +3846,10 @@ document.addEventListener('visibilitychange', function () {
     else {
         saveLocalBackup();
         if (_savingNow || _dataVersion > 0) {
-            try { navigator.sendBeacon('/api/sync-config', new Blob([buildSavePayload()], { type: 'application/json' })); } catch(_) {}
+            const payload = buildSavePayload();
+            if (payload) {
+                try { navigator.sendBeacon('/api/sync-config', new Blob([payload], { type: 'application/json' })); } catch(_) {}
+            }
         }
     }
 });

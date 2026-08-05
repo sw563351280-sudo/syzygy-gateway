@@ -6849,6 +6849,12 @@ app.post('/api/sync-config', (req, res) => {
             console.log(`🛡️ [脏数据] 拒绝保存脏会话 "${dirtySession.name}" (client v${clientVersion})`);
             return res.json({ success: false, _version: serverVersion, _rejected: true, message: '检测到脏会话状态，请刷新页面' });
         }
+        // 🛡️ 拒绝空数据覆盖：main 会话必须存在且有消息（防止 sendBeacon 空 payload 清空数据）
+        const hasMain = (chatSessions || []).some(s => s.id === 'main' && Array.isArray(s.messages) && s.messages.length > 0);
+        if (!hasMain && existingData && existingData.chatSessions && existingData.chatSessions.some(s => s.id === 'main' && s.messages && s.messages.length > 0)) {
+            console.log(`🛡️ [空数据] 拒绝保存空会话覆盖 (client v${clientVersion}, server v${serverVersion})`);
+            return res.json({ success: false, _version: serverVersion, _rejected: true, message: '空数据写入被拒绝，请刷新页面' });
+        }
         const newVersion = serverVersion + 1;
         const data = {
             ...(existingData || {}),

@@ -15,8 +15,7 @@ if (!FORCE && fs.existsSync(CONFIG_FILE)) {
         const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
         const main = (cfg.chatSessions || []).find(s => s.id === 'main');
         const dirty = main && (main.name || '').includes('加载中');
-        const tooFew = !main || !main.messages || main.messages.length < 3;
-        if (!dirty && !tooFew) {
+        if (!dirty) {
             console.log('✅ 数据健康 (' + (main?.messages?.length||0) + '条消息)，跳过恢复');
             process.exit(0);
         }
