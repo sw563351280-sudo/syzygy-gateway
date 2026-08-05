@@ -8,8 +8,9 @@ const TRANSCRIPTS_DIR = path.join(DATA_DIR, 'transcripts');
 const CONFIG_FILE = path.join(DATA_DIR, 'web_config.json');
 const N = 20;
 
-// 0. 检查是否需要恢复
-if (fs.existsSync(CONFIG_FILE)) {
+// 0. 检查是否需要恢复（--force 跳过检查）
+const FORCE = process.argv.includes('--force');
+if (!FORCE && fs.existsSync(CONFIG_FILE)) {
     try {
         const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
         const main = (cfg.chatSessions || []).find(s => s.id === 'main');
@@ -21,6 +22,8 @@ if (fs.existsSync(CONFIG_FILE)) {
         }
         console.log('🔧 需要恢复: dirty=' + dirty + ' msgCount=' + (main?.messages?.length||0));
     } catch(e) { console.log('⚠️ 配置文件读取失败，尝试恢复:', e.message); }
+} else if (FORCE) {
+    console.log('🔧 --force 模式，强制执行恢复');
 } else {
     console.log('⚠️ web_config.json 不存在，尝试从 transcript 重建');
 }
