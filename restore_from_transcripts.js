@@ -5,6 +5,7 @@ const path = require('path');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const TRANSCRIPTS_DIR = path.join(DATA_DIR, 'transcripts');
+const TRANSCRIPT_BUFFER_FILE = path.join(DATA_DIR, 'transcript_buffer.json');
 const CONFIG_FILE = path.join(DATA_DIR, 'web_config.json');
 const N = 20;
 
@@ -50,6 +51,19 @@ for (const file of transcriptFiles) {
         }
     } catch(e) {}
 }
+
+// 📜 追加读取 transcript_buffer.json（未归档的最新对话）
+try {
+    const buf = JSON.parse(fs.readFileSync(TRANSCRIPT_BUFFER_FILE, 'utf8'));
+    for (const msg of (buf.messages || [])) {
+        if (msg.role && msg.content && msg.time) {
+            allMessages.push({ role: msg.role, content: msg.content, time: msg.time });
+        }
+    }
+    if (buf.messages && buf.messages.length) {
+        console.log(`📜 buffer 补充 ${buf.messages.length} 条未归档消息`);
+    }
+} catch(e) { console.log('⚠️ buffer 读取失败（可能不存在）:', e.message); }
 
 if (allMessages.length === 0) { console.log('❌ 无消息'); process.exit(1); }
 
