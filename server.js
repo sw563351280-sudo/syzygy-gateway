@@ -6843,6 +6843,12 @@ app.post('/api/sync-config', (req, res) => {
             return res.json({ success: false, _version: serverVersion, _rejected: true, message: '数据已被较新标签页更新，请刷新页面' });
         }
         const { suppliers, chatSessions, activeSupIndex, activeChatId } = req.body;
+        // 🛡️ 拒绝保存兜底脏状态：会话名为"加载中...（请刷新）"时拒绝写入，防止前端断连后覆盖正常数据
+        const dirtySession = (chatSessions || []).find(s => (s.name || '').includes('加载中'));
+        if (dirtySession) {
+            console.log(`🛡️ [脏数据] 拒绝保存脏会话 "${dirtySession.name}" (client v${clientVersion})`);
+            return res.json({ success: false, _version: serverVersion, _rejected: true, message: '检测到脏会话状态，请刷新页面' });
+        }
         const newVersion = serverVersion + 1;
         const data = {
             ...(existingData || {}),
