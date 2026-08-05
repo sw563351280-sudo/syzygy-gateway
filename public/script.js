@@ -233,6 +233,16 @@ async function syncFromCloud() {
         activeSupIndex = data.activeSupIndex || 0;
         activeChatId   = data.activeChatId  || 'main';
 
+        // 🛡️ 云端加载成功后，旧的紧急备份已无意义，清掉（防止未来从脏备份恢复）
+        try {
+            const oldBak = JSON.parse(localStorage.getItem('syzygy_urgent_bak') || 'null');
+            const bakDirty = oldBak && Array.isArray(oldBak.sessions) && oldBak.sessions.some(s => (s.name || '').includes('加载中'));
+            if (oldBak && (!oldBak.sessions || !oldBak.sessions.length || bakDirty)) {
+                localStorage.removeItem('syzygy_urgent_bak');
+                console.log('[sync] 已清理脏紧急备份');
+            }
+        } catch(_) {}
+
         if (!chatSessions.find(s => s.id === activeChatId)) {
             activeChatId = chatSessions[0].id;
         }
@@ -257,12 +267,17 @@ async function syncFromCloud() {
         if ((!chatSessions || !chatSessions.length || !chatSessions[0]?.messages?.length) && !localStorage.getItem('syzygy_urgent_used')) {
             try {
                 const bak = JSON.parse(localStorage.getItem('syzygy_urgent_bak') || 'null');
-                if (bak && bak.sessions && bak.sessions.length && bak.sessions[0]?.messages?.length) {
+                // 🛡️ 拒绝从脏备份恢复（备份里的会话名含"加载中"说明是被污染的）
+                const bakDirty = bak && Array.isArray(bak.sessions) && bak.sessions.some(s => (s.name || '').includes('加载中'));
+                if (!bakDirty && bak && bak.sessions && bak.sessions.length && bak.sessions[0]?.messages?.length) {
                     chatSessions = bak.sessions;
                     _dataVersion = bak.ver || 0;
                     console.log('[sync] 从本地紧急备份恢复 ' + bak.sessions[0].messages.length + ' 条消息');
                     localStorage.setItem('syzygy_urgent_used', '1');
                     setTimeout(() => localStorage.removeItem('syzygy_urgent_used'), 60000);
+                } else if (bakDirty) {
+                    console.warn('[sync] 紧急备份为脏数据，跳过恢复');
+                    localStorage.removeItem('syzygy_urgent_bak');
                 }
             } catch(_) {}
         }
@@ -2267,7 +2282,10 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         assistantMsg = { _id: crypto.randomUUID(), role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
         getLiveSession(sessionId).messages.push(assistantMsg);
         // 先存本地备份，再尝试云端同步
-        try { localStorage.setItem('syzygy_urgent_bak', JSON.stringify({ sessions: chatSessions, ver: _dataVersion, ts: Date.now() })); } catch(_) {}
+        // 🛡️ 拒绝备份脏兜底状态
+        if (!_hasDirtyFallbackState()) {
+            try { localStorage.setItem('syzygy_urgent_bak', JSON.stringify({ sessions: chatSessions, ver: _dataVersion, ts: Date.now() })); } catch(_) {}
+        }
         saveToCloud(true);
         fetchPulseStatus();
         clearTimeout(silenceTimer);
