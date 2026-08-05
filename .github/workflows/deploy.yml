@@ -66,6 +66,14 @@ jobs:
             # 诊断
             node diag_file.js
 
+            # 🔒 备份 web_config.json（防止脏数据覆盖 + 保留回滚点）
+            BACKUP_DIR="/opt/syzygy/data/backups"
+            mkdir -p "$BACKUP_DIR"
+            cp /opt/syzygy/data/web_config.json "$BACKUP_DIR/web_config_$(date +%Y%m%d_%H%M%S).json" 2>/dev/null || echo "⚠️ web_config 备份跳过（文件不存在）"
+            # 只保留最近 20 个备份
+            ls -t "$BACKUP_DIR"/web_config_*.json 2>/dev/null | tail -n +21 | xargs rm -f 2>/dev/null || true
+            echo "📦 web_config 备份完成（保留最近20个）"
+
             # 清理重复消息 + 加 stable id
             node dedup_daily.js || echo "⚠️ 去重流程结束"
             node restore_recent.js || echo "⚠️ 恢复流程结束"

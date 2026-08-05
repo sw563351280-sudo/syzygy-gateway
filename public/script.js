@@ -634,6 +634,12 @@ async function resyncIfStale(reason) {
 
 async function _doSave() {
     var _t0 = Date.now();
+    // 🛡️ 拒绝保存脏兜底状态（防止断连时把空数据覆盖到服务端）
+    if (_hasDirtyFallbackState()) {
+        console.warn('[save:ABORT] 数据为脏兜底状态，拒绝保存 ' + (Date.now()-_t0) + 'ms');
+        _showSaveWarning(true, '数据未正常加载，请刷新页面');
+        throw new Error('脏兜底状态，拒绝保存');
+    }
     // Never save if we haven't loaded cloud data yet (prevents wiping real data with empty state)
     if (!_dataVersion) {
         console.warn('[sync-config] 云端数据未加载，先尝试拉取');
@@ -3795,7 +3801,14 @@ async function stateSnapshot() {
 connectWebSocket();
 
 // 切回前台 / 网络恢复时补数据
+// 🛡️ 检测内存数据是否已被兜底脏状态污染
+function _hasDirtyFallbackState() {
+    return (chatSessions || []).some(function(s) { return (s.name || '').indexOf('加载中') !== -1; });
+}
+
 function saveLocalBackup() {
+    // 🛡️ 拒绝备份脏兜底状态
+    if (_hasDirtyFallbackState()) { console.warn('[backup] 跳过：数据为脏兜底状态'); return; }
     try {
         var clone;
         try { clone = structuredClone(chatSessions); } catch (_) { clone = JSON.parse(JSON.stringify(chatSessions)); }
@@ -3816,6 +3829,8 @@ function saveLocalBackup() {
 }
 
 function buildSavePayload() {
+    // 🛡️ 拒绝序列化脏兜底状态
+    if (_hasDirtyFallbackState()) { console.warn('[save] 跳过：数据为脏兜底状态'); return '{}'; }
     var clone;
     try { clone = structuredClone(chatSessions); } catch (_) { clone = JSON.parse(JSON.stringify(chatSessions)); }
     for (var si = 0; si < clone.length; si++) {
