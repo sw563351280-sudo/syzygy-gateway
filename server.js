@@ -6824,7 +6824,24 @@ const CONFIG_FILE = path.join(DATA_DIR, 'web_config.json');
 
 app.get('/api/sync-config', (req, res) => {
     if (fs.existsSync(CONFIG_FILE)) {
-        res.json(JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')));
+        const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+        // 🛡️ 过滤历史遗留的兜底脏消息（"数据加载失败"假消息）
+        if (cfg.chatSessions) {
+            for (const s of cfg.chatSessions) {
+                if (!s.messages) continue;
+                const before = s.messages.length;
+                s.messages = s.messages.filter(m => {
+                    const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
+                    const c = (v && v.content) || m.content || '';
+                    return String(c).indexOf('数据加载失败，请刷新页面重试') === -1;
+                });
+                if (s.messages.length !== before) {
+                    console.log(`🛡️ [GET] 过滤 ${before - s.messages.length} 条兜底脏消息 (会话 ${s.id})`);
+                    fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+                }
+            }
+        }
+        res.json(cfg);
     } else {
         res.json({ suppliers: [], chatSessions: [] });
     }
@@ -6848,6 +6865,16 @@ app.post('/api/sync-config', (req, res) => {
         if (dirtySession) {
             console.log(`🛡️ [脏数据] 拒绝保存脏会话 "${dirtySession.name}" (client v${clientVersion})`);
             return res.json({ success: false, _version: serverVersion, _rejected: true, message: '检测到脏会话状态，请刷新页面' });
+        }
+        // 🛡️ 拒绝含兜底脏消息的 payload（"数据加载失败"假消息）
+        const hasDirtyMsg = (chatSessions || []).some(s => (s.messages || []).some(m => {
+            const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
+            const c = (v && v.content) || m.content || '';
+            return String(c).indexOf('数据加载失败，请刷新页面重试') !== -1;
+        }));
+        if (hasDirtyMsg) {
+            console.log(`🛡️ [脏消息] 拒绝保存含兜底假消息的 payload (client v${clientVersion})`);
+            return res.json({ success: false, _version: serverVersion, _rejected: true, message: '检测到兜底假消息，请刷新页面' });
         }
         // 🛡️ 拒绝空数据覆盖：main 会话必须存在且有消息（防止 sendBeacon 空 payload 清空数据）
         const hasMain = (chatSessions || []).some(s => s.id === 'main' && Array.isArray(s.messages) && s.messages.length > 0);

@@ -249,6 +249,8 @@ async function syncFromCloud() {
 
         // 迁移旧消息：把顶层thinking/reasoning迁入active version
         for (const s of chatSessions) { if (!s.messages) continue; for (const m of s.messages) { normalizeMessageVersionFields(m); } }
+        // 🛡️ 过滤服务端返回的兜底脏消息
+        for (const s of chatSessions) { if (!s.messages) continue; s.messages = s.messages.filter(m => !isDirtyFallbackMessage(m)); }
 
         renderSuppliers();
         renderChatSidebar();
@@ -498,6 +500,14 @@ function smsRichness(m) {
   return n;
 }
 
+/* 🛡️ 检测兜底脏消息（断连时生成的假消息） */
+function isDirtyFallbackMessage(m) {
+  if (!m) return true;
+  const v = (typeof getActiveVersion === 'function' ? getActiveVersion(m) : {}) || {};
+  const c = (typeof msgContentOf === 'function') ? msgContentOf(m) : (v.content || m.content || '');
+  return String(c).indexOf('数据加载失败，请刷新页面重试') !== -1;
+}
+
 // 合并两条消息数组，按 key 去重，按时间排序
 function mergeMessageLists(serverMsgs, localMsgs) {
     const out = [];
@@ -505,6 +515,7 @@ function mergeMessageLists(serverMsgs, localMsgs) {
 
     function push(m) {
         if (!m) return;
+        if (isDirtyFallbackMessage(m)) { console.warn('[merge] 丢弃兜底脏消息: ' + String((m.versions?.[m.activeVersion||0]||m)?.content||'').substring(0,30)); return; }
         const k = msgKey(m);
         if (seen.has(k)) {
             const i = seen.get(k);
