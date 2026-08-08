@@ -20,7 +20,7 @@ jobs:
         run: |
           ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key root@46.250.248.31 '
             set -e
-            set -x  # 逐行打印命令，便于定位失败位置
+            # 不启用 shell trace，避免把令牌或运行时信息写入 Actions 日志。
             cd /opt/syzygy || exit 1
 
             # 备份沈望在VPS上修改的文件
@@ -88,10 +88,11 @@ jobs:
             # patch_inject.js 已禁用 — server.js/model_prompts.json 由 git 直接提供
             # node patch_inject.js || echo "⚠️ 补丁执行出错，但继续部署"
 
-            # 注入 SITE_PASSWORD 和 SESSION_SECRET 到 systemd 环境变量（仅首次）
-            if ! grep -q SITE_PASSWORD /etc/systemd/system/syzygy.service; then
-              sed -i "/^Environment=/ s/$/ SITE_PASSWORD=\"563351280.1230\" SESSION_SECRET=\"57603c8408c58bfa73b1dfbbbe9c926a943481234035967587504f235983074f\"/" /etc/systemd/system/syzygy.service
-              systemctl daemon-reload
+            # 站点密码和会话密钥必须预先配置在 VPS 的 systemd 环境中。
+            # 不在仓库或 CI 脚本中写入固定凭据。
+            if ! grep -q SITE_PASSWORD /etc/systemd/system/syzygy.service || ! grep -q SESSION_SECRET /etc/systemd/system/syzygy.service; then
+              echo "❌ 缺少 SITE_PASSWORD，请先在 VPS systemd 配置中设置 SITE_PASSWORD 和 SESSION_SECRET"
+              exit 1
             fi
 
             # Step 1: 确保 .sensor_token 有效（不管 systemd 里有没有）
@@ -211,6 +212,5 @@ jobs:
             (systemctl restart syzygy.service && sleep 2 && journalctl -u syzygy.service --no-pager -n 5) || echo "⚠️ restart may have failed"
             echo "=== DEPLOY OK ==="
             echo ""
-            echo "🔑 SensorLogger令牌: $(cat /opt/syzygy/.sensor_token)"
-            echo "   复制上面这行到 SensorLogger → HTTP Push → Authorization: Bearer <令牌>"
+            echo "🔐 SensorLogger 令牌已保存在 VPS，不在 CI 日志中输出。"
           '

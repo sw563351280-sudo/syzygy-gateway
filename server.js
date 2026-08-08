@@ -277,8 +277,9 @@ app.get('/health', (req, res) => {
 });
 
 // 临时诊断：embedding 服务状态
-// GET: 只读，不探测不重置
+// GET: 只读，不探测不重置；必须登录后访问
 app.get('/api/diag/embedding', (req, res) => {
+    if (!isAuthenticated(req)) return res.status(401).json({ error: '请先登录' });
     const crypto = require('crypto');
     const key = process.env.EMBEDDING_API_KEY;
     // 仅管理员可看 key_sha256_prefix
@@ -328,12 +329,13 @@ app.post('/api/diag/embedding/probe', (req, res) => {
 });
 
 // ==========================================
-// 传感器网页（免登录，Token 由服务端注入）
+// 传感器网页（免登录，Token 由设备端手动配置并保存在 localStorage）
 // ==========================================
 app.get('/sensors', (req, res) => {
     const html = fs.readFileSync(path.join(__dirname, 'public', 'sensors.html'), 'utf8');
-    const token = SENSOR_INGEST_TOKEN || '';
-    res.type('html').send(html.replace('%%TOKEN%%', token));
+    // 传感器页保持可公开打开，但不再把 Bearer Token 注入 HTML。
+    // 页面已有 localStorage/手动输入降级流程，避免访客直接取得写入令牌。
+    res.type('html').send(html);
 });
 
 // ==========================================
@@ -594,7 +596,8 @@ function wsTraceToTab(tabId, data) {
 }
 
 const CONTRADICTION_DETECTION_ENABLED = true;
-const ZEP_URL = 'http://127.0.0.1:9999'; // Zep已废弃，指向本地不存在的端口快速失败
+// Zep 已退役。需要恢复兼容时通过环境变量显式配置，不再默认请求本机不存在的端口。
+const ZEP_URL = (process.env.ZEP_URL || '').replace(/\/+$/, '');
 const SESSION_ID = "syzygy_01";
 
 const API_ROUTES = {
@@ -1017,7 +1020,12 @@ const DAILY_PAGES_FILE = path.join(DATA_DIR, 'daily_pages.json');
 const WEEKLY_SUMMARIES_FILE = path.join(DATA_DIR, 'weekly_summaries.json');
 const MONTHLY_SUMMARIES_FILE = path.join(DATA_DIR, 'monthly_summaries.json');
 const FAVORITES_FILE = path.join(DATA_DIR, 'favorites.json');
-function loadFavorites() { try { return JSON.parse(fs.readFileSync(FAVORITES_FILE, 'utf8')); } catch(e) { return []; } }
+function loadFavorites() {
+    try {
+        const data = JSON.parse(fs.readFileSync(FAVORITES_FILE, 'utf8'));
+        return Array.isArray(data) ? data : [];
+    } catch(e) { return []; }
+}
 function saveFavorites(items) { fs.writeFileSync(FAVORITES_FILE, JSON.stringify(items, null, 2), 'utf8'); }
 
 // ==========================================
@@ -3953,11 +3961,13 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
         console.log('📋 [Dream·状态] pending_promises已保存到本地');
 
         const summaryMeta = { current_state: summaryJson };
-        fetch(`${ZEP_URL}/api/v1/sessions/${sessionId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ metadata: summaryMeta })
-        }).catch(() => {});
+        if (ZEP_URL) {
+            fetch(`${ZEP_URL}/api/v1/sessions/${sessionId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ metadata: summaryMeta })
+            }).catch(() => {});
+        }
         updateUserProfile().catch(e => console.log('🖼️ [用户画像] 后台更新异常:', e.message));
     } catch (e) { console.error("🌙 [Dream·固化层] 失败:", e.message); diag.errors.push(`固化层异常: ${e.message}`); }
 
@@ -5184,6 +5194,7 @@ app.delete('/api/embeddings-cache', (req, res) => {
 });
 
 app.post('/add-memory', async (req, res) => {
+    if (!ZEP_URL) return res.status(410).json({ error: 'Zep 已停用；请使用本地记忆或长期记忆接口', code: 'ZEP_DISABLED' });
     try {
         const { content, role } = req.body;
         if (!content) return res.status(400).json({ error: "content 不能为空" });
@@ -5616,6 +5627,7 @@ app.get('/api/physio/status', (req, res) => {
 });
 
 app.post('/delete-selected', async (req, res) => {
+    if (!ZEP_URL) return res.status(410).json({ error: 'Zep 已停用；该历史消息删除接口不可用', code: 'ZEP_DISABLED' });
     try {
         const { keepMessages, deleteUuids } = req.body;
         if (deleteUuids && Array.isArray(deleteUuids)) {
@@ -5643,6 +5655,7 @@ app.post('/delete-selected', async (req, res) => {
 app.post('/api/restore-all-messages', async (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD)
         return res.status(401).json({ error: "密码错误" });
+    if (!ZEP_URL) return res.status(410).json({ error: 'Zep 已停用；无需从 Zep 恢复历史消息', code: 'ZEP_DISABLED' });
     try {
         const sessionRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`);
         const sessionData = await sessionRes.json();
@@ -5659,6 +5672,7 @@ app.post('/api/restore-all-messages', async (req, res) => {
 });
 
 app.delete('/delete-memory/:uuid', async (req, res) => {
+    if (!ZEP_URL) return res.status(410).json({ error: 'Zep 已停用；该历史消息删除接口不可用', code: 'ZEP_DISABLED' });
     try {
         await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory/messages/${req.params.uuid}`, { method: 'DELETE' });
         res.json({ success: true });
@@ -5722,7 +5736,13 @@ app.get('/long-term', (req, res) => {
 });
 
 app.get(['/v1/models', '/via/:platform/v1/models'], async (req, res) => {
-    try { res.status(200).json(await (await fetch(resolveApiUrl(req.path).replace('/chat/completions', '/models'), { headers: { 'Authorization': req.headers.authorization } })).json()); } catch(e) {}
+    try {
+        const upstream = await fetch(resolveApiUrl(req.path).replace('/chat/completions', '/models'), { headers: { 'Authorization': req.headers.authorization } });
+        const payload = await upstream.json().catch(() => ({ error: '上游返回了无效 JSON' }));
+        res.status(upstream.ok ? 200 : (upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502)).json(payload);
+    } catch(e) {
+        res.status(502).json({ error: '模型列表暂时不可用', detail: e.message });
+    }
 });
 
 // ==========================================
@@ -6475,10 +6495,12 @@ app.post('/diary/ai-write', async (req, res) => {
     try {
         let recentContext = '';
         try {
-            const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=10`);
-            if (zepRes.ok) {
-                const zepData = await zepRes.json();
-                if (zepData.summary?.content) recentContext = `\n【近期背景】${zepData.summary.content}\n`;
+            if (ZEP_URL) {
+                const zepRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=10`);
+                if (zepRes.ok) {
+                    const zepData = await zepRes.json();
+                    if (zepData.summary?.content) recentContext = `\n【近期背景】${zepData.summary.content}\n`;
+                }
             }
         } catch(e) {}
 
@@ -6612,7 +6634,7 @@ app.post('/api/favorites', (req, res) => {
 
 app.get('/api/favorites', (req, res) => {
     let items = loadFavorites();
-    if (req.query.tag) items = items.filter(f => f.tags.includes(req.query.tag));
+    if (req.query.tag) items = items.filter(f => Array.isArray(f.tags) && f.tags.includes(req.query.tag));
     items.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     res.json({ favorites: items });
 });

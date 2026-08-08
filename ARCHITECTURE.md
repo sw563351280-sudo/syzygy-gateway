@@ -15,7 +15,7 @@
 | 前端 | 原生 HTML/CSS/JS，`public/index.html` + `script.js` + `style.css` |
 | 存储 | JSON 文件 (`data/` 目录)，无数据库 |
 | 向量引擎 | SiliconFlow Embedding API (`BAAI/bge-m3`, `BAAI/bge-large-zh-v1.5`) |
-| 对话存储 | Zep（已废弃，指向 `127.0.0.1:9999` 快速失败） |
+| 对话存储 | 本地 transcript / `web_config.json`；Zep 仅通过 `ZEP_URL` 环境变量可选启用 |
 | AI 中转 | msui (msuicode.com) / dzzi / ekan / orange / 68886868 |
 | 部署 | VPS (Contabo, 德国)，GitHub Actions 自动部署到 `/opt/syzygy` |
 | 进程管理 | systemd (`syzygy.service`) |
@@ -217,7 +217,7 @@ API: POST /trigger-dream?pwd=xxx
 |------|------|
 | 1993 | POST ['/v1/chat/completions', '/via/:platform/v1/chat/completions'] |
 | 1995-2024 | 消息清洗 (去system/tool, 清洗历史图片) |
-| 2030-2050 | Zep 向量搜索 (已走本地127.0.0.1快速失败) |
+| 2030-2050 | 本地记忆雷达；Zep 跨平台搜索仅在配置 `ZEP_URL` 时启用 |
 | 2080-2140 | 记忆雷达注入 |
 | 2150-2190 | 构建最终messages数组 |
 | 2185 | resolveApiUrl() 选择中转站 |
@@ -393,7 +393,7 @@ cat /etc/systemd/system/syzygy.service
 | 问题 | 说明 |
 |------|------|
 | DZZI_API_KEY 有 typo | 小写 `r` vs 大写 `R`，系统已切换 msui 不再使用 |
-| Zep 已废弃 | 指向 127.0.0.1:9999 快速失败，对话存在本地 web_config.json |
+| Zep 已停用 | 默认不请求 Zep；对话保存在本地 transcript / `web_config.json`，配置 `ZEP_URL` 后才启用兼容层 |
 | server.js 单文件巨大 | ~6000行，后续应考虑拆分模块 |
 | 无数据库 | JSON 文件读写线程安全风险(当前 Node 单线程安全) |
 | 无认证体系 | 管理接口只有 MEMORY_PASSWORD 简单密码 |

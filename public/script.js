@@ -3357,7 +3357,18 @@ let _favTargetMsgIdx = 0;
 let _favCache = [];
 
 async function loadFavCache() {
-    try { const r = await fetch('/api/favorites'); const d = await r.json(); _favCache = d.favorites || []; } catch(e) { _favCache = []; }
+    const r = await fetch('/api/favorites', { cache: 'no-store' });
+    if (!r.ok) {
+        let detail = '';
+        try { detail = (await r.json()).error || ''; } catch (_) {}
+        throw new Error(detail || ('HTTP ' + r.status));
+    }
+    const d = await r.json();
+    _favCache = Array.isArray(d.favorites) ? d.favorites.map(f => ({
+        ...f,
+        tags: Array.isArray(f.tags) ? f.tags : [],
+        messages: Array.isArray(f.messages) ? f.messages : []
+    })) : [];
 }
 
 function openFavDialog(index) {
@@ -3375,7 +3386,7 @@ function openFavDialog(index) {
             break;
         }
     }
-    const aiContent = typeof aiV.content === 'string' ? aiV.content : '';
+    let aiContent = typeof aiV.content === 'string' ? aiV.content : '';
     if (typeof smsPlain === 'function') { userContent = smsPlain(userContent); }
     if (typeof smsPlain === 'function') aiContent = smsPlain(aiContent);
     document.getElementById('favPreview').innerHTML = '<div style="margin-bottom:8px;color:var(--dim);font-size:0.8em;">👤 江鱼：</div><div style="margin-bottom:12px;padding:8px 12px;background:rgba(79,195,247,0.06);border-left:2px solid #4fc3f7;border-radius:4px;">' + (userContent || '(空)').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div><div style="margin-bottom:8px;color:var(--dim);font-size:0.8em;">🤖 沈望：</div><div style="padding:8px 12px;background:rgba(201,169,97,0.06);border-left:2px solid var(--gold);border-radius:4px;">' + (aiContent || '(空)').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
@@ -3431,10 +3442,18 @@ async function confirmFavorite() {
 }
 
 async function loadAndRenderFavorites() {
-    await loadFavCache();
     const list = document.getElementById('favList');
     const tagBar = document.getElementById('favTagBar');
     if (!list) return;
+
+    try {
+        await loadFavCache();
+    } catch (e) {
+        if (tagBar) tagBar.innerHTML = '';
+        list.innerHTML = '<div style="text-align:center;color:var(--warm-red);padding:60px 20px;">收藏加载失败<br><small>' + escapeHtml(e.message) + '</small></div>';
+        toast('收藏加载失败: ' + e.message);
+        return;
+    }
 
     // 收集所有标签
     const allTags = new Set();
@@ -3444,7 +3463,7 @@ async function loadAndRenderFavorites() {
     tagBar.innerHTML = '<button onclick="filterFavByTag(null)" style="padding:4px 12px;border-radius:14px;border:1px solid rgba(201,169,97,0.3);background:rgba(201,169,97,0.1);color:var(--gold);cursor:pointer;font-size:0.85em;">全部 (' + _favCache.length + ')</button>';
     allTags.forEach(t => {
         const count = _favCache.filter(f => f.tags && f.tags.includes(t)).length;
-        tagBar.innerHTML += '<button onclick="filterFavByTag(\'' + t.replace(/'/g, "\\'") + '\')" style="padding:4px 12px;border-radius:14px;border:1px solid rgba(201,169,97,0.15);background:rgba(201,169,97,0.03);color:var(--cream);cursor:pointer;font-size:0.85em;">' + t.replace(/</g,'&lt;') + ' (' + count + ')</button>';
+        tagBar.innerHTML += '<button onclick="filterFavByTag(JSON.parse(this.dataset.tag))" data-tag=\'' + escapeHtml(JSON.stringify(t)) + '\' style="padding:4px 12px;border-radius:14px;border:1px solid rgba(201,169,97,0.15);background:rgba(201,169,97,0.03);color:var(--cream);cursor:pointer;font-size:0.85em;">' + escapeHtml(t) + ' (' + count + ')</button>';
     });
 
     // 渲染列表
@@ -3468,8 +3487,8 @@ function renderFavList(items) {
         const dt = new Date(f.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
         const userC = (typeof smsPlain === 'function' ? smsPlain(f.messages[0]?.content || '') : (f.messages[0]?.content || ''));
         const aiC = (typeof smsPlain === 'function' ? smsPlain(f.messages[1]?.content || '') : (f.messages[1]?.content || ''));
-        const tagsHtml = (f.tags || []).map(t => '<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(201,169,97,0.08);color:var(--gold);font-size:0.75em;margin-right:4px;">' + t.replace(/</g,'&lt;') + '</span>').join('');
-        html += '<div class="fav-card" onclick="viewFavDetail(' + fi + ')" style="background:rgba(12,16,28,0.6);border:1px solid rgba(201,169,97,0.12);border-radius:12px;padding:10px 14px;cursor:pointer;transition:border-color 0.2s;">';
+        const tagsHtml = (f.tags || []).map(t => '<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(201,169,97,0.08);color:var(--gold);font-size:0.75em;margin-right:4px;">' + escapeHtml(t) + '</span>').join('');
+        html += '<div class="fav-card" onclick="viewFavDetail(' + JSON.stringify(f.id) + ')" style="background:rgba(12,16,28,0.6);border:1px solid rgba(201,169,97,0.12);border-radius:12px;padding:10px 14px;cursor:pointer;transition:border-color 0.2s;">';
         html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
         html += '<span style="font-size:0.7em;color:var(--dim);">' + dt + '</span>';
         html += '<button onclick="event.stopPropagation();deleteFavorite(\'' + f.id + '\')" style="background:transparent;border:none;color:var(--warm-red);cursor:pointer;font-size:0.85em;padding:2px 6px;">✕</button>';
@@ -3482,21 +3501,21 @@ function renderFavList(items) {
     list.innerHTML = html;
 }
 
-function viewFavDetail(fi) {
-    const f = _favCache[fi];
+function viewFavDetail(favId) {
+    const f = _favCache.find(item => item && item.id === favId);
     if (!f) return;
     const dt = new Date(f.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
     const userC = (typeof smsPlain === 'function' ? smsPlain(f.messages[0]?.content || '') : (f.messages[0]?.content || ''));
     const aiC = (typeof smsPlain === 'function' ? smsPlain(f.messages[1]?.content || '') : (f.messages[1]?.content || ''));
     const aiThinking = f.messages[1]?.thinking || '';
-    const tagsHtml = (f.tags || []).map(t => '<span class="fav-detail-tag">' + t.replace(/</g,'&lt;') + '</span>').join('');
+    const tagsHtml = (f.tags || []).map(t => '<span class="fav-detail-tag">' + escapeHtml(t) + '</span>').join('');
     const detail = document.getElementById('favDetail');
     const body = document.getElementById('favDetailBody');
     body.innerHTML =
         '<div class="fav-detail-meta">🕒 ' + dt + (tagsHtml ? ' &nbsp;' + tagsHtml : '') + '</div>'
         + '<div class="fav-detail-role">👤 江鱼</div>'
         + '<div class="fav-detail-text">' + escapeHtml(userC) + '</div>'
-        + (aiThinking ? '<div class="fav-think-box"><div class="fav-think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">🧠 深度思考过程 ▾</div><div class="fav-think-content" style="display:none">' + aiThinking.replace(/\n/g,'<br>') + '</div></div>' : '')
+        + (aiThinking ? '<div class="fav-think-box"><div class="fav-think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">🧠 深度思考过程 ▾</div><div class="fav-think-content" style="display:none">' + escapeHtml(aiThinking).replace(/\n/g,'<br>') + '</div></div>' : '')
         + '<div class="fav-detail-role">🤖 沈望</div>'
         + '<div class="fav-detail-text">' + escapeHtml(aiC) + '</div>'
         + (f.note ? '<div class="fav-detail-note">📝 ' + escapeHtml(f.note) + '</div>' : '');
@@ -3504,7 +3523,7 @@ function viewFavDetail(fi) {
 }
 
 function escapeHtml(s) {
-    return (s || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 async function deleteFavorite(id) {

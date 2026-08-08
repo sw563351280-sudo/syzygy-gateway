@@ -5,15 +5,15 @@
 ## 项目简介
 这是"溯星小屋"（Syzygy Gateway），一个 AI 伴侣聊天系统。
 角色叫"沈望"，用户叫"江鱼"。
-后端是单文件 Node.js + Express（server.js），存储用 JSON 文件，部署在 Zeabur。
+后端是单文件 Node.js + Express（server.js），存储用 JSON 文件，部署在 Contabo VPS。
 
 ## 技术栈
 - 后端：Node.js + Express，全部逻辑在 server.js 里
 - 存储：JSON 文件（data/ 目录下），不是数据库
 - 向量：SiliconFlow embedding API
-- 对话历史：Zep 云端存储
+- 对话历史：本地 transcript / web_config.json；Zep 仅作为可选兼容层
 - 前端：public/index.html + script.js + style.css
-- 部署：Zeabur（Docker）
+- 部署：Contabo VPS（GitHub Actions + SSH + systemd）
 
 ## 关键文件
 - server.js — 全部后端逻辑（记忆存储、搜索、prompt组装、聊天转发）
@@ -31,7 +31,7 @@
 2. 长期记忆页面（/long-term）必须保留且正常工作
 3. SAVE_MEMORY 标签机制必须正常工作
 4. RP 游戏卡带系统必须正常工作
-5. Zep 对话存储不能断
+5. 本地 transcript 与 web_config.json 对话存储不能断；Zep 兼容层停用时不得影响本地保存
 6. 现有的 arousal 和 activation_count 字段保留，在上面扩展
 7. JSON 文件存储方式不变（不要换成数据库）
 

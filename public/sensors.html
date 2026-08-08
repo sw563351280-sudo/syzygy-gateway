@@ -62,7 +62,7 @@ h1{font-size:22px;margin-bottom:6px;color:#D4A856}
 
 <script>
 const INGEST_URL = '/api/sensors/ingest';
-const TOKEN = '%%TOKEN%%'; // 部署时由脚本自动替换
+const TOKEN = '%%TOKEN%%'; // 服务端不注入令牌，首次使用时从 localStorage/手动输入读取
 
 // 显示 token（前8位）
 (function initToken() {
