@@ -3623,14 +3623,14 @@ function calRenderInlineDetail(dateStr, page) {
     const flows = _calFlowsByDate[key] || [];
     let html = '<div class="cal-inline-card">';
     html += '<div class="cal-inline-header"><div><div class="cal-inline-date">' + escapeHtml(calFormatDisplayDate(dateStr)) + '</div><div class="cal-inline-subtitle">这一天留下的痕迹</div></div>';
-    html += '<button class="cal-inline-add-btn" onclick="calQuickMoodSnapshot()">＋快照</button></div>';
+    html += '<div class="cal-inline-header-actions"><button class="cal-inline-state-btn" onclick="goView(\'state\')">状态</button><button class="cal-inline-add-btn" onclick="calQuickMoodSnapshot()">＋快照</button></div></div>';
     if (snapshots.length) {
         html += '<div class="cal-inline-section-title">心情快照</div>';
-        for (const s of snapshots) { const time = calFormatTimeFromISO(s.datetime); html += '<div class="cal-snapshot-item"><div class="cal-snapshot-time">' + escapeHtml(time||'') + '</div><div class="cal-snapshot-text">' + escapeHtml(s.text||'').replace(/\n/g,'<br>') + '</div></div>'; }
+        for (const s of snapshots) { const time = calFormatTimeFromISO(s.datetime); html += '<div class="cal-snapshot-item collapsed" onclick="this.classList.toggle(\'collapsed\')"><div class="cal-snapshot-time">' + escapeHtml(time||'') + '</div><div class="cal-snapshot-text">' + escapeHtml(s.text||'').replace(/\n/g,'<br>') + '</div></div>'; }
     }
     if (flows.length) {
         html += '<div class="cal-inline-section-title">今日流水</div>';
-        for (const f of flows) { const time = calFormatTimeFromISO(f.datetime); const flowText = (f.text||'').replace(/^【今日流水】\n?/,''); html += '<div class="cal-snapshot-item"><div class="cal-snapshot-time">' + escapeHtml(time||'') + '</div><div class="cal-snapshot-text">' + escapeHtml(flowText).replace(/\n/g,'<br>') + '</div></div>'; }
+        for (const f of flows) { const time = calFormatTimeFromISO(f.datetime); const flowText = (f.text||'').replace(/^【今日流水】\n?/,''); html += '<div class="cal-snapshot-item collapsed" onclick="this.classList.toggle(\'collapsed\')"><div class="cal-snapshot-time">' + escapeHtml(time||'') + '</div><div class="cal-snapshot-text">' + escapeHtml(flowText).replace(/\n/g,'<br>') + '</div></div>'; }
     }
     if (page && (page.mood || page.shenwang_note || page.shenwang_comment || page.period_flag)) {
         html += '<div class="cal-inline-section-title">日历记录</div>';

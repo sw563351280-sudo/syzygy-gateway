@@ -6294,11 +6294,12 @@ function upsertStateSlot(key, value, mode, lifeDays) {
     const state = loadUserState();
     if (!state.slots || typeof state.slots !== 'object') state.slots = {};
     mode = (mode === 'persistent') ? 'persistent' : 'daily';
-    const slot = { value: String(value == null ? '' : value).trim(), mode, updated_at: new Date().toISOString() };
+    const rawValue = String(value == null ? '' : value);
+    const slot = { value: rawValue.trim(), mode, updated_at: new Date().toISOString() };
     if (mode === 'persistent') slot.life_days = (Number(lifeDays) > 0) ? Number(lifeDays) : 3;
     state.slots[key] = slot;
-    saveUserState(state);
-    console.log('📝 [状态槽] ' + key + ' = ' + slot.value + ' (' + mode + ')');
+    try { saveUserState(state); } catch(e) { console.log('📝 [状态槽] 保存失败:', e.message); return; }
+    console.log('📝 [状态槽] ' + key + ' = ' + slot.value.substring(0, 50) + (slot.value.length > 50 ? '...' : '') + ' (' + mode + ')');
 }
 
 function formatStateSlotsForPrompt() {
@@ -6339,18 +6340,19 @@ function archiveDailyStateToDiary() {
             if (slot.mode === 'persistent') { keptSlots[key] = slot; continue; }
             const slotDate = getChinaDateString(new Date(slot.updated_at));
             if (slotDate === todayStr && slot.value) dailyItems.push(key + '：' + slot.value);
-            // 非当天的daily槽本来就已静默失效，一并丢弃，不保留
         }
         if (!dailyItems.length) { console.log('🌙 [今日流水归档] 无当日流水，跳过'); return; }
+        const flowText = dailyItems.join('\n');
         const entry = {
             id: 'flow_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
-            text: '【今日流水】\n' + dailyItems.join('\n'),
+            text: '【今日流水】\n' + flowText,
             author: 'system', type: 'daily_flow', date: todayStr, datetime: new Date().toISOString(),
             source: 'auto_archive'
         };
-        const entries = loadDiaries(); entries.push(entry); saveDiaries(entries);
+        const entries = loadDiaries(); entries.push(entry);
+        try { saveDiaries(entries); } catch(e) { console.log('🌙 [今日流水归档] 日记保存失败:', e.message); return; }
         state.slots = keptSlots;
-        saveUserState(state);
+        try { saveUserState(state); } catch(e) { console.log('🌙 [今日流水归档] 状态保存失败:', e.message); return; }
         console.log('🌙 [今日流水归档] 已归档 ' + dailyItems.length + ' 条，日期 ' + todayStr);
     } catch(e) { console.log('🌙 [今日流水归档] 失败:', e.message); }
 }

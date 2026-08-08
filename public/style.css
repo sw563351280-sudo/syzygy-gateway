@@ -2389,11 +2389,14 @@ body.neu-mode .cal-edit-textarea, body.neu-mode .cal-edit-mood {
 .cal-inline-header { display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px }
 .cal-inline-date { font-size:20px;font-weight:700;color:#2e3b69;letter-spacing:0.04em }
 .cal-inline-subtitle { margin-top:4px;font-size:12px;color:#8b9ac1 }
+.cal-inline-header-actions { display:flex;gap:8px;flex-shrink:0 }
 .cal-inline-add-btn { border:none;border-radius:18px;padding:8px 12px;background:rgba(212,160,74,0.14);color:#D4A04A;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit }
+.cal-inline-state-btn { border:none;border-radius:18px;padding:8px 12px;background:rgba(99,127,190,0.14);color:#637FBE;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit }
 .cal-inline-section-title { margin:16px 0 10px;font-size:13px;font-weight:700;color:#D4A04A }
-.cal-snapshot-item { position:relative;padding:12px 12px 12px 44px;margin-bottom:10px;border-radius:18px;background:rgba(255,255,255,0.28);box-shadow:inset 3px 3px 8px rgba(163,177,198,0.1),inset -3px -3px 8px rgba(255,255,255,0.45) }
+.cal-snapshot-item { position:relative;padding:12px 12px 12px 44px;margin-bottom:10px;border-radius:18px;background:rgba(255,255,255,0.28);box-shadow:inset 3px 3px 8px rgba(163,177,198,0.1),inset -3px -3px 8px rgba(255,255,255,0.45);cursor:pointer }
 .cal-snapshot-time { position:absolute;left:12px;top:13px;font-size:11px;color:#D4A04A;font-weight:700 }
 .cal-snapshot-text { font-size:13px;line-height:1.7;color:#45546f;word-break:break-word }
+.cal-snapshot-item.collapsed .cal-snapshot-text { display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden }
 .cal-page-line { padding:12px 0;border-top:1px solid rgba(99,127,190,0.12) }
 .cal-page-line span { display:block;margin-bottom:5px;font-size:12px;color:#8b9ac1 }
 .cal-page-line p { margin:0;font-size:14px;line-height:1.7;color:#45546f }
