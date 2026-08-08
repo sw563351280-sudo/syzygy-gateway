@@ -87,6 +87,11 @@
         </div>
 
         <div class="neu-grid">
+            <div class="neu-card neu-grid-card dev-entry-card" onclick="goView('dev')">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#63D6C5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,17 10,11 4,5"/><line x1="12" y1="19" x2="20" y2="19"/><circle cx="18" cy="6" r="2"/></svg>
+                <span>开发中枢</span>
+                <small>移动端 Debug</small>
+            </div>
             <div class="neu-card neu-grid-card" onclick="goView('chat')">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
                 <span>通讯</span>
@@ -123,16 +128,16 @@
         </div>
 
         <div class="neu-bottom-nav">
-            <div class="neu-nav-item active" data-nav="home" onclick="goView('home')">
+            <div class="neu-nav-item active" data-nav="home" data-label="首页" onclick="goView('home')">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
             </div>
-            <div class="neu-nav-item" data-nav="chat" onclick="goView('chat')">
+            <div class="neu-nav-item" data-nav="chat" data-label="通讯" onclick="goView('chat')">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
             </div>
-            <div class="neu-nav-item" data-nav="data" onclick="goView('data')">
+            <div class="neu-nav-item" data-nav="data" data-label="中枢" onclick="goView('data')">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
             </div>
-            <div class="neu-nav-item" data-nav="console" onclick="goView('console')" title="控制台">
+            <div class="neu-nav-item" data-nav="dev" data-label="开发" onclick="goView('dev')" title="开发中枢">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,17 10,11 4,5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
             </div>
         </div>
@@ -261,6 +266,48 @@
     </div>
     <div style="padding:12px 16px;display:flex;gap:8px;flex-wrap:wrap;" id="favTagBar"></div>
     <div id="favList" style="padding:0 16px 80px 16px;overflow-y:auto;max-height:calc(100vh - 120px);display:flex;flex-direction:column;gap:12px;"></div>
+</div>
+
+<div class="section" id="sec-dev">
+    <div class="view-topbar dev-topbar">
+        <button class="view-back" onclick="goView('home')">←</button>
+        <div class="dev-title-block">
+            <span class="view-title">开发中枢</span>
+            <span class="dev-subtitle">Syzygy · mobile workspace</span>
+        </div>
+        <span id="devStatus" class="dev-status" data-state="loading"><i></i>检查中</span>
+    </div>
+    <main class="dev-shell">
+        <section class="dev-hero">
+            <div class="dev-hero-copy">
+                <span class="dev-eyebrow">REMOTE WORKSPACE</span>
+                <h1>把调试带在身边</h1>
+                <p>从手机查看服务状态、追踪对话链路，并逐步接入 Codex 任务。</p>
+                <button class="dev-primary-action" onclick="devOpenCodex()"><span>✦</span> 新建 Codex Debug</button>
+            </div>
+            <div class="dev-orbit" aria-hidden="true"><span></span><b>SYZ</b></div>
+        </section>
+
+        <section class="dev-stat-grid" aria-label="开发中枢状态">
+            <div class="dev-stat-card"><span class="dev-stat-label">VPS</span><strong id="devServerStat">检查中</strong><small id="devServerMeta">控制台连接</small></div>
+            <div class="dev-stat-card"><span class="dev-stat-label">TRACE</span><strong id="devTraceStat">—</strong><small>最近对话链路</small></div>
+            <div class="dev-stat-card"><span class="dev-stat-label">USAGE</span><strong id="devUsageStat">准备中</strong><small>API 用量面板</small></div>
+        </section>
+
+        <div class="dev-section-heading"><span>快速入口</span><em>QUICK ACCESS</em></div>
+        <section class="dev-action-grid">
+            <button class="dev-action-card dev-action-cyan" onclick="devOpenCodex()"><span class="dev-action-icon">⌘</span><span><b>Codex Debug</b><small>描述问题，生成诊断任务</small></span><span class="dev-arrow">↗</span></button>
+            <button class="dev-action-card" onclick="devOpenConsole('terminal')"><span class="dev-action-icon">›_</span><span><b>远程终端</b><small>连接 VPS · 执行现有命令</small></span><span class="dev-arrow">↗</span></button>
+            <button class="dev-action-card" onclick="devOpenConsole('trace')"><span class="dev-action-icon">⌁</span><span><b>对话链路</b><small>查看模型、工具与记忆阶段</small></span><span class="dev-arrow">↗</span></button>
+            <button class="dev-action-card" onclick="devOpenConsole('logs')"><span class="dev-action-icon">≡</span><span><b>原始日志</b><small>筛选最近服务日志</small></span><span class="dev-arrow">↗</span></button>
+        </section>
+
+        <section class="dev-coming-card">
+            <div class="dev-coming-mark">◌</div>
+            <div><b>额度与任务统计</b><p>下一步接入 Syzygy 自身 API 用量记录。ChatGPT Pro/Codex 官方额度仍以 Codex Settings → Usage 为准。</p></div>
+            <span class="dev-pill">PHASE 2</span>
+        </section>
+    </main>
 </div>
 
 <div class="section" id="sec-console">

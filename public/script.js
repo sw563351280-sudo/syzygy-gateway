@@ -871,16 +871,17 @@ function toast(msg){
 
 function goView(viewId) {
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state' };
+    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', dev:'sec-dev', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state' };
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
-    const VIEWS = ['home','chat','data','favorites','console','flo','calendar','album','state'];
+    const VIEWS = ['home','chat','data','favorites','dev','console','flo','calendar','album','state'];
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);
     if (viewId === 'chat') { setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300); fetchPulseStatus(); }
     if (viewId === 'home') { updateDays && updateDays(); if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuInitHome(); }
     if (viewId === 'favorites') loadAndRenderFavorites();
+    if (viewId === 'dev') devRefreshOverview();
     if (viewId === 'console') { const tab = localStorage.getItem('syzygy_console_tab') || 'logs'; switchConsoleTab(tab); if (tab === 'terminal') consoleOpen(); }
     if (viewId === 'flo') floRender();
     if (viewId === 'calendar') calRender();
@@ -890,6 +891,34 @@ function goView(viewId) {
 }
 
 // ==================== 控制台 Tab 切换 ====================
+function devOpenConsole(tab) {
+    goView('console');
+    setTimeout(function() { switchConsoleTab(tab || 'logs'); }, 0);
+}
+
+function devOpenCodex() {
+    toast('Codex Debug 桥接正在接入，当前可先使用远程终端与链路追踪。');
+}
+
+async function devRefreshOverview() {
+    const status = document.getElementById('devStatus');
+    const server = document.getElementById('devServerStat');
+    const meta = document.getElementById('devServerMeta');
+    if (status) { status.dataset.state = 'loading'; status.innerHTML = '<i></i>检查中'; }
+    try {
+        const r = await fetch('/api/console/status', { cache: 'no-store' });
+        const info = await r.json();
+        const ready = r.ok && info && info.ok !== false && info.configured !== false;
+        if (server) server.textContent = ready ? '在线' : '未配置';
+        if (meta) meta.textContent = info?.name || '控制台连接';
+        if (status) { status.dataset.state = ready ? 'ready' : 'error'; status.innerHTML = '<i></i>' + (ready ? '系统在线' : '需要检查'); }
+    } catch (e) {
+        if (server) server.textContent = '离线';
+        if (meta) meta.textContent = '无法取得状态';
+        if (status) { status.dataset.state = 'error'; status.innerHTML = '<i></i>连接失败'; }
+    }
+}
+
 function switchConsoleTab(name) {
     const tabs = { terminal: 'consoleTabTerminal', trace: 'consoleTabTrace', logs: 'consoleTabLogs' };
     const panes = { terminal: 'consolePaneTerminal', trace: 'consolePaneTrace', logs: 'consolePaneLogs' };
@@ -1650,7 +1679,7 @@ function neuUpdateWaterUI() {
 // ═══ 底部导航高亮 ═══
 function neuUpdateNav() {
     const view = document.querySelector('.section.active')?.id || 'sec-home';
-    const map = { 'sec-home': 'home', 'sec-chat': 'chat', 'sec-data': 'data', 'sec-favorites': 'favorites' };
+    const map = { 'sec-home': 'home', 'sec-chat': 'chat', 'sec-data': 'data', 'sec-favorites': 'favorites', 'sec-dev': 'dev', 'sec-console': 'dev' };
     const active = map[view] || 'home';
     document.querySelectorAll('.neu-nav-item').forEach(el => {
         el.classList.toggle('active', el.dataset.nav === active);
