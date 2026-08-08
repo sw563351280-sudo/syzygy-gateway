@@ -879,7 +879,7 @@ function goView(viewId) {
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);
     if (viewId === 'chat') { setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300); fetchPulseStatus(); }
-    if (viewId === 'home') { updateDays && updateDays(); if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuInitHome(); }
+    if (viewId === 'home') { updateDays && updateDays(); if (document.body.classList.contains('neu-mode')) neuInitHome(); }
     if (viewId === 'favorites') loadAndRenderFavorites();
     if (viewId === 'dev') devRefreshOverview();
     if (viewId === 'console') { const tab = localStorage.getItem('syzygy_console_tab') || 'logs'; switchConsoleTab(tab); if (tab === 'terminal') consoleOpen(); }
@@ -887,7 +887,7 @@ function goView(viewId) {
     if (viewId === 'calendar') calRender();
     if (viewId === 'album') { albumInitMonthFilter(); albumLoad(); }
     if (viewId === 'state') stateRender();
-    if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuUpdateNav();
+    if (document.body.classList.contains('neu-mode')) neuUpdateNav();
 }
 
 // ==================== 控制台 Tab 切换 ====================
@@ -2903,76 +2903,9 @@ function triggerRegenerate(){
     toast('没有可重新生成的回复');
 }
 
-// ==================== 日夜交替模式 ====================
-function toggleLightMode() {
-    enforceNeuTheme();
-    return;
-    /* Theme switching is intentionally disabled: Syzygy now has one canonical UI. */
-    // 四元循环：暗夜 → 白天 → 新拟态 → 暗金 → 暗夜
-    const body = document.body;
-    const isDarkGold = body.classList.contains('dark-gold-mode');
-    const isNeu = body.classList.contains('neu-mode');
-    const isLight = body.classList.contains('light-mode');
-    let nextMode, btnIcon, metaColor, storageVal;
-
-    if (isDarkGold) {
-        body.classList.remove('dark-gold-mode');
-        nextMode = 'dark';
-        btnIcon = '🌙';
-        metaColor = '#0d1225';
-        storageVal = 'dark';
-    } else if (isNeu) {
-        body.classList.remove('neu-mode');
-        body.classList.add('dark-gold-mode');
-        nextMode = 'dark-gold';
-        btnIcon = '✦';
-        metaColor = '#141211';
-        storageVal = 'dark-gold';
-        neuInitHome();
-    } else if (isLight) {
-        body.classList.remove('light-mode');
-        body.classList.add('neu-mode');
-        nextMode = 'neu';
-        btnIcon = '◈';
-        metaColor = '#E8EFF7';
-        storageVal = 'neu';
-        neuInitHome();
-    } else {
-        body.classList.add('light-mode');
-        nextMode = 'light';
-        btnIcon = '☼';
-        metaColor = '#FFFAF0';
-        storageVal = 'light';
-    }
-
-    const metaTheme = document.getElementById('theme-color-meta');
-    if (metaTheme) metaTheme.setAttribute('content', metaColor);
-    localStorage.setItem('syzygy_theme', storageVal);
-
-    const btn = document.getElementById('themeToggleBtn');
-    if (btn) { btn.innerText = btnIcon; }
-}
-
-// 网页一打开，先看看上次选了什么主题
-window.addEventListener('DOMContentLoaded', () => {
-    const savedTheme = localStorage.getItem('syzygy_theme');
-    const btn = document.getElementById('themeToggleBtn');
-    const metaTheme = document.getElementById('theme-color-meta');
-
-    if (savedTheme === 'dark-gold') {
-        document.body.classList.add('dark-gold-mode');
-        if (btn) btn.innerText = '✦';
-        if (metaTheme) metaTheme.setAttribute('content', '#141211');
-    } else if (savedTheme === 'neu') {
-        document.body.classList.add('neu-mode');
-        if (btn) btn.innerText = '◈';
-        if (metaTheme) metaTheme.setAttribute('content', '#E8EFF7');
-    } else if (savedTheme === 'light') {
-        document.body.classList.add('light-mode');
-        if (btn) btn.innerText = '☼';
-        if (metaTheme) metaTheme.setAttribute('content', '#FFFAF0');
-    }
-});
+// ==================== 主题兼容入口 ====================
+// 旧缓存页面可能仍调用此函数；当前产品只保留 Neu Day。
+function toggleLightMode() { enforceNeuTheme(); }
 
 // ==================== 时光信箱 ====================
 
@@ -2982,9 +2915,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
 // ==================== 终极点火装置 ====================
 function enforceNeuTheme() {
-    document.body.classList.remove('light-mode', 'dark-gold-mode');
     document.body.classList.add('neu-mode');
-    localStorage.removeItem('syzygy_theme');
     const metaTheme = document.getElementById('theme-color-meta');
     if (metaTheme) metaTheme.setAttribute('content', '#E8EFF7');
 }
@@ -2995,7 +2926,7 @@ async function startSystem() {
     await syncFromCloud();
     updateDays();
     document.body.dataset.view = "home";
-    if ((document.body.classList.contains('neu-mode') || document.body.classList.contains('dark-gold-mode'))) neuInitHome();
+    if (document.body.classList.contains('neu-mode')) neuInitHome();
 }
 startSystem();
 

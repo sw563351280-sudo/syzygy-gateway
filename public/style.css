@@ -66,30 +66,6 @@
     --ver-label-color:var(--dim);
     --inline-btn-border:rgba(201,169,97,0.2);
     --inline-btn-color:var(--dim);
-    /* 浅色模式覆盖变量（在body.light-mode中重新赋值） */
-    --light-code-bg:rgba(0,0,0,0.05);
-    --light-code-color:#8B6914;
-    --light-pre-bg:rgba(0,0,0,0.03);
-    --light-pre-border:rgba(196,165,123,0.2);
-    --light-pre-code-color:#5C4033;
-    --light-strong-color:#5C4033;
-    --light-blockquote-border:#C4A57B;
-    --light-blockquote-color:#8B7355;
-    --light-th-bg:rgba(196,165,123,0.08);
-    --light-th-color:#5C4033;
-    --light-table-border:rgba(196,165,123,0.2);
-    --light-msg-meta-color:#B5A48C;
-    --light-retry-btn-bg:rgba(196,83,74,0.06);
-    --light-retry-btn-border:rgba(196,83,74,0.2);
-    --light-ver-btn-border:rgba(196,165,123,0.25);
-    --light-ver-btn-color:#B5A48C;
-    --light-ver-hover-color:#5C4033;
-    --light-ver-hover-border:#C4A57B;
-    --light-ver-hover-bg:rgba(255,249,230,0.5);
-    --light-ver-label-color:#8B7355;
-    --light-inline-btn-border:rgba(196,165,123,0.4);
-    --light-inline-btn-color:#5C4033;
-    --light-inline-btn-bg:rgba(196,165,123,0.08);
     /* 工具调用气泡 */
     --tool-border: rgba(201,169,97,0.2);
     --tool-bg: rgba(201,169,97,0.03);
@@ -114,17 +90,6 @@ body{
     line-height:1.7;
 }
 
-body.light-mode{
-    background: linear-gradient(175deg, #FFF9E6 0%, #FFF3D6 35%, #F5EDD6 100%);
-    color:#3E2723;
-}
-body.light-mode::before{
-    background:
-        radial-gradient(ellipse 600px 400px at 15% 20%, rgba(196,165,123,0.06) 0%, transparent 70%),
-        radial-gradient(ellipse 500px 500px at 80% 75%, rgba(180,140,100,0.04) 0%, transparent 70%),
-        radial-gradient(ellipse 800px 300px at 50% 50%, rgba(196,165,123,0.03) 0%, transparent 60%);
-}
-body.light-mode::after{opacity:0!important}
 
 /* 墨渍底纹层 —— 用多重径向渐变模拟宣纸晕开的水墨 */
 body::before{
@@ -378,123 +343,34 @@ canvas#starmap{
 
 /* ============ 心跳区 ============ */
 /* ──────── 时光信箱 ──────── */
-body.light-mode .mailbox-container {
-    background: rgba(255, 249, 230, 0.3) !important;
-    border-color: rgba(196, 165, 123, 0.2) !important;
-}
 
-body.light-mode .mailbox-container:hover {
-    border-color: #C4A57B !important;
-    box-shadow: 0 4px 16px rgba(196, 165, 123, 0.12) !important;
-}
 
-body.light-mode .mailbox-desc {
-    color: #8B7355 !important;
-}
 
 /* ──────── 对话索引面板 ──────── */
-body.light-mode .chat-index-panel {
-    background: rgba(255, 250, 240, 0.96) !important;
-    border-left: 1px solid rgba(196, 165, 123, 0.2) !important;
-}
 
-body.light-mode .chat-index-header {
-    color: #5C4033 !important;
-    border-bottom-color: rgba(196, 165, 123, 0.12) !important;
-}
 
-body.light-mode .chat-index-item:hover {
-    background: rgba(255, 249, 230, 0.5) !important;
-    border-left-color: #C4A57B !important;
-}
 
-body.light-mode .chat-index-item .idx-time {
-    color: #8B7355 !important;
-}
 
-body.light-mode .chat-index-item .idx-preview {
-    color: #5C4033 !important;
-}
 
-body.light-mode .chat-index-item .idx-role-sys {
-    color: #C4534A !important;
-}
 
-body.light-mode .chat-index-item .idx-role-user {
-    color: #8B6914 !important;
-}
 
 /* ──────── Toast 通知 ──────── */
-body.light-mode .toast {
-    background: linear-gradient(135deg, #C4A57B, #B8935A) !important;
-    color: #FFFAF0 !important;
-    box-shadow: 0 4px 20px rgba(196, 165, 123, 0.35) !important;
-}
 
 /* ──────── 滚动条 ──────── */
-body.light-mode .chat-window::-webkit-scrollbar-thumb,
-body.light-mode .sidebar-list::-webkit-scrollbar-thumb,
-body.light-mode .chat-index-list::-webkit-scrollbar-thumb {
-    background: rgba(196, 165, 123, 0.2) !important;
-}
 
 /* ──────── 寄语区 ──────── */
-body.light-mode .quote-box .q {
-    color: #5C4033 !important;
-}
 
-body.light-mode .quote-gen-btn {
-    background: linear-gradient(135deg, rgba(196, 165, 123, 0.12), rgba(196, 165, 123, 0.04)) !important;
-    color: #8B7355 !important;
-    border-color: rgba(196, 165, 123, 0.25) !important;
-}
 
-body.light-mode .quote-gen-btn:hover {
-    color: #5C4033 !important;
-    border-color: #C4A57B !important;
-}
 
 /* ──────── 流式开关等杂项 ──────── */
-body.light-mode .model-select {
-    background: rgba(255, 255, 255, 0.7) !important;
-    color: #5C4033 !important;
-}
 
-body.light-mode .capsule-btn {
-    border-color: rgba(196, 165, 123, 0.25) !important;
-    color: #8B7355 !important;
-}
 
-body.light-mode .capsule-btn:hover {
-    border-color: #C4A57B !important;
-    color: #5C4033 !important;
-    background: rgba(255, 249, 230, 0.4) !important;
-}
 
-body.light-mode .capsule-result {
-    color: #5C4033 !important;
-}
 
-body.light-mode .intimacy-grid button {
-    background: rgba(255, 249, 230, 0.3) !important;
-    border-color: rgba(196, 165, 123, 0.2) !important;
-    color: #5C4033 !important;
-}
 
-body.light-mode .intimacy-grid button:hover {
-    background: rgba(255, 249, 230, 0.6) !important;
-    border-color: #C4A57B !important;
-}
 
-body.light-mode .intimacy-result {
-    color: #8B7355 !important;
-}
 
 /* ──────── 图片预览区 ──────── */
-body.light-mode #imgPreviewWrap img {
-    border: 1px solid rgba(196, 165, 123, 0.3) !important;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
-}
 
 
 /* ============ 沈望的专属留言板 (升级版) ============ */
@@ -619,7 +495,6 @@ body.light-mode #imgPreviewWrap img {
 body[data-view="chat"] { overflow:hidden!important;position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;height:100dvh!important;width:100%!important }
 #sec-chat.active { display:flex!important;flex-direction:column!important;height:100%!important;overflow:hidden!important }
 #sec-chat.section { padding-top:0!important;padding-bottom:0!important;height:100dvh!important;overflow:hidden!important }
-body.view-chat #themeToggleBtn { display:none!important }
 /* 输入栏贴合底部安全区：只用padding-bottom吃safe-area */
 #sec-chat .chat-bottom-bar { bottom:0!important;padding-bottom:calc(10px + env(safe-area-inset-bottom, 0px))!important }
 /* 消息列表底部留空间给输入栏 */
@@ -929,36 +804,11 @@ body.view-chat #themeToggleBtn { display:none!important }
 }
 
 /* ============ 白天模式适配 ============ */
-body.light-mode .chat-tool-btn {
-    border-color: rgba(196,165,123,0.25) !important;
-    color: #8B7355 !important;
-}
 
-body.light-mode .chat-tool-btn:hover,
-body.light-mode .chat-tool-btn.open {
-    color: #5C4033 !important;
-    border-color: #C4A57B !important;
-    background: rgba(255,249,230,0.4) !important;
-}
 
-body.light-mode .chat-tool-menu {
-    background: rgba(255, 250, 240, 0.97) !important;
-    border-color: rgba(196,165,123,0.25) !important;
-    box-shadow: 0 -4px 20px rgba(0,0,0,0.08) !important;
-}
 
-body.light-mode .chat-tool-menu::after {
-    background: rgba(255, 250, 240, 0.97) !important;
-    border-color: rgba(196,165,123,0.25) !important;
-}
 
-body.light-mode .chat-tool-item {
-    color: #5C4033 !important;
-}
 
-body.light-mode .chat-tool-item:hover {
-    background: rgba(255,249,230,0.6) !important;
-}
 
 /* ============ 对话框字号缩小 ============ */
 .chat-window .msg {
@@ -1010,11 +860,6 @@ body.light-mode .chat-tool-item:hover {
 }
 
 /* 白天模式：侧边栏纸张层叠感 */
-body.light-mode .chat-sidebar {
-    border-right: none !important;
-    box-shadow: 2px 0 15px rgba(139, 115, 85, 0.05) !important; /* 极淡的暖棕色阴影 */
-    background: rgba(255, 255, 255, 0.4) !important;
-}
 
 /* ==========================================
    📱 手机端终极 UI：定海神针版 (绝对垂直对齐)
@@ -1031,7 +876,7 @@ body.light-mode .chat-sidebar {
     .chat-main .chat-window { padding-top: 20px !important; }
 
     /* 💥 杀掉所有原生边框、背景、线条和多余文字 */
-    .chat-sidebar, .chat-main-header, .sidebar-header, body.light-mode .chat-sidebar, body.dark-gold-mode .chat-sidebar {
+.chat-sidebar, .chat-main-header, .sidebar-header {
         background: transparent !important;
         border: none !important; border-bottom: none !important;
         box-shadow: none !important;
@@ -1043,7 +888,7 @@ body.light-mode .chat-sidebar {
     }
 
     /* ====== 💥 5个小圆圈的“定海神针”统一规格 ====== */
-    #themeToggleBtn, .sidebar-title, .sidebar-new-btn, .chat-index-btn, .chat-rename-btn {
+    .sidebar-title, .sidebar-new-btn, .chat-index-btn, .chat-rename-btn {
         width: 32px !important; height: 32px !important;
         min-width: 32px !important; min-height: 32px !important;
         max-width: 32px !important; max-height: 32px !important;
@@ -1066,9 +911,6 @@ body.light-mode .chat-sidebar {
     .chat-index-btn::before { content: '◈'; font-size: 13px; color: var(--gold); }
     .chat-rename-btn::before { content: '✎'; font-size: 15px; color: var(--gold); }
     
-    /* 月亮按钮是个例外，它需要保留原本自带的字（☾/☼） */
-    #themeToggleBtn { font-size: 16px !important; color: #5C4033 !important; }
-
     /* ==========================================
        🚀 核心：全局固定定位 (Fixed)
        把它们全部剥离原本的容器，直接钉在屏幕玻璃上！
@@ -1076,13 +918,6 @@ body.light-mode .chat-sidebar {
        ========================================== */
     
     /* 1. 月亮 (第一个，最顶上) */
-    #themeToggleBtn {
-        position: fixed !important;
-        top: 70px !important;
-        right: 12px !important;
-        z-index: 105 !important;
-    }
-
     /* 2. 频道栏 (第二个，包含菜单和新建) */
     .chat-sidebar {
         position: fixed !important;
@@ -1128,16 +963,6 @@ body.light-mode .chat-sidebar {
     }
 
     /* ================= 黑夜模式自适应 ================= */
-    body:not(.light-mode):not(.neu-mode):not(.dark-gold-mode) #themeToggleBtn,
-    body:not(.light-mode):not(.neu-mode):not(.dark-gold-mode) .sidebar-title,
-    body:not(.light-mode):not(.neu-mode):not(.dark-gold-mode) .sidebar-new-btn,
-    body:not(.light-mode):not(.neu-mode):not(.dark-gold-mode) .chat-index-btn,
-    body:not(.light-mode):not(.neu-mode):not(.dark-gold-mode) .chat-rename-btn,
-    body:not(.light-mode):not(.neu-mode):not(.dark-gold-mode) .sidebar-list {
-        background: rgba(12, 16, 28, 0.8) !important;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.4) !important;
-        color: var(--gold) !important; /* 黑夜里月亮和符号统一变成金色 */
-    }
 }
 
 @keyframes menuFadeIn {
@@ -1168,18 +993,10 @@ body.light-mode .chat-sidebar {
 .md-content th, .md-content td { border: 1px solid rgba(201,169,97,0.2); padding: 6px 10px; text-align: left; }
 .md-content th { background: rgba(201,169,97,0.08); color: var(--gold); }
 
-body.light-mode .md-content code { background: var(--light-code-bg); color: var(--light-code-color); }
-body.light-mode .md-content pre { background: var(--light-pre-bg); border-color: var(--light-pre-border); }
-body.light-mode .md-content pre code { color: var(--light-pre-code-color); }
-body.light-mode .md-content strong { color: var(--light-strong-color); }
-body.light-mode .md-content blockquote { border-left-color: var(--light-blockquote-border); color: var(--light-blockquote-color); }
-body.light-mode .md-content th { background: var(--light-th-bg); color: var(--light-th-color); }
-body.light-mode .md-content th, body.light-mode .md-content td { border-color: var(--light-table-border); }
 
 /* ═══ 消息元信息（时间戳） ═══ */
 .msg-meta { font-size: 0.68em; color: var(--dim); opacity: 0.5; margin-top: 8px; text-align: right; font-family: monospace; transition: opacity 0.2s; }
 .msg:hover .msg-meta { opacity: 0.8; }
-body.light-mode .msg-meta { color: var(--light-msg-meta-color); }
 
 /* ═══ 加载与错误状态 ═══ */
 .loading-indicator { color: var(--dim); font-style: italic; font-size: 0.85em; animation: loadingPulse 1.5s ease-in-out infinite; }
@@ -1187,7 +1004,6 @@ body.light-mode .msg-meta { color: var(--light-msg-meta-color); }
 .msg-error-detail { font-size: 0.75em; color: var(--dim); margin: 4px 0 10px; }
 .msg-retry-btn { padding: 6px 18px; background: rgba(196,83,74,0.1); border: 1px solid rgba(196,83,74,0.3); color: var(--warm-red); border-radius: 20px; cursor: pointer; font-family: inherit; font-size: 0.82em; transition: 0.2s; }
 .msg-retry-btn:hover { background: rgba(196,83,74,0.2); border-color: var(--warm-red); }
-body.light-mode .msg-retry-btn { background: var(--light-retry-btn-bg); border-color: var(--light-retry-btn-border); }
 
 /* ═══ 气泡底部操作栏 + 翻页导航 ═══ */
 .msg-actions { display: flex; align-items: center; gap: 6px; margin-top: 6px; min-height: 24px; opacity: 0.7; transition: opacity 0.2s; }
@@ -1200,11 +1016,6 @@ body.light-mode .msg-retry-btn { background: var(--light-retry-btn-bg); border-c
 .msg-inline-btn { width: 26px; height: 26px; border-radius: 50%; border: 1px solid rgba(201,169,97,0.35); background: rgba(201,169,97,0.06); color: var(--gold); cursor: pointer; font-size: 0.85em; display: flex; align-items: center; justify-content: center; transition: 0.2s; padding: 0; }
 .msg-inline-btn:hover { color: #fff; border-color: var(--gold); background: rgba(201,169,97,0.2); }
 
-body.light-mode .ver-btn { border-color: var(--light-ver-btn-border); color: var(--light-ver-btn-color); }
-body.light-mode .ver-btn:hover:not(:disabled) { color: var(--light-ver-hover-color); border-color: var(--light-ver-hover-border); background: var(--light-ver-hover-bg); }
-body.light-mode .ver-label { color: var(--light-ver-label-color); }
-body.light-mode .msg-inline-btn { border-color: var(--light-inline-btn-border); color: var(--light-inline-btn-color); background: var(--light-inline-btn-bg); }
-body.light-mode .msg-inline-btn:hover { color: #fff; border-color: #5C4033; background: rgba(196,165,123,0.25); }
 
 /* ═══ 共鸣核心 ═══ */
 .resonance-core { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); width: 36px; height: 36px; border-radius: 50%; pointer-events: none; z-index: 10; opacity: 0.6; }
@@ -1256,14 +1067,6 @@ body.light-mode .msg-inline-btn:hover { color: #fff; border-color: #5C4033; back
 body{padding-bottom:0!important}
 .section{padding-bottom:20px}
 
-body.light-mode .home-card{background:rgba(255,255,255,0.6);border-color:rgba(201,169,97,0.2)}
-body.light-mode .home-card-name{color:rgba(0,0,0,0.8)}
-body.light-mode .home-card-desc{color:rgba(0,0,0,0.4)}
-body.light-mode .home-title{color:rgba(0,0,0,0.85)}
-body.light-mode .home-days{color:rgba(0,0,0,0.5)}
-body.light-mode .view-topbar{background:rgba(255,255,255,0.85);border-bottom-color:rgba(201,169,97,0.15)}
-body.light-mode .view-back{background:rgba(0,0,0,0.05);color:rgba(201,169,97,0.9)}
-body.light-mode .view-title{color:rgba(0,0,0,0.8)}
 
 /* ═══ 聊天区核心布局（全尺寸通用） ═══ */
 #sec-chat .view-topbar { flex-shrink:0;padding-top:0!important }
@@ -1297,13 +1100,6 @@ body.light-mode .view-title{color:rgba(0,0,0,0.8)}
 }
 
 /* ═══ 白天模式聊天区 ═══ */
-body.light-mode .msg.user{background:rgba(196,165,123,0.12);border-color:rgba(196,165,123,0.25);color:#5C4033}
-body.light-mode .msg.sys{background:rgba(255,255,255,0.5);border-color:rgba(196,165,123,0.12);color:#3E2723}
-body.light-mode #chatInput{background:rgba(255,255,255,0.6);border-color:rgba(196,165,123,0.25);color:#3E2723}
-body.light-mode #chatInput::placeholder{color:#8B7355}
-body.light-mode .chat-bottom-bar{background:rgba(255,250,240,0.85)!important;border-top-color:rgba(196,165,123,0.15)!important}
-body.light-mode .chat-main-header{background:rgba(255,250,240,0.5)!important;border-bottom-color:rgba(196,165,123,0.1)!important}
-body.light-mode .chat-bottom-bar button[onclick="sendChat()"]{background:rgba(196,165,123,0.12);border-color:rgba(196,165,123,0.3);color:#8B6914}
 /* ═══════════════════════════════════════
    溯星小屋 v2.0 · 星墨手账风聊天室
    ═══════════════════════════════════════ */
@@ -1389,28 +1185,6 @@ body.light-mode .chat-bottom-bar button[onclick="sendChat()"]{background:rgba(19
 }
 
 /* ═══ 白天模式：聊天区 ═══ */
-body.light-mode .view-topbar{background:linear-gradient(180deg,rgba(255,250,240,0.95) 0%,rgba(255,250,240,0.85) 100%);border-bottom-color:rgba(196,165,123,0.15);box-shadow:0 2px 20px rgba(139,115,85,0.08)}
-body.light-mode .view-back{background:rgba(196,165,123,0.08);border-color:rgba(196,165,123,0.2);color:var(--gold)}
-body.light-mode .view-title{color:rgba(0,0,0,0.8)}
-body.light-mode .chat-main-header{background:rgba(255,249,230,0.4)!important;border-bottom-color:rgba(196,165,123,0.1)!important}
-body.light-mode .chat-win-title{color:#8B6914}
-body.light-mode .msg.user{background:linear-gradient(135deg,rgba(196,165,123,0.12) 0%,rgba(196,165,123,0.06) 100%);border-color:rgba(196,165,123,0.25);color:#5C4033;box-shadow:0 2px 12px rgba(196,165,123,0.08)}
-body.light-mode .msg.sys{background:linear-gradient(135deg,rgba(255,255,255,0.6) 0%,rgba(255,255,255,0.4) 100%);border-color:rgba(196,165,123,0.12);border-left-color:rgba(196,165,123,0.35);color:#3E2723;box-shadow:0 2px 12px rgba(0,0,0,0.04)}
-body.light-mode .chat-bottom-bar{background:linear-gradient(180deg,rgba(255,250,240,0.85) 0%,rgba(255,250,240,0.95) 100%)!important;border-top-color:rgba(196,165,123,0.15)!important;box-shadow:0 -4px 20px rgba(139,115,85,0.06)!important}
-body.light-mode #chatInput{background:rgba(255,255,255,0.6);border-color:rgba(196,165,123,0.2);color:#3E2723}
-body.light-mode #chatInput:focus{border-color:rgba(196,165,123,0.5);background:rgba(255,255,255,0.8);box-shadow:0 0 0 3px rgba(196,165,123,0.08),0 0 16px rgba(196,165,123,0.06)}
-body.light-mode #chatInput::placeholder{color:#8B7355}
-body.light-mode .chat-send-btn{background:linear-gradient(135deg,rgba(196,165,123,0.15) 0%,rgba(196,165,123,0.08) 100%)!important;border-color:rgba(196,165,123,0.35)!important;color:#8B6914!important}
-body.light-mode .chat-send-btn:hover{background:linear-gradient(135deg,rgba(196,165,123,0.25) 0%,rgba(196,165,123,0.12) 100%)!important;border-color:#C4A57B!important;color:#5C4033!important;box-shadow:0 0 20px rgba(196,165,123,0.12)}
-body.light-mode .chat-tool-btn{background:rgba(196,165,123,0.06)!important;border-color:rgba(196,165,123,0.2)!important;color:#8B7355!important}
-body.light-mode .chat-tool-btn:hover,body.light-mode .chat-tool-btn.open{background:rgba(196,165,123,0.12)!important;border-color:#C4A57B!important;color:#5C4033!important}
-body.light-mode .model-select{background:rgba(255,255,255,0.5)!important;border-color:rgba(196,165,123,0.2)!important;color:#5C4033!important}
-body.light-mode .chat-window{background:radial-gradient(ellipse 500px 300px at 20% 80%,rgba(196,165,123,0.03) 0%,transparent 70%),radial-gradient(ellipse 400px 250px at 80% 20%,rgba(255,200,150,0.02) 0%,transparent 70%)}
-body.light-mode .toast{background:linear-gradient(135deg,rgba(255,250,240,0.95),rgba(245,240,225,0.95))!important;border:1px solid rgba(196,165,123,0.25)!important;color:#5C4033!important;box-shadow:0 4px 30px rgba(139,115,85,0.12)!important}
-body.light-mode .think-box{background:rgba(124,77,255,0.03);border-color:rgba(124,77,255,0.08)}
-body.light-mode .msg-action-btn:hover{color:#8B6914!important}
-body.light-mode .chat-index-btn{background:rgba(196,165,123,0.06);border-color:rgba(196,165,123,0.2);color:#8B7355}
-body.light-mode .chat-index-btn:hover{border-color:#C4A57B;color:#5C4033;background:rgba(196,165,123,0.1)}
 
 /* ═══ 中枢输入框美化 ═══ */
 #sec-data input[type="text"]{padding:10px 14px;border-radius:8px;border:1px solid rgba(201,169,97,0.15);background:rgba(0,0,0,0.2);color:var(--cream);font-family:inherit;font-size:.88em;outline:none;transition:border-color .2s,box-shadow .2s;letter-spacing:.5px}
@@ -1420,8 +1194,6 @@ body.light-mode .chat-index-btn:hover{border-color:#C4A57B;color:#5C4033;backgro
 #sec-data button:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,0.2)}
 #supplierList>div{background:rgba(201,169,97,0.04);border:1px solid rgba(201,169,97,0.1);border-radius:8px;padding:10px 14px;transition:border-color .2s}
 #supplierList>div:hover{border-color:rgba(201,169,97,0.25)}
-body.light-mode #sec-data input[type="text"]{background:rgba(255,255,255,0.5);border-color:rgba(196,165,123,0.2);color:#3E2723}
-body.light-mode #sec-data input[type="text"]:focus{border-color:rgba(196,165,123,0.5);background:rgba(255,255,255,0.7)}
 
 /* ═══ 顶栏/底栏安全区适配 ═══ */
 .view-topbar{padding-top:max(14px,env(safe-area-inset-top,14px))}
@@ -1430,7 +1202,6 @@ body.light-mode #sec-data input[type="text"]:focus{border-color:rgba(196,165,123
 .chat-window .msg{font-size:.78em!important;line-height:1.7!important}
 .msg{max-width:92%}
 
-body.light-mode #sec-chat.active { background:#FFFAF0!important }
 
 /* ═══ 顶栏工具按钮 ═══ */
 .chat-rename-topbar-btn,.chat-index-topbar-btn,.chat-theme-topbar-btn{width:30px;height:30px;border-radius:8px;border:1px solid rgba(201,169,97,0.15);background:rgba(201,169,97,0.05);color:var(--dim);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
@@ -1438,14 +1209,11 @@ body.light-mode #sec-chat.active { background:#FFFAF0!important }
 .chat-index-topbar-btn{font-size:.85em}
 .chat-theme-topbar-btn{font-size:.95em}
 .chat-rename-topbar-btn:hover,.chat-index-topbar-btn:hover,.chat-theme-topbar-btn:hover{border-color:rgba(201,169,97,0.35);color:var(--gold);background:rgba(201,169,97,0.1)}
-body.light-mode .chat-rename-topbar-btn,body.light-mode .chat-index-topbar-btn,body.light-mode .chat-theme-topbar-btn{border-color:rgba(196,165,123,0.2);color:#8B7355;background:rgba(196,165,123,0.06)}
-body.light-mode .chat-rename-topbar-btn:hover,body.light-mode .chat-index-topbar-btn:hover,body.light-mode .chat-theme-topbar-btn:hover{border-color:#C4A57B;color:#5C4033}
 @media(min-width:601px){.chat-rename-topbar-btn,.chat-index-topbar-btn,.chat-theme-topbar-btn{display:none}}
 
 /* 手机端聊天页隐藏全局月亮按钮和频道标题栏（桌面端也隐藏，已合并到顶栏） */
 .chat-main-header{display:none!important}
 @media(max-width:600px){
-body[data-view="chat"] #themeToggleBtn{display:none!important}
 }
 
 /* 桌面端气泡宽度 */
@@ -1577,17 +1345,6 @@ body[data-view="chat"] #themeToggleBtn{display:none!important}
 }
 
 /* 白天模式 */
-body.light-mode {
-  --tool-group-bg: rgba(255,255,255,0.5);
-  --tool-group-border: rgba(196,165,123,0.18);
-  --tool-group-shadow: rgba(0,0,0,0.04);
-  --tool-group-hover: rgba(196,165,123,0.06);
-  --tool-chevron-color: #B5A48C;
-  --tool-label-color: #5C4033;
-  --tool-label-strong: #3E2723;
-  --tool-total-color: #8B7355;
-  --tool-item-hover: rgba(196,165,123,0.06);
-}
 
 /* 新拟态模式 */
 body.neu-mode {
@@ -1603,17 +1360,6 @@ body.neu-mode {
 }
 
 /* 暗金模式 */
-body.dark-gold-mode {
-  --tool-group-bg: rgba(30,26,24,0.5);
-  --tool-group-border: rgba(212,160,74,0.12);
-  --tool-group-shadow: rgba(0,0,0,0.08);
-  --tool-group-hover: rgba(212,160,74,0.05);
-  --tool-chevron-color: #584b38;
-  --tool-label-color: #c4b8ab;
-  --tool-label-strong: #D4A04A;
-  --tool-total-color: #8c7a65;
-  --tool-item-hover: rgba(212,160,74,0.05);
-}
 
 /* 手机端微调 */
 @media (max-width: 480px) {
@@ -1671,16 +1417,9 @@ body.dark-gold-mode {
 .fav-think-box { margin: 10px 4px; background: rgba(255,255,255,0.03); border: 1px solid rgba(99,127,190,0.12); border-radius: 8px; overflow: hidden; }
 .fav-think-header { padding: 6px 10px; font-size: 0.8em; color: var(--dim); cursor: pointer; user-select: none; }
 .fav-think-content { padding: 6px 10px; font-size: 0.82em; color: var(--dim); line-height: 1.6; border-top: 1px solid rgba(99,127,190,0.08); }
-body.light-mode #favDetail { background: linear-gradient(180deg, #eef3fb 0%, #f8f5ee 100%) !important; }
-body.light-mode #favDetail .view-topbar { background: rgba(238,243,251,0.96); border-bottom-color: rgba(99,127,190,0.12); }
-body.light-mode .fav-think-box { background: rgba(0,0,0,0.02); }
-body.light-mode .fav-detail-tag { background: rgba(196,165,123,0.08); }
 body.neu-mode #favDetail { background: linear-gradient(180deg, #E8EFF7 0%, #E8EFF7 100%) !important; }
 body.neu-mode #favDetail .view-topbar { background: rgba(232,239,247,0.96); border-bottom-color: rgba(163,177,198,0.25); }
 body.neu-mode .fav-think-box { background: rgba(0,0,0,0.02); }
-body.dark-gold-mode #favDetail { background: linear-gradient(180deg, #1a1a16 0%, #1e1c18 100%) !important; }
-body.dark-gold-mode #favDetail .view-topbar { background: rgba(26,26,22,0.96); border-bottom-color: rgba(212,160,74,0.12); }
-body.dark-gold-mode .fav-detail-tag { background: rgba(212,160,74,0.10); }
 
 /* ═══════════════════════════════════════
    溯星小屋 v3.0 · 新拟态白天模式 (Neu Day)
@@ -1923,18 +1662,6 @@ body.neu-mode .neu-progress-fill {
     transition: width 0.3s ease;
 }
 
-/* ── 开关按钮 (neu toggle) ── */
-body.neu-mode #themeToggleBtn {
-    background: #E8EFF7 !important;
-    box-shadow: 4px 4px 8px rgba(163, 177, 198, 0.4), -4px -4px 8px rgba(255, 255, 255, 0.7) !important;
-    border: none !important;
-    color: #D4A856 !important;
-    border-radius: 50%;
-}
-body.neu-mode #themeToggleBtn:hover {
-    box-shadow: 2px 2px 4px rgba(163, 177, 198, 0.3), -2px -2px 4px rgba(255, 255, 255, 0.6) !important;
-}
-
 /* ── 时光信箱/胶囊 ── */
 body.neu-mode .mailbox-container { border-color: rgba(163, 177, 198, 0.4); background: #E8EFF7; box-shadow: 8px 8px 16px rgba(163, 177, 198, 0.4), -8px -8px 16px rgba(255, 255, 255, 0.6); }
 body.neu-mode .mailbox-container:hover { box-shadow: 6px 6px 12px rgba(163, 177, 198, 0.3), -6px -6px 12px rgba(255, 255, 255, 0.5); }
@@ -1971,16 +1698,11 @@ body.neu-mode .quote-gen-btn { background: #E8EFF7; box-shadow: 3px 3px 6px rgba
 body.neu-mode .quote-gen-btn:hover { box-shadow: 2px 2px 4px rgba(163, 177, 198, 0.2), -2px -2px 4px rgba(255, 255, 255, 0.4); }
 
 /* ═══ 新拟态首页布局 ═══ */
-body:not(.neu-mode) .neu-home { display: none; }
-body.neu-mode .home-legacy { display: none; }
 body.neu-mode #sec-home { max-width: 430px; margin: 0 auto; padding: 20px 16px 100px 16px; }
 body.neu-mode .home-footer { display: none; }
 
 /* Neu Day is the canonical product theme. The legacy home and theme switch remain
    hidden as a migration guard so old cached markup cannot reappear. */
-.home-legacy,
-#themeToggleBtn,
-*[onclick="toggleLightMode()"] { display: none !important; }
 
 /* ── 通用新拟态卡片 hover/active ── */
 .neu-card {
@@ -2230,13 +1952,13 @@ body.neu-mode #sec-console { background:#101827; }
     .dev-action-icon { flex-basis:27px; width:27px; height:27px; }
 }
 
-body.light-mode #sec-dev { background:linear-gradient(160deg,#f1f6f8,#e8eef5); }
-body.light-mode .dev-topbar { background:rgba(241,246,248,.84); }
-body.light-mode .dev-hero { background:linear-gradient(125deg,#e2f1f1,#edf1f6); border-color:rgba(39,128,123,.22); }
-body.light-mode .dev-hero h1 { color:#213044; }
-body.light-mode .dev-hero p,.light-mode .dev-subtitle { color:#607184; }
-body.light-mode .dev-stat-card,.light-mode .dev-action-card { background:rgba(255,255,255,.64); border-color:rgba(79,101,122,.16); }
-body.light-mode .dev-stat-card strong,.light-mode .dev-action-card { color:#26364b; }
+body.neu-mode #sec-dev { background:linear-gradient(160deg,#f1f6f8,#e8eef5); }
+body.neu-mode .dev-topbar { background:rgba(241,246,248,.84); }
+body.neu-mode .dev-hero { background:linear-gradient(125deg,#e2f1f1,#edf1f6); border-color:rgba(39,128,123,.22); }
+body.neu-mode .dev-hero h1 { color:#213044; }
+body.neu-mode .dev-hero p,.neu-mode .dev-subtitle { color:#607184; }
+body.neu-mode .dev-stat-card,.neu-mode .dev-action-card { background:rgba(255,255,255,.64); border-color:rgba(79,101,122,.16); }
+body.neu-mode .dev-stat-card strong,.neu-mode .dev-action-card { color:#26364b; }
 
 /* ── 生理期卡片 ── */
 .neu-period-card { padding: 16px 20px; margin-bottom: 20px; }
@@ -2277,16 +1999,6 @@ body.light-mode .dev-stat-card strong,.light-mode .dev-action-card { color:#2636
 }
 
 /* ═══ Flo 经期详情页 ═══ */
-body:not(.neu-mode) #sec-flo { background: #0d1225; color: #d4c5a0; }
-body:not(.neu-mode) #sec-flo .view-topbar { background: rgba(10,14,26,0.95); border-bottom-color: rgba(201,169,97,0.12); }
-body:not(.neu-mode) #sec-flo .flo-filter-btn { color: #a8b8e7; border-color: #a8b8e7; }
-body:not(.neu-mode) #sec-flo .flo-filter-btn.active { background: #F28B82; color: #fff; border-color: transparent; }
-body:not(.neu-mode) #sec-flo .flo-year-title { color: #d4c5a0; }
-body:not(.neu-mode) #sec-flo .flo-cycle-days { color: #d4c5a0; }
-body:not(.neu-mode) #sec-flo .flo-date-range { color: #9a8e72; }
-body:not(.neu-mode) #sec-flo .flo-action-btn { color: #d4c5a0; background: rgba(255,255,255,0.05); border-color: rgba(201,169,97,0.2); }
-body:not(.neu-mode) #sec-flo .flo-legend { color: #9a8e72; }
-body:not(.neu-mode) #sec-flo .flo-date-inp { color: #d4c5a0; background: rgba(0,0,0,0.3); border-color: rgba(201,169,97,0.2); }
 
 body.neu-mode #sec-flo {
     background: linear-gradient(175deg, #F2F4FB 0%, #EAECF5 100%);
@@ -2396,16 +2108,6 @@ body.neu-mode #sec-flo .view-title { color: #2e3b69; font-size: 16px; }
 .cal-tag.mood { background: rgba(212,160,74,0.1); color: #D4A04A; }
 
 /* 白天模式日历 */
-body.light-mode .cal-detail-card { background: rgba(255,255,255,0.95); border-color: rgba(196,165,123,0.2); color: #3E2723; }
-body.light-mode .cal-detail-date { color: #3E2723; }
-body.light-mode .cal-detail-close { color: #8B7355; }
-body.light-mode .cal-detail-note { color: #5C4033; }
-body.light-mode .cal-detail-note.empty { color: #8B7355; }
-body.light-mode .cal-detail-comment { color: #8B7355; border-left-color: rgba(196,165,123,0.25); }
-body.light-mode .cal-cell:hover { background: rgba(0,0,0,0.04); }
-body.light-mode .cal-cell.has-note { background: rgba(212,160,74,0.1); }
-body.light-mode .cal-cell-num { color: #8B7355; }
-body.light-mode .cal-cell.today .cal-cell-num { color: #8B6914; }
 
 /* 新拟态模式日历 */
 body.neu-mode #sec-calendar { background: #E8EFF7; min-height: 100vh; max-width: 430px; margin: 0 auto; padding-bottom: 40px; }
@@ -2454,7 +2156,6 @@ body.neu-mode .cal-detail-comment { color: #718096; border-left-color: rgba(212,
     background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15);
     color: #a8b8e7; padding: 6px 16px; border-radius: 8px; cursor: pointer; font-size: 0.85em; font-family: inherit;
 }
-body.light-mode .cal-edit-textarea, body.light-mode .cal-edit-mood { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.1); }
 body.neu-mode .cal-edit-textarea, body.neu-mode .cal-edit-mood {
     background: #E8EFF7; border: none;
     box-shadow: inset 3px 3px 6px rgba(163,177,198,0.3), inset -3px -3px 6px rgba(255,255,255,0.5);
@@ -2487,16 +2188,7 @@ body.neu-mode .cal-edit-textarea, body.neu-mode .cal-edit-mood {
 body.neu-mode .cal-inline-card { background:#E8EFF7;border:1px solid rgba(255,255,255,0.4);box-shadow:12px 12px 28px rgba(163,177,198,0.24),-12px -12px 28px rgba(255,255,255,0.8) }
 body.neu-mode .cal-snapshot-item { background:#E8EFF7;box-shadow:inset 5px 5px 10px rgba(163,177,198,0.18),inset -5px -5px 10px rgba(255,255,255,0.75) }
 
-body.light-mode .cal-inline-date { color:#3E2723 }
-body.light-mode .cal-inline-card { background:rgba(255,255,255,0.6);border:1px solid rgba(196,165,123,0.15) }
-body.light-mode .cal-snapshot-item { background:rgba(255,255,255,0.5);box-shadow:inset 2px 2px 6px rgba(196,165,123,0.08) }
-body.light-mode .cal-snapshot-text, body.light-mode .cal-page-line p { color:#5C4033 }
 
-body.dark-gold-mode .cal-inline-card { background:rgba(30,26,24,0.62);border:1px solid rgba(228,212,199,0.08);box-shadow:0 12px 30px rgba(0,0,0,0.28) }
-body.dark-gold-mode .cal-inline-date { color:#e4d4c7 }
-body.dark-gold-mode .cal-inline-subtitle,body.dark-gold-mode .cal-page-line span,body.dark-gold-mode .cal-inline-empty { color:rgba(228,212,199,0.45) }
-body.dark-gold-mode .cal-snapshot-item { background:rgba(20,18,17,0.55);box-shadow:inset 0 0 0 1px rgba(228,212,199,0.06) }
-body.dark-gold-mode .cal-snapshot-text,body.dark-gold-mode .cal-page-line p { color:rgba(228,212,199,0.82) }
 
 @media(max-width:480px) {
     .cal-grid { gap: 1px; padding: 4px 8px; }
@@ -2551,11 +2243,6 @@ body.dark-gold-mode .cal-snapshot-text,body.dark-gold-mode .cal-page-line p { co
 .album-save-btn { background: rgba(212,160,74,0.2); border: none; color: #D4A04A; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 0.85em; font-family: inherit; }
 .album-cancel-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); color: #a8b8e7; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 0.85em; font-family: inherit; }
 
-body.light-mode .album-detail-card { background: rgba(255,255,255,0.95); border-color: rgba(196,165,123,0.2); color: #3E2723; }
-body.light-mode .album-detail-close { color: #8B7355; }
-body.light-mode .album-detail-caption { color: #3E2723; }
-body.light-mode .album-detail-comment { color: #8B7355; background: rgba(0,0,0,0.02); }
-body.light-mode .album-edit-input { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.1); }
 
 body.neu-mode #sec-album { background: #E8EFF7; max-width: 430px; margin: 0 auto; }
 body.neu-mode #sec-album .view-topbar { background: rgba(232,239,247,0.9); backdrop-filter: blur(10px); border-bottom: 1px solid rgba(163,177,198,0.25); }
@@ -2570,128 +2257,6 @@ body.neu-mode .album-detail-comment { color: #718096; border-left-color: rgba(21
 
 /* ═══════════════════════════════════════
    溯星小屋 v4.0 · 深夜黑金模式 (Dark Gold)
-   body.dark-gold-mode 覆盖
-   ═══════════════════════════════════════ */
-
-body.dark-gold-mode{ background: linear-gradient(160deg, #141211 0%, #100d0b 40%, #0b0706 100%); color: #fef9c9; font-family:'Inter','PingFang SC','Microsoft YaHei',sans-serif; letter-spacing:0; line-height:1.6; padding-bottom:0!important }
-body.dark-gold-mode::before{ content:'';position:fixed;inset:0;pointer-events:none;z-index:0; background: radial-gradient(ellipse at 15% 85%, rgba(212,160,74,0.04), transparent 60%) }
-body.dark-gold-mode::after{opacity:0!important}
-/* 隐旧首页显新首页 */
-body.dark-gold-mode .home-legacy{display:none}
-body.dark-gold-mode .home-footer{display:none}
-body.dark-gold-mode .neu-home{display:block}
-body.dark-gold-mode #sec-home{max-width:430px;margin:0 auto;padding:20px 16px 100px 16px}
-body.dark-gold-mode #sec-chat.active{background:#141211!important}
-body.dark-gold-mode #sec-chat{ max-width:800px; margin:0 auto;background:#141211!important }
-body.dark-gold-mode .chat-window{background:transparent}
-body.dark-gold-mode .chat-main-header{background:rgba(30,26,24,0.4);border-bottom:1px solid rgba(228,212,199,0.06);display:block!important}
-body.dark-gold-mode .chat-bottom-bar{background:rgba(20,18,17,0.85)!important;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-top:1px solid rgba(228,212,199,0.08)!important}
-body.dark-gold-mode .chat-send-btn{background:rgba(212,160,74,0.12)!important;border:1px solid rgba(212,160,74,0.25)!important;color:#D4A04A!important;border-radius:12px}
-/* ── 黑玻璃卡片 ── */
-body.dark-gold-mode .neu-card,body.dark-gold-mode .neu-together-card,body.dark-gold-mode .neu-todo-card,body.dark-gold-mode .neu-week-strip,body.dark-gold-mode .neu-water-tracker,body.dark-gold-mode .neu-grid-card,body.dark-gold-mode .neu-period-card{ background:rgba(30,26,24,0.6);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(228,212,199,0.06);box-shadow:none;border-radius:18px;transition:all 0.2s ease }
-body.dark-gold-mode .neu-card:hover,body.dark-gold-mode .neu-together-card:hover,body.dark-gold-mode .neu-todo-card:hover,body.dark-gold-mode .neu-week-strip:hover,body.dark-gold-mode .neu-water-tracker:hover,body.dark-gold-mode .neu-grid-card:hover{ background:rgba(40,34,30,0.7);border-color:rgba(228,212,199,0.12);transform:translateY(-1px) }
-body.dark-gold-mode .neu-card:active{ background:rgba(25,22,20,0.7);transform:translateY(0) }
-/* ── V3 首页文字 ── */
-body.dark-gold-mode .neu-together-num{color:#fef9c9}
-body.dark-gold-mode .neu-together-label{color:#fef9c9}
-body.dark-gold-mode .neu-together-deco *{stroke:#fef9c9 !important}
-body.dark-gold-mode .neu-together-deco text{fill:#fcfa1d !important}
-body.dark-gold-mode .neu-todo-title{color:#fef9c9}
-body.dark-gold-mode .neu-todo-item{color:#fef9c9}
-body.dark-gold-mode .neu-todo-new-input{color:#fef9c9}
-body.dark-gold-mode .neu-todo-new-input::placeholder{color:#584b38}
-body.dark-gold-mode .neu-todo-empty{color:#fef9c9}
-body.dark-gold-mode .neu-todo-add-btn{background:rgba(212,160,74,0.12);color:#D4A04A;box-shadow:none}
-body.dark-gold-mode .neu-todo-new-row{border-top-color:rgba(228,212,199,0.08)}
-body.dark-gold-mode .neu-week-day{color:#fef9c9}
-body.dark-gold-mode .neu-week-day.today .day-dot{background:#fef9c9;color:#141211}
-body.dark-gold-mode .neu-week-day .day-event{background:#fef9c9}
-body.dark-gold-mode .neu-water-label{color:#fef9c9}
-body.dark-gold-mode .neu-progress-track{background:rgba(30,26,24,0.4);box-shadow:inset 2px 2px 4px rgba(0,0,0,0.3)}
-body.dark-gold-mode .neu-progress-fill{background:linear-gradient(90deg,#D4A04A,#e4d4c7)}
-body.dark-gold-mode .neu-water-btn{background:rgba(212,160,74,0.12);color:#D4A04A;box-shadow:none}
-body.dark-gold-mode .neu-grid-card span{color:#fef9c9}
-body.dark-gold-mode .neu-grid-card svg{stroke:#D4A04A}
-body.dark-gold-mode .neu-bottom-nav{ background:rgba(20,18,17,0.85);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(228,212,199,0.06);box-shadow:none }
-body.dark-gold-mode .neu-nav-item{color:#fef9c9}
-body.dark-gold-mode .neu-nav-item.active{color:#D4A04A}
-body.dark-gold-mode .neu-nav-item.active::after{background:#D4A04A}
-body.dark-gold-mode .neu-period-countdown{color:#fef9c9}
-body.dark-gold-mode .neu-todo-col-header{color:#fef9c9}
-/* ── 聊天 ── */
-body.dark-gold-mode .view-title{color:#fef9c9}
-body.dark-gold-mode .chat-win-title{color:#fef9c9}
-body.dark-gold-mode .msg.user{background:rgba(228,212,199,0.08);border:1px solid rgba(228,212,199,0.08);color:#fef9c9;border-radius:14px}
-body.dark-gold-mode .msg.sys{background:rgba(30,26,24,0.6);backdrop-filter:blur(8px);border:1px solid rgba(228,212,199,0.06);color:#fef9c9;border-radius:14px}
-body.dark-gold-mode #chatInput{background:rgba(30,26,24,0.6);backdrop-filter:blur(8px);border:1px solid rgba(228,212,199,0.08);color:#e4d4c7;border-radius:10px}
-body.dark-gold-mode #chatInput::placeholder{color:#584b38}
-body.dark-gold-mode #chatInput:focus{border-color:rgba(212,160,74,0.3);background:rgba(40,34,30,0.7)}
-body.dark-gold-mode .chat-tool-btn{background:rgba(30,26,24,0.6)!important;border:1px solid rgba(228,212,199,0.08)!important;color:#8c7a65!important}
-body.dark-gold-mode .chat-tool-btn:hover{color:#D4A04A!important;background:rgba(212,160,74,0.1)!important}
-body.dark-gold-mode .model-select{background:rgba(30,26,24,0.6);border:1px solid rgba(228,212,199,0.08);color:#e4d4c7;border-radius:8px}
-body.dark-gold-mode .chat-main-header .chat-index-btn,
-body.dark-gold-mode .chat-main-header .chat-rename-btn{display:none!important}
-body.dark-gold-mode .toast{background:rgba(20,18,17,0.9)!important;backdrop-filter:blur(12px);border:1px solid rgba(212,160,74,0.2)!important;color:#e4d4c7!important}
-body.dark-gold-mode .think-box{background:rgba(212,160,74,0.04);border:1px solid rgba(212,160,74,0.1);color:#c4b8ab}
-body.dark-gold-mode .msg-meta{color:#584b38}
-body.dark-gold-mode .msg-action-btn:hover{color:#D4A04A!important}
-body.dark-gold-mode .view-topbar{background:rgba(20,18,17,0.85);backdrop-filter:blur(12px);border-bottom:1px solid rgba(228,212,199,0.06)}
-body.dark-gold-mode .view-back{color:#8c7a65}
-body.dark-gold-mode .view-title{color:#e4d4c7}
-body.dark-gold-mode .chat-index-btn,body.dark-gold-mode .chat-rename-btn{background:rgba(212,160,74,0.08);border:1px solid rgba(212,160,74,0.15);color:#D4A04A}
-/* ── 日历 ── */
-body.dark-gold-mode #sec-calendar{background:transparent;max-width:430px;margin:0 auto;padding-bottom:40px}
-body.dark-gold-mode #sec-calendar .view-topbar{background:rgba(20,18,17,0.85)}
-body.dark-gold-mode #sec-calendar .view-back{color:#8c7a65}
-body.dark-gold-mode #sec-calendar .view-title{color:#e4d4c7}
-body.dark-gold-mode .cal-weekday{color:#584b38}
-body.dark-gold-mode .cal-cell-num{color:#8c7a65}
-body.dark-gold-mode .cal-cell:hover{background:rgba(212,160,74,0.08)}
-body.dark-gold-mode .cal-cell.today{border-color:#D4A04A;background:rgba(212,160,74,0.08)}
-body.dark-gold-mode .cal-cell.today .cal-cell-num{color:#e4d4c7}
-body.dark-gold-mode .cal-cell.has-note{background:rgba(212,160,74,0.06)}
-body.dark-gold-mode .cal-detail-card{background:rgba(20,18,17,0.95);backdrop-filter:blur(16px);border:1px solid rgba(212,160,74,0.15);border-radius:20px;color:#e4d4c7}
-body.dark-gold-mode .cal-detail-date{color:#e4d4c7}
-body.dark-gold-mode .cal-detail-days{color:#D4A04A}
-body.dark-gold-mode .cal-detail-close{color:#8c7a65}
-body.dark-gold-mode .cal-detail-note{color:#c4b8ab}
-body.dark-gold-mode .cal-detail-note.empty{color:#584b38}
-body.dark-gold-mode .cal-detail-comment{color:#8c7a65;border-left-color:rgba(212,160,74,0.2);background:rgba(255,255,255,0.02)}
-/* ── Flo ── */
-body.dark-gold-mode #sec-flo{background:transparent;color:#e4d4c7;max-width:430px;margin:0 auto;padding-bottom:40px}
-body.dark-gold-mode #sec-flo .view-topbar{background:rgba(20,18,17,0.85);border-bottom:1px solid rgba(228,212,199,0.06)}
-body.dark-gold-mode #sec-flo .view-back{color:#8c7a65}
-body.dark-gold-mode #sec-flo .view-title{color:#e4d4c7}
-body.dark-gold-mode .flo-filter-btn{color:#8c7a65;border-color:#8c7a65}
-body.dark-gold-mode .flo-filter-btn.active{background:#D4A04A;color:#141211;border-color:transparent}
-body.dark-gold-mode .flo-legend{color:#8c7a65}
-body.dark-gold-mode .flo-action-btn{background:rgba(30,26,24,0.6);border:1px solid rgba(228,212,199,0.08);color:#D4A04A;backdrop-filter:blur(8px)}
-body.dark-gold-mode .flo-action-btn:active{background:rgba(212,160,74,0.15)}
-body.dark-gold-mode .flo-year-title{color:#e4d4c7}
-body.dark-gold-mode .flo-cycle-days{color:#e4d4c7}
-body.dark-gold-mode .flo-date-range{color:#8c7a65}
-body.dark-gold-mode .flo-cycle-card{border-bottom-color:rgba(228,212,199,0.06)}
-body.dark-gold-mode .flo-cycle-arrow{color:#8c7a65}
-body.dark-gold-mode .flo-date-inp{background:rgba(30,26,24,0.6);border:1px solid rgba(228,212,199,0.08);color:#e4d4c7}
-/* ── 相册 ── */
-body.dark-gold-mode #sec-album{background:transparent;max-width:430px;margin:0 auto}
-body.dark-gold-mode #sec-album .view-topbar{background:rgba(20,18,17,0.85);border-bottom:1px solid rgba(228,212,199,0.06)}
-body.dark-gold-mode #sec-album .view-back{color:#8c7a65}
-body.dark-gold-mode #sec-album .view-title{color:#e4d4c7}
-body.dark-gold-mode .album-grid{gap:6px;padding:12px}
-body.dark-gold-mode .album-thumb{border-radius:10px}
-body.dark-gold-mode .album-detail-card{background:rgba(20,18,17,0.95);backdrop-filter:blur(16px);border:1px solid rgba(212,160,74,0.15);border-radius:20px;color:#e4d4c7}
-body.dark-gold-mode .album-detail-close{color:#8c7a65}
-body.dark-gold-mode .album-detail-caption{color:#e4d4c7}
-body.dark-gold-mode .album-detail-comment{color:#8c7a65;border-left-color:rgba(212,160,74,0.2);background:rgba(255,255,255,0.02)}
-/* ── 中枢 + 编辑器 ── */
-body.dark-gold-mode #sec-data input[type="text"]{background:rgba(30,26,24,0.6);border:1px solid rgba(228,212,199,0.08);color:#e4d4c7;backdrop-filter:blur(8px)}
-body.dark-gold-mode .glass{background:rgba(30,26,24,0.6);backdrop-filter:blur(8px);border:1px solid rgba(228,212,199,0.06)}
-body.dark-gold-mode #themeToggleBtn{background:rgba(30,26,24,0.8)!important;backdrop-filter:blur(8px);border:1px solid rgba(212,160,74,0.2)!important;color:#D4A04A!important}
-body.dark-gold-mode .cal-edit-textarea,body.dark-gold-mode .cal-edit-mood{background:rgba(30,26,24,0.6);border:1px solid rgba(228,212,199,0.08);color:#e4d4c7}
-body.dark-gold-mode .album-edit-input{background:rgba(30,26,24,0.6);border:1px solid rgba(228,212,199,0.08);color:#e4d4c7}
-@media(max-width:374px){ body.dark-gold-mode #sec-home{padding:16px 12px 90px 12px} body.dark-gold-mode .neu-together-num{font-size:40px} }
-body.neu-mode .album-edit-input { background: #E8EFF7; border: none; box-shadow: inset 3px 3px 6px rgba(163,177,198,0.3), inset -3px -3px 6px rgba(255,255,255,0.5); }
 
 /* ═══════════════════════════════════════
    控制台 · 四皮肤适配 + 补齐缺失样式
@@ -2714,22 +2279,6 @@ body.neu-mode .album-edit-input { background: #E8EFF7; border: none; box-shadow:
   --con-ok:#81c784;
   --con-info:#64b5f6;
 }
-body.light-mode #sec-console{
-  --con-bg:#FFF9E6;
-  --con-surface:rgba(255,255,255,.62);
-  --con-sunken:rgba(0,0,0,.03);
-  --con-border:rgba(196,165,123,.28);
-  --con-border-strong:#C4A57B;
-  --con-text:#3E2723;
-  --con-dim:#8B7355;
-  --con-accent:#8B6914;
-  --con-accent-ink:#FFFAF0;
-  --con-shadow:0 2px 16px rgba(139,115,85,.1);
-  --con-err:#B3261E;
-  --con-warn:#8A5300;
-  --con-ok:#1B5E20;
-  --con-info:#0D47A1;
-}
 body.neu-mode #sec-console{
   --con-bg:#E8EFF7;
   --con-surface:#E8EFF7;
@@ -2746,22 +2295,6 @@ body.neu-mode #sec-console{
   --con-warn:#8A5300;
   --con-ok:#1B5E20;
   --con-info:#1A4E8A;
-}
-body.dark-gold-mode #sec-console{
-  --con-bg:#141211;
-  --con-surface:rgba(30,26,24,.62);
-  --con-sunken:rgba(11,7,6,.55);
-  --con-border:rgba(228,212,199,.08);
-  --con-border-strong:rgba(212,160,74,.45);
-  --con-text:#fef9c9;
-  --con-dim:#8c7a65;
-  --con-accent:#D4A04A;
-  --con-accent-ink:#141211;
-  --con-shadow:0 8px 24px rgba(0,0,0,.35);
-  --con-err:#ef9a9a;
-  --con-warn:#ffcc80;
-  --con-ok:#a5d6a7;
-  --con-info:#90caf9;
 }
 
 /* ── 骨架：撑满高度，不用魔法数字 ── */
@@ -3174,10 +2707,6 @@ body.dark-gold-mode #sec-console{
 @media(prefers-reduced-motion:reduce){.sms-dot{animation:none;opacity:.6}}
 
 /* ── 白天 ── */
-body.light-mode .sms-typing{background:rgba(255,255,255,.5);border-color:rgba(196,165,123,.15)}
-body.light-mode .chat-sms-topbar-btn{border-color:rgba(196,165,123,.2);color:#8B7355;background:rgba(196,165,123,.06)}
-body.light-mode .chat-sms-topbar-btn.sms-active{background:rgba(196,165,123,.2);border-color:#C4A57B;color:#5C4033}
-body.light-mode .sms-fire-btn #smsQueueCount{background:#8B6914;color:#FFFAF0}
 
 /* ── 新拟态 ── */
 body.neu-mode .sms-typing{
@@ -3197,11 +2726,6 @@ body.neu-mode .sms-fire-btn #smsQueueCount{background:#5A8FCA;color:#fff}
 body.neu-mode .sms-skip{border-color:rgba(90,143,202,.3);color:#718096}
 
 /* ── 暗金 ── */
-body.dark-gold-mode .sms-typing{background:rgba(30,26,24,.6);border-color:rgba(228,212,199,.06)}
-body.dark-gold-mode .chat-sms-topbar-btn{background:rgba(212,160,74,.08);border-color:rgba(212,160,74,.15);color:#D4A04A}
-body.dark-gold-mode .chat-sms-topbar-btn.sms-active{background:rgba(212,160,74,.2);border-color:#D4A04A;color:#fef9c9}
-body.dark-gold-mode .sms-dot{background:#8c7a65}
-body.dark-gold-mode .sms-fire-btn #smsQueueCount{background:#D4A04A;color:#141211}
 
 /* ── SMS 思考链：一朵云 ── */
 .sms-think-row{ font-size:.78em; }
