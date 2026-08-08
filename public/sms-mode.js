@@ -89,11 +89,13 @@ const SMS_ADAPTER = {
              .map(function(x) { return x.text || ''; }).join(' ') || '（发送了图片）';
       }
       if (typeof c === 'string' && c.includes('data:image')) c = '（发送了图片）';
+      if (typeof c === 'string' && typeof window.fmtTsTag === 'function') c = window.fmtTsTag(v.fullTime) + c;
       return { role: m.role, content: c };
     });
 
     // 补回当前用户消息（含多模态图）
-    historyMsgs.push({ role: 'user', content: smsBuildUserContent(userText || '', allImages || []) });
+    const _tsTag = (typeof window.fmtTsTag === 'function') ? window.fmtTsTag(new Date().toISOString()) : '';
+    historyMsgs.push({ role: 'user', content: smsBuildUserContent(_tsTag + (userText || ''), allImages || []) });
 
     // SMS system prompt 作为首条 system 消息（仅本次请求，不落盘）
     const messages = [{ role: 'system', content: extraSystem }, ...historyMsgs];

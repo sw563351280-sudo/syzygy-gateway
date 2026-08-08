@@ -100,6 +100,17 @@ function extractThinkingFromContent(content) {
         visibleContent: visibleContent.trim()
     };
 }
+function fmtTsTag(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var dd = String(d.getDate()).padStart(2, '0');
+    var hh = String(d.getHours()).padStart(2, '0');
+    var mi = String(d.getMinutes()).padStart(2, '0');
+    return '[' + mm + '-' + dd + ' ' + hh + ':' + mi + '] ';
+}
+window.fmtTsTag = fmtTsTag;
 function getVersionCount(msg) { return (msg.versions && msg.versions.length) ? msg.versions.length : 1; }
 function getActiveVersionIndex(msg) { if (msg.versions && msg.versions.length > 0) return msg.activeVersion || 0; return 0; }
 function ensureVersioned(msg) { if (msg.versions) return; if (msg.mode === 'sms') return; const { role, ...rest } = msg; msg.versions = [rest]; msg.activeVersion = 0; delete msg.content; delete msg.thinking; delete msg.time; delete msg.model; delete msg.fullTime; delete msg.image; }
@@ -1936,6 +1947,8 @@ async function sendChat(options = {}) {
 
     await flushDirtyToZep(session);
 
+    var curFullTime = reuseLastUser ? (existingUserVersion.fullTime || new Date().toISOString()) : new Date().toISOString();
+
     if (!reuseLastUser) {
 
     // --- 1. 把你的消息展示到屏幕上 ---
@@ -1957,7 +1970,7 @@ async function sendChat(options = {}) {
 
     // 📸 保存压缩后的图片到版本记录（保留最近 5 轮可查看/重新生成）
     const savedImages = currentImgBase64List.length > 0 ? [...currentImgBase64List] : null;
-    session.messages.push({ _id: crypto.randomUUID(), role: 'user', versions: [{ content: val, fullTime: new Date().toISOString(), image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
+    session.messages.push({ _id: crypto.randomUUID(), role: 'user', versions: [{ content: val, fullTime: curFullTime, image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
     saveToCloud(true);  // 立即保存，不延迟
 
     }  // end if (!reuseLastUser)
@@ -2020,9 +2033,9 @@ async function sendChat(options = {}) {
         actualText = '[💧 ' + waterN + '/8] ' + val;
         needsWaterSync = false;
     }
-    var userContent = actualText;
+    var userContent = fmtTsTag(curFullTime) + actualText;
     if (imgsToSend.length > 0) {
-        userContent = [{ type: "text", text: actualText || "（发送了图片）" }];
+        userContent = [{ type: "text", text: (fmtTsTag(curFullTime) + actualText) || "（发送了图片）" }];
         for (var i = 0; i < imgsToSend.length; i++) {
             const imgData = imgsToSend[i];
             // 剥离并重新组装标准格式，防止代理站发疯
@@ -2057,6 +2070,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         safeContent = '（发送了图片）';
     }
     if (typeof smsPlain === 'function') safeContent = smsPlain(safeContent);
+    if (typeof safeContent === 'string') safeContent = fmtTsTag(v.fullTime) + safeContent;
     return { role: m.role, content: safeContent };
 });
 
@@ -3184,7 +3198,7 @@ async function regenerateSend(aiMsgIndex) {
     if (!currentSup) { sDiv.innerHTML = '<div class="msg-error"><div>【未配置供应商】</div></div>'; return; }
     const modelEl = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
-    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; if(typeof smsPlain==='function')c=smsPlain(c); return {role:m.role,content:c}; });
+    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; if(typeof smsPlain==='function')c=smsPlain(c); if(typeof c==='string')c=fmtTsTag(v.fullTime)+c; return {role:m.role,content:c}; });
     if (historyMsgs.length > 50) historyMsgs = historyMsgs.slice(-50);
     try {
         let apiUrl = '/v1/chat/completions';
