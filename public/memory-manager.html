@@ -164,9 +164,32 @@ var selectedMemoryIds=new Set();
 function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show')},2000)}
 
 /* ── load ── */
+function showLoadError(msg){
+  document.getElementById('archiveList').innerHTML='<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">'+msg+'</div><button class="btn-sm" onclick="loadArchive()" style="margin-top:10px">🔄 重试</button></div>';
+}
 async function loadArchive(){
-  var r=await fetch('/api/longterm-page-data?pwd='+encodeURIComponent(PWD));
-  if(!r.ok)return;var d=await r.json();
+  var ctrl=new AbortController();
+  var timer=setTimeout(function(){ctrl.abort()},12000);
+  var r;
+  try{
+    r=await fetch('/api/longterm-page-data?pwd='+encodeURIComponent(PWD),{signal:ctrl.signal});
+  }catch(e){
+    clearTimeout(timer);
+    showLoadError(e.name==='AbortError'?'请求超时，网络可能卡住了':'网络错误，加载失败');
+    return;
+  }
+  clearTimeout(timer);
+  if(!r.ok){
+    showLoadError(r.status===401?'密码不对，加载失败':'加载失败（'+r.status+'）');
+    return;
+  }
+  var d;
+  try{
+    d=await r.json();
+  }catch(e){
+    showLoadError('返回数据解析失败');
+    return;
+  }
   AR_MEMS=d.memories||[];AR_COUNTS=d.counts||{};AR_HEAT=d.heatStats||{};
   document.getElementById('arCount').textContent=AR_MEMS.length;
   document.getElementById('arHigh').textContent=AR_HEAT.high||0;
