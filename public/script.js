@@ -2905,6 +2905,9 @@ function triggerRegenerate(){
 
 // ==================== 日夜交替模式 ====================
 function toggleLightMode() {
+    enforceNeuTheme();
+    return;
+    /* Theme switching is intentionally disabled: Syzygy now has one canonical UI. */
     // 四元循环：暗夜 → 白天 → 新拟态 → 暗金 → 暗夜
     const body = document.body;
     const isDarkGold = body.classList.contains('dark-gold-mode');
@@ -2978,6 +2981,16 @@ window.addEventListener('DOMContentLoaded', () => {
 
 
 // ==================== 终极点火装置 ====================
+function enforceNeuTheme() {
+    document.body.classList.remove('light-mode', 'dark-gold-mode');
+    document.body.classList.add('neu-mode');
+    localStorage.removeItem('syzygy_theme');
+    const metaTheme = document.getElementById('theme-color-meta');
+    if (metaTheme) metaTheme.setAttribute('content', '#E8EFF7');
+}
+
+window.addEventListener('DOMContentLoaded', enforceNeuTheme);
+
 async function startSystem() {
     await syncFromCloud();
     updateDays();

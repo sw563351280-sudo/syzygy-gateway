@@ -1976,6 +1976,12 @@ body.neu-mode .home-legacy { display: none; }
 body.neu-mode #sec-home { max-width: 430px; margin: 0 auto; padding: 20px 16px 100px 16px; }
 body.neu-mode .home-footer { display: none; }
 
+/* Neu Day is the canonical product theme. The legacy home and theme switch remain
+   hidden as a migration guard so old cached markup cannot reappear. */
+.home-legacy,
+#themeToggleBtn,
+*[onclick="toggleLightMode()"] { display: none !important; }
+
 /* ── 通用新拟态卡片 hover/active ── */
 .neu-card {
     transition: all 0.2s ease;
