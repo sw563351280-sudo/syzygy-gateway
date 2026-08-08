@@ -955,7 +955,7 @@ function getCounter(sessionId) { return loadCounters()[sessionId] || 0; }
 
 const USER_STATE_FILE = path.join(DATA_DIR, 'user_state.json');
 const CONTEXT_SUMMARIES_FILE = path.join(DATA_DIR, 'context_summaries.json');
-function loadUserState() { try { return JSON.parse(fs.readFileSync(USER_STATE_FILE, 'utf8')); } catch(e) { return { recent_mood: '', physical_state: '', current_focus: [], updated_at: null }; } }
+function loadUserState() { try { const raw = JSON.parse(fs.readFileSync(USER_STATE_FILE, 'utf8')); if (!raw.slots || typeof raw.slots !== 'object') raw.slots = {}; return raw; } catch(e) { return { recent_mood: '', physical_state: '', current_focus: [], updated_at: null, slots: {} }; } }
 function saveUserState(state) { fs.writeFileSync(USER_STATE_FILE, JSON.stringify(state, null, 2), 'utf8'); }
 function loadContextSummaries() { try { return JSON.parse(fs.readFileSync(CONTEXT_SUMMARIES_FILE, 'utf8')); } catch(e) { return {}; } }
 function saveContextSummaries(data) { fs.writeFileSync(CONTEXT_SUMMARIES_FILE, JSON.stringify(data, null, 2), 'utf8'); }
@@ -2601,6 +2601,7 @@ async function buildLiveStatePrompt() {
     try { const todos = loadTodos().filter(t => !t.done).slice(0, 8); if (todos.length) parts.push('【江鱼当前待办】\n' + todos.map(t => '- ' + (t.text || t.task || t.title || '')).join('\n')); } catch(e) {}
     try { const phone = await getPhoneActivity(4); if (phone && phone.records && phone.records.length) { const now=Date.now(); const recent=phone.records.filter(r=>{const t=r.opened_at||r.last_opened||r.created_at||r.timestamp||'';return t?(now-new Date(t).getTime())<4*3600000:false}).slice(0,5); if(recent.length){parts.push('【江鱼手机活动近况】\n'+recent.map(r=>{const app=r.app_name||r.app||r.package_name||'unknown';const ts=r.opened_at||r.last_opened||r.created_at||r.timestamp||'';const d=new Date(ts);const local=d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Shanghai'});const min=Math.round((now-d.getTime())/60000);const rel=min<1?'刚刚':min<60?min+'分钟前':Math.round(min/60)+'小时前';return'- '+app+'：'+local+'（'+rel+'）';}).join('\n'));}}} catch(e) {}
     try { const us = loadUserState(); const lines = []; if (us.physical_state) lines.push('身体状态：' + us.physical_state); if (Array.isArray(us.current_focus) && us.current_focus.length) lines.push('当前关注：' + us.current_focus.join(' / ')); if (lines.length) parts.push('【江鱼实时状态】\n' + lines.join('\n')); } catch(e) {}
+    try { if (stateSlotsEnabled()) { const slotBlock = formatStateSlotsForPrompt(); if (slotBlock) parts.push(slotBlock); } } catch(e) {}
     return parts.length ? parts.join('\n\n') : '';
 }
 
@@ -3076,6 +3077,7 @@ async function tryAutoDream(userText) {
     if (!userText) return;
     const triggered = SLEEP_KEYWORDS.some(kw => userText.includes(kw));
     if (!triggered) return;
+    if (stateSlotsEnabled()) { try { archiveDailyStateToDiary(); } catch(e) {} }
     if (Date.now() - lastAutoDreamTime < 3600000) {
         console.log('🌙 [自动Dream] 1小时内已触发过，跳过');
         return;
@@ -3420,7 +3422,7 @@ const BUILTIN_TOOLS = [
     { type: "function", function: { name: "fetch_html", description: "【仅在需要分析网页HTML结构、调试前端代码时使用】读取网页返回原始HTML。大多数情况应该用 fetch_txt。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
     { type: "function", function: { name: "fetch_json", description: "【仅在需要调用API接口获取JSON数据时使用】读取JSON接口URL，返回格式化JSON。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "JSON接口的URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
     { type: "function", function: { name: "fetch_github", description: "【仅在用户明确要求查看GitHub仓库或代码文件时使用】读取GitHub仓库文件列表或具体文件内容。支持仓库根目录（返回文件树）和具体文件路径（返回内容）。大文件被截断时，用offset参数继续读取后续内容。", parameters: { type: "object", properties: { url: { type: "string", description: "GitHub URL" }, offset: { type: "integer", description: "从第几个字符开始读（默认0）。文件被截断后设置此值继续读后面的内容" } }, required: ["url"] } } },
-    { type: "function", function: { name: "read_diary", description: "【仅在用户明确要求查看某天的日记时使用】读取指定日期的日记内容。不要在日常闲聊中调用。", parameters: { type: "object", properties: { date: { type: "string", description: "日期，格式 YYYY-MM-DD，如 2026-05-06" } }, required: ["date"] } } },
+    { type: "function", function: { name: "read_diary", description: "读取指定日期的日记内容，包括当天的流水记录（今日流水）和心情快照。江鱼问起“昨天/前天做了什么、吃了什么”之类的近期琐事，或明确要求查看某天日记时，都可以主动调用，不用等她把话说死。", parameters: { type: "object", properties: { date: { type: "string", description: "日期，格式 YYYY-MM-DD，如 2026-05-06" } }, required: ["date"] } } },
     { type: "function", function: { name: "exec", description: "在 VPS 上执行终端命令。可用于 git 操作、查看文件、重启服务等。只允许安全命令（git, systemctl, npm, node, ls, cat, grep, tail, head, find, echo, whoami, uptime, df）。", parameters: { type: "object", properties: { command: { type: "string", description: "要执行的终端命令" } }, required: ["command"] } } },
     { type: "function", function: { name: "bark_push", description: "通过Bark给江鱼的手机发送推送通知。当你需要主动提醒她、催她睡觉、叫她吃饭、或者想说一句让她在通知栏看到的话时使用。", parameters: { type: "object", properties: { title: { type: "string", description: "推送标题" }, body: { type: "string", description: "推送内容" } }, required: ["title", "body"] } } },
     { type: "function", function: { name: "check_phone", description: "查看江鱼最近的手机使用记录（各app打开次数和最后打开时间）。江鱼问你她今天刷手机了吗、或者你想了解她的状态时使用。", parameters: { type: "object", properties: {} } } },
@@ -6286,6 +6288,73 @@ function appendMoodSnapshotToDiary(snapshot = {}) {
     return entry;
 }
 
+function upsertStateSlot(key, value, mode, lifeDays) {
+    key = String(key || '').trim();
+    if (!key) return;
+    const state = loadUserState();
+    if (!state.slots || typeof state.slots !== 'object') state.slots = {};
+    mode = (mode === 'persistent') ? 'persistent' : 'daily';
+    const slot = { value: String(value == null ? '' : value).trim(), mode, updated_at: new Date().toISOString() };
+    if (mode === 'persistent') slot.life_days = (Number(lifeDays) > 0) ? Number(lifeDays) : 3;
+    state.slots[key] = slot;
+    saveUserState(state);
+    console.log('📝 [状态槽] ' + key + ' = ' + slot.value + ' (' + mode + ')');
+}
+
+function formatStateSlotsForPrompt() {
+    const state = loadUserState();
+    const slots = state.slots || {};
+    const todayStr = getChinaDateString();
+    const dailyLines = [], persistentLines = [];
+    for (const key of Object.keys(slots)) {
+        const slot = slots[key];
+        if (!slot || !slot.value) continue;
+        if (slot.mode === 'persistent') {
+            const ageDays = Math.floor((Date.now() - new Date(slot.updated_at).getTime()) / 86400000);
+            const stale = ageDays >= (Number(slot.life_days) || 3);
+            persistentLines.push(key + '：' + slot.value + (stale ? '（已' + ageDays + '天未更新，建议确认是否还是这样）' : ''));
+        } else {
+            const slotDate = getChinaDateString(new Date(slot.updated_at));
+            if (slotDate !== todayStr) continue; // 跨天静默失效，不进提示词
+            dailyLines.push(key + '：' + slot.value);
+        }
+    }
+    if (!dailyLines.length && !persistentLines.length) return '';
+    const lines = [];
+    if (dailyLines.length) lines.push('今日：' + dailyLines.join('；'));
+    if (persistentLines.length) lines.push('近期：' + persistentLines.join('；'));
+    return '【江鱼近况速记】\n' + lines.join('\n');
+}
+
+function archiveDailyStateToDiary() {
+    try {
+        const state = loadUserState();
+        const slots = state.slots || {};
+        const todayStr = getChinaDateString();
+        const dailyItems = [];
+        const keptSlots = {};
+        for (const key of Object.keys(slots)) {
+            const slot = slots[key];
+            if (!slot) continue;
+            if (slot.mode === 'persistent') { keptSlots[key] = slot; continue; }
+            const slotDate = getChinaDateString(new Date(slot.updated_at));
+            if (slotDate === todayStr && slot.value) dailyItems.push(key + '：' + slot.value);
+            // 非当天的daily槽本来就已静默失效，一并丢弃，不保留
+        }
+        if (!dailyItems.length) { console.log('🌙 [今日流水归档] 无当日流水，跳过'); return; }
+        const entry = {
+            id: 'flow_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+            text: '【今日流水】\n' + dailyItems.join('\n'),
+            author: 'system', type: 'daily_flow', date: todayStr, datetime: new Date().toISOString(),
+            source: 'auto_archive'
+        };
+        const entries = loadDiaries(); entries.push(entry); saveDiaries(entries);
+        state.slots = keptSlots;
+        saveUserState(state);
+        console.log('🌙 [今日流水归档] 已归档 ' + dailyItems.length + ' 条，日期 ' + todayStr);
+    } catch(e) { console.log('🌙 [今日流水归档] 失败:', e.message); }
+}
+
 function tryParseJsonFromText(raw) {
     if (!raw) return null;
     let text = String(raw).trim();
@@ -6310,6 +6379,13 @@ function extractMoodSnapshotTags(content) {
     clean = clean.replace(/\[\[MOOD_SNAPSHOT\]\]([\s\S]*?)\[\[MOOD_SNAPSHOT\]\]/g, (match, raw) => { const p = tryParseJsonFromText(raw); if (p) snapshots.push(p); else moodLog('[MOOD ERROR] parse [[MOOD]] tag: no valid JSON found in', raw.substring(0, 100)); return ''; });
     return { cleanContent: clean.trim(), snapshots };
 }
+function extractStateUpdateTags(content) {
+    if (!content || typeof content !== 'string') return { cleanContent: content, updates: [] };
+    const updates = [];
+    let clean = content;
+    clean = clean.replace(/<STATE_UPDATE>([\s\S]*?)<\/STATE_UPDATE>/g, (match, raw) => { const p = tryParseJsonFromText(raw); if (p) updates.push(p); else moodLog('[STATE ERROR] parse <STATE_UPDATE> tag: no valid JSON found in', raw.substring(0, 100)); return ''; });
+    return { cleanContent: clean.trim(), updates };
+}
 function handleMoodSnapshotsFromAssistantContent(content, tr = null) {
     const { cleanContent, snapshots } = extractMoodSnapshotTags(content);
     moodLog('[MOOD DEBUG] handler: found', snapshots.length, 'snapshots');
@@ -6322,7 +6398,17 @@ function handleMoodSnapshotsFromAssistantContent(content, tr = null) {
             moodLog('[MOOD DEBUG] handler: snapshot written OK');
         } catch(e) { moodLog('[MOOD ERROR] handler append failed:', e.message, e.stack); }
     }
-    return cleanContent;
+    const { cleanContent: cleanContent2, updates } = extractStateUpdateTags(cleanContent);
+    if (updates.length) {
+        traceEvent(tr, 'state_slot', '状态槽更新', { found: updates.length });
+        if (stateSlotsEnabled()) {
+            for (const u of updates) {
+                try { if (u && u.key) upsertStateSlot(u.key, u.value, u.mode, u.life_days); }
+                catch(e) { moodLog('[STATE ERROR] upsert failed:', e.message); }
+            }
+        }
+    }
+    return cleanContent2;
 }
 
 function loadCapsules() { try { return JSON.parse(fs.readFileSync(CAPSULE_FILE, 'utf8')); } catch(e) { return []; } }
@@ -6446,6 +6532,7 @@ app.get('/capsule/add', (req, res) => {
 // ==========================================
 
 function calendarEnabled() { return (loadToolsConfig() || {}).calendar_enabled !== false; }
+function stateSlotsEnabled() { return (loadToolsConfig() || {}).state_slots_enabled !== false; }
 
 // GET /api/calendar?month=YYYY-MM
 app.get('/api/calendar', (req, res) => {

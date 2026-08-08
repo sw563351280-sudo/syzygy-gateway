@@ -2070,7 +2070,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         safeContent = '（发送了图片）';
     }
     if (typeof smsPlain === 'function') safeContent = smsPlain(safeContent);
-    if (typeof safeContent === 'string') safeContent = fmtTsTag(v.fullTime) + safeContent;
+    if (typeof safeContent === 'string' && m.role === 'user') safeContent = fmtTsTag(v.fullTime) + safeContent;
     return { role: m.role, content: safeContent };
 });
 
@@ -3198,7 +3198,7 @@ async function regenerateSend(aiMsgIndex) {
     if (!currentSup) { sDiv.innerHTML = '<div class="msg-error"><div>【未配置供应商】</div></div>'; return; }
     const modelEl = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
-    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; if(typeof smsPlain==='function')c=smsPlain(c); if(typeof c==='string')c=fmtTsTag(v.fullTime)+c; return {role:m.role,content:c}; });
+    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; if(typeof smsPlain==='function')c=smsPlain(c); if(typeof c==='string'&&m.role==='user')c=fmtTsTag(v.fullTime)+c; return {role:m.role,content:c}; });
     if (historyMsgs.length > 50) historyMsgs = historyMsgs.slice(-50);
     try {
         let apiUrl = '/v1/chat/completions';

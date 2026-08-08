@@ -89,7 +89,7 @@ const SMS_ADAPTER = {
              .map(function(x) { return x.text || ''; }).join(' ') || '（发送了图片）';
       }
       if (typeof c === 'string' && c.includes('data:image')) c = '（发送了图片）';
-      if (typeof c === 'string' && typeof window.fmtTsTag === 'function') c = window.fmtTsTag(v.fullTime) + c;
+      if (typeof c === 'string' && m.role === 'user' && typeof window.fmtTsTag === 'function') c = window.fmtTsTag(v.fullTime) + c;
       return { role: m.role, content: c };
     });
 
