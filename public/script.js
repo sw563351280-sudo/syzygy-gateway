@@ -3523,6 +3523,7 @@ let calMonth = new Date().getMonth() + 1;
 let _calSelectedDate = null;
 let _calSelectedPage = null;
 let _calMoodSnapshotsByDate = {};
+let _calFlowsByDate = {};
 
 function calYearMonth() { return calYear + '-' + String(calMonth).padStart(2, '0'); }
 function calPrevMonth() { calMonth--; if (calMonth < 1) { calMonth = 12; calYear--; } calRender(); }
@@ -3533,6 +3534,7 @@ function calFormatTimeFromISO(iso) { if (!iso) return ''; try { return new Date(
 
 async function calLoadMoodSnapshots() {
     _calMoodSnapshotsByDate = {};
+    _calFlowsByDate = {};
     try {
         const r = await fetch('/diary-logs');
         const raw = await r.json();
@@ -3542,15 +3544,23 @@ async function calLoadMoodSnapshots() {
             const type = e.type || '';
             const text = e.text || '';
             const isMoodSnapshot = type === 'mood_snapshot' || text.includes('【心情快照');
-            if (!isMoodSnapshot) continue;
+            const isDailyFlow = type === 'daily_flow' || text.includes('【今日流水】');
             const rawDate = e.date || e.day || e.dateStr || (e.datetime ? e.datetime.slice(0,10) : '');
             const key = calLooseDateKey(rawDate);
             if (!key) continue;
-            if (!_calMoodSnapshotsByDate[key]) _calMoodSnapshotsByDate[key] = [];
-            _calMoodSnapshotsByDate[key].push(e);
+            if (isMoodSnapshot) {
+                if (!_calMoodSnapshotsByDate[key]) _calMoodSnapshotsByDate[key] = [];
+                _calMoodSnapshotsByDate[key].push(e);
+            }
+            if (isDailyFlow) {
+                if (!_calFlowsByDate[key]) _calFlowsByDate[key] = [];
+                _calFlowsByDate[key].push(e);
+            }
         }
         for (const key of Object.keys(_calMoodSnapshotsByDate)) { _calMoodSnapshotsByDate[key].sort((a,b) => new Date(a.datetime||a.time||0) - new Date(b.datetime||b.time||0)); }
+        for (const key of Object.keys(_calFlowsByDate)) { _calFlowsByDate[key].sort((a,b) => new Date(a.datetime||a.time||0) - new Date(b.datetime||b.time||0)); }
         console.log('日历心情快照加载完成', _calMoodSnapshotsByDate);
+        console.log('日历今日流水加载完成', _calFlowsByDate);
     } catch(e) { console.log('日历心情快照加载失败', e); }
 }
 
@@ -3576,17 +3586,20 @@ async function calRender() {
         const isToday = dateStr === todayStr;
         const mKey = calLooseDateKey(dateStr);
         const hasMood = !!(_calMoodSnapshotsByDate[mKey] && _calMoodSnapshotsByDate[mKey].length);
+        const hasFlow = !!(_calFlowsByDate[mKey] && _calFlowsByDate[mKey].length);
         const selected = _calSelectedDate && calLooseDateKey(dateStr) === calLooseDateKey(_calSelectedDate);
         let cls = 'cal-cell';
         if (isToday) cls += ' today';
         if (selected) cls += ' selected';
         if (page && page.shenwang_note) cls += ' has-note';
         if (hasMood) cls += ' has-mood-snapshot';
+        if (hasFlow) cls += ' has-flow';
         html += '<div class="' + cls + '" data-date="' + dateStr + '" onclick="calOpenDay(\'' + dateStr + '\')">';
         html += '<span class="cal-cell-num">' + d + '</span>';
         if (page && page.shenwang_note) html += '<span class="cal-cell-dot"></span>';
         if (page && page.period_flag) html += '<span class="cal-cell-period"></span>';
         if (hasMood && !(page && page.shenwang_note)) html += '<span class="cal-mood-dot"></span>';
+        if (hasFlow && !(page && page.shenwang_note) && !hasMood) html += '<span class="cal-flow-dot"></span>';
         html += '</div>';
     }
     grid.innerHTML = html;
@@ -3607,12 +3620,17 @@ function calRenderInlineDetail(dateStr, page) {
     if (!box) return;
     const key = calLooseDateKey(dateStr);
     const snapshots = _calMoodSnapshotsByDate[key] || [];
+    const flows = _calFlowsByDate[key] || [];
     let html = '<div class="cal-inline-card">';
     html += '<div class="cal-inline-header"><div><div class="cal-inline-date">' + escapeHtml(calFormatDisplayDate(dateStr)) + '</div><div class="cal-inline-subtitle">这一天留下的痕迹</div></div>';
     html += '<button class="cal-inline-add-btn" onclick="calQuickMoodSnapshot()">＋快照</button></div>';
     if (snapshots.length) {
         html += '<div class="cal-inline-section-title">心情快照</div>';
         for (const s of snapshots) { const time = calFormatTimeFromISO(s.datetime); html += '<div class="cal-snapshot-item"><div class="cal-snapshot-time">' + escapeHtml(time||'') + '</div><div class="cal-snapshot-text">' + escapeHtml(s.text||'').replace(/\n/g,'<br>') + '</div></div>'; }
+    }
+    if (flows.length) {
+        html += '<div class="cal-inline-section-title">今日流水</div>';
+        for (const f of flows) { const time = calFormatTimeFromISO(f.datetime); const flowText = (f.text||'').replace(/^【今日流水】\n?/,''); html += '<div class="cal-snapshot-item"><div class="cal-snapshot-time">' + escapeHtml(time||'') + '</div><div class="cal-snapshot-text">' + escapeHtml(flowText).replace(/\n/g,'<br>') + '</div></div>'; }
     }
     if (page && (page.mood || page.shenwang_note || page.shenwang_comment || page.period_flag)) {
         html += '<div class="cal-inline-section-title">日历记录</div>';
@@ -3621,7 +3639,7 @@ function calRenderInlineDetail(dateStr, page) {
         if (page.shenwang_note) html += '<div class="cal-page-line"><span>沈望手记</span><p>' + (page.shenwang_note||'').replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</p></div>';
         if (page.shenwang_comment) html += '<div class="cal-page-line"><span>沈望点评</span><p>' + (page.shenwang_comment||'').replace(/</g,'&lt;').replace(/\n/g,'<br>') + '</p></div>';
     }
-    if (!snapshots.length && !(page && (page.mood || page.shenwang_note || page.shenwang_comment || page.period_flag))) { html += '<div class="cal-inline-empty">这一天还没有记录。</div>'; }
+    if (!snapshots.length && !flows.length && !(page && (page.mood || page.shenwang_note || page.shenwang_comment || page.period_flag))) { html += '<div class="cal-inline-empty">这一天还没有记录。</div>'; }
     html += '</div>';
     box.innerHTML = html;
 }
@@ -3814,6 +3832,25 @@ async function stateRender() {
         if (us.recent_mood) parts.push('心情：' + us.recent_mood);
         if (us.physical_state) parts.push('身体：' + us.physical_state);
         if (us.current_focus && us.current_focus.length) parts.push('关注：' + us.current_focus.join(' / '));
+
+        const slots = us.slots || {};
+        const todayStr = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric', day: 'numeric' }).split('/').map((x,i) => i===0 ? x : x.padStart(2,'0')).join('-');
+        const dailyLines = [], persistentLines = [];
+        for (const key of Object.keys(slots)) {
+            const slot = slots[key];
+            if (!slot || !slot.value) continue;
+            if (slot.mode === 'persistent') {
+                const ageDays = Math.floor((Date.now() - new Date(slot.updated_at).getTime()) / 86400000);
+                const stale = ageDays >= (Number(slot.life_days) || 3);
+                persistentLines.push(key + '：' + slot.value + (stale ? ' ⚠️ 已' + ageDays + '天未更新，建议确认' : ''));
+            } else {
+                const slotDate = new Date(slot.updated_at).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric', day: 'numeric' }).split('/').map((x,i) => i===0 ? x : x.padStart(2,'0')).join('-');
+                if (slotDate === todayStr) dailyLines.push(key + '：' + slot.value);
+            }
+        }
+        if (dailyLines.length) parts.push('\n📌 今日\n' + dailyLines.join('\n'));
+        if (persistentLines.length) parts.push('\n📎 近期\n' + persistentLines.join('\n'));
+
         view.innerText = parts.join('\n') || '还没有记录过状态';
     } catch(e) { view.innerText = '加载失败'; }
 }

@@ -2399,7 +2399,9 @@ body.neu-mode .cal-edit-textarea, body.neu-mode .cal-edit-mood {
 .cal-page-line p { margin:0;font-size:14px;line-height:1.7;color:#45546f }
 .cal-inline-empty { padding:24px 10px;text-align:center;font-size:13px;color:#9aa8c7 }
 .cal-mood-dot { display:inline-block;width:7px;height:7px;border-radius:50%;background:#F28B82;margin-left:4px;box-shadow:0 0 8px rgba(242,139,130,0.45);position:absolute;bottom:4px;right:6px }
+.cal-flow-dot { display:inline-block;width:7px;height:7px;border-radius:50%;background:#81C995;margin-left:4px;box-shadow:0 0 8px rgba(129,201,149,0.45);position:absolute;bottom:4px;right:6px }
 .cal-cell.has-mood-snapshot { background:rgba(242,139,130,0.05) }
+.cal-cell.has-flow { background:rgba(129,201,149,0.05) }
 .cal-cell.selected { outline:2px solid #D4A04A;outline-offset:-2px }
 
 body.neu-mode .cal-inline-card { background:#E8EFF7;border:1px solid rgba(255,255,255,0.4);box-shadow:12px 12px 28px rgba(163,177,198,0.24),-12px -12px 28px rgba(255,255,255,0.8) }
