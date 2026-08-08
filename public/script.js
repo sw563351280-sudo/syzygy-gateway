@@ -3829,9 +3829,6 @@ async function stateRender() {
         const d = await r.json();
         const us = (d && d.user_state) || {};
         const parts = [];
-        if (us.recent_mood) parts.push('心情：' + us.recent_mood);
-        if (us.physical_state) parts.push('身体：' + us.physical_state);
-        if (us.current_focus && us.current_focus.length) parts.push('关注：' + us.current_focus.join(' / '));
 
         const slots = us.slots || {};
         const todayStr = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric', day: 'numeric' }).split('/').map((x,i) => i===0 ? x : x.padStart(2,'0')).join('-');
@@ -3868,7 +3865,7 @@ async function stateSnapshot() {
         });
         const d = await r.json();
         if (d.success) {
-            toast('快照已写入');
+            toast('已记录到日历 📅');
             document.getElementById('stateMood').value = '';
             document.getElementById('stateBody').value = '';
             document.getElementById('stateFocus').value = '';
