@@ -167,6 +167,16 @@ function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.c
 function showLoadError(msg){
   document.getElementById('archiveList').innerHTML='<div class="empty-state"><div class="empty-icon">⚠️</div><div class="empty-text">'+msg+'</div><button class="btn-sm" onclick="loadArchive()" style="margin-top:10px">🔄 重试</button></div>';
 }
+function showAuthError(){
+  document.getElementById('archiveList').innerHTML='<div class="empty-state"><div class="empty-icon">🔒</div><div class="empty-text">密码不对，加载失败</div><button class="btn-sm" onclick="reenterPwd()" style="margin-top:10px">🔑 重新输入密码</button></div>';
+}
+function reenterPwd(){
+  var p=prompt('管理密码:');
+  if(!p)return;
+  PWD=p;
+  localStorage.setItem('memoryPwd',p);
+  loadArchive();
+}
 async function loadArchive(){
   var ctrl=new AbortController();
   var timer=setTimeout(function(){ctrl.abort()},12000);
@@ -180,7 +190,7 @@ async function loadArchive(){
   }
   clearTimeout(timer);
   if(!r.ok){
-    showLoadError(r.status===401?'密码不对，加载失败':'加载失败（'+r.status+'）');
+    if(r.status===401)showAuthError();else showLoadError('加载失败（'+r.status+'）');
     return;
   }
   var d;
