@@ -7154,6 +7154,15 @@ app.get('/api/codex/status', (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(codexBridge.status());
 });
+app.get('/api/codex/usage', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const usage = await codexBridge.readAccountUsage();
+        res.status(usage.ok ? 200 : 503).json(usage);
+    } catch (error) {
+        res.status(503).json({ ok: false, error: String(error.message || '无法读取 Codex 用量') });
+    }
+});
 app.get('/api/codex/tasks', (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json({ tasks: codexBridge.listTasks() });

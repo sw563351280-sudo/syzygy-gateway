@@ -1050,19 +1050,31 @@ async function devRefreshOverview() {
     const meta = document.getElementById('devServerMeta');
     if (status) { status.dataset.state = 'loading'; status.innerHTML = '<i></i>检查中'; }
     try {
-        const [r, codexResponse] = await Promise.all([
+        const [r, codexResponse, usageResponse] = await Promise.all([
             fetch('/api/console/status', { cache: 'no-store' }),
-            fetch('/api/codex/status', { cache: 'no-store' })
+            fetch('/api/codex/status', { cache: 'no-store' }),
+            fetch('/api/codex/usage', { cache: 'no-store' })
         ]);
         const info = await r.json();
         const codex = await codexResponse.json().catch(() => ({}));
+        const usageData = await usageResponse.json().catch(() => ({}));
         const ready = r.ok && info && info.ok !== false && info.configured !== false;
         if (server) server.textContent = ready ? '在线' : '未配置';
         if (meta) meta.textContent = info?.name || '控制台连接';
         if (status) { status.dataset.state = ready ? 'ready' : 'error'; status.innerHTML = '<i></i>' + (ready ? '系统在线' : '需要检查'); }
         const usage = document.getElementById('devUsageStat');
+        const usageMeta = document.getElementById('devUsageMeta');
         const trace = document.getElementById('devTraceStat');
-        if (usage) usage.textContent = codex.activeTaskId ? '运行中' : codex.enabled ? '可用' : '未配置';
+        const primary = usageData?.rateLimits?.rateLimits?.primary || usageData?.rateLimits?.rateLimitsByLimitId?.codex?.primary;
+        if (usage && primary && Number.isFinite(Number(primary.usedPercent))) {
+            usage.textContent = Math.round(Number(primary.usedPercent)) + '% 已使用';
+            const resetAt = Number(primary.resetsAt || 0) * 1000;
+            const mins = resetAt > Date.now() ? Math.max(1, Math.round((resetAt - Date.now()) / 60000)) : 0;
+            if (usageMeta) usageMeta.textContent = mins ? '约 ' + mins + ' 分钟后重置' : '额度窗口已重置';
+        } else if (usage) {
+            usage.textContent = usageData?.error ? '需登录' : codex.activeTaskId ? '运行中' : codex.enabled ? '已连接' : '未配置';
+            if (usageMeta) usageMeta.textContent = usageData?.error ? '请先完成 Codex 登录' : 'Codex 额度窗口';
+        }
         if (trace) trace.textContent = String(codex.historyCount || 0) + ' 个任务';
     } catch (e) {
         if (server) server.textContent = '离线';

@@ -227,6 +227,83 @@ function createCodexBridge(options = {}) {
         }
     }
 
+    let usagePromise = null;
+    function readAccountUsage() {
+        if (!config.enabled) return Promise.resolve({ ok: false, error: 'Codex Bridge 已禁用' });
+        if (usagePromise) return usagePromise;
+        usagePromise = new Promise((resolve, reject) => {
+            let child;
+            let settled = false;
+            const responses = new Map();
+            const timer = setTimeout(() => finishError('读取 Codex 用量超时'), 12_000);
+            const finish = (value) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                try { child?.kill(); } catch (_) {}
+                resolve(value);
+            };
+            const finishError = (message) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                try { child?.kill(); } catch (_) {}
+                reject(new Error(shortText(message, 800)));
+            };
+            const maybeFinish = () => {
+                if (!responses.has(2) || !responses.has(3)) return;
+                const rate = responses.get(2);
+                const usage = responses.get(3);
+                const errors = [rate, usage].filter(item => item?.error).map(item => item.error);
+                finish({
+                    ok: errors.length === 0,
+                    error: errors.length ? errors.join('；') : null,
+                    rateLimits: rate?.result || null,
+                    usage: usage?.result || null,
+                    fetchedAt: new Date().toISOString()
+                });
+            };
+            try {
+                child = spawn(config.bin, ['app-server', '--listen', 'stdio://'], {
+                    cwd: config.cwd,
+                    env: buildCodexEnv(),
+                    stdio: ['pipe', 'pipe', 'pipe']
+                });
+                const stdout = readline.createInterface({ input: child.stdout });
+                stdout.on('line', (line) => {
+                    if (!line.trim()) return;
+                    let message;
+                    try { message = JSON.parse(line); } catch (_) { return; }
+                    if (message.id === 1) {
+                        if (message.error) return finishError(message.error.message || 'Codex 初始化失败');
+                        try {
+                            child.stdin.write(JSON.stringify({ method: 'initialized', params: {} }) + '\n');
+                            child.stdin.write(JSON.stringify({ method: 'account/rateLimits/read', id: 2 }) + '\n');
+                            child.stdin.write(JSON.stringify({ method: 'account/usage/read', id: 3 }) + '\n');
+                        } catch (error) { finishError(error.message); }
+                        return;
+                    }
+                    if (message.id === 2 || message.id === 3) {
+                        responses.set(message.id, message.error ? { error: message.error.message || 'Codex 请求失败' } : { result: message.result || {} });
+                        maybeFinish();
+                    }
+                });
+                child.stderr.on('data', () => {});
+                child.once('error', (error) => finishError(`无法启动 Codex：${error.message}`));
+                child.once('close', () => { if (!settled) finishError('Codex 用量连接已关闭'); });
+                child.stdin.write(JSON.stringify({
+                    method: 'initialize',
+                    id: 1,
+                    params: { clientInfo: { name: 'syzygy-usage-panel', title: 'Syzygy Usage Panel', version: '1.0.0' } }
+                }) + '\n');
+            } catch (error) {
+                finishError(error.message);
+            }
+        });
+        usagePromise.then(() => { usagePromise = null; }, () => { usagePromise = null; });
+        return usagePromise;
+    }
+
     function pruneTasks() {
         while (order.length > MAX_TASKS) {
             const oldId = order.shift();
@@ -339,6 +416,7 @@ function createCodexBridge(options = {}) {
         },
         listTasks() { return order.slice().reverse().map(id => publicTask(tasks.get(id))).filter(Boolean); },
         startTask,
+        readAccountUsage,
         taskById,
         attachSocket,
         sendClientCommand
