@@ -896,8 +896,152 @@ function devOpenConsole(tab) {
     setTimeout(function() { switchConsoleTab(tab || 'logs'); }, 0);
 }
 
+let devCodexSocket = null;
+let devCodexTaskId = null;
+let devCodexApprovalId = null;
+
 function devOpenCodex() {
-    toast('Codex Debug 桥接正在接入，当前可先使用远程终端与链路追踪。');
+    const panel = document.getElementById('devCodexPanel');
+    if (!panel) return;
+    panel.hidden = false;
+    document.getElementById('devCodexPrompt')?.focus();
+    devCodexSetStatus('准备创建任务');
+}
+
+function devCloseCodex() {
+    const panel = document.getElementById('devCodexPanel');
+    if (panel) panel.hidden = true;
+}
+
+function devCodexSetStatus(text) {
+    const el = document.getElementById('devCodexTaskStatus');
+    if (el) el.textContent = text;
+}
+
+function devCodexWrite(text) {
+    const output = document.getElementById('devCodexOutput');
+    if (!output || !text) return;
+    output.textContent += String(text);
+    output.scrollTop = output.scrollHeight;
+}
+
+function devCodexShowApproval(event) {
+    const params = event?.params || {};
+    devCodexApprovalId = params.requestId || null;
+    const box = document.getElementById('devCodexApproval');
+    const text = document.getElementById('devCodexApprovalText');
+    if (!box || !text || !devCodexApprovalId) return;
+    const command = Array.isArray(params.command) ? params.command.join(' ') : (params.command || 'Codex 请求执行一项操作');
+    text.textContent = [params.reason, command, params.cwd].filter(Boolean).join('\n');
+    box.hidden = false;
+}
+
+function devCodexRenderEvent(event) {
+    if (!event) return;
+    const method = event.method || '';
+    const params = event.params || {};
+    if (method.includes('requestApproval')) {
+        devCodexShowApproval(event);
+        devCodexWrite('\n[等待确认] ' + (params.reason || params.command || 'Codex 请求执行操作') + '\n');
+        return;
+    }
+    if (method === 'item/agentMessage/delta' || method === 'item/reasoning/summaryTextDelta' || method === 'item/plan/delta') {
+        devCodexWrite(params.delta || params.text || '');
+        return;
+    }
+    if (method === 'item/commandExecution/outputDelta') {
+        devCodexWrite(params.delta || params.output || '');
+        return;
+    }
+    if (method === 'codex/stderr') {
+        devCodexWrite('\n[Codex] ' + (params.text || '') + '\n');
+        return;
+    }
+    if (method === 'turn/completed') {
+        devCodexWrite('\n\n[任务结束] ' + (params.turn?.status || 'completed') + '\n');
+        return;
+    }
+    if (method === 'codex/error' || method === 'codex/protocol-error') {
+        devCodexWrite('\n[错误] ' + (params.message || 'Codex 任务失败') + '\n');
+        return;
+    }
+    if (method === 'item/started' || method === 'item/completed' || method === 'turn/plan/updated' || method === 'turn/diff/updated') {
+        const item = params.item || params.turn || params.plan || params.diff;
+        if (item) devCodexWrite('\n[' + method + '] ' + JSON.stringify(item).slice(0, 1500) + '\n');
+    }
+}
+
+function devCodexHandleMessage(message) {
+    if (!message) return;
+    if (message.type === 'codex_snapshot') {
+        devCodexTaskId = message.task?.id || devCodexTaskId;
+        devCodexSetStatus(message.task?.status || '运行中');
+        (message.events || []).forEach(devCodexRenderEvent);
+        return;
+    }
+    if (message.type === 'codex_state') {
+        devCodexTaskId = message.task?.id || devCodexTaskId;
+        devCodexSetStatus(message.task?.status || '运行中');
+        if (message.task?.status === 'completed' || message.task?.status === 'failed' || message.task?.status === 'interrupted') {
+            document.getElementById('devCodexApproval')?.setAttribute('hidden', '');
+        }
+        return;
+    }
+    if (message.type === 'codex_event') devCodexRenderEvent(message.event);
+    if (message.type === 'codex_error') devCodexWrite('\n[连接错误] ' + (message.error || 'Codex Bridge 连接失败') + '\n');
+}
+
+function devConnectCodex(taskId) {
+    if (devCodexSocket) devCodexSocket.close();
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    devCodexSocket = new WebSocket(proto + '//' + location.host + '/ws/codex?taskId=' + encodeURIComponent(taskId));
+    devCodexSocket.onopen = () => devCodexSetStatus('Codex 连接中');
+    devCodexSocket.onmessage = event => { try { devCodexHandleMessage(JSON.parse(event.data)); } catch (_) {} };
+    devCodexSocket.onerror = () => devCodexSetStatus('连接失败');
+    devCodexSocket.onclose = () => { if (devCodexTaskId === taskId) devCodexSetStatus('连接已关闭'); };
+}
+
+async function devCreateCodexTask(event) {
+    event?.preventDefault();
+    const prompt = document.getElementById('devCodexPrompt')?.value?.trim();
+    if (!prompt) return;
+    const form = document.getElementById('devCodexForm');
+    const running = document.getElementById('devCodexRunning');
+    const output = document.getElementById('devCodexOutput');
+    if (form) form.hidden = true;
+    if (running) running.hidden = false;
+    if (output) output.textContent = '';
+    devCodexSetStatus('正在启动');
+    try {
+        const response = await fetch('/api/codex/tasks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt, mode: document.getElementById('devCodexMode')?.value, effort: document.getElementById('devCodexEffort')?.value })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.task) throw new Error(data.error || '无法创建 Codex 任务');
+        devCodexTaskId = data.task.id;
+        devCodexWrite('[任务已创建] ' + data.task.id + '\n');
+        devConnectCodex(devCodexTaskId);
+        devRefreshOverview();
+    } catch (error) {
+        devCodexSetStatus('启动失败');
+        devCodexWrite('[错误] ' + error.message + '\n');
+        if (form) form.hidden = false;
+        if (running) running.hidden = true;
+    }
+}
+
+function devApproveCodex(decision) {
+    if (!devCodexSocket || devCodexSocket.readyState !== WebSocket.OPEN || !devCodexApprovalId) return;
+    devCodexSocket.send(JSON.stringify({ type: 'approval', requestId: devCodexApprovalId, decision }));
+    devCodexApprovalId = null;
+    const box = document.getElementById('devCodexApproval');
+    if (box) box.hidden = true;
+}
+
+function devInterruptCodex() {
+    if (devCodexSocket?.readyState === WebSocket.OPEN) devCodexSocket.send(JSON.stringify({ type: 'interrupt' }));
 }
 
 async function devRefreshOverview() {
@@ -906,12 +1050,20 @@ async function devRefreshOverview() {
     const meta = document.getElementById('devServerMeta');
     if (status) { status.dataset.state = 'loading'; status.innerHTML = '<i></i>检查中'; }
     try {
-        const r = await fetch('/api/console/status', { cache: 'no-store' });
+        const [r, codexResponse] = await Promise.all([
+            fetch('/api/console/status', { cache: 'no-store' }),
+            fetch('/api/codex/status', { cache: 'no-store' })
+        ]);
         const info = await r.json();
+        const codex = await codexResponse.json().catch(() => ({}));
         const ready = r.ok && info && info.ok !== false && info.configured !== false;
         if (server) server.textContent = ready ? '在线' : '未配置';
         if (meta) meta.textContent = info?.name || '控制台连接';
         if (status) { status.dataset.state = ready ? 'ready' : 'error'; status.innerHTML = '<i></i>' + (ready ? '系统在线' : '需要检查'); }
+        const usage = document.getElementById('devUsageStat');
+        const trace = document.getElementById('devTraceStat');
+        if (usage) usage.textContent = codex.activeTaskId ? '运行中' : codex.enabled ? '可用' : '未配置';
+        if (trace) trace.textContent = String(codex.historyCount || 0) + ' 个任务';
     } catch (e) {
         if (server) server.textContent = '离线';
         if (meta) meta.textContent = '无法取得状态';

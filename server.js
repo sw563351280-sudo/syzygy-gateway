@@ -5,6 +5,7 @@ const { Client: SSHClient } = require('ssh2');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { createCodexBridge } = require('./codex-bridge');
 
 const app = express();
 
@@ -7147,8 +7148,29 @@ function attachConsoleClient(ws) {
 const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 
+// Codex Bridge — 仅在已登录的浏览器会话中开放，凭证留在服务器环境中
+const codexBridge = createCodexBridge({ cwd: __dirname });
+app.get('/api/codex/status', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(codexBridge.status());
+});
+app.get('/api/codex/tasks', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ tasks: codexBridge.listTasks() });
+});
+app.post('/api/codex/tasks', (req, res) => {
+    try {
+        const task = codexBridge.startTask(req.body || {});
+        res.status(201).json({ ok: true, task });
+    } catch (error) {
+        const message = String(error.message || '无法创建 Codex 任务');
+        res.status(message.includes('已有 Codex') ? 409 : 400).json({ ok: false, error: message });
+    }
+});
+
 // WebSocket — 手动 upgrade 认证
 const wss = new WebSocket.Server({ noServer: true });
+const codexWss = new WebSocket.Server({ noServer: true });
 const wsClients = new Set();
 
 server.on('upgrade', (request, socket, head) => {
@@ -7162,14 +7184,31 @@ server.on('upgrade', (request, socket, head) => {
         return;
     }
     const pathname = new URL(request.url, 'http://localhost').pathname;
-    if (pathname !== '/' && pathname !== '/ws/console') {
+    if (pathname !== '/' && pathname !== '/ws/console' && pathname !== '/ws/codex') {
         socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
         socket.destroy();
+        return;
+    }
+    if (pathname === '/ws/codex') {
+        const origin = request.headers.origin;
+        if (origin && !ALLOWED_ORIGINS.includes(origin)) {
+            socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+            socket.destroy();
+            return;
+        }
+        codexWss.handleUpgrade(request, socket, head, (ws) => {
+            codexWss.emit('connection', ws, request);
+        });
         return;
     }
     wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request);
     });
+});
+
+codexWss.on('connection', (ws, req) => {
+    const taskId = new URL(req.url, 'http://localhost').searchParams.get('taskId');
+    codexBridge.attachSocket(ws, taskId);
 });
 
 wss.on('connection', (ws, req) => {

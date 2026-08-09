@@ -39,6 +39,11 @@ jobs:
             git reset --hard origin/main
             npm install --production
 
+            # Codex Bridge uses the server-side app-server; a failed optional install must not block the main deployment
+            if ! command -v codex >/dev/null 2>&1; then
+              npm install -g @openai/codex || echo "WARNING: Codex CLI install failed; Codex Bridge remains unavailable"
+            fi
+
             # 恢复沈望的本地修改（跳过 server.js / model_prompts.json — 由 patch 保证最新）
             if [ -d /tmp/syzygy_backup ]; then
               find /tmp/syzygy_backup -type f | while read f; do

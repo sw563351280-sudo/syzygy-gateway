@@ -1939,6 +1939,28 @@ body.neu-mode #sec-console { background:#101827; }
 .dev-pill { margin-left:auto; align-self:flex-start; padding:4px 6px; border:1px solid rgba(201,169,97,.24); border-radius:6px; color:#b49a5e; font:8px ui-monospace,monospace; white-space:nowrap; }
 .dev-entry-card { border-color:rgba(99,214,197,.22); }
 .dev-entry-card small { margin-top:4px; color:#77a69f; font-size:10px; }
+.dev-codex-panel { margin-top:14px; padding:16px; border:1px solid rgba(99,214,197,.28); border-radius:20px; background:rgba(255,255,255,.72); box-shadow:0 14px 30px rgba(76,104,128,.14); }
+.dev-codex-panel[hidden], .dev-codex-running[hidden] { display:none; }
+.dev-codex-panel-head, .dev-codex-running-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.dev-codex-panel h2 { margin:7px 0 0; color:#213044; font-size:1.05rem; font-weight:600; }
+.dev-close-btn { width:30px; height:30px; border:0; border-radius:10px; background:#e8eff7; color:#718096; font-size:22px; cursor:pointer; }
+.dev-codex-form { margin-top:16px; }
+.dev-codex-form label { display:block; color:#40516a; font-size:12px; }
+.dev-codex-form textarea, .dev-codex-form select { width:100%; box-sizing:border-box; margin-top:7px; border:1px solid rgba(79,101,122,.18); border-radius:12px; background:rgba(255,255,255,.78); color:#26364b; font:inherit; padding:10px; outline:none; }
+.dev-codex-form textarea { resize:vertical; line-height:1.5; }
+.dev-codex-form textarea:focus, .dev-codex-form select:focus { border-color:rgba(39,128,123,.5); box-shadow:0 0 0 3px rgba(99,214,197,.12); }
+.dev-codex-options { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+.dev-codex-form-actions { display:flex; gap:9px; margin-top:12px; }
+.dev-secondary-action { border:1px solid rgba(79,101,122,.18); border-radius:10px; padding:9px 12px; background:rgba(255,255,255,.7); color:#607184; font:600 12px/1.2 inherit; cursor:pointer; }
+.dev-codex-running { margin-top:16px; }
+.dev-codex-running-head { color:#277f7a; font-size:12px; }
+.dev-codex-output { max-height:360px; min-height:180px; overflow:auto; margin:10px 0 0; padding:12px; border-radius:12px; background:#172236; color:#d7e9e8; font:11px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; word-break:break-word; }
+.dev-codex-approval { margin-top:10px; padding:11px; border:1px solid rgba(212,160,74,.35); border-radius:12px; background:rgba(212,160,74,.08); color:#51452a; }
+.dev-codex-approval[hidden] { display:none; }
+.dev-codex-approval strong { font-size:12px; }
+.dev-codex-approval p { margin:7px 0 10px; white-space:pre-wrap; font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; word-break:break-word; }
+.dev-codex-approval button { margin-right:6px; border:1px solid rgba(79,101,122,.2); border-radius:8px; padding:7px 9px; background:#fff; color:#40516a; font-size:11px; cursor:pointer; }
+.dev-codex-approval button:hover { border-color:#277f7a; color:#277f7a; }
 .neu-nav-item::after { content:attr(data-label); bottom:3px; width:auto; height:auto; background:none; color:currentColor; font-size:9px; line-height:1; opacity:.75; }
 .neu-nav-item { flex-direction:column; gap:1px; height:50px; }
 .neu-nav-item svg { width:22px; height:22px; }
@@ -1959,6 +1981,7 @@ body.neu-mode .dev-hero h1 { color:#213044; }
 body.neu-mode .dev-hero p,.neu-mode .dev-subtitle { color:#607184; }
 body.neu-mode .dev-stat-card,.neu-mode .dev-action-card { background:rgba(255,255,255,.64); border-color:rgba(79,101,122,.16); }
 body.neu-mode .dev-stat-card strong,.neu-mode .dev-action-card { color:#26364b; }
+body.neu-mode .dev-codex-panel { background:rgba(255,255,255,.72); }
 
 /* ── 生理期卡片 ── */
 .neu-period-card { padding: 16px 20px; margin-bottom: 20px; }
