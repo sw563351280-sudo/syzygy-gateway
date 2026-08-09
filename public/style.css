@@ -674,6 +674,18 @@ body[data-view="chat"] { overflow:hidden!important;position:fixed!important;top:
     margin: 0 !important;
 }
 
+.chat-image-preview[hidden] { display:none !important; }
+.chat-image-preview { padding:8px 10px !important; margin:0 0 7px !important; border:1px solid rgba(201,169,97,.14); border-radius:12px; background:rgba(255,255,255,.035); }
+.chat-image-preview-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; color:var(--cream); font-size:11px; }
+.chat-image-preview-head small { color:var(--dim); font-size:10px; }
+.chat-image-preview-list { display:flex; flex-wrap:wrap; gap:9px; }
+.chat-image-preview-item { position:relative; width:64px; height:64px; border-radius:10px; overflow:visible; }
+.chat-image-preview-item img { width:100%; height:100%; object-fit:cover; border-radius:10px; border:1px solid rgba(201,169,97,.25); box-shadow:0 4px 12px rgba(0,0,0,.2); }
+.chat-image-preview-item button { position:absolute; top:-6px; right:-6px; display:flex; align-items:center; justify-content:center; width:20px; height:20px; padding:0; border:1px solid rgba(255,255,255,.25); border-radius:50%; background:#a95d64; color:#fff; cursor:pointer; font-size:11px; line-height:1; box-shadow:0 3px 8px rgba(0,0,0,.28); }
+body.neu-mode .chat-image-preview { border:none; background:#E8EFF7; box-shadow:inset 2px 2px 5px rgba(163,177,198,.32), inset -2px -2px 5px rgba(255,255,255,.55); }
+body.neu-mode .chat-image-preview-head { color:#52657d; }
+body.neu-mode .chat-image-preview-head small { color:#8ea0b7; }
+
 .chat-bottom-bar .input-row {
     margin-top: 0 !important;
     gap: 6px !important;

@@ -3034,22 +3034,21 @@ var _uploading = false;         // 防止压缩期间重复触发
 
 let currentImgBase64List = [];
 
-// 💥 多图上传监听 — 2 并发 worker 压缩，保持选择顺序
-document.getElementById('imgUpload')?.addEventListener('change', async function(e){
-    if (_uploading) { e.target.value = ''; return; }
-    var files = Array.from(e.target.files || []);
+// 文件选择与剪贴板粘贴共用同一条压缩、数量限制和预览流水线。
+async function addChatImageFiles(fileList, source) {
+    if (_uploading) { toast('上一批图片还在处理中'); return 0; }
+    var files = Array.from(fileList || []).filter(file => file && String(file.type || '').toLowerCase().startsWith('image/'));
     if (files.length === 0) return;
 
     var totalAfterAdd = currentImgBase64List.length + files.length;
     if (totalAfterAdd > MAX_IMAGE_COUNT) {
         toast('一次最多选择 ' + MAX_IMAGE_COUNT + ' 张图片，当前已有 ' + currentImgBase64List.length + ' 张');
-        e.target.value = '';
-        return;
+        return 0;
     }
 
     _uploading = true;
-    var sendBtn = document.querySelector('.chat-send-btn');
-    if (sendBtn) sendBtn.disabled = true;
+    var sendButtons = Array.from(document.querySelectorAll('.chat-send-btn'));
+    sendButtons.forEach(btn => { btn.disabled = true; });
 
     var compressionStart = performance.now();
     var results = new Array(files.length);
@@ -3093,18 +3092,28 @@ document.getElementById('imgUpload')?.addEventListener('change', async function(
         for (var j = 0; j < currentImgBase64List.length; j++) {
             totalBytes += dataUrlByteSize(currentImgBase64List[j]);
         }
+        var added = results.filter(item => item && item.ok).length;
         console.log('[images done]', {
+            source: source || 'picker',
             total: total,
-            successful: currentImgBase64List.length,
+            successful: added,
             compressionMs: compressionMs,
             totalImgMB: (totalBytes / 1024 / 1024).toFixed(2)
         });
 
+        if (source === 'paste' && added > 0) toast('已粘贴 ' + added + ' 张截图');
+        return added;
+
     } finally {
         _uploading = false;
-        if (sendBtn) sendBtn.disabled = false;
-        e.target.value = '';
+        sendButtons.forEach(btn => { btn.disabled = false; });
     }
+}
+
+// 💥 多图上传监听 — 2 并发 worker 压缩，保持选择顺序
+document.getElementById('imgUpload')?.addEventListener('change', async function(e){
+    try { await addChatImageFiles(e.target.files, 'picker'); }
+    finally { e.target.value = ''; }
 });
 
 // 💥 刷新预览区（带绝美的小红叉删除按钮）
@@ -3114,25 +3123,22 @@ function updateImagePreview() {
 
     // 如果相册空了，就把预览区藏起来
     if (currentImgBase64List.length === 0) {
-        wrap.style.display = 'none';
+        wrap.hidden = true;
         wrap.innerHTML = '';
         return;
     }
 
     // 否则，横向排列显示所有图片
-    wrap.style.display = 'flex';
-    wrap.style.flexWrap = 'wrap';
-    wrap.style.gap = '10px';
-    wrap.style.padding = '8px 0';
+    wrap.hidden = false;
 
-    let html = '';
+    let html = '<div class="chat-image-preview-head"><span>已附加 ' + currentImgBase64List.length + ' 张图片</span><small>继续粘贴可追加</small></div><div class="chat-image-preview-list">';
     for (let i = 0; i < currentImgBase64List.length; i++) {
-        html += `<div style="position:relative; display:inline-block;">
-            <img src="${currentImgBase64List[i]}" style="max-width:60px; max-height:60px; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,0.3); border:1px solid rgba(201,169,97,0.3);">
-            <span onclick="removeImg(${i})" style="position:absolute; top:-6px; right:-6px; background:var(--warm-red); color:white; border-radius:50%; width:20px; height:20px; font-size:12px; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 5px rgba(0,0,0,0.5);">✕</span>
+        html += `<div class="chat-image-preview-item">
+            <img src="${currentImgBase64List[i]}" alt="待发送图片 ${i + 1}">
+            <button type="button" onclick="removeImg(${i})" aria-label="移除图片 ${i + 1}">✕</button>
         </div>`;
     }
-    wrap.innerHTML = html;
+    wrap.innerHTML = html + '</div>';
 }
 
 // 💥 点击小红叉单独删掉某一张
@@ -3153,6 +3159,19 @@ function clearImage(){
 document.addEventListener('DOMContentLoaded', () => {
     const chatInput = document.getElementById('chatInput');
     if (chatInput) {
+        // 截图粘贴：只拦截图片；普通文本仍由浏览器按原逻辑粘贴。
+        chatInput.addEventListener('paste', function(e) {
+            var files = window.SyzygyClipboard
+                ? window.SyzygyClipboard.collectImages(e.clipboardData)
+                : Array.from(e.clipboardData?.files || []).filter(file => String(file.type || '').startsWith('image/'));
+            if (files.length === 0) return;
+            e.preventDefault();
+            addChatImageFiles(files, 'paste').catch(function(err) {
+                console.error('[paste image] failed:', err);
+                toast('粘贴图片失败，请重试');
+            });
+        });
+
         // 1. 自动长高魔法
         chatInput.addEventListener('input', function() {
             this.style.height = '46px'; // 先重置
