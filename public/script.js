@@ -153,6 +153,9 @@ function handleWSMessage(msg) {
         case 'dream_done': handleDreamDone(msg); break;
         case 'memory_saved': handleMemorySaved(msg); break;
         case 'proactive_message': handleProactiveMessage(msg); break;
+        case 'todo_added':
+        case 'todo_updated':
+        case 'todo_deleted': neuRenderTodos(); break;
         case 'trace_event':
         case 'trace_done': handleTraceWS(msg); break;
     }
@@ -1665,42 +1668,42 @@ function neuRenderWeek() {
 
 // ═══ To Do (共享待办，服务器存储) ═══
 async function neuFetchTodos() {
-    try { const r = await fetch('/api/todos'); const d = await r.json(); return d; } catch(e) { return { todos:[], active:[], done:[] }; }
+    try {
+        const r = await fetch('/api/todos');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return { ok: true, ...(await r.json()) };
+    } catch(e) {
+        return { ok: false, error: e?.message || '同步失败', todos:[], active:[], done:[], shen:[], fish:[] };
+    }
 }
 
 async function neuRenderTodos() {
     const list = document.getElementById('neuTodoList');
     if (!list) return;
     const data = await neuFetchTodos();
-    const active = data.active || [];
-    if (active.length === 0) {
-        list.innerHTML = '<div class="neu-todo-empty" style="font-size:13px;padding:4px 0;">暂无待办 — 点 + 添加</div>';
+    if (!data.ok) {
+        list.innerHTML = '<div class="neu-todo-sync-error">待办同步失败，稍后会自动重试</div>';
         return;
     }
-    const shenItems = active.filter(t => t.owner === 'shen');
-    const fishItems = active.filter(t => t.owner === 'fish');
+    const active = data.active || [];
+    const shenItems = Array.isArray(data.shen) ? data.shen : active.filter(t => t.owner === 'shen');
+    const fishItems = Array.isArray(data.fish) ? data.fish : active.filter(t => t.owner === 'fish');
+    const renderItems = (items, emptyText) => items.length
+        ? items.map(t => '<div class="neu-todo-item">'
+            + '<input type="checkbox" aria-label="完成待办" onchange="neuToggleTodo(\'' + t.id + '\')">'
+            + '<span>' + escHtml(t.text) + '</span>'
+            + '<button class="neu-todo-rm-btn" aria-label="删除待办" onclick="neuDeleteTodo(\'' + t.id + '\')">×</button>'
+            + '</div>').join('')
+        : '<div class="neu-todo-empty">' + emptyText + '</div>';
 
-    let html = '';
-    if (shenItems.length > 0) {
-        html += '<div class="neu-todo-col-header">🌙 沈望记的</div>';
-        for (const t of shenItems) {
-            html += '<div class="neu-todo-item">'
-                + '<input type="checkbox" onchange="neuToggleTodo(\'' + t.id + '\')">'
-                + '<span>' + escHtml(t.text) + '</span>'
-                + '<button class="neu-todo-rm-btn" onclick="neuDeleteTodo(\'' + t.id + '\')">×</button>'
-                + '</div>';
-        }
-    }
-    if (fishItems.length > 0) {
-        html += '<div class="neu-todo-col-header">🐟 江鱼记的</div>';
-        for (const t of fishItems) {
-            html += '<div class="neu-todo-item">'
-                + '<input type="checkbox" onchange="neuToggleTodo(\'' + t.id + '\')">'
-                + '<span>' + escHtml(t.text) + '</span>'
-                + '<button class="neu-todo-rm-btn" onclick="neuDeleteTodo(\'' + t.id + '\')">×</button>'
-                + '</div>';
-        }
-    }
+    const html = '<section class="neu-todo-section shen" aria-label="沈望写的待办">'
+        + '<div class="neu-todo-section-head"><span class="neu-todo-owner-mark">S</span><span>沈望写的</span><small>' + shenItems.length + '</small></div>'
+        + '<div class="neu-todo-items">' + renderItems(shenItems, '他暂时还没有记下新的事') + '</div>'
+        + '</section>'
+        + '<section class="neu-todo-section fish" aria-label="江鱼写的待办">'
+        + '<div class="neu-todo-section-head"><span class="neu-todo-owner-mark">J</span><span>江鱼写的</span><small>' + fishItems.length + '</small></div>'
+        + '<div class="neu-todo-items">' + renderItems(fishItems, '你的列表还是空的') + '</div>'
+        + '</section>';
     list.innerHTML = html;
 }
 
@@ -1708,7 +1711,7 @@ async function neuAddTodo() {
     const input = document.getElementById('neuTodoInput');
     if (!input) return;
     const text = input.value.trim();
-    if (!text) return;
+    if (!text) { input.focus(); return; }
     input.value = '';
     try {
         await fetch('/api/todos', {

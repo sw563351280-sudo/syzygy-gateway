@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { createCodexBridge } = require('./codex-bridge');
+const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
 
 const app = express();
 
@@ -978,8 +979,8 @@ const TODOS_FILE = path.join(DATA_DIR, 'todos.json');
 const PERIOD_FILE = path.join(DATA_DIR, 'period_data.json');
 function loadDreamState() { try { return JSON.parse(fs.readFileSync(DREAM_STATE_FILE, 'utf8')); } catch(e) { return { pending_promises: '', foresight: [], updated_at: null }; } }
 function saveDreamState(state) { fs.writeFileSync(DREAM_STATE_FILE, JSON.stringify(state, null, 2), 'utf8'); }
-function loadTodos() { try { return JSON.parse(fs.readFileSync(TODOS_FILE, 'utf8')); } catch(e) { return []; } }
-function saveTodos(items) { fs.writeFileSync(TODOS_FILE, JSON.stringify(items, null, 2), 'utf8'); }
+function loadTodos() { try { return normalizeTodos(JSON.parse(fs.readFileSync(TODOS_FILE, 'utf8'))); } catch(e) { return []; } }
+function saveTodos(items) { fs.writeFileSync(TODOS_FILE, JSON.stringify(normalizeTodos(items), null, 2), 'utf8'); }
 function loadPeriod() { try { return JSON.parse(fs.readFileSync(PERIOD_FILE, 'utf8')); } catch(e) { return { records: [], current: null }; } }
 function savePeriod(data) { fs.writeFileSync(PERIOD_FILE, JSON.stringify(data, null, 2), 'utf8'); }
 const PHOTOS_FILE = path.join(DATA_DIR, 'photos.json');
@@ -2273,6 +2274,7 @@ function extractAndProcessTodoTags(text) {
                 createdAt: new Date().toISOString()
             });
             saveTodos(todos);
+            wsBroadcast({ type: 'todo_added', todo: todos[todos.length - 1] });
             console.log('📋 [待办] 沈望添加: ' + todoText.substring(0, 40));
         }
     }
@@ -2283,6 +2285,7 @@ function extractAndProcessTodoTags(text) {
         if (idx !== -1) {
             todos[idx].done = true;
             saveTodos(todos);
+            wsBroadcast({ type: 'todo_updated', todo: todos[idx] });
             console.log('✅ [待办] 沈望标记完成: ' + todos[idx].text.substring(0, 40));
         }
     }
@@ -2607,7 +2610,7 @@ async function updateRollingSummaries(chatSessions) {
 async function buildLiveStatePrompt() {
     const parts = [];
     try { const pd = loadPeriod(); const ps = periodStatusText(pd); parts.push('【江鱼生理期状态】\n' + ps.text); } catch(e) {}
-    try { const todos = loadTodos().filter(t => !t.done).slice(0, 8); if (todos.length) parts.push('【江鱼当前待办】\n' + todos.map(t => '- ' + (t.text || t.task || t.title || '')).join('\n')); } catch(e) {}
+    // 共享待办由 buildTodoPrompt() 统一注入，避免把沈望的事项误标成“江鱼当前待办”。
     try { const phone = await getPhoneActivity(4); if (phone && phone.records && phone.records.length) { const now=Date.now(); const recent=phone.records.filter(r=>{const t=r.opened_at||r.last_opened||r.created_at||r.timestamp||'';return t?(now-new Date(t).getTime())<4*3600000:false}).slice(0,5); if(recent.length){parts.push('【江鱼手机活动近况】\n'+recent.map(r=>{const app=r.app_name||r.app||r.package_name||'unknown';const ts=r.opened_at||r.last_opened||r.created_at||r.timestamp||'';const d=new Date(ts);const local=d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Shanghai'});const min=Math.round((now-d.getTime())/60000);const rel=min<1?'刚刚':min<60?min+'分钟前':Math.round(min/60)+'小时前';return'- '+app+'：'+local+'（'+rel+'）';}).join('\n'));}}} catch(e) {}
     try { const us = loadUserState(); const lines = []; if (us.physical_state) lines.push('身体状态：' + us.physical_state); if (Array.isArray(us.current_focus) && us.current_focus.length) lines.push('当前关注：' + us.current_focus.join(' / ')); if (lines.length) parts.push('【江鱼实时状态】\n' + lines.join('\n')); } catch(e) {}
     try { if (stateSlotsEnabled()) { const slotBlock = formatStateSlotsForPrompt(); if (slotBlock) parts.push(slotBlock); } } catch(e) {}
@@ -4417,24 +4420,8 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             } catch(e) {}
         }
 
-        // 注入共享待办列表
-        const allTodos = loadTodos();
-        const activeTodos = allTodos.filter(t => !t.done);
-        if (activeTodos.length > 0) {
-            const fishTodos = activeTodos.filter(t => t.owner === 'fish');
-            const shenTodos = activeTodos.filter(t => t.owner === 'shen');
-            let todoPrompt = '\n\n【共享待办列表 · 未完成】';
-            if (shenTodos.length > 0) {
-                todoPrompt += '\n我记下的：';
-                for (const t of shenTodos) todoPrompt += `\n  ○ [${t.id}] ${t.text}`;
-            }
-            if (fishTodos.length > 0) {
-                todoPrompt += '\n江鱼记下的：';
-                for (const t of fishTodos) todoPrompt += `\n  ○ [${t.id}] ${t.text}`;
-            }
-            todoPrompt += '\n你可以用 <ADD_TODO>内容</ADD_TODO> 添加，用 <DONE_TODO id="xxx"/> 标记完成。';
-            dynamicStatePrompt += todoPrompt;
-        }
+        // 无论列表是否为空都注入规则，否则沈望无法创建第一条待办。
+        dynamicStatePrompt += buildTodoPrompt(loadTodos());
 
         // 注入生理期状态
         const periodData = loadPeriod();
@@ -5945,24 +5932,8 @@ app.post('/api/web-chat', async (req, res) => {
                     } catch(e) {}
                 }
 
-                // 注入共享待办列表
-                const allTodos2 = loadTodos();
-                const activeTodos2 = allTodos2.filter(t => !t.done);
-                if (activeTodos2.length > 0) {
-                    const fishT2 = activeTodos2.filter(t => t.owner === 'fish');
-                    const shenT2 = activeTodos2.filter(t => t.owner === 'shen');
-                    let todoP = '\n\n【共享待办列表 · 未完成】';
-                    if (shenT2.length > 0) {
-                        todoP += '\n我记下的：';
-                        for (const t of shenT2) todoP += `\n  ○ [${t.id}] ${t.text}`;
-                    }
-                    if (fishT2.length > 0) {
-                        todoP += '\n江鱼记下的：';
-                        for (const t of fishT2) todoP += `\n  ○ [${t.id}] ${t.text}`;
-                    }
-                    todoP += '\n你可以用 <ADD_TODO>内容</ADD_TODO> 添加，用 <DONE_TODO id="xxx"/> 标记完成。';
-                    dynamicStatePrompt += todoP;
-                }
+                // 无论列表是否为空都注入规则，否则沈望无法创建第一条待办。
+                dynamicStatePrompt += buildTodoPrompt(loadTodos());
 
                 // 注入生理期状态
                 const periodData2 = loadPeriod();
@@ -6655,9 +6626,9 @@ app.delete('/api/favorites/:id', (req, res) => {
 // GET /api/todos — 获取所有待办
 app.get('/api/todos', (req, res) => {
     const todos = loadTodos();
-    const active = todos.filter(t => !t.done);
+    const { active, shen, fish } = partitionActiveTodos(todos);
     const done = todos.filter(t => t.done);
-    res.json({ todos, active, done });
+    res.json({ todos, active, done, shen, fish });
 });
 
 // POST /api/todos — 添加待办

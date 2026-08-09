@@ -1753,7 +1753,16 @@ body.neu-mode .home-footer { display: none; }
     transition: all 0.2s ease;
 }
 .neu-todo-add-btn:active { box-shadow: inset 2px 2px 4px rgba(163, 177, 198, 0.3), inset -2px -2px 4px rgba(255, 255, 255, 0.5); }
-.neu-todo-list { display: flex; flex-direction: column; gap: 8px; }
+.neu-todo-list { display: flex; flex-direction: column; }
+.neu-todo-section { padding: 2px 0 11px; }
+.neu-todo-section + .neu-todo-section { padding-top: 12px; border-top: 1px solid rgba(163, 177, 198, 0.28); }
+.neu-todo-section-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; color:#52657d; font-size:12px; font-weight:600; letter-spacing:.04em; }
+.neu-todo-section-head small { margin-left:auto; min-width:20px; color:#8ea0b7; font:10px/1 ui-monospace,SFMono-Regular,Consolas,monospace; text-align:right; }
+.neu-todo-owner-mark { display:inline-flex; width:20px; height:20px; align-items:center; justify-content:center; border-radius:50%; background:rgba(99,214,197,.12); color:#3ba99d; font:10px/1 ui-monospace,SFMono-Regular,Consolas,monospace; }
+.neu-todo-section.fish .neu-todo-owner-mark { background:rgba(212,168,86,.12); color:#b98c38; }
+.neu-todo-items { display:flex; flex-direction:column; gap:8px; min-height:22px; }
+.neu-todo-empty { padding:2px 0 3px 28px; color:#9bacbf; font-size:12px; }
+.neu-todo-sync-error { padding:10px 12px; border:1px solid rgba(220,120,120,.2); border-radius:10px; color:#b26a6a; font-size:12px; background:rgba(255,255,255,.25); }
 .neu-todo-item { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #2D3748; }
 .neu-todo-item.done span { text-decoration: line-through; color: #A0AEC0; }
 .neu-todo-item input[type="checkbox"] { accent-color: #D4A856; }
