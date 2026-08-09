@@ -6,6 +6,7 @@ const path = require('path');
 const MAX_TASKS = 30;
 const MAX_EVENTS = 500;
 const MAX_PROMPT_LENGTH = 12000;
+const LOGIN_TIMEOUT_MS = 16 * 60 * 1000;
 const ALLOWED_DECISIONS = new Set(['accept', 'acceptForSession', 'decline', 'cancel']);
 
 function shortText(value, max = 4000) {
@@ -21,6 +22,7 @@ function buildCodexEnv() {
 }
 
 function createCodexBridge(options = {}) {
+    const spawnProcess = options.spawn || spawn;
     const config = {
         enabled: process.env.CODEX_ENABLED !== 'false',
         bin: process.env.CODEX_BIN || 'codex',
@@ -33,6 +35,176 @@ function createCodexBridge(options = {}) {
     const tasks = new Map();
     const order = [];
     let activeTaskId = null;
+    let loginAttempt = null;
+
+    function publicLogin(attempt = loginAttempt) {
+        if (!attempt) return { status: 'idle' };
+        return {
+            status: attempt.status,
+            loginId: attempt.loginId || null,
+            verificationUrl: attempt.verificationUrl || null,
+            userCode: attempt.userCode || null,
+            createdAt: attempt.createdAt,
+            updatedAt: attempt.updatedAt,
+            expiresAt: attempt.expiresAt,
+            authMode: attempt.authMode || null,
+            planType: attempt.planType || null,
+            error: attempt.error || null
+        };
+    }
+
+    function stopLoginProcess(attempt, delay = 0) {
+        if (!attempt) return;
+        if (attempt.timeout) {
+            clearTimeout(attempt.timeout);
+            attempt.timeout = null;
+        }
+        const stop = () => {
+            try { attempt.proc?.kill(); } catch (_) {}
+            attempt.proc = null;
+        };
+        if (delay > 0) setTimeout(stop, delay);
+        else stop();
+    }
+
+    function finishLogin(attempt, status, error = null) {
+        if (!attempt || attempt !== loginAttempt) return;
+        if (!['starting', 'waiting'].includes(attempt.status)) return;
+        attempt.status = status;
+        attempt.error = error ? shortText(error, 800) : null;
+        attempt.updatedAt = new Date().toISOString();
+        stopLoginProcess(attempt, 250);
+    }
+
+    function loginStatus() {
+        if (loginAttempt && ['starting', 'waiting'].includes(loginAttempt.status) && Date.now() >= loginAttempt.expiresAt) {
+            finishLogin(loginAttempt, 'expired', '设备代码已过期，请重新生成');
+        }
+        return publicLogin();
+    }
+
+    function startDeviceLogin() {
+        if (!config.enabled) throw new Error('Codex Bridge 已被禁用');
+        if (loginAttempt && ['starting', 'waiting'].includes(loginAttempt.status) && Date.now() < loginAttempt.expiresAt) {
+            return publicLogin();
+        }
+
+        const now = Date.now();
+        const attempt = {
+            status: 'starting',
+            loginId: null,
+            verificationUrl: null,
+            userCode: null,
+            createdAt: new Date(now).toISOString(),
+            updatedAt: new Date(now).toISOString(),
+            expiresAt: now + LOGIN_TIMEOUT_MS,
+            authMode: null,
+            planType: null,
+            error: null,
+            proc: null,
+            timeout: null
+        };
+        loginAttempt = attempt;
+
+        let child;
+        try {
+            child = spawnProcess(config.bin, ['app-server', '--listen', 'stdio://'], {
+                cwd: config.cwd,
+                env: buildCodexEnv(),
+                stdio: ['pipe', 'pipe', 'pipe']
+            });
+        } catch (error) {
+            finishLogin(attempt, 'failed', `无法启动 Codex：${error.message}`);
+            return publicLogin();
+        }
+        attempt.proc = child;
+        attempt.timeout = setTimeout(() => {
+            if (attempt.loginId && child.stdin && !child.stdin.destroyed) {
+                try {
+                    child.stdin.write(JSON.stringify({ method: 'account/login/cancel', id: 3, params: { loginId: attempt.loginId } }) + '\n');
+                } catch (_) {}
+            }
+            finishLogin(attempt, 'expired', '设备代码已过期，请重新生成');
+        }, LOGIN_TIMEOUT_MS);
+
+        const stdout = readline.createInterface({ input: child.stdout });
+        stdout.on('line', (line) => {
+            if (!line.trim() || attempt !== loginAttempt) return;
+            let message;
+            try { message = JSON.parse(line); } catch (_) { return; }
+
+            if (message.id === 1) {
+                if (message.error) return finishLogin(attempt, 'failed', message.error.message || 'Codex 初始化失败');
+                try {
+                    child.stdin.write(JSON.stringify({ method: 'initialized', params: {} }) + '\n');
+                    child.stdin.write(JSON.stringify({ method: 'account/login/start', id: 2, params: { type: 'chatgptDeviceCode' } }) + '\n');
+                } catch (error) {
+                    finishLogin(attempt, 'failed', error.message);
+                }
+                return;
+            }
+
+            if (message.id === 2) {
+                if (message.error) return finishLogin(attempt, 'failed', message.error.message || '无法创建设备代码');
+                const result = message.result || {};
+                if (!result.loginId || !result.verificationUrl || !result.userCode) {
+                    return finishLogin(attempt, 'failed', 'Codex 没有返回完整的设备登录信息');
+                }
+                attempt.status = 'waiting';
+                attempt.loginId = shortText(result.loginId, 200);
+                attempt.verificationUrl = shortText(result.verificationUrl, 1000);
+                attempt.userCode = shortText(result.userCode, 100);
+                attempt.updatedAt = new Date().toISOString();
+                return;
+            }
+
+            if (message.method === 'account/login/completed') {
+                const params = message.params || {};
+                if (attempt.loginId && params.loginId && params.loginId !== attempt.loginId) return;
+                if (params.success) finishLogin(attempt, 'completed');
+                else finishLogin(attempt, 'failed', params.error || 'Codex 登录未完成');
+                return;
+            }
+
+            if (message.method === 'account/updated') {
+                attempt.authMode = shortText(message.params?.authMode, 100) || null;
+                attempt.planType = shortText(message.params?.planType, 100) || null;
+                attempt.updatedAt = new Date().toISOString();
+            }
+        });
+        child.stderr.on('data', (chunk) => {
+            const text = shortText(chunk, 800).trim();
+            if (text && attempt.status === 'starting') attempt.error = text;
+        });
+        child.once('error', (error) => finishLogin(attempt, 'failed', `无法启动 Codex：${error.message}`));
+        child.once('close', (code, signal) => {
+            if (['starting', 'waiting'].includes(attempt.status)) {
+                finishLogin(attempt, 'failed', `Codex 登录进程已退出（code=${code ?? 'null'}, signal=${signal || 'none'}）`);
+            }
+        });
+        try {
+            child.stdin.write(JSON.stringify({
+                method: 'initialize',
+                id: 1,
+                params: { clientInfo: { name: 'syzygy-device-login', title: 'Syzygy Device Login', version: '1.0.0' } }
+            }) + '\n');
+        } catch (error) {
+            finishLogin(attempt, 'failed', error.message);
+        }
+        return publicLogin();
+    }
+
+    function cancelDeviceLogin() {
+        const attempt = loginAttempt;
+        if (!attempt || !['starting', 'waiting'].includes(attempt.status)) return publicLogin();
+        if (attempt.loginId && attempt.proc?.stdin && !attempt.proc.stdin.destroyed) {
+            try {
+                attempt.proc.stdin.write(JSON.stringify({ method: 'account/login/cancel', id: 3, params: { loginId: attempt.loginId } }) + '\n');
+            } catch (_) {}
+        }
+        finishLogin(attempt, 'cancelled');
+        return publicLogin();
+    }
 
     function publicTask(task) {
         return {
@@ -184,7 +356,7 @@ function createCodexBridge(options = {}) {
     function attachProcess(task) {
         let child;
         try {
-            child = spawn(config.bin, ['app-server', '--listen', 'stdio://'], {
+            child = spawnProcess(config.bin, ['app-server', '--listen', 'stdio://'], {
                 cwd: task.cwd,
                 env: buildCodexEnv(),
                 stdio: ['pipe', 'pipe', 'pipe']
@@ -264,7 +436,7 @@ function createCodexBridge(options = {}) {
                 });
             };
             try {
-                child = spawn(config.bin, ['app-server', '--listen', 'stdio://'], {
+                child = spawnProcess(config.bin, ['app-server', '--listen', 'stdio://'], {
                     cwd: config.cwd,
                     env: buildCodexEnv(),
                     stdio: ['pipe', 'pipe', 'pipe']
@@ -417,6 +589,9 @@ function createCodexBridge(options = {}) {
         listTasks() { return order.slice().reverse().map(id => publicTask(tasks.get(id))).filter(Boolean); },
         startTask,
         readAccountUsage,
+        loginStatus,
+        startDeviceLogin,
+        cancelDeviceLogin,
         taskById,
         attachSocket,
         sendClientCommand

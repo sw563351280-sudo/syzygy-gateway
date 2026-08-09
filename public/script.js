@@ -899,8 +899,144 @@ function devOpenConsole(tab) {
 let devCodexSocket = null;
 let devCodexTaskId = null;
 let devCodexApprovalId = null;
+let devCodexAuthRequired = false;
+let devCodexLoginTimer = null;
+let devCodexLoginSnapshot = { status: 'idle' };
+
+function devScheduleCodexLoginRefresh(delay = 1800) {
+    clearTimeout(devCodexLoginTimer);
+    const panel = document.getElementById('devCodexLoginPanel');
+    if (!panel || panel.hidden) return;
+    devCodexLoginTimer = setTimeout(() => devRefreshCodexLogin(false), delay);
+}
+
+function devRenderCodexLogin(login = {}, autoOpen = false) {
+    const previousStatus = devCodexLoginSnapshot?.status || 'idle';
+    devCodexLoginSnapshot = login;
+    const status = login.status || 'idle';
+    const panel = document.getElementById('devCodexLoginPanel');
+    const statusBox = document.querySelector('#devCodexLoginPanel .dev-login-status');
+    const title = document.getElementById('devCodexLoginTitle');
+    const message = document.getElementById('devCodexLoginMessage');
+    const codeBox = document.getElementById('devCodexLoginCodeBox');
+    const code = document.getElementById('devCodexLoginCode');
+    const expiry = document.getElementById('devCodexLoginExpiry');
+    const start = document.getElementById('devCodexLoginStart');
+    const open = document.getElementById('devCodexLoginOpen');
+    const copy = document.getElementById('devCodexLoginCopy');
+    const cancel = document.getElementById('devCodexLoginCancel');
+    const actionMeta = document.getElementById('devCodexLoginActionMeta');
+    if (!panel || !title || !message) return;
+
+    const waiting = status === 'starting' || status === 'waiting';
+    if (autoOpen && waiting) panel.hidden = false;
+    if (statusBox) statusBox.dataset.state = status === 'starting' ? 'waiting' : status;
+
+    const copyByStatus = {
+        idle: ['尚未连接', '登录任务会在服务器后台保持，手机断线也不会中止。'],
+        starting: ['正在生成设备码', 'Codex 正在准备安全的设备授权流程。'],
+        waiting: ['等待手机授权', '打开授权页并输入设备码。离开本页或断线都不会中止登录。'],
+        completed: ['登录成功', 'ChatGPT Pro 已连接，正在刷新 Codex 用量与任务状态。'],
+        failed: ['登录失败', login.error || '登录进程异常结束，请重新生成设备码。'],
+        expired: ['设备码已过期', '设备码有效期约 15 分钟，请重新生成。'],
+        cancelled: ['登录已取消', '需要时可以重新生成设备码。']
+    };
+    const stateCopy = copyByStatus[status] || copyByStatus.idle;
+    title.textContent = stateCopy[0];
+    message.textContent = stateCopy[1];
+
+    const hasCode = Boolean(login.userCode && login.verificationUrl && waiting);
+    if (codeBox) codeBox.hidden = !hasCode;
+    if (code) code.textContent = login.userCode || '—';
+    if (open) {
+        open.hidden = !hasCode;
+        open.href = login.verificationUrl || 'https://auth.openai.com/codex/device';
+    }
+    if (copy) copy.hidden = !hasCode;
+    if (cancel) cancel.hidden = !waiting;
+    if (start) {
+        start.hidden = waiting || status === 'completed';
+        start.disabled = status === 'starting';
+        start.textContent = status === 'failed' || status === 'expired' || status === 'cancelled' ? '重新生成设备码' : '生成设备码';
+    }
+    if (expiry && login.expiresAt && waiting) {
+        const seconds = Math.max(0, Math.ceil((Number(login.expiresAt) - Date.now()) / 1000));
+        expiry.textContent = seconds ? '剩余约 ' + Math.ceil(seconds / 60) + ' 分钟' : '即将过期';
+    }
+    if (actionMeta) {
+        actionMeta.textContent = status === 'waiting' ? '等待手机授权 · 断线不中止' : status === 'completed' ? '已连接 ChatGPT Pro' : '后台设备授权 · 断线不中止';
+    }
+
+    if (waiting) devScheduleCodexLoginRefresh();
+    else clearTimeout(devCodexLoginTimer);
+    if (status === 'completed' && previousStatus !== 'completed') setTimeout(devRefreshOverview, 900);
+}
+
+async function devRefreshCodexLogin(autoOpen = false) {
+    try {
+        const response = await fetch('/api/codex/login', { cache: 'no-store' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.login) throw new Error(data.error || '无法读取登录状态');
+        devRenderCodexLogin(data.login, autoOpen);
+    } catch (error) {
+        devRenderCodexLogin({ status: 'failed', error: error.message }, autoOpen);
+    }
+}
+
+function devOpenCodexLogin() {
+    const panel = document.getElementById('devCodexLoginPanel');
+    if (panel) panel.hidden = false;
+    devRefreshCodexLogin(false);
+}
+
+function devCloseCodexLogin() {
+    const panel = document.getElementById('devCodexLoginPanel');
+    if (panel) panel.hidden = true;
+    clearTimeout(devCodexLoginTimer);
+}
+
+async function devStartCodexLogin() {
+    devOpenCodexLogin();
+    devRenderCodexLogin({ status: 'starting' });
+    try {
+        const response = await fetch('/api/codex/login/device', { method: 'POST' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.login) throw new Error(data.error || data.login?.error || '无法启动设备登录');
+        devRenderCodexLogin(data.login);
+        if (data.login.status === 'starting') devScheduleCodexLoginRefresh(500);
+    } catch (error) {
+        devRenderCodexLogin({ status: 'failed', error: error.message });
+    }
+}
+
+async function devCancelCodexLogin() {
+    try {
+        const response = await fetch('/api/codex/login/cancel', { method: 'POST' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.login) throw new Error(data.error || '无法取消登录');
+        devRenderCodexLogin(data.login);
+    } catch (error) {
+        devRenderCodexLogin({ status: 'failed', error: error.message });
+    }
+}
+
+async function devCopyCodexLoginCode() {
+    const value = devCodexLoginSnapshot?.userCode;
+    if (!value) return;
+    try {
+        await navigator.clipboard.writeText(value);
+        toast('设备码已复制');
+    } catch (_) {
+        toast('长按设备码即可复制');
+    }
+}
 
 function devOpenCodex() {
+    if (devCodexAuthRequired) {
+        devOpenCodexLogin();
+        toast('请先连接 ChatGPT Pro');
+        return;
+    }
     const panel = document.getElementById('devCodexPanel');
     if (!panel) return;
     panel.hidden = false;
@@ -1049,6 +1185,7 @@ async function devRefreshOverview() {
     const server = document.getElementById('devServerStat');
     const meta = document.getElementById('devServerMeta');
     if (status) { status.dataset.state = 'loading'; status.innerHTML = '<i></i>检查中'; }
+    devRefreshCodexLogin(true);
     try {
         const [r, codexResponse, usageResponse] = await Promise.all([
             fetch('/api/console/status', { cache: 'no-store' }),
@@ -1065,7 +1202,11 @@ async function devRefreshOverview() {
         const usage = document.getElementById('devUsageStat');
         const usageMeta = document.getElementById('devUsageMeta');
         const trace = document.getElementById('devTraceStat');
+        const loginAction = document.getElementById('devCodexLoginAction');
         const primary = usageData?.rateLimits?.rateLimits?.primary || usageData?.rateLimits?.rateLimitsByLimitId?.codex?.primary;
+        const codexAuthenticated = Boolean(primary) || (usageResponse.ok && usageData?.ok !== false && !usageData?.error);
+        devCodexAuthRequired = !codexAuthenticated;
+        if (loginAction) loginAction.hidden = codexAuthenticated;
         if (usage && primary && Number.isFinite(Number(primary.usedPercent))) {
             usage.textContent = Math.round(Number(primary.usedPercent)) + '% 已使用';
             const resetAt = Number(primary.resetsAt || 0) * 1000;

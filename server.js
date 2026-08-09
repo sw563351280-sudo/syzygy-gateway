@@ -7163,6 +7163,27 @@ app.get('/api/codex/usage', async (req, res) => {
         res.status(503).json({ ok: false, error: String(error.message || '无法读取 Codex 用量') });
     }
 });
+app.get('/api/codex/login', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ ok: true, login: codexBridge.loginStatus() });
+});
+app.post('/api/codex/login/device', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const login = codexBridge.startDeviceLogin();
+        res.status(login.status === 'failed' ? 503 : 202).json({ ok: login.status !== 'failed', login });
+    } catch (error) {
+        res.status(503).json({ ok: false, error: String(error.message || '无法启动 Codex 设备登录') });
+    }
+});
+app.post('/api/codex/login/cancel', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        res.json({ ok: true, login: codexBridge.cancelDeviceLogin() });
+    } catch (error) {
+        res.status(500).json({ ok: false, error: String(error.message || '无法取消 Codex 登录') });
+    }
+});
 app.get('/api/codex/tasks', (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json({ tasks: codexBridge.listTasks() });

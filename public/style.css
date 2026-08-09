@@ -1924,6 +1924,7 @@ body.neu-mode #sec-console { background:#101827; }
 .dev-section-heading em { color:#667b91; font:9px ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:1px; font-style:normal; }
 .dev-action-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
 .dev-action-card { min-height:92px; display:flex; align-items:center; gap:11px; padding:14px; border:1px solid rgba(148,163,184,.14); border-radius:17px; background:linear-gradient(145deg,rgba(22,35,52,.9),rgba(11,20,34,.78)); color:#e8eef0; text-align:left; cursor:pointer; transition:transform .2s,border-color .2s,background .2s; }
+.dev-action-card[hidden] { display:none; }
 .dev-action-card:hover { transform:translateY(-2px); border-color:rgba(201,169,97,.34); background:linear-gradient(145deg,rgba(30,45,63,.95),rgba(13,25,42,.88)); }
 .dev-action-card:active { transform:scale(.98); }
 .dev-action-card.dev-action-cyan { border-color:rgba(99,214,197,.26); background:linear-gradient(145deg,rgba(19,55,68,.9),rgba(11,25,41,.82)); }
@@ -1961,6 +1962,20 @@ body.neu-mode #sec-console { background:#101827; }
 .dev-codex-approval p { margin:7px 0 10px; white-space:pre-wrap; font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; word-break:break-word; }
 .dev-codex-approval button { margin-right:6px; border:1px solid rgba(79,101,122,.2); border-radius:8px; padding:7px 9px; background:#fff; color:#40516a; font-size:11px; cursor:pointer; }
 .dev-codex-approval button:hover { border-color:#277f7a; color:#277f7a; }
+.dev-login-panel[hidden],.dev-login-code[hidden],.dev-login-actions [hidden] { display:none; }
+.dev-login-status { display:flex; align-items:flex-start; gap:11px; margin-top:16px; padding:13px; border:1px solid rgba(79,101,122,.12); border-radius:14px; background:rgba(255,255,255,.5); }
+.dev-login-status i { flex:0 0 9px; width:9px; height:9px; margin-top:4px; border-radius:50%; background:#c9a961; box-shadow:0 0 10px rgba(201,169,97,.48); }
+.dev-login-status[data-state="waiting"] i { background:#63d6c5; box-shadow:0 0 10px rgba(99,214,197,.65); }
+.dev-login-status[data-state="completed"] i { background:#54b989; box-shadow:0 0 10px rgba(84,185,137,.55); }
+.dev-login-status[data-state="failed"] i { background:#d66d6d; box-shadow:0 0 10px rgba(214,109,109,.5); }
+.dev-login-status strong { display:block; color:#26364b; font-size:13px; font-weight:600; }
+.dev-login-status p { margin:4px 0 0; color:#607184; font-size:11px; line-height:1.55; }
+.dev-login-code { margin-top:12px; padding:14px; border:1px dashed rgba(39,128,123,.3); border-radius:14px; background:rgba(99,214,197,.08); text-align:center; }
+.dev-login-code span,.dev-login-code small { display:block; color:#607184; font-size:10px; }
+.dev-login-code code { display:block; margin:8px 0 6px; color:#1f6e6a; font:700 1.45rem/1.2 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:2px; }
+.dev-login-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.dev-login-actions .dev-primary-action { display:inline-flex; align-items:center; justify-content:center; color:#277f7a; text-decoration:none; }
+.dev-login-actions button:disabled { cursor:wait; opacity:.58; }
 .neu-nav-item::after { content:attr(data-label); bottom:3px; width:auto; height:auto; background:none; color:currentColor; font-size:9px; line-height:1; opacity:.75; }
 .neu-nav-item { flex-direction:column; gap:1px; height:50px; }
 .neu-nav-item svg { width:22px; height:22px; }

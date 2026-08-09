@@ -8,7 +8,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=40">
+    <link rel="stylesheet" href="style.css?v=41">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body class="neu-mode">
@@ -268,6 +268,28 @@
             <div class="dev-orbit" aria-hidden="true"><span></span><b>SYZ</b></div>
         </section>
 
+        <section class="dev-codex-panel dev-login-panel" id="devCodexLoginPanel" hidden>
+            <div class="dev-codex-panel-head">
+                <div><span class="dev-eyebrow">CODEX ACCOUNT</span><h2>连接 ChatGPT Pro</h2></div>
+                <button class="dev-close-btn" type="button" onclick="devCloseCodexLogin()">×</button>
+            </div>
+            <div class="dev-login-status">
+                <i id="devCodexLoginDot"></i>
+                <div><strong id="devCodexLoginTitle">准备登录</strong><p id="devCodexLoginMessage">登录任务会在服务器后台保持，手机断线也不会中止。</p></div>
+            </div>
+            <div class="dev-login-code" id="devCodexLoginCodeBox" hidden>
+                <span>一次性设备码</span>
+                <code id="devCodexLoginCode">—</code>
+                <small id="devCodexLoginExpiry">有效期约 15 分钟</small>
+            </div>
+            <div class="dev-login-actions">
+                <button id="devCodexLoginStart" class="dev-primary-action" type="button" onclick="devStartCodexLogin()">生成设备码</button>
+                <a id="devCodexLoginOpen" class="dev-primary-action" href="https://auth.openai.com/codex/device" target="_blank" rel="noopener noreferrer" hidden>打开授权页</a>
+                <button id="devCodexLoginCopy" class="dev-secondary-action" type="button" onclick="devCopyCodexLoginCode()" hidden>复制设备码</button>
+                <button id="devCodexLoginCancel" class="dev-secondary-action" type="button" onclick="devCancelCodexLogin()" hidden>取消登录</button>
+            </div>
+        </section>
+
         <section class="dev-codex-panel" id="devCodexPanel" hidden>
             <div class="dev-codex-panel-head">
                 <div><span class="dev-eyebrow">CODEX BRIDGE</span><h2>手机端调试任务</h2></div>
@@ -297,6 +319,7 @@
         <div class="dev-section-heading"><span>快速入口</span><em>QUICK ACCESS</em></div>
         <section class="dev-action-grid">
             <button class="dev-action-card dev-action-cyan" onclick="devOpenCodex()"><span class="dev-action-icon">⌘</span><span><b>Codex Debug</b><small>描述问题，生成诊断任务</small></span><span class="dev-arrow">↗</span></button>
+            <button id="devCodexLoginAction" class="dev-action-card dev-action-cyan" onclick="devOpenCodexLogin()"><span class="dev-action-icon">◎</span><span><b>Codex 登录</b><small id="devCodexLoginActionMeta">后台设备授权 · 断线不中止</small></span><span class="dev-arrow">↗</span></button>
             <button class="dev-action-card" onclick="devOpenConsole('terminal')"><span class="dev-action-icon">›_</span><span><b>远程终端</b><small>连接 VPS · 执行现有命令</small></span><span class="dev-arrow">↗</span></button>
             <button class="dev-action-card" onclick="devOpenConsole('trace')"><span class="dev-action-icon">⌁</span><span><b>对话链路</b><small>查看模型、工具与记忆阶段</small></span><span class="dev-arrow">↗</span></button>
             <button class="dev-action-card" onclick="devOpenConsole('logs')"><span class="dev-action-icon">≡</span><span><b>原始日志</b><small>筛选最近服务日志</small></span><span class="dev-arrow">↗</span></button>
@@ -506,7 +529,7 @@
     </div>
 </div>
 
-<script src="script.js?v=37"></script>
+<script src="script.js?v=38"></script>
 <script src="sms-mode.js?v=5"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>
