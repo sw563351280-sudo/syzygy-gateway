@@ -25,3 +25,18 @@ test('reads a GitHub file through the GitHub API', async () => {
     assert.equal(result.card.type, 'file');
     assert.equal(calls.length, 2);
 });
+
+test('reads README and a compact tree for a repository root link', async () => {
+    const fetchImpl = async url => {
+        let body;
+        if (url.endsWith('/repos/octo/demo')) body = { full_name: 'octo/demo', default_branch: 'main', html_url: 'https://github.com/octo/demo', visibility: 'public' };
+        else if (url.endsWith('/readme')) body = { type: 'file', encoding: 'base64', content: 'IyBEZW1vCg==' };
+        else body = { tree: [{ type: 'tree', path: 'src' }, { type: 'blob', path: 'src/app.js' }, { type: 'blob', path: 'node_modules/nope.js' }] };
+        return { ok: true, json: async () => body };
+    };
+    const result = await readGitHubTarget(fetchImpl, 'https://github.com/octo/demo');
+    assert.match(result.text, /# Demo/);
+    assert.match(result.text, /src\/app\.js/);
+    assert.doesNotMatch(result.text, /node_modules/);
+    assert.match(result.card.subtitle, /README 已读取/);
+});

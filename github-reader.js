@@ -71,6 +71,19 @@ function textForIssue(issue, kind) {
     ].join('\n');
 }
 
+function decodeGitHubFile(item) {
+    if (!item || item.type !== 'file') return '';
+    return item.encoding === 'base64' ? Buffer.from(item.content || '', 'base64').toString('utf8') : String(item.content || '');
+}
+
+function compactTree(tree) {
+    const ignored = /^(?:node_modules|vendor|dist|build|coverage|\.git)\//;
+    return (tree?.tree || [])
+        .filter(item => item?.path && !ignored.test(item.path) && item.path.split('/').length <= 3)
+        .slice(0, 140)
+        .map(item => `${item.type === 'tree' ? '📁' : '·'} ${item.path}`);
+}
+
 async function readGitHubTarget(fetchImpl, input, { token } = {}) {
     const target = parseGitHubTarget(input);
     if (!target) throw new Error('请使用 GitHub 仓库、文件、Issue、PR 或提交链接');
@@ -79,10 +92,29 @@ async function readGitHubTarget(fetchImpl, input, { token } = {}) {
     let card = { type: target.type, title: repo.full_name, subtitle: repo.description || '', url: repo.html_url };
     let text = textForRepo(repo);
 
-    if (target.type === 'file') {
+    if (target.type === 'repo') {
+        const branch = repo.default_branch || 'main';
+        const [readmeResult, treeResult] = await Promise.allSettled([
+            githubJson(fetchImpl, `${root}/readme`, token),
+            githubJson(fetchImpl, `${root}/git/trees/${encodeURIComponent(branch)}?recursive=1`, token),
+        ]);
+        const readme = readmeResult.status === 'fulfilled' ? decodeGitHubFile(readmeResult.value) : '';
+        const entries = treeResult.status === 'fulfilled' ? compactTree(treeResult.value) : [];
+        card = {
+            type: 'repo', title: repo.full_name,
+            subtitle: `${branch} · ${readme ? 'README 已读取' : '无 README'} · ${entries.length} 项目录`,
+            url: repo.html_url,
+        };
+        text = [
+            textForRepo(repo),
+            readme ? `【README】\n${clip(readme, 14000)}` : '【README】未找到或暂时无法读取。',
+            `【文件结构（${branch}，已省略构建产物）】\n${entries.join('\n') || '目录暂时无法读取。'}`,
+            '以上内容由 GitHub 官方 API 自动读取；请基于它回答，不要要求再调用 GitHub 工具。',
+        ].join('\n\n');
+    } else if (target.type === 'file') {
         const item = await githubJson(fetchImpl, `${root}/contents/${target.path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(target.ref)}`, token);
         if (Array.isArray(item) || item.type !== 'file') throw new Error('该链接不是可读取的文件');
-        const content = item.encoding === 'base64' ? Buffer.from(item.content || '', 'base64').toString('utf8') : String(item.content || '');
+        const content = decodeGitHubFile(item);
         card = { type: 'file', title: item.path, subtitle: `${item.size || 0} bytes · ${target.repo}`, url: item.html_url || target.url };
         text = `【GitHub 文件】${repo.full_name}/${item.path}（${target.ref}）\n\n${clip(content, 18000)}\n\n链接：${item.html_url || target.url}`;
     } else if (target.type === 'tree') {
@@ -109,4 +141,4 @@ async function readGitHubTarget(fetchImpl, input, { token } = {}) {
     return { target, repo, card, text };
 }
 
-module.exports = { extractGitHubUrl, parseGitHubTarget, readGitHubTarget };
+module.exports = { compactTree, extractGitHubUrl, parseGitHubTarget, readGitHubTarget };
