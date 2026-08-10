@@ -4,10 +4,16 @@ const WebSocket = require('ws');
 const { Client: SSHClient } = require('ssh2');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const { createCodexBridge } = require('./codex-bridge');
 const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
 const { extractDailyStateUpdates, stripLeakedStateUpdates } = require('./daily-state-curator');
+const { extractXhsUrl, isAllowedXhsMediaUrl, isAllowedXhsUrl, readXhsNote } = require('./xhs-reader');
+
+const execFileAsync = promisify(execFile);
 
 const app = express();
 
@@ -4213,6 +4219,171 @@ app.post('/proxy/v1/chat/completions', async (req, res) => {
     } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+// ==========================================
+// 小红书阅读：手机 UA 抓取、受限媒体代理、视频抽帧
+// ==========================================
+const XHS_CACHE_TTL = 6 * 60 * 60 * 1000;
+const XHS_NOTE_CACHE = new Map();
+const XHS_MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+const XHS_MAX_VIDEO_BYTES = 200 * 1024 * 1024;
+
+function getXhsCacheKey(url) { return String(url || '').trim(); }
+
+async function getXhsNoteCached(url) {
+    if (!isAllowedXhsUrl(url)) throw new Error('请使用小红书 app 分享出来的链接');
+    const key = getXhsCacheKey(url);
+    const cached = XHS_NOTE_CACHE.get(key);
+    if (cached && Date.now() - cached.createdAt < XHS_CACHE_TTL) return cached.note;
+    const note = await readXhsNote(fetch, url, { signal: AbortSignal.timeout(20000) });
+    XHS_NOTE_CACHE.set(key, { createdAt: Date.now(), note });
+    if (XHS_NOTE_CACHE.size > 40) {
+        const oldest = [...XHS_NOTE_CACHE.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt)[0];
+        if (oldest) XHS_NOTE_CACHE.delete(oldest[0]);
+    }
+    console.log(`📕 [XHS] 已读取 ${note.type} 笔记: ${(note.title || note.note_id || '无标题').substring(0, 40)}`);
+    return note;
+}
+
+async function readResponseBufferLimited(response, maxBytes) {
+    if (!response.ok) throw new Error(`媒体下载失败 ${response.status}`);
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (contentLength && contentLength > maxBytes) throw new Error('媒体文件过大');
+    const reader = response.body?.getReader?.();
+    if (!reader) {
+        const buf = Buffer.from(await response.arrayBuffer());
+        if (buf.length > maxBytes) throw new Error('媒体文件过大');
+        return buf;
+    }
+    const chunks = [];
+    let total = 0;
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > maxBytes) throw new Error('媒体文件过大');
+        chunks.push(Buffer.from(value));
+    }
+    return Buffer.concat(chunks);
+}
+
+async function fetchXhsMedia(url, maxBytes, accept) {
+    let current = new URL(url);
+    if (!isAllowedXhsMediaUrl(current)) throw new Error('媒体地址不在小红书 CDN 白名单中');
+    for (let hop = 0; hop <= 3; hop++) {
+        const response = await fetch(current, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)', Accept: accept || '*/*' },
+            redirect: 'manual', signal: AbortSignal.timeout(25000)
+        });
+        if (response.status >= 300 && response.status < 400) {
+            const location = response.headers.get('location');
+            if (!location) throw new Error('媒体跳转缺少地址');
+            current = new URL(location, current);
+            if (!isAllowedXhsMediaUrl(current)) throw new Error('媒体跳转地址不在白名单中');
+            continue;
+        }
+        const buffer = await readResponseBufferLimited(response, maxBytes);
+        return { buffer, contentType: response.headers.get('content-type') || 'application/octet-stream' };
+    }
+    throw new Error('媒体跳转次数过多');
+}
+
+async function xhsImageDataUrl(url) {
+    const media = await fetchXhsMedia(url, XHS_MAX_IMAGE_BYTES, 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8');
+    if (!/^image\//i.test(media.contentType)) throw new Error('小红书 CDN 返回的不是图片');
+    const mime = media.contentType.split(';')[0].trim();
+    return `data:${mime};base64,${media.buffer.toString('base64')}`;
+}
+
+async function extractXhsVideoFrames(videoUrl) {
+    if (!videoUrl) return [];
+    const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'syzygy-xhs-'));
+    const videoPath = path.join(tempDir, 'source.mp4');
+    const framePattern = path.join(tempDir, 'frame-%02d.jpg');
+    try {
+        const media = await fetchXhsMedia(videoUrl, XHS_MAX_VIDEO_BYTES, 'video/*,*/*;q=0.8');
+        await fs.promises.writeFile(videoPath, media.buffer);
+        let duration = 0;
+        try {
+            const probe = await execFileAsync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', videoPath], { timeout: 10000 });
+            duration = Number.parseFloat(probe.stdout);
+        } catch (_) { return []; } // 未安装 ffprobe/ffmpeg 时优雅降级为封面+文字。
+        if (!Number.isFinite(duration) || duration <= 0) return [];
+        const frameCount = Math.max(4, Math.min(8, Math.ceil(duration / 8)));
+        const filter = `fps=${frameCount}/${Math.max(duration, 1)},scale='min(960,iw)':-2`;
+        await execFileAsync('ffmpeg', ['-y', '-v', 'error', '-i', videoPath, '-vf', filter, '-q:v', '4', framePattern], { timeout: 45000 });
+        const frames = [];
+        for (let index = 1; index <= frameCount; index++) {
+            const framePath = path.join(tempDir, `frame-${String(index).padStart(2, '0')}.jpg`);
+            try {
+                const frame = await fs.promises.readFile(framePath);
+                if (frame.length <= XHS_MAX_IMAGE_BYTES) frames.push(`data:image/jpeg;base64,${frame.toString('base64')}`);
+            } catch (_) {}
+        }
+        return frames;
+    } catch (error) {
+        console.log('📕 [XHS] 视频抽帧降级:', error.message);
+        return [];
+    } finally {
+        await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+}
+
+function formatXhsTextContext(note, hasFrames) {
+    const parts = [
+        '【小红书笔记｜已由服务端以手机页面真实读取】',
+        `类型：${note.type === 'video' ? '视频' : '图文'}${hasFrames ? '（下方图片为按时间顺序抽出的关键帧）' : ''}`,
+        note.title ? `标题：${note.title}` : '',
+        note.author ? `作者：${note.author}` : '',
+        note.desc ? `正文：${note.desc}` : '',
+        note.interact?.liked_count ? `互动：赞${note.interact.liked_count} 收藏${note.interact.collected_count || 0} 评论${note.interact.comment_count || 0}` : '',
+        '请基于这些真实文字和图片回答；看不清的画面直接说看不清，不要补画面。'
+    ].filter(Boolean);
+    return parts.join('\n');
+}
+
+async function buildXhsVisionContext(userText) {
+    const url = extractXhsUrl(userText);
+    if (!url) return null;
+    try {
+        const note = await getXhsNoteCached(url);
+        let images = [];
+        if (note.type === 'video') {
+            images = await extractXhsVideoFrames(note.video_url);
+            if (images.length === 0 && note.images[0]) images = [await xhsImageDataUrl(note.images[0])];
+        } else {
+            const candidates = note.images.slice(0, 6);
+            const settled = await Promise.allSettled(candidates.map(xhsImageDataUrl));
+            images = settled.filter(item => item.status === 'fulfilled').map(item => item.value);
+        }
+        return { note, images, text: formatXhsTextContext(note, note.type === 'video' && images.length > 1) };
+    } catch (error) {
+        console.log('📕 [XHS] 读取失败:', error.message);
+        return { error: error.message, images: [], text: `【小红书笔记读取失败】${error.message}。不要假装看过这条笔记。` };
+    }
+}
+
+app.get('/api/xhs-card', async (req, res) => {
+    try {
+        const note = await getXhsNoteCached(req.query.url);
+        res.json({ success: true, note: {
+            ...note,
+            images: note.images.slice(0, 4).map(url => `/api/xhs-media?url=${encodeURIComponent(url)}`),
+            cover: note.images[0] ? `/api/xhs-media?url=${encodeURIComponent(note.images[0])}` : null,
+        } });
+    } catch (error) { res.status(400).json({ success: false, error: error.message }); }
+});
+
+app.get('/api/xhs-media', async (req, res) => {
+    try {
+        const url = req.query.url;
+        if (!isAllowedXhsMediaUrl(url)) return res.status(400).json({ error: '不允许的媒体地址' });
+        const media = await fetchXhsMedia(url, XHS_MAX_IMAGE_BYTES, 'image/*,*/*;q=0.8');
+        if (!/^image\//i.test(media.contentType)) return res.status(415).json({ error: '只代理图片' });
+        res.set('Cache-Control', 'private, max-age=21600');
+        res.type(media.contentType.split(';')[0]).send(media.buffer);
+    } catch (error) { res.status(502).json({ error: error.message }); }
+});
+
 // 跨平台锚点匹配：用多对user-assistant指纹定位前端对话在Zep中的位置
 function findZepAnchor(cleanMessages, zepMessages) {
     const pairs = [];
@@ -4562,6 +4733,8 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         volatileRaw = volatileRaw ? dedupSections(volatileRaw) : null;
         logSectionSizes(volatileRaw);
         const volatileText = volatileRaw;
+        const xhsContext = await buildXhsVisionContext(currentUserMsgText);
+        if (xhsContext) traceEvent(_tr, 'xhs', '小红书读取', { ok: !xhsContext.error, type: xhsContext.note?.type || null, images: xhsContext.images.length, error: xhsContext.error || null });
         traceEvent(_tr, 'inject', 'volatile 组装', { totalLen: (volatileText || '').length, sections: (volatileText || '').split(/\n(?=【)/).map(s => ({ key: (s.match(/^【([^】]+)】/) || [])[1] || '?', len: s.length })).slice(0, 20) });
 
         // === 3. 组装最终 messages: system + history + (merged user) ===
@@ -4575,6 +4748,12 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         if (_albumPhotoBlocks.length > 0) {
             if (!Array.isArray(finalUserContent)) finalUserContent = [{ type: 'text', text: finalUserContent }];
             finalUserContent.push(..._albumPhotoBlocks);
+        }
+        if (xhsContext) {
+            const xhsPrefix = xhsContext.text + '\n\n';
+            finalUserContent = Array.isArray(finalUserContent)
+                ? [{ type: 'text', text: xhsPrefix }, ...finalUserContent, ...xhsContext.images.map(url => ({ type: 'image_url', image_url: { url } }))]
+                : [{ type: 'text', text: xhsPrefix + finalUserContent }, ...xhsContext.images.map(url => ({ type: 'image_url', image_url: { url } }))];
         }
         newMessages.push({ role: 'user', content: finalUserContent });
         newMessages.unshift(systemMsg);
@@ -4627,7 +4806,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             const hasGitHub = /github\.com/i.test(currentUserMsgText);
             const hasUrl = /(https?:\/\/[^\s]+)/i.test(currentUserMsgText);
             if (hasGitHub) { forceToolChoice = { type: "function", function: { name: "fetch_github" } }; console.log('🎯 [工具强制] GitHub URL → 强制 fetch_github'); }
-            else if (hasUrl) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
+            else if (hasUrl && !xhsContext) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
         }
         let filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
         traceEvent(_tr, 'tools', '工具筛选', { total: enabledTools.length, filtered: filteredTools.length, names: filteredTools.map(t => t.function?.name).slice(0, 10) });
@@ -6079,6 +6258,13 @@ app.post('/api/web-chat', async (req, res) => {
                     finalUser = Array.isArray(finalUser)
                         ? [{ type: 'text', text: volatileText + '\n\n' }, ...finalUser]
                         : volatileText + '\n\n' + finalUser;
+                }
+                const webXhsContext = await buildXhsVisionContext(text);
+                if (webXhsContext) {
+                    const prefix = webXhsContext.text + '\n\n';
+                    finalUser = Array.isArray(finalUser)
+                        ? [{ type: 'text', text: prefix }, ...finalUser, ...webXhsContext.images.map(url => ({ type: 'image_url', image_url: { url } }))]
+                        : [{ type: 'text', text: prefix + finalUser }, ...webXhsContext.images.map(url => ({ type: 'image_url', image_url: { url } }))];
                 }
                 const apiMessages = [
                     webSystemMsg,

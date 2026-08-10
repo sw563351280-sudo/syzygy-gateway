@@ -2131,6 +2131,45 @@ function updateToolGroupDOM(el, toolCalls, isStreaming) {
     el.innerHTML = renderToolCallGroupHTML(toolCalls, isStreaming);
 }
 
+const _xhsCardCache = new Map();
+
+function findXhsLink(text) {
+    const match = String(text || '').match(/https:\/\/(?:www\.)?(?:xhslink\.com|xiaohongshu\.com)\/[^\s<>"']+/i);
+    return match ? match[0].replace(/[，。！？、）)】]+$/u, '') : null;
+}
+
+async function hydrateXhsCard(el, url) {
+    if (!el || el.dataset.loading === 'true') return;
+    el.dataset.loading = 'true';
+    try {
+        let payload = _xhsCardCache.get(url);
+        if (!payload) {
+            const response = await fetch('/api/xhs-card?url=' + encodeURIComponent(url));
+            payload = await response.json();
+            if (!response.ok || !payload.success) throw new Error(payload.error || '读取失败');
+            _xhsCardCache.set(url, payload);
+        }
+        const note = payload.note;
+        el.innerHTML = '';
+        const head = document.createElement('div'); head.className = 'xhs-card-head';
+        head.textContent = note.type === 'video' ? '小红书 · 视频笔记' : '小红书 · 图文笔记';
+        const title = document.createElement('b'); title.className = 'xhs-card-title'; title.textContent = note.title || '小红书笔记';
+        const desc = document.createElement('p'); desc.className = 'xhs-card-desc'; desc.textContent = note.desc || '没有正文';
+        el.append(head, title, desc);
+        if (note.images && note.images.length) {
+            const images = document.createElement('div'); images.className = 'xhs-card-images';
+            note.images.slice(0, 4).forEach(src => { const image = document.createElement('img'); image.src = src; image.alt = '小红书配图'; image.loading = 'lazy'; images.appendChild(image); });
+            el.appendChild(images);
+        }
+        const meta = document.createElement('small');
+        meta.textContent = [note.author, note.interact?.liked_count ? '赞 ' + note.interact.liked_count : ''].filter(Boolean).join(' · ');
+        if (meta.textContent) el.appendChild(meta);
+    } catch (error) {
+        el.textContent = '小红书笔记没读到：' + error.message;
+        el.classList.add('xhs-card-error');
+    }
+}
+
 function renderChatMessages(){
     if (_isStreamingReply) { _renderDeferred = true; return; }
     const win = document.getElementById('chatWindow');
@@ -2182,6 +2221,8 @@ function renderChatMessages(){
         if (v.toolCalls && v.toolCalls.length > 0) htmlContent += renderToolCallGroupHTML(v.toolCalls, false);
         if (m.role === 'user') {
             htmlContent += '<div>' + String(displayContent || '').replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '\n').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
+            const xhsUrl = findXhsLink(displayContent);
+            if (xhsUrl) htmlContent += '<div class="xhs-card" data-xhs-url="' + encodeURIComponent(xhsUrl) + '">正在读取小红书笔记…</div>';
         } else {
             htmlContent += '<div class="md-content">' + renderMarkdown(displayContent || '') + '</div>';
         }
@@ -2219,6 +2260,7 @@ function renderChatMessages(){
 
         win.appendChild(rowDiv);
     });
+    win.querySelectorAll('.xhs-card[data-xhs-url]').forEach(el => hydrateXhsCard(el, decodeURIComponent(el.dataset.xhsUrl)));
     forceScrollToChatBottom();
 }
 
