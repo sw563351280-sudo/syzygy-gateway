@@ -46,6 +46,22 @@ body::before{
 .archive-hero .btn-add{height:40px;padding:0 16px;border-radius:8px;border:1px solid var(--accent-gold);background:transparent;color:var(--accent-gold);cursor:pointer;font-size:.82rem;font-family:inherit;white-space:nowrap;transition:all .15s}
 .archive-hero .btn-add:active{background:rgba(212,168,83,.1)}
 
+/* life drawer */
+.life-drawer{background:linear-gradient(135deg,rgba(98,123,160,.13),rgba(212,168,83,.05));border:1px solid rgba(174,192,215,.14);border-radius:12px;padding:15px 16px;margin-bottom:12px}
+.life-drawer-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
+.life-drawer h2{font-size:.94rem;font-weight:600;color:var(--text-primary)}
+.life-drawer p{font-size:.72rem;color:var(--text-muted)}
+.drawer-list{display:grid;gap:7px}
+.drawer-item{padding:10px 11px;border-radius:8px;background:rgba(10,13,17,.22);border:1px solid rgba(255,255,255,.055)}
+.drawer-fact{font-size:.84rem;line-height:1.55;color:#e7e1d5}
+.drawer-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;color:var(--text-muted);font-size:.68rem}
+.drawer-tags{display:flex;gap:4px;flex-wrap:wrap}
+.drawer-tags span{padding:2px 7px;border-radius:99px;background:rgba(140,190,210,.1);color:#a7c9d1}
+.anticipation-drawer{background:linear-gradient(135deg,rgba(183,139,176,.11),rgba(98,123,160,.08))}
+.anticipation-drawer .drawer-item{border-left:2px solid rgba(212,168,83,.5)}
+.drawer-empty{font-size:.78rem;color:var(--text-muted);padding:4px 0}
+.drawer-resolve{border:1px solid rgba(212,168,83,.35);background:transparent;color:#d8bc82;border-radius:6px;padding:4px 8px;font:inherit;font-size:.7rem;cursor:pointer}
+
 /* tools */
 .archive-tools{margin-bottom:16px}
 .archive-tools .search-row{display:flex;gap:8px;margin-bottom:10px}
@@ -132,6 +148,16 @@ body::before{
   <button class="btn-add" onclick="openAddModal()">＋ 新增</button>
 </section>
 
+<section class="life-drawer">
+  <div class="life-drawer-head"><div><h2>生活碎屑</h2><p>先放着，不替它们判意义。</p></div><span id="crumbCount" class="mem-tag">0</span></div>
+  <div id="crumbList" class="drawer-list"><div class="drawer-empty">加载中…</div></div>
+</section>
+
+<section class="life-drawer anticipation-drawer">
+  <div class="life-drawer-head"><div><h2>牵挂线</h2><p>不是待办；是过几天自然问一句的事。</p></div><span id="anticipationCount" class="mem-tag">0</span></div>
+  <div id="anticipationList" class="drawer-list"><div class="drawer-empty">加载中…</div></div>
+</section>
+
 <section class="archive-tools">
   <div class="search-row">
     <input type="text" id="arSearch" placeholder="搜索长期记忆..." oninput="renderArchive()" style="width:100%">
@@ -157,7 +183,7 @@ body::before{
 
 <script>
 var PWD=new URLSearchParams(location.search).get('pwd')||'111111';
-var AR_MEMS=[],AR_COUNTS={},AR_HEAT={},arCat='all';
+var AR_MEMS=[],AR_COUNTS={},AR_HEAT={},AR_CRUMBS=[],AR_ANTICIPATIONS=[],arCat='all';
 var multiSelectMode=false;
 var selectedMemoryIds=new Set();
 
@@ -200,12 +226,36 @@ async function loadArchive(){
     showLoadError('返回数据解析失败');
     return;
   }
-  AR_MEMS=d.memories||[];AR_COUNTS=d.counts||{};AR_HEAT=d.heatStats||{};
+  AR_MEMS=d.memories||[];AR_COUNTS=d.counts||{};AR_HEAT=d.heatStats||{};AR_CRUMBS=d.crumbs||[];AR_ANTICIPATIONS=d.anticipations||[];
   document.getElementById('arCount').textContent=AR_MEMS.length;
   document.getElementById('arHigh').textContent=AR_HEAT.high||0;
   document.getElementById('arMid').textContent=AR_HEAT.mid||0;
   document.getElementById('arLow').textContent=AR_HEAT.low||0;
-  renderChips();renderArchive();
+  renderLifeDrawer();renderChips();renderArchive();
+}
+
+function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+function drawerTime(v){try{return new Date(v).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}catch(e){return ''}}
+function renderLifeDrawer(){
+  var crumbs=AR_CRUMBS.filter(function(c){return c.status!=='archived'}).slice(0,8);
+  document.getElementById('crumbCount').textContent=crumbs.length;
+  document.getElementById('crumbList').innerHTML=crumbs.length?crumbs.map(function(c){
+    var tags=(c.entities||[]).map(function(e){return '<span>'+esc(e)+'</span>'}).join('');
+    return '<div class="drawer-item"><div class="drawer-fact">'+esc(c.fact)+'</div><div class="drawer-meta"><span>'+drawerTime(c.happened_at||c.created_at)+'</span><span class="drawer-tags">'+tags+'</span></div></div>';
+  }).join(''):'<div class="drawer-empty">最近没留什么，趴着就行。</div>';
+  var open=AR_ANTICIPATIONS.filter(function(a){return a.status==='open'}).slice(0,6);
+  document.getElementById('anticipationCount').textContent=open.length;
+  document.getElementById('anticipationList').innerHTML=open.length?open.map(function(a){
+    return '<div class="drawer-item"><div class="drawer-fact">'+esc(a.content)+'</div><div class="drawer-meta"><span>想起 '+esc(a.entity)+' · '+drawerTime(a.due_at)+' · 第'+((a.attempts||0)+1)+'次</span><button class="drawer-resolve" onclick="resolveAnticipation(\''+esc(a.id)+'\')">已经好了</button></div></div>';
+  }).join(''):'<div class="drawer-empty">暂时没有挂在心上的事。</div>';
+}
+async function resolveAnticipation(id){
+  try{
+    var r=await fetch('/api/anticipations/'+encodeURIComponent(id)+'/resolve',{method:'POST'});
+    if(!r.ok)throw new Error('请求失败');
+    AR_ANTICIPATIONS=AR_ANTICIPATIONS.map(function(a){return a.id===id?Object.assign({},a,{status:'resolved'}):a});
+    renderLifeDrawer();toast('好，这件事收起来了。');
+  }catch(e){toast('没连上，稍后再试。')}
 }
 
 /* ── chips ── */

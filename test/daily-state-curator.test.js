@@ -19,7 +19,6 @@ test('curator validates confidence, mode, length and duplicate updates', () => {
     ] });
 
     assert.deepEqual(updates, [
-        { key: '晚餐', value: '妈妈做的韭菜馅饼', mode: 'daily', confidence: 0.96 },
         { key: '近期用药', value: '维生素D', mode: 'persistent', confidence: 0.88, life_days: 30 },
     ]);
 });
@@ -50,7 +49,7 @@ test('curator uses the shared Gemini manager and accepts strict JSON output', as
             ok: true,
             status: 200,
             async json() {
-                return { choices: [{ message: { content: '```json\n{"updates":[{"key":"晚餐","value":"妈妈做的韭菜馅饼","mode":"daily","confidence":0.94}]}\n```' } }] };
+                return { choices: [{ message: { content: '```json\n{"updates":[{"key":"近期用药","value":"维生素D","mode":"persistent","confidence":0.94}]}\n```' } }] };
             }
         };
     };
@@ -66,7 +65,7 @@ test('curator uses the shared Gemini manager and accepts strict JSON output', as
     assert.equal(request.body.response_format.type, 'json_object');
     assert.equal(request.options.headers.Authorization, 'Bearer secret');
     assert.deepEqual(updates.map(({ key, value, mode }) => ({ key, value, mode })), [
-        { key: '晚餐', value: '妈妈做的韭菜馅饼', mode: 'daily' }
+        { key: '近期用药', value: '维生素D', mode: 'persistent' }
     ]);
 });
 

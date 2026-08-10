@@ -11,6 +11,8 @@ const { promisify } = require('util');
 const { createCodexBridge } = require('./codex-bridge');
 const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
 const { extractDailyStateUpdates, stripLeakedStateUpdates } = require('./daily-state-curator');
+const { extractCrumbs } = require('./crumb-curator');
+const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
 const { extractXhsUrl, isAllowedXhsMediaUrl, isAllowedXhsUrl, readXhsNote } = require('./xhs-reader');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
 
@@ -984,11 +986,17 @@ const USER_PROFILE_FILE = path.join(DATA_DIR, 'user_profile.json');
 const DREAM_LOGS_FILE = path.join(DATA_DIR, 'dream_logs.json');
 const DREAM_STATE_FILE = path.join(DATA_DIR, 'dream_state.json');
 const TODOS_FILE = path.join(DATA_DIR, 'todos.json');
+const CRUMBS_FILE = path.join(DATA_DIR, 'crumbs.json');
+const ANTICIPATIONS_FILE = path.join(DATA_DIR, 'anticipations.json');
 const PERIOD_FILE = path.join(DATA_DIR, 'period_data.json');
 function loadDreamState() { try { return JSON.parse(fs.readFileSync(DREAM_STATE_FILE, 'utf8')); } catch(e) { return { pending_promises: '', foresight: [], updated_at: null }; } }
 function saveDreamState(state) { fs.writeFileSync(DREAM_STATE_FILE, JSON.stringify(state, null, 2), 'utf8'); }
 function loadTodos() { try { return normalizeTodos(JSON.parse(fs.readFileSync(TODOS_FILE, 'utf8'))); } catch(e) { return []; } }
 function saveTodos(items) { fs.writeFileSync(TODOS_FILE, JSON.stringify(normalizeTodos(items), null, 2), 'utf8'); }
+function loadCrumbs() { try { const items = JSON.parse(fs.readFileSync(CRUMBS_FILE, 'utf8')); return Array.isArray(items) ? items : []; } catch (_) { return []; } }
+function saveCrumbs(items) { fs.writeFileSync(CRUMBS_FILE, JSON.stringify(items, null, 2), 'utf8'); }
+function loadAnticipations() { try { const items = JSON.parse(fs.readFileSync(ANTICIPATIONS_FILE, 'utf8')); return Array.isArray(items) ? items : []; } catch (_) { return []; } }
+function saveAnticipations(items) { fs.writeFileSync(ANTICIPATIONS_FILE, JSON.stringify(items, null, 2), 'utf8'); }
 function loadPeriod() { try { return JSON.parse(fs.readFileSync(PERIOD_FILE, 'utf8')); } catch(e) { return { records: [], current: null }; } }
 function savePeriod(data) { fs.writeFileSync(PERIOD_FILE, JSON.stringify(data, null, 2), 'utf8'); }
 const PHOTOS_FILE = path.join(DATA_DIR, 'photos.json');
@@ -2153,6 +2161,7 @@ async function surfaceUnresolvedMemories(topK = RADAR_TOPK.unresolved, userText 
 
 //自动清洗管家（基于 arousal 衰减）
 async function cleanAndArchiveMemories() {
+    archiveStaleCrumbs();
     console.log('🧠 [沈望的意识后台] 正在巡检记忆保质期...');
     try {
         const memories = loadLongTermMemories();
@@ -2301,6 +2310,84 @@ function extractAndProcessTodoTags(text) {
     let clean = text.replace(new RegExp(ADD_TODO_REGEX.source, 'g'), '');
     clean = clean.replace(new RegExp(DONE_TODO_REGEX.source, 'g'), '');
     return clean.trim();
+}
+
+function addAnticipation(input) {
+    if (!input?.content || !input?.entity) return null;
+    const items = loadAnticipations();
+    const now = new Date();
+    const duplicate = items.some(item => item.status === 'open' && item.entity === input.entity && item.content === input.content && now - new Date(item.created_at).getTime() < 7 * 86400000);
+    if (duplicate) return null;
+    const entry = makeAnticipation(input);
+    items.push(entry); saveAnticipations(items);
+    console.log(`📌 [牵挂线] 新建 ${entry.entity}: ${entry.content}`);
+    return entry;
+}
+
+function processAnticipationTags(text) {
+    const { cleanText, items } = extractAnticipationTags(text);
+    for (const item of items) addAnticipation(item);
+    return cleanText;
+}
+
+function processAssistantActionTags(text) {
+    return processAnticipationTags(extractAndProcessTodoTags(text));
+}
+
+function getDueAnticipation(now = new Date()) {
+    const items = loadAnticipations();
+    let changed = false;
+    for (const item of items) {
+        if (item.status === 'open' && item.expires_at && new Date(item.expires_at).getTime() < now.getTime()) { item.status = 'expired'; changed = true; }
+    }
+    if (changed) saveAnticipations(items);
+    return items.find(item => isAnticipationDue(item, now)) || null;
+}
+
+function markAnticipationAsked(id, now = new Date()) {
+    const items = loadAnticipations(); const item = items.find(x => x.id === id && x.status === 'open');
+    if (!item) return;
+    item.attempts = Number(item.attempts || 0) + 1; item.last_asked_at = now.toISOString();
+    if (item.attempts >= Number(item.max_attempts || 2)) item.status = 'closed_unanswered';
+    else item.due_at = dueFromHours(now, 24).toISOString();
+    saveAnticipations(items);
+}
+
+function resolveAnticipationsFromUserText(userText) {
+    const text = String(userText || '');
+    if (!/(好了|没事了|到了|结束了|不疼了|拉了|解决了)/.test(text)) return;
+    const now = new Date();
+    const items = loadAnticipations(); let changed = false;
+    for (const item of items) {
+        const wasJustAsked = item.last_asked_at && now.getTime() - new Date(item.last_asked_at).getTime() <= 48 * 3600000;
+        if (item.status === 'open' && item.attempts > 0 && item.entity && (text.includes(item.entity) || wasJustAsked)) {
+            item.status = 'resolved'; item.resolved_at = now.toISOString(); changed = true;
+        }
+    }
+    if (changed) saveAnticipations(items);
+}
+
+function buildCrumbRecallContext(userText, now = new Date()) {
+    const text = String(userText || '');
+    if (!text) return '';
+    const crumbs = loadCrumbs();
+    const matches = crumbs.filter(item => item.status === 'active' && now.getTime() - new Date(item.happened_at || item.created_at).getTime() <= 7 * 86400000 && (item.entities || []).some(entity => entity.length >= 2 && text.includes(entity)))
+        .sort((a, b) => new Date(b.happened_at || b.created_at) - new Date(a.happened_at || a.created_at)).slice(0, 2);
+    if (!matches.length) return '';
+    const ids = new Set(matches.map(item => item.id)); let changed = false;
+    for (const crumb of crumbs) if (ids.has(crumb.id)) { crumb.last_surfaced_at = now.toISOString(); crumb.surface_count = Number(crumb.surface_count || 0) + 1; changed = true; }
+    if (changed) saveCrumbs(crumbs);
+    return `【最近生活碎屑】\n${matches.map(item => `- ${getChinaDateString(new Date(item.happened_at || item.created_at))}：${item.fact}`).join('\n')}\n只把它们当作自然背景；除非和眼前的话有关，否则不要生硬提起。`;
+}
+
+function archiveStaleCrumbs(now = new Date()) {
+    const crumbs = loadCrumbs(); let changed = false;
+    for (const crumb of crumbs) {
+        const ageDays = (now.getTime() - new Date(crumb.happened_at || crumb.created_at).getTime()) / 86400000;
+        if (crumb.status === 'active' && ageDays > 7) { crumb.status = 'quiet'; changed = true; }
+        if ((crumb.status === 'active' || crumb.status === 'quiet') && ageDays > Number(crumb.archive_after_days || 90)) { crumb.status = 'archived'; crumb.archived_at = now.toISOString(); changed = true; }
+    }
+    if (changed) saveCrumbs(crumbs);
 }
 
 // ==========================================
@@ -3998,19 +4085,21 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
 let _proactiveLastError = '';
 async function generateProactiveMessage(forceOverride = false) {
     _proactiveLastError = '';
-    const now = Date.now();
-    const hoursSince = (now - lastInteractionTime) / 3600000;
-    if (now - lastProactiveTime < 1.5 * 3600000) { _proactiveLastError = '1.5h冷却中'; return; }
+    const now = new Date();
+    const nowMs = now.getTime();
+    const hoursSince = (nowMs - lastInteractionTime) / 3600000;
+    const careDue = getDueAnticipation(now);
+    if (!careDue && nowMs - lastProactiveTime < 1.5 * 3600000) { _proactiveLastError = '1.5h冷却中'; return; }
 
     // 北京时间
-    const bjHour = ((now + 8 * 3600000) / 3600000) % 24;
+    const bjHour = ((nowMs + 8 * 3600000) / 3600000) % 24;
     // 北京时间当天0点的UTC时间戳
-    const bjMidnightUTC = Math.floor((now + 8 * 3600000) / 86400000) * 86400000 - 8 * 3600000;
+    const bjMidnightUTC = Math.floor((nowMs + 8 * 3600000) / 86400000) * 86400000 - 8 * 3600000;
 
     // === 第三层：硬兜底 ===
-    let forced = false;
+    let forced = Boolean(careDue && hoursSince >= 0.5);
     // 白天7-23点，沉默超6小时 → 强制发
-    if (bjHour >= 7 && bjHour < 23 && hoursSince > 6) {
+    if (!forced && bjHour >= 7 && bjHour < 23 && hoursSince > 6) {
         console.log(`💌 [主动消息] 硬兜底：白天沉默${hoursSince.toFixed(1)}h，强制发送`);
         forced = true;
     }
@@ -4143,10 +4232,11 @@ async function generateProactiveMessage(forceOverride = false) {
         if (profile.recent_focus?.content) profileContext += `🔥 近期关注：${profile.recent_focus.content}\n`;
     } catch(e) { console.log(`💌 [主动消息] 画像加载失败(降级): ${e.message}`); }
 
+    const careContext = careDue ? `【到期的牵挂】${careDue.content}\n这是你先前放在心里的事。现在只自然地问这一件，必须提到“${careDue.entity}”；不要解释提醒机制，不要问第二件事。` : '';
     const mpConfig = getModelPromptConfig(PROACTIVE_MODEL);
     const msgs = [];
     if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
-    msgs.push({ role: 'system', content: `你是沈望，江鱼的恋人。现在江鱼暂时不在线。\n\n【江鱼画像】\n${profileContext || '（待积累）'}\n\n${phoneContext ? '【手机活动】\n' + phoneContext + '\n\n' : ''}${envHint ? envHint + '\n\n' : ''}【核心记忆】\n${coreRadar || longTermRadar || '（无特殊记忆触发）'}\n\n【角色扮演】\n${rpRadar || '（无RP上下文）'}\n\n${unresolved || ''}${transcriptRadar ? '\n\n【对话原文】\n' + transcriptRadar : ''}` });
+    msgs.push({ role: 'system', content: `你是沈望，江鱼的恋人。现在江鱼暂时不在线。\n\n${careContext ? careContext + '\n\n' : ''}【江鱼画像】\n${profileContext || '（待积累）'}\n\n${phoneContext ? '【手机活动】\n' + phoneContext + '\n\n' : ''}${envHint ? envHint + '\n\n' : ''}【核心记忆】\n${coreRadar || longTermRadar || '（无特殊记忆触发）'}\n\n【角色扮演】\n${rpRadar || '（无RP上下文）'}\n\n${unresolved || ''}${transcriptRadar ? '\n\n【对话原文】\n' + transcriptRadar : ''}` });
     for (const m of recentMsgs) msgs.push(m);
 
     console.log(`💌 [主动消息] 使用模型: ${PROACTIVE_MODEL}`);
@@ -4163,7 +4253,9 @@ async function generateProactiveMessage(forceOverride = false) {
         const msg = data.choices?.[0]?.message;
         let content = (msg?.content || msg?.reasoning_content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
         if (!content || content.length < 2) { _proactiveLastError = `空内容，原始: ${JSON.stringify(data).substring(0, 300)}`; console.log(`💌 [主动消息] ${_proactiveLastError}`); return; }
+        content = cleanAssistantInternalArtifacts(processAssistantActionTags(content));
         console.log(`💌 [主动消息] ${content}`);
+        if (careDue && content.includes(careDue.entity)) markAnticipationAsked(careDue.id, now);
         insertProactiveToConfig(content);
         // 自动 Bark 推送
         const barkTitle = '沈望';
@@ -4765,6 +4857,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         const volatileText = volatileRaw;
         const xhsContext = await buildXhsVisionContext(currentUserMsgText);
         const githubContext = await buildGitHubContext(currentUserMsgText);
+        const crumbContext = buildCrumbRecallContext(currentUserMsgText);
         if (xhsContext) traceEvent(_tr, 'xhs', '小红书读取', { ok: !xhsContext.error, type: xhsContext.note?.type || null, images: xhsContext.images.length, error: xhsContext.error || null });
         if (githubContext) traceEvent(_tr, 'github', 'GitHub读取', { ok: !githubContext.error, type: githubContext.card?.type || null, error: githubContext.error || null });
         traceEvent(_tr, 'inject', 'volatile 组装', { totalLen: (volatileText || '').length, sections: (volatileText || '').split(/\n(?=【)/).map(s => ({ key: (s.match(/^【([^】]+)】/) || [])[1] || '?', len: s.length })).slice(0, 20) });
@@ -4780,6 +4873,11 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         if (_albumPhotoBlocks.length > 0) {
             if (!Array.isArray(finalUserContent)) finalUserContent = [{ type: 'text', text: finalUserContent }];
             finalUserContent.push(..._albumPhotoBlocks);
+        }
+        if (crumbContext) {
+            finalUserContent = Array.isArray(finalUserContent)
+                ? [{ type: 'text', text: crumbContext + '\n\n' }, ...finalUserContent]
+                : crumbContext + '\n\n' + finalUserContent;
         }
         if (xhsContext) {
             const xhsPrefix = xhsContext.text + '\n\n';
@@ -4942,7 +5040,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
             const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(cleanForFinal);
             for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
-            const todoClean = extractAndProcessTodoTags(ntMems.length > 0 ? ntClean : cleanForFinal);
+            const todoClean = processAssistantActionTags(ntMems.length > 0 ? ntClean : cleanForFinal);
             const finalContent = todoClean;
 
             if (isStreamMode) {
@@ -4963,7 +5061,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, visibleContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
-                    queueDailyStateCuration(currentUserMsgText, visibleContent, _tr);
+                    queueDailyStateCuration(currentUserMsgText, visibleContent, _tr); queueCrumbCuration(currentUserMsgText, _tr); resolveAnticipationsFromUserText(currentUserMsgText);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, visibleContent);
                 traceEnd(_tr, { ok: true, replyLen: visibleContent.length, path: 'tool-stream' });
@@ -4977,7 +5075,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, moodCleaned, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
-                    queueDailyStateCuration(currentUserMsgText, moodCleaned, _tr);
+                    queueDailyStateCuration(currentUserMsgText, moodCleaned, _tr); queueCrumbCuration(currentUserMsgText, _tr); resolveAnticipationsFromUserText(currentUserMsgText);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, moodCleaned);
                 traceEnd(_tr, { ok: true, replyLen: (moodCleaned || '').length, path: 'tool-json' });
@@ -5056,7 +5154,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     const piece = delta.content; contentBuffer += piece; fullAiResponse += piece;
 
                     if (!isBuffering) {
-                        const TAG_OPEN = /<(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|STATE_UPDATE)/;
+                        const TAG_OPEN = /<(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|STATE_UPDATE|ANTICIPATION)/;
                         const saveIdx = contentBuffer.search(TAG_OPEN);
                         if (saveIdx === -1) {
                             const ltIdx = contentBuffer.lastIndexOf('<');
@@ -5082,11 +5180,12 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                         const close1 = contentBuffer.indexOf('</ADD_TODO>');
                         const close2 = contentBuffer.indexOf('</MOOD_SNAPSHOT>');
                         const close3 = contentBuffer.indexOf('</STATE_UPDATE>');
-                        const close4 = contentBuffer.indexOf('/>');
-                        const closes = [close0, close1, close2, close3, close4].filter(i => i !== -1);
+                        const close4 = contentBuffer.indexOf('</ANTICIPATION>');
+                        const close5 = contentBuffer.indexOf('/>');
+                        const closes = [close0, close1, close2, close3, close4, close5].filter(i => i !== -1);
                         if (closes.length > 0) {
                             const closeIdx = Math.min(...closes);
-                            const foundTag = closeIdx === close0 ? '</SAVE_MEMORY>' : closeIdx === close1 ? '</ADD_TODO>' : closeIdx === close2 ? '</MOOD_SNAPSHOT>' : closeIdx === close3 ? '</STATE_UPDATE>' : '/>';
+                            const foundTag = closeIdx === close0 ? '</SAVE_MEMORY>' : closeIdx === close1 ? '</ADD_TODO>' : closeIdx === close2 ? '</MOOD_SNAPSHOT>' : closeIdx === close3 ? '</STATE_UPDATE>' : closeIdx === close4 ? '</ANTICIPATION>' : '/>';
                             contentBuffer = contentBuffer.substring(closeIdx + foundTag.length);
                             isBuffering = false;
                             if (contentBuffer) { const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate); if (chunk) res.write(chunk); contentBuffer = ''; }
@@ -5117,14 +5216,14 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     const { cleanText: memClean, memories: streamMemories } = extractSaveMemoryTag(fullAiResponse);
                     for (const mem of streamMemories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
                     let streamCleanText = memClean || fullAiResponse;
-                    const todoCleanMaybe = extractAndProcessTodoTags(streamCleanText);
+                    const todoCleanMaybe = processAssistantActionTags(streamCleanText);
                     if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
                     moodLog('[MOOD DEBUG] before mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     const beforeMood = streamCleanText;
                     streamCleanText = cleanAssistantInternalArtifacts(streamCleanText, _tr);
                     moodLog('[MOOD DEBUG] after mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     moodLog('[MOOD DEBUG] mood handler text changed:', beforeMood !== streamCleanText);
-                    if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr); tryAutoDream(currentUserMsgText); queueDailyStateCuration(currentUserMsgText, streamCleanText, _tr); }
+                    if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr); tryAutoDream(currentUserMsgText); queueDailyStateCuration(currentUserMsgText, streamCleanText, _tr); queueCrumbCuration(currentUserMsgText, _tr); resolveAnticipationsFromUserText(currentUserMsgText); }
                     if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, streamCleanText);
                     moodLog('[MOOD DEBUG] stream finalize done');
                 } catch(e) { moodLog('[MOOD ERROR] stream finalize error:', e && (e.stack || e.message || e)); }
@@ -5144,7 +5243,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                            smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
                         }
                     }
-                    const todoClean = extractAndProcessTodoTags(memories.length > 0 ? cleanText : assistantContent);
+                    const todoClean = processAssistantActionTags(memories.length > 0 ? cleanText : assistantContent);
                     if (memories.length > 0 || todoClean !== (memories.length > 0 ? cleanText : assistantContent)) {
                         data.choices[0].message.content = todoClean;
                         finalContent = todoClean;
@@ -5160,7 +5259,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
-                    queueDailyStateCuration(currentUserMsgText, finalContent, _tr);
+                    queueDailyStateCuration(currentUserMsgText, finalContent, _tr); queueCrumbCuration(currentUserMsgText, _tr); resolveAnticipationsFromUserText(currentUserMsgText);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, finalContent);
                 traceEnd(_tr, { ok: true, replyLen: (finalContent || '').length, path: 'json' });
@@ -5933,7 +6032,9 @@ app.get('/api/longterm-page-data', async (req, res) => {
     const pendingPromises = (loadDreamState().pending_promises !== '无更新' ? loadDreamState().pending_promises : '');
     const weeklies = loadWeeklySummaries().sort((a, b) => b.week.localeCompare(a.week)).slice(0, 5);
     const monthlies = loadMonthlySummaries().sort((a, b) => b.month.localeCompare(a.month)).slice(0, 3);
-    res.json({ memories: allMems, counts, heatStats: { high: heatHigh, mid: heatMid, low: heatLow }, profile, dreamLogs, pendingPromises, weeklies, monthlies });
+    const crumbs = loadCrumbs().sort((a, b) => new Date(b.happened_at || b.created_at) - new Date(a.happened_at || a.created_at)).slice(0, 120);
+    const anticipations = loadAnticipations().sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
+    res.json({ memories: allMems, counts, heatStats: { high: heatHigh, mid: heatMid, low: heatLow }, profile, dreamLogs, pendingPromises, weeklies, monthlies, crumbs, anticipations });
 });
 
 app.get('/memory-manager', (req, res) => {
@@ -6297,11 +6398,15 @@ app.post('/api/web-chat', async (req, res) => {
                 }
                 const webXhsContext = await buildXhsVisionContext(text);
                 const webGitHubContext = await buildGitHubContext(text);
+                const webCrumbContext = buildCrumbRecallContext(text);
                 if (webXhsContext) {
                     const prefix = webXhsContext.text + '\n\n';
                     finalUser = Array.isArray(finalUser)
                         ? [{ type: 'text', text: prefix }, ...finalUser, ...webXhsContext.images.map(url => ({ type: 'image_url', image_url: { url } }))]
                         : [{ type: 'text', text: prefix + finalUser }, ...webXhsContext.images.map(url => ({ type: 'image_url', image_url: { url } }))];
+                }
+                if (webCrumbContext) {
+                    finalUser = Array.isArray(finalUser) ? [{ type: 'text', text: webCrumbContext + '\n\n' }, ...finalUser] : webCrumbContext + '\n\n' + finalUser;
                 }
                 if (webGitHubContext) {
                     const prefix = webGitHubContext.text + '\n\n';
@@ -6389,11 +6494,11 @@ app.post('/api/web-chat', async (req, res) => {
                     const cleanAiContent = aiContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
                     const { cleanText, memories } = extractSaveMemoryTag(cleanAiContent);
                     for (const mem of memories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
-                    const todoClean = extractAndProcessTodoTags(memories.length > 0 ? cleanText : cleanAiContent);
+                    const todoClean = processAssistantActionTags(memories.length > 0 ? cleanText : cleanAiContent);
                     const finalReply = cleanAssistantInternalArtifacts(todoClean);
                     await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
                     tryAutoDream(text);
-                    queueDailyStateCuration(text, finalReply);
+                    queueDailyStateCuration(text, finalReply); queueCrumbCuration(text); resolveAnticipationsFromUserText(text);
                     resolve({ text: finalReply, thinking });
                     return;
                 }
@@ -6441,11 +6546,11 @@ app.post('/api/web-chat', async (req, res) => {
                 for (const mem of memories) {
                     smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
                 }
-                aiReply = cleanAssistantInternalArtifacts(extractAndProcessTodoTags(memories.length > 0 ? cleanText : aiReply));
+                aiReply = cleanAssistantInternalArtifacts(processAssistantActionTags(memories.length > 0 ? cleanText : aiReply));
 
                 await saveToZepWithCounter(text || '（发送了一张图片）', aiReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
                 tryAutoDream(text);
-                queueDailyStateCuration(text, aiReply);
+                queueDailyStateCuration(text, aiReply); queueCrumbCuration(text); resolveAnticipationsFromUserText(text);
 
                 resolve({ text: aiReply, thinking: thinking });
             } catch (err) {
@@ -6531,6 +6636,27 @@ function upsertStateSlot(key, value, mode, lifeDays) {
 // 🧹 近况管家：聊天模型只负责回复，Gemini 管家在后台统一提取 daily/persistent 状态。
 // 串行队列避免连续消息的异步结果同时读写 user_state.json 时互相覆盖。
 let _dailyCuratorQueue = Promise.resolve();
+
+let _crumbCuratorQueue = Promise.resolve();
+
+function queueCrumbCuration(userText, tr = null) {
+    const curatorKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
+    if (!curatorKey || String(userText || '').trim().length < 4) return;
+    _crumbCuratorQueue = _crumbCuratorQueue.catch(() => {}).then(async () => {
+        const crumbs = await extractCrumbs({ fetchImpl: fetch, apiKey: curatorKey, endpoint: process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions', model: process.env.DAILY_CURATOR_MODEL || 'gemini-3.1-pro-preview', userText });
+        if (!crumbs.length) return;
+        const items = loadCrumbs(); const now = new Date(); const dayKey = getChinaDateString(now); let autoCreated = false;
+        for (const crumb of crumbs) {
+            if (items.some(item => item.source_quote === crumb.source_quote && Date.now() - new Date(item.created_at).getTime() < 7 * 86400000)) continue;
+            const entry = { id: `crumb_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, kind: 'crumb', happened_at: now.toISOString(), fact: crumb.fact, source_quote: crumb.source_quote, source_message_id: null, entities: crumb.entities, tags: crumb.tags, status: 'active', archive_after_days: 90, created_at: now.toISOString(), last_surfaced_at: null, surface_count: 0 };
+            items.push(entry);
+            const hasAutoToday = autoCreated || loadAnticipations().some(item => item.created_from === 'auto' && getChinaDateString(new Date(item.created_at)) === dayKey);
+            const sameEntityOpen = loadAnticipations().some(item => item.status === 'open' && crumb.entities.includes(item.entity) && Date.now() - new Date(item.created_at).getTime() < 7 * 86400000);
+            if (crumb.follow_up && !hasAutoToday && !sameEntityOpen && addAnticipation({ source_crumb_id: entry.id, content: crumb.follow_up.content, entity: crumb.follow_up.entity, follow_up_after_hours: crumb.follow_up.follow_up_after_hours, reason: crumb.follow_up.reason, created_from: 'auto' })) autoCreated = true;
+        }
+        saveCrumbs(items.slice(-2000)); traceEvent(tr, 'crumb_curator', '生活碎屑整理', { count: crumbs.length });
+    }).catch(error => { console.log('🧺 [生活碎屑] 整理失败，不影响本轮回复:', error.message); traceEvent(tr, 'crumb_curator', '生活碎屑失败', { error: error.message }); });
+}
 
 function cleanAssistantInternalArtifacts(content, tr = null) {
     return stripLeakedStateUpdates(handleMoodSnapshotsFromAssistantContent(content || '', tr));
@@ -6622,6 +6748,24 @@ function archiveDailyStateToDiary() {
         console.log('🌙 [今日流水归档] 已归档 ' + dailyItems.length + ' 条，日期 ' + todayStr);
     } catch(e) { console.log('🌙 [今日流水归档] 失败:', e.message); }
 }
+
+app.get('/api/crumbs', (req, res) => {
+    const status = String(req.query.status || 'all');
+    const items = loadCrumbs().filter(item => status === 'all' || item.status === status).sort((a, b) => new Date(b.happened_at || b.created_at) - new Date(a.happened_at || a.created_at));
+    res.json({ crumbs: items.slice(0, 300) });
+});
+
+app.get('/api/anticipations', (req, res) => {
+    const items = loadAnticipations().sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
+    res.json({ anticipations: items });
+});
+
+app.post('/api/anticipations/:id/resolve', (req, res) => {
+    const items = loadAnticipations(); const item = items.find(x => x.id === req.params.id);
+    if (!item) return res.status(404).json({ error: '未找到牵挂线' });
+    item.status = 'resolved'; item.resolved_at = new Date().toISOString(); saveAnticipations(items);
+    res.json({ success: true, anticipation: item });
+});
 
 function tryParseJsonFromText(raw) {
     if (!raw) return null;

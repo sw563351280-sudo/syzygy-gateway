@@ -46,9 +46,10 @@ function normalizeUpdates(payload) {
         if (!item || typeof item !== 'object') continue;
         const key = String(item.key || '').trim().slice(0, 24);
         const value = String(item.value == null ? '' : item.value).trim().slice(0, 180);
-        const mode = item.mode === 'persistent' ? 'persistent' : 'daily';
+        // 日常细节已交给 crumbs：状态槽只保留会被新值覆盖的 persistent 状态。
+        const mode = item.mode;
         const confidence = Number(item.confidence);
-        if (!key || !value) continue;
+        if (!key || !value || mode !== 'persistent') continue;
         if (Number.isFinite(confidence) && confidence < 0.72) continue;
         const signature = `${mode}:${key}:${value}`;
         if (seen.has(signature)) continue;
