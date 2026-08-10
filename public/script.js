@@ -2132,6 +2132,7 @@ function updateToolGroupDOM(el, toolCalls, isStreaming) {
 }
 
 const _xhsCardCache = new Map();
+const _githubCardCache = new Map();
 
 function findXhsLink(text) {
     const match = String(text || '').match(/https:\/\/(?:www\.)?(?:xhslink\.com|xiaohongshu\.com)\/[^\s<>"']+/i);
@@ -2167,6 +2168,35 @@ async function hydrateXhsCard(el, url) {
     } catch (error) {
         el.textContent = '小红书笔记没读到：' + error.message;
         el.classList.add('xhs-card-error');
+    }
+}
+
+function findGitHubLink(text) {
+    const match = String(text || '').match(/https:\/\/(?:www\.)?github\.com\/[^\s<>"']+/i);
+    return match ? match[0].replace(/[，。！？、】【）)]+$/u, '') : null;
+}
+
+async function hydrateGitHubCard(el, url) {
+    if (!el || el.dataset.loading === 'true') return;
+    el.dataset.loading = 'true';
+    try {
+        let payload = _githubCardCache.get(url);
+        if (!payload) {
+            const response = await fetch('/api/github-card?url=' + encodeURIComponent(url));
+            payload = await response.json();
+            if (!response.ok || !payload.success) throw new Error(payload.error || '读取失败');
+            _githubCardCache.set(url, payload);
+        }
+        const card = payload.card;
+        el.innerHTML = '';
+        const head = document.createElement('div'); head.className = 'github-card-head'; head.textContent = 'GITHUB · ' + String(card.type || 'repo').toUpperCase();
+        const title = document.createElement('b'); title.className = 'github-card-title'; title.textContent = card.title || 'GitHub 链接';
+        const subtitle = document.createElement('p'); subtitle.className = 'github-card-desc'; subtitle.textContent = card.subtitle || '已读取';
+        const link = document.createElement('a'); link.href = card.url || url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = '在 GitHub 打开 ↗';
+        el.append(head, title, subtitle, link);
+    } catch (error) {
+        el.textContent = 'GitHub 链接没读到：' + error.message;
+        el.classList.add('github-card-error');
     }
 }
 
@@ -2223,6 +2253,8 @@ function renderChatMessages(){
             htmlContent += '<div>' + String(displayContent || '').replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '\n').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
             const xhsUrl = findXhsLink(displayContent);
             if (xhsUrl) htmlContent += '<div class="xhs-card" data-xhs-url="' + encodeURIComponent(xhsUrl) + '">正在读取小红书笔记…</div>';
+            const githubUrl = findGitHubLink(displayContent);
+            if (githubUrl) htmlContent += '<div class="github-card" data-github-url="' + encodeURIComponent(githubUrl) + '">正在读取 GitHub 链接…</div>';
         } else {
             htmlContent += '<div class="md-content">' + renderMarkdown(displayContent || '') + '</div>';
         }
@@ -2261,6 +2293,7 @@ function renderChatMessages(){
         win.appendChild(rowDiv);
     });
     win.querySelectorAll('.xhs-card[data-xhs-url]').forEach(el => hydrateXhsCard(el, decodeURIComponent(el.dataset.xhsUrl)));
+    win.querySelectorAll('.github-card[data-github-url]').forEach(el => hydrateGitHubCard(el, decodeURIComponent(el.dataset.githubUrl)));
     forceScrollToChatBottom();
 }
 
@@ -3441,7 +3474,7 @@ async function syncMcpTools() {
             return;
         }
         listEl.innerHTML = Object.entries(tools).map(([name, enabled]) => {
-            const desc = { fetch_txt: '读取网页纯文本', fetch_html: '读取网页原始HTML', fetch_json: '读取JSON接口', fetch_github: '读取GitHub仓库' }[name] || '';
+            const desc = { fetch_txt: '读取网页纯文本', fetch_html: '读取网页原始HTML', fetch_json: '读取JSON接口' }[name] || '';
             return '<div style=”display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:8px;border:1px solid rgba(79,195,247,0.2);”>' +
                 '<div><span style=”color:#4fc3f7;”>' + (enabled ? '☑' : '☐') + '</span> <span style=”color:white;font-size:0.85em;”>' + name + '</span> <span style=”color:#888;font-size:0.7em;”>' + desc + '</span></div>' +
                 '<button onclick=”toggleToolUI(\'' + name + '\')” style=”padding:3px 10px;border-radius:6px;border:none;cursor:pointer;font-size:0.75em;background:' + (enabled ? '#e8f5e9' : '#ffebee') + ';color:' + (enabled ? '#2e7d32' : '#c62828') + ';”>' + (enabled ? '✅' : '❌') + '</button>' +

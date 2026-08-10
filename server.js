@@ -12,6 +12,7 @@ const { createCodexBridge } = require('./codex-bridge');
 const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
 const { extractDailyStateUpdates, stripLeakedStateUpdates } = require('./daily-state-curator');
 const { extractXhsUrl, isAllowedXhsMediaUrl, isAllowedXhsUrl, readXhsNote } = require('./xhs-reader');
+const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
 
 const execFileAsync = promisify(execFile);
 
@@ -3440,7 +3441,6 @@ const BUILTIN_TOOLS = [
     { type: "function", function: { name: "fetch_txt", description: "【仅在用户明确要求查看某个网页、或需要获取网络信息时使用】读取网页URL返回纯文本。如果内容被截断，可用offset参数继续读。日常闲聊、情感对话、RP时严禁调用。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" }, offset: { type: "integer", description: "从第几个字符开始读（默认0）。截断后设置此值继续读" } }, required: ["url"] } } },
     { type: "function", function: { name: "fetch_html", description: "【仅在需要分析网页HTML结构、调试前端代码时使用】读取网页返回原始HTML。大多数情况应该用 fetch_txt。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
     { type: "function", function: { name: "fetch_json", description: "【仅在需要调用API接口获取JSON数据时使用】读取JSON接口URL，返回格式化JSON。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "JSON接口的URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
-    { type: "function", function: { name: "fetch_github", description: "【仅在用户明确要求查看GitHub仓库或代码文件时使用】读取GitHub仓库文件列表或具体文件内容。支持仓库根目录（返回文件树）和具体文件路径（返回内容）。大文件被截断时，用offset参数继续读取后续内容。", parameters: { type: "object", properties: { url: { type: "string", description: "GitHub URL" }, offset: { type: "integer", description: "从第几个字符开始读（默认0）。文件被截断后设置此值继续读后面的内容" } }, required: ["url"] } } },
     { type: "function", function: { name: "read_diary", description: "读取指定日期的日记内容，包括当天的流水记录（今日流水）和心情快照。江鱼问起“昨天/前天做了什么、吃了什么”之类的近期琐事，或明确要求查看某天日记时，都可以主动调用，不用等她把话说死。", parameters: { type: "object", properties: { date: { type: "string", description: "日期，格式 YYYY-MM-DD，如 2026-05-06" } }, required: ["date"] } } },
     { type: "function", function: { name: "exec", description: "在 VPS 上执行终端命令。可用于 git 操作、查看文件、重启服务等。只允许安全命令（git, systemctl, npm, node, ls, cat, grep, tail, head, find, echo, whoami, uptime, df）。", parameters: { type: "object", properties: { command: { type: "string", description: "要执行的终端命令" } }, required: ["command"] } } },
     { type: "function", function: { name: "bark_push", description: "通过Bark给江鱼的手机发送推送通知。当你需要主动提醒她、催她睡觉、叫她吃饭、或者想说一句让她在通知栏看到的话时使用。", parameters: { type: "object", properties: { title: { type: "string", description: "推送标题" }, body: { type: "string", description: "推送内容" } }, required: ["title", "body"] } } },
@@ -3452,7 +3452,7 @@ const BUILTIN_TOOLS = [
 const TOOLS_CONFIG_FILE = path.join(DATA_DIR, 'tools_config.json');
 function loadToolsConfig() { try { return JSON.parse(fs.readFileSync(TOOLS_CONFIG_FILE, 'utf8')); } catch(e) { return null; } }
 function saveToolsConfig(cfg) { try { fs.writeFileSync(TOOLS_CONFIG_FILE, JSON.stringify(cfg)); } catch(e) {} }
-let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, fetch_github: true, read_diary: true, exec: true, bark_push: true, check_phone: true, search_transcript: true, check_environment: true, mcp: false, calendar_enabled: true, toy_enabled: false };
+let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, read_diary: true, exec: true, bark_push: true, check_phone: true, search_transcript: true, check_environment: true, mcp: false, calendar_enabled: true, toy_enabled: false };
 // 首次启动时写入默认配置
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
@@ -3466,7 +3466,7 @@ if (TOOLS_ENABLED.toy_enabled === undefined) { TOOLS_ENABLED.toy_enabled = false
 if (_configChanged) { saveToolsConfig(TOOLS_ENABLED); console.log('🔧 [工具配置] 已补充缺失字段'); }
 
 // 轻量工具（始终可见，不触发工具循环）
-const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'fetch_github', 'exec', 'bark_push', 'check_phone', 'search_transcript', 'check_environment']);
+const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'exec', 'bark_push', 'check_phone', 'search_transcript', 'check_environment']);
 // toy MCP 工具
 const TOY_TOOLS = new Set(['toy_vibrate', 'toy_stop_vibration', 'toy_status']);
 // 代码工具（只在有关键词或命令式时出现）
@@ -4384,6 +4384,36 @@ app.get('/api/xhs-media', async (req, res) => {
     } catch (error) { res.status(502).json({ error: error.message }); }
 });
 
+// GitHub 閲读：直连官方 API，避免模型先走一轮工具调用。
+const GITHUB_CACHE_TTL = 10 * 60 * 1000;
+const GITHUB_CACHE = new Map();
+async function getGitHubCached(url) {
+    const target = parseGitHubTarget(url);
+    if (!target) throw new Error('请使用 GitHub 仓库、文件、Issue、PR 或提交链接');
+    const key = target.url;
+    const cached = GITHUB_CACHE.get(key);
+    if (cached && Date.now() - cached.createdAt < GITHUB_CACHE_TTL) return cached.value;
+    const value = await readGitHubTarget(fetch, target.url, { token: process.env.GITHUB_TOKEN || '' });
+    GITHUB_CACHE.set(key, { createdAt: Date.now(), value });
+    if (GITHUB_CACHE.size > 60) GITHUB_CACHE.delete(GITHUB_CACHE.keys().next().value);
+    return value;
+}
+async function buildGitHubContext(userText) {
+    const url = extractGitHubUrl(userText);
+    if (!url) return null;
+    try { return await getGitHubCached(url); }
+    catch (error) {
+        console.log('🐙 [GitHub] 读取失败:', error.message);
+        return { error: error.message, text: `【GitHub 链接读取失败】${error.message}。不要假装已经看过此链接。`, card: null };
+    }
+}
+app.get('/api/github-card', async (req, res) => {
+    try {
+        const result = await getGitHubCached(req.query.url);
+        res.json({ success: true, card: result.card });
+    } catch (error) { res.status(400).json({ success: false, error: error.message }); }
+});
+
 // 跨平台锚点匹配：用多对user-assistant指纹定位前端对话在Zep中的位置
 function findZepAnchor(cleanMessages, zepMessages) {
     const pairs = [];
@@ -4670,7 +4700,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
         const physioContext = await buildPhysioContext(currentUserMsgText);
 
-        const envContext = buildEnvContext(`【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n【🚨 工具反幻觉铁律】：当需要查看网页、GitHub仓库、API数据时，必须通过 function calling 调用工具（fetch_txt/fetch_html/fetch_json/fetch_github），基于工具返回的真实内容回答。严禁自己编写代码来"模拟"访问网页！严禁假装已经看过！如果工具失败，直接说"我没能读到"，不要编造！\n【记忆刻录机制】：用<SAVE_MEMORY tags="...">记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊。一次最多一个标签，内容≥10字。详见System Prompt第九项。`);
+        const envContext = buildEnvContext(`【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n【🚨 信息真实性铁律】：查看网页或 API 数据时，必须基于服务端实际读取的内容回答；GitHub 链接会由服务端自动读取并注入上下文。严禁假装已经看过；读取失败时直接说“我没能读到”，不要编造。\n【记忆刻录机制】：用<SAVE_MEMORY tags="...">记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊。一次最多一个标签，内容≥10字。详见System Prompt第九项。`);
 
         const { stableSystemPrompt, volatileParts } = buildFinalSystemPrompt([
             { label: '环境参数', content: envContext },
@@ -4734,7 +4764,9 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         logSectionSizes(volatileRaw);
         const volatileText = volatileRaw;
         const xhsContext = await buildXhsVisionContext(currentUserMsgText);
+        const githubContext = await buildGitHubContext(currentUserMsgText);
         if (xhsContext) traceEvent(_tr, 'xhs', '小红书读取', { ok: !xhsContext.error, type: xhsContext.note?.type || null, images: xhsContext.images.length, error: xhsContext.error || null });
+        if (githubContext) traceEvent(_tr, 'github', 'GitHub读取', { ok: !githubContext.error, type: githubContext.card?.type || null, error: githubContext.error || null });
         traceEvent(_tr, 'inject', 'volatile 组装', { totalLen: (volatileText || '').length, sections: (volatileText || '').split(/\n(?=【)/).map(s => ({ key: (s.match(/^【([^】]+)】/) || [])[1] || '?', len: s.length })).slice(0, 20) });
 
         // === 3. 组装最终 messages: system + history + (merged user) ===
@@ -4754,6 +4786,12 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             finalUserContent = Array.isArray(finalUserContent)
                 ? [{ type: 'text', text: xhsPrefix }, ...finalUserContent, ...xhsContext.images.map(url => ({ type: 'image_url', image_url: { url } }))]
                 : [{ type: 'text', text: xhsPrefix + finalUserContent }, ...xhsContext.images.map(url => ({ type: 'image_url', image_url: { url } }))];
+        }
+        if (githubContext) {
+            const prefix = githubContext.text + '\n\n';
+            finalUserContent = Array.isArray(finalUserContent)
+                ? [{ type: 'text', text: prefix }, ...finalUserContent]
+                : prefix + finalUserContent;
         }
         newMessages.push({ role: 'user', content: finalUserContent });
         newMessages.unshift(systemMsg);
@@ -4803,10 +4841,8 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return TOOLS_ENABLED.mcp !== false; return TOOLS_ENABLED[name] !== false; });
         let forceToolChoice = null;
         if (currentUserMsgText) {
-            const hasGitHub = /github\.com/i.test(currentUserMsgText);
             const hasUrl = /(https?:\/\/[^\s]+)/i.test(currentUserMsgText);
-            if (hasGitHub) { forceToolChoice = { type: "function", function: { name: "fetch_github" } }; console.log('🎯 [工具强制] GitHub URL → 强制 fetch_github'); }
-            else if (hasUrl && !xhsContext) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
+            if (hasUrl && !xhsContext && !githubContext) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
         }
         let filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
         traceEvent(_tr, 'tools', '工具筛选', { total: enabledTools.length, filtered: filteredTools.length, names: filteredTools.map(t => t.function?.name).slice(0, 10) });
@@ -6260,11 +6296,16 @@ app.post('/api/web-chat', async (req, res) => {
                         : volatileText + '\n\n' + finalUser;
                 }
                 const webXhsContext = await buildXhsVisionContext(text);
+                const webGitHubContext = await buildGitHubContext(text);
                 if (webXhsContext) {
                     const prefix = webXhsContext.text + '\n\n';
                     finalUser = Array.isArray(finalUser)
                         ? [{ type: 'text', text: prefix }, ...finalUser, ...webXhsContext.images.map(url => ({ type: 'image_url', image_url: { url } }))]
                         : [{ type: 'text', text: prefix + finalUser }, ...webXhsContext.images.map(url => ({ type: 'image_url', image_url: { url } }))];
+                }
+                if (webGitHubContext) {
+                    const prefix = webGitHubContext.text + '\n\n';
+                    finalUser = Array.isArray(finalUser) ? [{ type: 'text', text: prefix }, ...finalUser] : prefix + finalUser;
                 }
                 const apiMessages = [
                     webSystemMsg,
@@ -6291,10 +6332,8 @@ app.post('/api/web-chat', async (req, res) => {
                 const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return TOOLS_ENABLED.mcp !== false; return TOOLS_ENABLED[name] !== false; });
                 let webForceToolChoice = null;
                 if (text) {
-                    const hasGitHub = /github\.com/i.test(text);
                     const hasUrl = /(https?:\/\/[^\s]+)/i.test(text);
-                    if (hasGitHub) webForceToolChoice = { type: "function", function: { name: "fetch_github" } };
-                    else if (hasUrl) webForceToolChoice = { type: "function", function: { name: "fetch_txt" } };
+                    if (hasUrl && !webXhsContext && !webGitHubContext) webForceToolChoice = { type: "function", function: { name: "fetch_txt" } };
                 }
                 const filteredTools = filterRelevantTools(enabledTools, text, webForceToolChoice);
                 console.log(`🔧 [web-chat工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
