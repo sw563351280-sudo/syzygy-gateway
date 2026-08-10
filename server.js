@@ -6643,7 +6643,7 @@ function queueCrumbCuration(userText, tr = null) {
     const curatorKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
     if (!curatorKey || String(userText || '').trim().length < 4) return;
     _crumbCuratorQueue = _crumbCuratorQueue.catch(() => {}).then(async () => {
-        const crumbs = await extractCrumbs({ fetchImpl: fetch, apiKey: curatorKey, endpoint: process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions', model: process.env.DAILY_CURATOR_MODEL || 'gemini-3.1-pro-preview', userText });
+        const crumbs = await extractCrumbs({ fetchImpl: fetch, apiKey: curatorKey, endpoint: process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions', model: process.env.CRUMB_CURATOR_MODEL || 'gemini-3-flash-preview', userText });
         if (!crumbs.length) return;
         const items = loadCrumbs(); const now = new Date(); const dayKey = getChinaDateString(now); let autoCreated = false;
         for (const crumb of crumbs) {
