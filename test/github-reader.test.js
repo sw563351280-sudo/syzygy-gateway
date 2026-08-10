@@ -5,6 +5,7 @@ const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('../gi
 
 test('recognizes only safe GitHub URLs and their targets', () => {
     assert.equal(extractGitHubUrl('看 https://github.com/octo/demo/issues/12。'), 'https://github.com/octo/demo/issues/12');
+    assert.equal(extractGitHubUrl('看 https://github.com/POluz/Ombre-Brain。然后告诉我'), 'https://github.com/POluz/Ombre-Brain');
     assert.equal(parseGitHubTarget('https://evil.example/github.com/a/b'), null);
     assert.deepEqual(parseGitHubTarget('https://github.com/octo/demo/blob/main/src/a.js').type, 'file');
     assert.equal(parseGitHubTarget('https://github.com/octo/demo/pull/7').type, 'pull');

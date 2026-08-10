@@ -11,7 +11,8 @@ function parseGitHubUrl(value) {
 }
 
 function extractGitHubUrl(text) {
-    const match = String(text || '').match(/https:\/\/(?:www\.)?github\.com\/[^\s<>"']+/i);
+    // GitHub URL 本身只接收 ASCII URL 字符；这样“链接。后面的中文”不会被贪婪吞进去。
+    const match = String(text || '').match(/https:\/\/(?:www\.)?github\.com\/[A-Za-z0-9._~:\/?#[\]@!$&'()*+,;=%-]+/i);
     return match ? match[0].replace(/[，。！？、】【）)]+$/u, '') : null;
 }
 

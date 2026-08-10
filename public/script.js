@@ -2172,7 +2172,7 @@ async function hydrateXhsCard(el, url) {
 }
 
 function findGitHubLink(text) {
-    const match = String(text || '').match(/https:\/\/(?:www\.)?github\.com\/[^\s<>"']+/i);
+    const match = String(text || '').match(/https:\/\/(?:www\.)?github\.com\/[A-Za-z0-9._~:\/?#[\]@!$&'()*+,;=%-]+/i);
     return match ? match[0].replace(/[，。！？、】【）)]+$/u, '') : null;
 }
 
