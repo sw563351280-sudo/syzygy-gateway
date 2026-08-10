@@ -7,6 +7,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { createCodexBridge } = require('./codex-bridge');
 const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
+const { extractDailyStateUpdates, stripLeakedStateUpdates } = require('./daily-state-curator');
 
 const app = express();
 
@@ -4732,7 +4733,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             if (isStreamMode) {
                 // 先剥离 MOOD_SNAPSHOT 标签再发送前端
                 moodLog('[MOOD DEBUG] tool-path stream before strip has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
-                const visibleContent = handleMoodSnapshotsFromAssistantContent(finalContent, _tr);
+                const visibleContent = cleanAssistantInternalArtifacts(finalContent, _tr);
                 if (finalThink) {
                     res.write(`data: ${JSON.stringify({ id: 'think', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { reasoning_content: finalThink }, finish_reason: null }] })}\n\n`);
                 }
@@ -4747,6 +4748,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, visibleContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
+                    queueDailyStateCuration(currentUserMsgText, visibleContent, _tr);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, visibleContent);
                 traceEnd(_tr, { ok: true, replyLen: visibleContent.length, path: 'tool-stream' });
@@ -4754,11 +4756,13 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             } else {
                 if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
                 if (finalThink) toolData.choices[0].message.reasoning_content = finalThink;
-                const moodCleaned = handleMoodSnapshotsFromAssistantContent(finalContent, _tr);
+                const moodCleaned = cleanAssistantInternalArtifacts(finalContent, _tr);
+                toolData.choices[0].message.content = moodCleaned;
                 moodLog('[MOOD DEBUG] tool-path non-stream finalContent has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, moodCleaned, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
+                    queueDailyStateCuration(currentUserMsgText, moodCleaned, _tr);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, moodCleaned);
                 traceEnd(_tr, { ok: true, replyLen: (moodCleaned || '').length, path: 'tool-json' });
@@ -4837,7 +4841,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     const piece = delta.content; contentBuffer += piece; fullAiResponse += piece;
 
                     if (!isBuffering) {
-                        const TAG_OPEN = /<(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT)/;
+                        const TAG_OPEN = /<(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|STATE_UPDATE)/;
                         const saveIdx = contentBuffer.search(TAG_OPEN);
                         if (saveIdx === -1) {
                             const ltIdx = contentBuffer.lastIndexOf('<');
@@ -4862,11 +4866,12 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                         const close0 = contentBuffer.indexOf('</SAVE_MEMORY>');
                         const close1 = contentBuffer.indexOf('</ADD_TODO>');
                         const close2 = contentBuffer.indexOf('</MOOD_SNAPSHOT>');
-                        const close3 = contentBuffer.indexOf('/>');
-                        const closes = [close0, close1, close2, close3].filter(i => i !== -1);
+                        const close3 = contentBuffer.indexOf('</STATE_UPDATE>');
+                        const close4 = contentBuffer.indexOf('/>');
+                        const closes = [close0, close1, close2, close3, close4].filter(i => i !== -1);
                         if (closes.length > 0) {
                             const closeIdx = Math.min(...closes);
-                            const foundTag = closeIdx === close0 ? '</SAVE_MEMORY>' : closeIdx === close1 ? '</ADD_TODO>' : closeIdx === close2 ? '</MOOD_SNAPSHOT>' : '/>';
+                            const foundTag = closeIdx === close0 ? '</SAVE_MEMORY>' : closeIdx === close1 ? '</ADD_TODO>' : closeIdx === close2 ? '</MOOD_SNAPSHOT>' : closeIdx === close3 ? '</STATE_UPDATE>' : '/>';
                             contentBuffer = contentBuffer.substring(closeIdx + foundTag.length);
                             isBuffering = false;
                             if (contentBuffer) { const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate); if (chunk) res.write(chunk); contentBuffer = ''; }
@@ -4901,10 +4906,10 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
                     moodLog('[MOOD DEBUG] before mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     const beforeMood = streamCleanText;
-                    streamCleanText = handleMoodSnapshotsFromAssistantContent(streamCleanText, _tr);
+                    streamCleanText = cleanAssistantInternalArtifacts(streamCleanText, _tr);
                     moodLog('[MOOD DEBUG] after mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     moodLog('[MOOD DEBUG] mood handler text changed:', beforeMood !== streamCleanText);
-                    if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr); tryAutoDream(currentUserMsgText); }
+                    if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr); tryAutoDream(currentUserMsgText); queueDailyStateCuration(currentUserMsgText, streamCleanText, _tr); }
                     if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, streamCleanText);
                     moodLog('[MOOD DEBUG] stream finalize done');
                 } catch(e) { moodLog('[MOOD ERROR] stream finalize error:', e && (e.stack || e.message || e)); }
@@ -4933,12 +4938,14 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 // 非流式：先处理 MOOD_SNAPSHOT，再保存
                 moodLog('[MOOD DEBUG] non-stream content has tag before: ' + String(finalContent || '').includes('<MOOD_SNAPSHOT>'));
                 if (finalContent) {
-                    finalContent = handleMoodSnapshotsFromAssistantContent(finalContent, _tr);
+                    finalContent = cleanAssistantInternalArtifacts(finalContent, _tr);
                     moodLog('[MOOD DEBUG] non-stream after mood handler has tag: ' + finalContent.includes('<MOOD_SNAPSHOT>'));
                 }
+                if (data.choices?.[0]?.message) data.choices[0].message.content = finalContent;
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
+                    queueDailyStateCuration(currentUserMsgText, finalContent, _tr);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, finalContent);
                 traceEnd(_tr, { ok: true, replyLen: (finalContent || '').length, path: 'json' });
@@ -6158,9 +6165,10 @@ app.post('/api/web-chat', async (req, res) => {
                     const { cleanText, memories } = extractSaveMemoryTag(cleanAiContent);
                     for (const mem of memories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
                     const todoClean = extractAndProcessTodoTags(memories.length > 0 ? cleanText : cleanAiContent);
-                    const finalReply = todoClean;
+                    const finalReply = cleanAssistantInternalArtifacts(todoClean);
                     await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
                     tryAutoDream(text);
+                    queueDailyStateCuration(text, finalReply);
                     resolve({ text: finalReply, thinking });
                     return;
                 }
@@ -6208,10 +6216,11 @@ app.post('/api/web-chat', async (req, res) => {
                 for (const mem of memories) {
                     smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
                 }
-                aiReply = extractAndProcessTodoTags(memories.length > 0 ? cleanText : aiReply);
+                aiReply = cleanAssistantInternalArtifacts(extractAndProcessTodoTags(memories.length > 0 ? cleanText : aiReply));
 
                 await saveToZepWithCounter(text || '（发送了一张图片）', aiReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
                 tryAutoDream(text);
+                queueDailyStateCuration(text, aiReply);
 
                 resolve({ text: aiReply, thinking: thinking });
             } catch (err) {
@@ -6292,6 +6301,46 @@ function upsertStateSlot(key, value, mode, lifeDays) {
     state.slots[key] = slot;
     try { saveUserState(state); } catch(e) { console.log('📝 [状态槽] 保存失败:', e.message); return; }
     console.log('📝 [状态槽] ' + key + ' = ' + slot.value.substring(0, 50) + (slot.value.length > 50 ? '...' : '') + ' (' + mode + ')');
+}
+
+// 🧹 近况管家：聊天模型只负责回复，Gemini 管家在后台统一提取 daily/persistent 状态。
+// 串行队列避免连续消息的异步结果同时读写 user_state.json 时互相覆盖。
+let _dailyCuratorQueue = Promise.resolve();
+
+function cleanAssistantInternalArtifacts(content, tr = null) {
+    return stripLeakedStateUpdates(handleMoodSnapshotsFromAssistantContent(content || '', tr));
+}
+
+function queueDailyStateCuration(userText, assistantText, tr = null) {
+    if (!stateSlotsEnabled()) return;
+    const curatorKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
+    if (!curatorKey) {
+        console.log('🧹 [近况管家] 缺少 DREAM_API_KEY/ROUTER_API_KEY，跳过');
+        return;
+    }
+    const cleanUser = String(userText || '').trim();
+    const cleanAssistant = stripLeakedStateUpdates(String(assistantText || '')).trim();
+    _dailyCuratorQueue = _dailyCuratorQueue
+        .catch(() => {})
+        .then(async () => {
+            const updates = await extractDailyStateUpdates({
+                fetchImpl: fetch,
+                apiKey: curatorKey,
+                endpoint: process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions',
+                model: process.env.DAILY_CURATOR_MODEL || 'gemini-3.1-pro-preview',
+                userText: cleanUser,
+                assistantText: cleanAssistant
+            });
+            for (const update of updates) {
+                upsertStateSlot(update.key, update.value, update.mode, update.life_days);
+            }
+            traceEvent(tr, 'state_curator', '近况管家完成', { found: updates.length, keys: updates.map(u => u.key) });
+            console.log('🧹 [近况管家] 完成，写入 ' + updates.length + ' 条' + (updates.length ? ': ' + updates.map(u => u.key).join(', ') : ''));
+        })
+        .catch(err => {
+            traceEvent(tr, 'state_curator', '近况管家失败', { error: err.message });
+            console.log('🧹 [近况管家] 失败，不影响本轮回复:', err.message);
+        });
 }
 
 function formatStateSlotsForPrompt() {
