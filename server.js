@@ -11,6 +11,7 @@ const { promisify } = require('util');
 const { createCodexBridge } = require('./codex-bridge');
 const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
 const { extractDailyStateUpdates, stripLeakedStateUpdates } = require('./daily-state-curator');
+const { mergeMemoryRevision, selectMemoryMergeCandidate } = require('./memory-merge');
 const { extractCrumbs } = require('./crumb-curator');
 const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
 const { extractXhsUrl, isAllowedXhsMediaUrl, isAllowedXhsUrl, readXhsNote } = require('./xhs-reader');
@@ -1295,6 +1296,12 @@ async function ensureEmbedding(memoryId, content) {
     return embedding;
 }
 
+function refreshMemoryEmbedding(memoryId, content) {
+    const cache = loadEmbeddingsCache();
+    if (cache[memoryId]) { delete cache[memoryId]; saveEmbeddingsCache(cache); }
+    return ensureEmbedding(memoryId, content);
+}
+
 async function reindexAllEmbeddings() {
     console.log('🧲 [向量索引] 开始全量重建...');
     const cache = loadEmbeddingsCache();
@@ -1923,6 +1930,20 @@ function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', 
         console.log(`🛡️ [防抽风拦截] 阻止了一条重复的现实记忆: ${content.substring(0, 15)}...`);
         return null;
     }
+    if (source !== 'manual') {
+        const candidate = selectMemoryMergeCandidate(content, tags, memories);
+        if (candidate) {
+            const index = memories.findIndex(m => m.id === candidate.memory.id);
+            const updated = mergeMemoryRevision(candidate.memory, {
+                content, tags, source, ttl, expires_at: calculateExpiry(ttl), arousal, emotional_weight: emotionalWeight
+            });
+            memories[index] = updated;
+            saveLongTermMemories(memories);
+            refreshMemoryEmbedding(updated.id, updated.content).catch(e => console.log(`⚠️ [向量] 记忆更新重建失败: ${e.message}`));
+            console.log(`🧩 [记忆合并] 更新 ${updated.id} | 标签重合=${candidate.overlap}, 内容相似=${candidate.similarity.toFixed(2)}`);
+            return { ...updated, write_action: 'updated' };
+        }
+    }
     if (source !== 'manual' && isSemanticDuplicate(content, memories)) {
         return null;
     }
@@ -2550,12 +2571,12 @@ function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5, user
     const emoWeight = (userMsg && source === 'ai_active') ? detectEmotion(userMsg) : 0;
     const result = addLongTermMemory(content, source, validTags, ttl, effectiveArousal, emoWeight);
     if (result) {
-        traceEvent(tr, 'memory_write', '已写入', { id: result.id, preview: content.substring(0, 60), tags: validTags, ttl, arousal: effectiveArousal });
+        traceEvent(tr, 'memory_write', result.write_action === 'updated' ? '已合并更新' : '已写入', { id: result.id, preview: content.substring(0, 60), tags: validTags, ttl, arousal: effectiveArousal });
     } else {
         traceEvent(tr, 'memory_write', '被拦截·重复', { reason: '内容完全重复 或 语义相似度>0.6', preview: content.substring(0, 60), tags: validTags });
     }
     if (source === 'ai_active' && result) {
-        wsBroadcast({ type: 'memory_saved', preview: content.trim().substring(0, 60), tags: validTags, source: 'ai_active' });
+        wsBroadcast({ type: result.write_action === 'updated' ? 'memory_updated' : 'memory_saved', preview: content.trim().substring(0, 60), tags: validTags, source: 'ai_active', id: result.id });
         try {
             const diaries = loadDiaries();
             diaries.push({ id: 'syzygy_' + Date.now().toString(36), text: `沈望记下了：${content.trim()}`, author: 'system', type: 'syzygy_note', date: new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' }).replace(/\//g, '-'), datetime: new Date().toISOString() });
