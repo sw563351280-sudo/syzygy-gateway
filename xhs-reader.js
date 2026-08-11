@@ -1,7 +1,8 @@
 'use strict';
 
 const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
-const XHS_HOSTS = new Set(['xhslink.com', 'www.xhslink.com', 'xiaohongshu.com', 'www.xiaohongshu.com']);
+const XHS_HOSTS = new Set(['xhslink.com', 'www.xhslink.com', 'xhslink.cn', 'www.xhslink.cn', 'xiaohongshu.com', 'www.xiaohongshu.com']);
+const XHS_HTTP_SHORT_HOSTS = new Set(['xhslink.cn', 'www.xhslink.cn']);
 const XHS_MEDIA_HOST_SUFFIXES = ['.xhscdn.com', '.xiaohongshu.com'];
 
 function parseHttpsUrl(value) {
@@ -13,12 +14,27 @@ function parseHttpsUrl(value) {
     }
 }
 
+// iOS Copy Link can emit http://xhslink.cn/... although this short host
+// redirects only over HTTPS. Normalize this one trusted host before checking
+// the allowlist; arbitrary HTTP URLs stay rejected.
+function parseXhsShareUrl(value) {
+    try {
+        const url = new URL(String(value || '').trim());
+        if (url.protocol === 'http:' && XHS_HTTP_SHORT_HOSTS.has(url.hostname.toLowerCase())) {
+            url.protocol = 'https:';
+        }
+        return url.protocol === 'https:' ? url : null;
+    } catch (_) {
+        return null;
+    }
+}
+
 function isXhsHost(hostname) {
     return XHS_HOSTS.has(String(hostname || '').toLowerCase());
 }
 
 function isAllowedXhsUrl(value) {
-    const url = value instanceof URL ? value : parseHttpsUrl(value);
+    const url = value instanceof URL ? value : parseXhsShareUrl(value);
     return Boolean(url && isXhsHost(url.hostname));
 }
 
@@ -30,14 +46,16 @@ function isAllowedXhsMediaUrl(value) {
 }
 
 function extractXhsUrl(text) {
-    const match = String(text || '').match(/https:\/\/(?:www\.)?(?:xhslink\.com|xiaohongshu\.com)\/[^\s<>"']+/i);
+    const match = String(text || '').match(/https?:\/\/(?:www\.)?(?:xhslink\.(?:com|cn)|xiaohongshu\.com)\/[^\s<>"']+/i);
     if (!match) return null;
+    const normalized = parseXhsShareUrl(match[0]);
+    if (normalized) return normalized.toString();
     return match[0].replace(/[，。！？、）)】]+$/u, '');
 }
 
 async function fetchWithSafeRedirects(fetchImpl, input, options = {}) {
     const maxRedirects = options.maxRedirects || 5;
-    let current = input instanceof URL ? input : parseHttpsUrl(input);
+    let current = input instanceof URL ? input : parseXhsShareUrl(input);
     if (!isAllowedXhsUrl(current)) throw new Error('只支持小红书分享链接');
 
     for (let hop = 0; hop <= maxRedirects; hop++) {

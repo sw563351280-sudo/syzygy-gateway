@@ -2144,8 +2144,11 @@ const _xhsCardCache = new Map();
 const _githubCardCache = new Map();
 
 function findXhsLink(text) {
-    const match = String(text || '').match(/https:\/\/(?:www\.)?(?:xhslink\.com|xiaohongshu\.com)\/[^\s<>"']+/i);
-    return match ? match[0].replace(/[，。！？、）)】]+$/u, '') : null;
+    const match = String(text || '').match(/https?:\/\/(?:www\.)?(?:xhslink\.(?:com|cn)|xiaohongshu\.com)\/[^\s<>"']+/i);
+    if (!match) return null;
+    const url = match[0].replace(/[，。！？、）)】]+$/u, '');
+    // xhslink.cn from iOS Copy Link redirects only over HTTPS.
+    return url.replace(/^http:\/\/(www\.)?xhslink\.cn\//i, (_, www) => `https://${www || ''}xhslink.cn/`);
 }
 
 async function hydrateXhsCard(el, url) {

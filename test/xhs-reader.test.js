@@ -21,6 +21,7 @@ test('only accepts HTTPS Xiaohongshu share URLs and CDN media', () => {
 
 test('extracts a pasted XHS URL without trailing Chinese punctuation', () => {
     assert.equal(extractXhsUrl('你看这个 https://xhslink.com/abc123 。'), 'https://xhslink.com/abc123');
+    assert.equal(extractXhsUrl('复制这条 http://xhslink.cn/o/5SsO51vD8at 打开小红书'), 'https://xhslink.cn/o/5SsO51vD8at');
     assert.equal(extractXhsUrl('没有链接'), null);
 });
 
