@@ -45,6 +45,7 @@ BLE_ADDRESS = os.environ.get("TOY_BLE_ADDRESS", "")
 MCP_TOKEN = os.environ.get("TOY_MCP_TOKEN", "")
 LISTEN_HOST = os.environ.get("TOY_MCP_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.environ.get("TOY_MCP_PORT", "8000"))
+MAX_DURATION_SECONDS = 90
 
 if not BLE_ADDRESS:
     print("FATAL: TOY_BLE_ADDRESS not set", file=sys.stderr)
@@ -236,8 +237,8 @@ TOOLS_DEF = [
             "properties": {
                 "intensity": {"type": "integer", "minimum": 1, "maximum": 100,
                               "description": "振动强度 1-100"},
-                "duration_seconds": {"type": "integer", "minimum": 1, "maximum": 30,
-                                     "description": "持续时间（秒），1-30"},
+                "duration_seconds": {"type": "integer", "minimum": 1, "maximum": MAX_DURATION_SECONDS,
+                                     "description": f"持续时间（秒），1-{MAX_DURATION_SECONDS}"},
             },
             "required": ["intensity", "duration_seconds"],
         },
@@ -254,7 +255,7 @@ TOOLS_DEF = [
             "type": "object",
             "properties": {
                 "intensity": {"type": "integer", "minimum": 1, "maximum": 100},
-                "duration_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
+                "duration_seconds": {"type": "integer", "minimum": 1, "maximum": MAX_DURATION_SECONDS},
             },
             "required": ["intensity", "duration_seconds"],
         },
@@ -335,11 +336,11 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
         if type(intensity) is not int:
             return "Error: intensity must be a strict integer 1-100"
         if type(duration) is not int:
-            return "Error: duration_seconds must be a strict integer 1-30"
+            return f"Error: duration_seconds must be a strict integer 1-{MAX_DURATION_SECONDS}"
         if not (1 <= intensity <= 100):
             return f"Error: intensity must be 1-100, got {intensity}"
-        if not (1 <= duration <= 30):
-            return f"Error: duration_seconds must be 1-30, got {duration}"
+        if not (1 <= duration <= MAX_DURATION_SECONDS):
+            return f"Error: duration_seconds must be 1-{MAX_DURATION_SECONDS}, got {duration}"
 
         if not _is_live():
             try:
@@ -358,8 +359,8 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
         duration = args.get("duration_seconds")
         if type(intensity) is not int or not (1 <= intensity <= 100):
             return "Error: intensity must be a strict integer 1-100"
-        if type(duration) is not int or not (1 <= duration <= 30):
-            return "Error: duration_seconds must be a strict integer 1-30"
+        if type(duration) is not int or not (1 <= duration <= MAX_DURATION_SECONDS):
+            return f"Error: duration_seconds must be a strict integer 1-{MAX_DURATION_SECONDS}"
         if not _is_live():
             try:
                 await asyncio.wait_for(_connect(), timeout=8)
