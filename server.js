@@ -3855,6 +3855,27 @@ async function startAllMCPServers() {
     }
 }
 
+const mcpRetrying = new Set();
+async function retryDisconnectedMCPServers() {
+    for (const config of MCP_SERVERS) {
+        if (mcpConnections.has(config.name) || mcpRetrying.has(config.name)) continue;
+        mcpRetrying.add(config.name);
+        try {
+            console.log(`🔄 [MCP] 重试连接 ${config.name}`);
+            await startMCPServer(config);
+            for (let i = mcpFailedConnections.length - 1; i >= 0; i--) {
+                if (mcpFailedConnections[i] === config.name) mcpFailedConnections.splice(i, 1);
+            }
+            console.log(`✅ [MCP] ${config.name} 重连成功`);
+        } catch (e) {
+            if (!mcpFailedConnections.includes(config.name)) mcpFailedConnections.push(config.name);
+            console.log(`⚠️ [MCP] ${config.name} 重连失败: ${e.message}`);
+        } finally {
+            mcpRetrying.delete(config.name);
+        }
+    }
+}
+
 // RP 状态：按 session 隔离，带 TTL
 const rpSessions = new Map(); // sessionId → { activeRpId, startedAt, lastActiveAt }
 const RP_TTL = 30 * 60 * 1000; // 30 分钟无活动自动关闭
@@ -7845,6 +7866,9 @@ server.listen(PORT, () => {
     if (latestSensorState) console.log('📡 [Sensor] 已加载传感器状态');
     initUserProfile();
     startAllMCPServers();
+    // External MCP endpoints (such as a laptop tunnel) may come online after
+    // the VPS starts. Retry quietly instead of requiring a manual restart.
+    setInterval(() => retryDisconnectedMCPServers(), 30 * 1000).unref();
     cleanAndArchiveMemories();
 
     // 一次性清理旧待办（idempotent，只跑一次）
