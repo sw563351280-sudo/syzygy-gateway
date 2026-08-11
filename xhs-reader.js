@@ -48,9 +48,12 @@ function isAllowedXhsMediaUrl(value) {
 function extractXhsUrl(text) {
     const match = String(text || '').match(/https?:\/\/(?:www\.)?(?:xhslink\.(?:com|cn)|xiaohongshu\.com)\/[^\s<>"']+/i);
     if (!match) return null;
-    const normalized = parseXhsShareUrl(match[0]);
+    // Strip punctuation before URL parsing. Mobile share text commonly puts a
+    // Chinese comma immediately after the short link.
+    const raw = match[0].split(/[，。！？、）)】]/u, 1)[0].replace(/[，。！？、）)】]+$/u, '');
+    const normalized = parseXhsShareUrl(raw);
     if (normalized) return normalized.toString();
-    return match[0].replace(/[，。！？、）)】]+$/u, '');
+    return raw;
 }
 
 async function fetchWithSafeRedirects(fetchImpl, input, options = {}) {
