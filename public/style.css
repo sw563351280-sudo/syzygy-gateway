@@ -859,6 +859,43 @@ body.neu-mode .device-refresh { color:#3ba99d; background:#E8EFF7; border:0; box
 body.neu-mode .device-card { background:#E8EFF7; border:0; box-shadow:inset 3px 3px 7px rgba(163,177,198,.23),inset -3px -3px 7px rgba(255,255,255,.72); }
 body.neu-mode .device-card-copy strong { color:#40536b; }
 
+/* 中枢也属于浅蓝模式：旧的 glass 卡片不能再保留夜间深灰底。 */
+body.neu-mode #sec-data > .glass:not(.device-panel) {
+    background:#E8EFF7 !important;
+    border:none !important;
+    color:#52657d;
+    box-shadow:7px 7px 14px rgba(163,177,198,.32),-7px -7px 14px rgba(255,255,255,.68) !important;
+}
+body.neu-mode #sec-data > .glass:not(.device-panel) > p {
+    color:#5A8FCA !important;
+    border-color:#63d6c5 !important;
+}
+body.neu-mode #sec-data input[type="text"] {
+    background:#E8EFF7 !important;
+    border:0 !important;
+    color:#40536b !important;
+    box-shadow:inset 3px 3px 7px rgba(163,177,198,.35),inset -3px -3px 7px rgba(255,255,255,.72) !important;
+}
+body.neu-mode #sec-data input[type="text"]::placeholder { color:#91a1b3 !important; }
+body.neu-mode #sec-data > .glass:not(.device-panel) div[style*="background"] {
+    background:#E8EFF7 !important;
+    border:0 !important;
+    box-shadow:inset 3px 3px 7px rgba(163,177,198,.22),inset -3px -3px 7px rgba(255,255,255,.68) !important;
+}
+body.neu-mode #supplierList > div {
+    background:#E8EFF7 !important;
+    border:0 !important;
+    box-shadow:inset 2px 2px 5px rgba(163,177,198,.20),inset -2px -2px 5px rgba(255,255,255,.68) !important;
+}
+body.neu-mode #sec-data .sup-name { color:#40536b !important; }
+body.neu-mode #sec-data .sup-url { color:#7188a3 !important; overflow-wrap:anywhere; }
+body.neu-mode #sec-data .sup-edit-btn { background:#E8EFF7; border:0; color:#7188a3; box-shadow:2px 2px 5px rgba(163,177,198,.28),-2px -2px 5px rgba(255,255,255,.68); }
+body.neu-mode #sec-data .sup-edit-btn:hover { color:#5A8FCA; background:#E8EFF7; }
+body.neu-mode #sec-data button[style*="background: #4CAF50"] { background:#63bfb4 !important; color:#fff !important; box-shadow:4px 4px 8px rgba(92,161,153,.24) !important; }
+body.neu-mode #sec-data button[style*="rgba(255,255,255,0.1)"] { background:#E8EFF7 !important; border:0 !important; color:#52657d !important; box-shadow:3px 3px 7px rgba(163,177,198,.28),-3px -3px 7px rgba(255,255,255,.7) !important; }
+body.neu-mode #sec-data .stats-bar { color:#8395aa !important; }
+body.neu-mode #sec-data .stats-bar span { color:#40536b !important; }
+
 /* ============ 白天模式适配 ============ */
 
 
