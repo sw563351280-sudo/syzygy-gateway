@@ -3515,7 +3515,37 @@ async function syncMcpTools() {
 async function toggleToolUI(name) { await fetch('/api/tools-toggle?tool=' + name, { method: 'POST' }); syncMcpTools(); }
 async function toggleAllToolsUI() { await fetch('/api/tools-toggle', { method: 'POST' }); syncMcpTools(); }
 
+async function refreshToyConnectionStatus() {
+    const el = document.getElementById('toyConnectionStatus');
+    if (!el) return;
+    const label = el.querySelector('.chat-toy-status-label');
+    el.className = 'chat-toy-status is-checking';
+    if (label) label.textContent = '啵啵贝 · 检查中';
+    try {
+        const res = await fetch('/api/toy-status');
+        const data = await res.json();
+        const state = data.state || 'unknown';
+        const labels = {
+            connected: '啵啵贝 · 已连接',
+            disconnected: '啵啵贝 · 未连接',
+            connecting: '啵啵贝 · 连接中',
+            unavailable: '啵啵贝 · 未配置',
+            error: '啵啵贝 · 读取失败',
+            unknown: '啵啵贝 · 状态未知'
+        };
+        el.className = 'chat-toy-status is-' + state;
+        if (label) label.textContent = labels[state] || labels.unknown;
+        el.title = data.message || labels[state] || labels.unknown;
+    } catch (e) {
+        el.className = 'chat-toy-status is-error';
+        if (label) label.textContent = '啵啵贝 · 读取失败';
+        el.title = '无法读取连接状态';
+    }
+}
+
 syncMcpTools();
+refreshToyConnectionStatus();
+setInterval(refreshToyConnectionStatus, 30000);
 
 // ═══ 版本翻页 + 编辑 + 重新生成 + 延迟Zep ═══
 function switchVersion(msgIndex, direction) {

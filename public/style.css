@@ -830,6 +830,41 @@ body.neu-mode .chat-image-preview-head small { color:#8ea0b7; }
     cursor: pointer;
 }
 
+.chat-toy-status {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 10px;
+    margin: 3px 2px;
+    border-radius: 7px;
+    color: var(--cream);
+    font-size: 0.78em;
+    background: rgba(255,255,255,0.035);
+    border: 1px solid rgba(255,255,255,0.07);
+}
+
+.chat-toy-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #a0a7b6;
+    box-shadow: 0 0 0 3px rgba(160,167,182,0.12);
+    flex: 0 0 auto;
+}
+
+.chat-toy-status.is-connected .chat-toy-status-dot { background: #57d6a3; box-shadow: 0 0 0 3px rgba(87,214,163,0.14); }
+.chat-toy-status.is-disconnected .chat-toy-status-dot { background: #e4b960; box-shadow: 0 0 0 3px rgba(228,185,96,0.14); }
+.chat-toy-status.is-error .chat-toy-status-dot,
+.chat-toy-status.is-unavailable .chat-toy-status-dot { background: #d98787; box-shadow: 0 0 0 3px rgba(217,135,135,0.14); }
+.chat-toy-status.is-checking .chat-toy-status-dot,
+.chat-toy-status.is-connecting .chat-toy-status-dot { animation: toyStatusPulse 1.2s ease-in-out infinite; }
+
+.chat-toy-status-label { flex: 1; white-space: nowrap; }
+.chat-toy-status-refresh { appearance: none; border: 0; background: transparent; color: var(--dim); cursor: pointer; padding: 0 2px; font-size: 1.05em; line-height: 1; }
+.chat-toy-status-refresh:hover { color: var(--gold); }
+
+@keyframes toyStatusPulse { 50% { opacity: 0.35; transform: scale(0.82); } }
+
 /* ============ 白天模式适配 ============ */
 
 

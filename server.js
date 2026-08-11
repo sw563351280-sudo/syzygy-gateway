@@ -5704,6 +5704,25 @@ app.get('/api/mcp/servers', (req, res) => {
     res.json({ servers: list.map(s => ({ ...s, _token: undefined })) });
 });
 
+// A small direct status endpoint for the chat UI. This deliberately calls
+// only toy_status: it never activates an output and does not involve a model.
+app.get('/api/toy-status', async (req, res) => {
+    const configured = MCP_SERVERS.some(server => server.name === 'toy');
+    if (!configured) return res.json({ state: 'unavailable', message: '未配置啵啵贝连接' });
+    if (!mcpConnections.has('toy')) {
+        return res.json({ state: 'connecting', message: '正在连接啵啵贝服务…' });
+    }
+    try {
+        const message = await callMCPTool('toy', 'toy_status', {});
+        const state = /^connected\b/i.test(message) ? 'connected'
+            : /^disconnected\b/i.test(message) ? 'disconnected'
+            : 'unknown';
+        res.json({ state, message });
+    } catch (e) {
+        res.json({ state: 'error', message: `状态读取失败：${e.message}` });
+    }
+});
+
 app.post('/api/mcp/add-server', (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     const { name, command, args } = req.body;
