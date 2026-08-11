@@ -3471,7 +3471,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (toggle) toggle.checked = localStorage.getItem('syzygy_crossplatform') !== 'false';
 });
 
-async function syncMcpTools() {
+async function legacySyncMcpTools() {
     const listEl = document.getElementById('mcp-tools-list');
     if (!listEl) return;
     try {
@@ -3515,7 +3515,7 @@ async function syncMcpTools() {
 async function toggleToolUI(name) { await fetch('/api/tools-toggle?tool=' + name, { method: 'POST' }); syncMcpTools(); }
 async function toggleAllToolsUI() { await fetch('/api/tools-toggle', { method: 'POST' }); syncMcpTools(); }
 
-async function refreshToyConnectionStatus() {
+async function legacyRefreshToyConnectionStatus() {
     const el = document.getElementById('toyConnectionStatus');
     if (!el) return;
     const label = el.querySelector('.chat-toy-status-label');
@@ -3543,9 +3543,65 @@ async function refreshToyConnectionStatus() {
     }
 }
 
-syncMcpTools();
-refreshToyConnectionStatus();
-setInterval(refreshToyConnectionStatus, 30000);
+async function syncMcpTools() {
+    const listEl = document.getElementById('mcp-tools-list');
+    if (!listEl) return;
+    try {
+        const [toolsRes, mcpRes] = await Promise.all([
+            fetch('/api/tools-status'),
+            fetch('/api/mcp/servers')
+        ]);
+        const tools = (await toolsRes.json()).tools || {};
+        const servers = (await mcpRes.json()).servers || [];
+        const masterToggle = document.getElementById('toolsMasterToggle');
+        if (masterToggle) masterToggle.checked = Object.values(tools).every(Boolean);
+
+        const external = servers.filter(server => server.name !== 'filesystem');
+        const failed = external.some(server => server.status === 'failed');
+        const connecting = external.some(server => server.status === 'connecting');
+        if (failed) listEl.textContent = '远程连接正在重试。你不用守着它。';
+        else if (connecting) listEl.textContent = '远程通道正在靠近。';
+        else if (external.length) listEl.textContent = '远程通道已就绪。需要时，它会自己连上。';
+        else listEl.textContent = '工具已常开。这里以后只放值得你看一眼的连接。';
+    } catch (e) {
+        listEl.textContent = '连接信息暂时看不到，稍后会自己再试。';
+    }
+}
+
+async function refreshToyConnectionStatus() {
+    const el = document.getElementById('toyConnectionStatus');
+    if (!el) return;
+    const label = el.querySelector('.chat-toy-status-label');
+    el.className = 'device-card toy-device-card is-checking';
+    if (label) label.textContent = '检查中';
+    try {
+        const res = await fetch('/api/toy-status');
+        const data = await res.json();
+        const state = data.state || 'unknown';
+        const labels = {
+            connected: '已连接',
+            disconnected: '未连接',
+            connecting: '连接中',
+            unavailable: '未配置',
+            error: '读取失败',
+            unknown: '状态未知'
+        };
+        el.className = 'device-card toy-device-card is-' + state;
+        if (label) label.textContent = labels[state] || labels.unknown;
+        el.title = data.message || labels[state] || labels.unknown;
+    } catch (e) {
+        el.className = 'device-card toy-device-card is-error';
+        if (label) label.textContent = '读取失败';
+        el.title = '无法读取连接状态';
+    }
+}
+
+async function refreshDevicePanel() {
+    await Promise.all([syncMcpTools(), refreshToyConnectionStatus()]);
+}
+
+refreshDevicePanel();
+setInterval(refreshDevicePanel, 30000);
 
 // ═══ 版本翻页 + 编辑 + 重新生成 + 延迟Zep ═══
 function switchVersion(msgIndex, direction) {

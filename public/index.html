@@ -160,11 +160,6 @@
         <input type="checkbox" id="toolsMasterToggle" onchange="toggleAllToolsUI()">
         <span>🔧 启用工具</span>
     </label>
-    <div class="chat-toy-status is-checking" id="toyConnectionStatus" title="正在读取连接状态">
-        <span class="chat-toy-status-dot" aria-hidden="true"></span>
-        <span class="chat-toy-status-label">啵啵贝 · 检查中</span>
-        <button type="button" class="chat-toy-status-refresh" onclick="refreshToyConnectionStatus()" aria-label="刷新啵啵贝连接状态">↻</button>
-    </div>
     <label for="imgUpload" class="chat-tool-item">
         <span>◇</span>
         <span>发送图片</span>
@@ -204,15 +199,24 @@
             <div id="supplierList" style="margin-top:20px; display:flex; flex-direction:column; gap:10px;"></div>
         </div>
 
-        <div class="glass" id="mcp-tools-card">
-    <div style="display:flex;justify-content:space-between;align-items:center;">
-        <p style="color:#4fc3f7; font-size:0.85em; margin:0; border-left:2px solid #4fc3f7; padding-left:10px; letter-spacing:1px;">沈望 · 已载入技能模组</p>
-        <button onclick="toggleAllToolsUI()" style="padding:4px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.05);color:white;cursor:pointer;font-size:0.75em;">切换全部</button>
-    </div>
-    <div id="mcp-tools-list" style="display:flex;flex-direction:column;gap:6px;margin-top:12px;">
-        <div style="color:#888;text-align:center;padding:10px;font-size:0.8em;">正在同步模组状态...</div>
-    </div>
-</div>
+        <div class="glass device-panel" id="mcp-tools-card">
+            <div class="device-panel-head">
+                <div>
+                    <p>连接与设备</p>
+                    <span>不用管工具，看看真正需要惦记的东西。</span>
+                </div>
+                <button type="button" class="device-refresh" onclick="refreshDevicePanel()">↻ 刷新</button>
+            </div>
+            <div class="device-card toy-device-card is-checking" id="toyConnectionStatus" title="正在读取连接状态">
+                <span class="device-orbit" aria-hidden="true"></span>
+                <div class="device-card-copy">
+                    <strong>啵啵贝</strong>
+                    <span class="chat-toy-status-label">检查中</span>
+                </div>
+                <span class="device-state-dot" aria-hidden="true"></span>
+            </div>
+            <div class="device-panel-foot" id="mcp-tools-list">工具已常开。这里以后只放值得你看一眼的连接。</div>
+        </div>
 
         <div class="glass">
             <div style="background:rgba(255,255,255,0.03);padding:12px;border-radius:8px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.08);"><label style="display:flex;align-items:center;gap:10px;cursor:pointer;color:white;font-size:0.85em;"><input type="checkbox" id="crossPlatformToggle" checked onchange="toggleCrossPlatform(this.checked)"><span>🌐 跨平台记忆注入</span></label><div style="color:#888;font-size:0.72em;margin-top:4px;margin-left:26px;">新窗口/跨平台自动补充上下文</div></div>

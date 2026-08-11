@@ -830,40 +830,34 @@ body.neu-mode .chat-image-preview-head small { color:#8ea0b7; }
     cursor: pointer;
 }
 
-.chat-toy-status {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    padding: 8px 10px;
-    margin: 3px 2px;
-    border-radius: 7px;
-    color: var(--cream);
-    font-size: 0.78em;
-    background: rgba(255,255,255,0.035);
-    border: 1px solid rgba(255,255,255,0.07);
-}
+.device-panel { padding: 22px 24px; }
+.device-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.device-panel-head p { color:#63d6c5; font-size:1.02em; margin:0 0 3px; letter-spacing:.05em; }
+.device-panel-head span { color:var(--dim); font-size:.75em; }
+.device-refresh { border:1px solid rgba(99,214,197,.28); border-radius:999px; padding:6px 11px; background:rgba(99,214,197,.06); color:#63d6c5; cursor:pointer; font:inherit; font-size:.75em; white-space:nowrap; }
+.device-refresh:hover { background:rgba(99,214,197,.13); }
+.device-card { position:relative; display:flex; align-items:center; gap:13px; margin-top:17px; padding:15px 16px; overflow:hidden; border:1px solid rgba(99,214,197,.16); border-radius:14px; background:linear-gradient(115deg,rgba(99,214,197,.10),rgba(255,255,255,.025)); }
+.device-orbit { width:32px; height:32px; border:1px solid rgba(99,214,197,.56); border-radius:50%; position:relative; flex:0 0 auto; }
+.device-orbit::after { content:''; position:absolute; width:6px; height:6px; border-radius:50%; background:#63d6c5; top:2px; right:2px; box-shadow:0 0 9px rgba(99,214,197,.8); }
+.device-card-copy { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.device-card-copy strong { color:var(--text); font-size:.9em; font-weight:600; }
+.device-card-copy span { color:var(--dim); font-size:.76em; }
+.device-state-dot { width:8px; height:8px; margin-left:auto; border-radius:50%; background:#a0a7b6; box-shadow:0 0 0 4px rgba(160,167,182,.10); }
+.toy-device-card.is-connected { border-color:rgba(87,214,163,.32); }
+.toy-device-card.is-connected .device-state-dot { background:#57d6a3; box-shadow:0 0 0 4px rgba(87,214,163,.13),0 0 12px rgba(87,214,163,.36); }
+.toy-device-card.is-disconnected { border-color:rgba(228,185,96,.24); }
+.toy-device-card.is-disconnected .device-state-dot { background:#e4b960; box-shadow:0 0 0 4px rgba(228,185,96,.12); }
+.toy-device-card.is-error .device-state-dot,.toy-device-card.is-unavailable .device-state-dot { background:#d98787; box-shadow:0 0 0 4px rgba(217,135,135,.12); }
+.toy-device-card.is-checking .device-state-dot,.toy-device-card.is-connecting .device-state-dot { animation:toyStatusPulse 1.2s ease-in-out infinite; }
+.device-panel-foot { margin-top:12px; color:var(--dim); font-size:.74em; line-height:1.55; }
+@keyframes toyStatusPulse { 50% { opacity:.3; transform:scale(.78); } }
 
-.chat-toy-status-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: #a0a7b6;
-    box-shadow: 0 0 0 3px rgba(160,167,182,0.12);
-    flex: 0 0 auto;
-}
-
-.chat-toy-status.is-connected .chat-toy-status-dot { background: #57d6a3; box-shadow: 0 0 0 3px rgba(87,214,163,0.14); }
-.chat-toy-status.is-disconnected .chat-toy-status-dot { background: #e4b960; box-shadow: 0 0 0 3px rgba(228,185,96,0.14); }
-.chat-toy-status.is-error .chat-toy-status-dot,
-.chat-toy-status.is-unavailable .chat-toy-status-dot { background: #d98787; box-shadow: 0 0 0 3px rgba(217,135,135,0.14); }
-.chat-toy-status.is-checking .chat-toy-status-dot,
-.chat-toy-status.is-connecting .chat-toy-status-dot { animation: toyStatusPulse 1.2s ease-in-out infinite; }
-
-.chat-toy-status-label { flex: 1; white-space: nowrap; }
-.chat-toy-status-refresh { appearance: none; border: 0; background: transparent; color: var(--dim); cursor: pointer; padding: 0 2px; font-size: 1.05em; line-height: 1; }
-.chat-toy-status-refresh:hover { color: var(--gold); }
-
-@keyframes toyStatusPulse { 50% { opacity: 0.35; transform: scale(0.82); } }
+body.neu-mode .device-panel { background:#E8EFF7; border:none; box-shadow:7px 7px 14px rgba(163,177,198,.32),-7px -7px 14px rgba(255,255,255,.66); }
+body.neu-mode .device-panel-head p { color:#3ba99d; }
+body.neu-mode .device-panel-head span,body.neu-mode .device-panel-foot,body.neu-mode .device-card-copy span { color:#8395aa; }
+body.neu-mode .device-refresh { color:#3ba99d; background:#E8EFF7; border:0; box-shadow:3px 3px 6px rgba(163,177,198,.28),-3px -3px 6px rgba(255,255,255,.7); }
+body.neu-mode .device-card { background:#E8EFF7; border:0; box-shadow:inset 3px 3px 7px rgba(163,177,198,.23),inset -3px -3px 7px rgba(255,255,255,.72); }
+body.neu-mode .device-card-copy strong { color:#40536b; }
 
 /* ============ 白天模式适配 ============ */
 
