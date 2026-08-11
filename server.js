@@ -3651,11 +3651,15 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
     const alwaysTools = allTools.filter(t => LIGHT_TOOLS.has(t.function?.name));
     const optionalTools = allTools.filter(t => !LIGHT_TOOLS.has(t.function?.name));
     const textLower = (userText || '').toLowerCase();
-    const hasCodeKW = /文件|代码|server|prompt|json|改|修|写|替换|编辑|读一下|看一下|查一下|帮我|请你/.test(textLower);
+    // "查一下"、"看一下" 这类日常说法不能当成代码请求；否则模型会
+    // 带着一整套文件工具去翻源码，既慢又容易答偏。
+    const hasCodeKW = /文件|代码|源码|server|prompt|json|接口|报错|日志|目录|路径|仓库|git|github|修复|修改|写入|替换|编辑/.test(textLower);
 
-    // MCP 开启时，始终携带只读型文件工具（不触发工具循环，但模型可按需调用）
+    // 文件工具只在明确的开发/文件请求里可见，普通聊天不再暴露它们。
     const MCP_READ_ONLY = new Set(['read_file', 'read_text_file', 'list_directory', 'search_files', 'get_file_info', 'list_allowed_directories']);
-    const mcpAlways = TOOLS_ENABLED.mcp ? optionalTools.filter(t => MCP_READ_ONLY.has(t.function?.name)) : [];
+    const mcpFileTools = TOOLS_ENABLED.mcp !== false && hasCodeKW
+        ? optionalTools.filter(t => MCP_READ_ONLY.has(t.function?.name))
+        : [];
 
     // toy 工具注入：仅当 toy_enabled=true 且用户明确表达振动/玩具意图时注入
     const hasExplicitToyIntent = TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false && (
@@ -3667,7 +3671,7 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
     const toyTools = hasToyIntent ? optionalTools.filter(t => TOY_TOOLS.has(t.function?.name)) : [];
 
     if (forceToolChoice) {
-        const result = [...alwaysTools, ...mcpAlways, ...toyTools, ...allTools.filter(t => CODE_TOOLS.has(t.function?.name))];
+        const result = [...alwaysTools, ...mcpFileTools, ...toyTools, ...allTools.filter(t => hasCodeKW && CODE_TOOLS.has(t.function?.name))];
         console.log(`🔧 [工具筛选] 强制模式→${result.length}个工具`);
         return result;
     }
@@ -3685,8 +3689,8 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
     });
     const relevant = scored.filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, 8).map(s => s.tool);
 
-    const result = [...alwaysTools, ...mcpAlways, ...toyTools, ...relevant];
-    console.log(`🔧 [工具筛选] ${alwaysTools.length}轻量 + ${mcpAlways.length}MCP只读 + ${relevant.length}可选: ${relevant.map(t => t.function?.name).join(',') || '(无)'}`);
+    const result = [...alwaysTools, ...mcpFileTools, ...toyTools, ...relevant];
+    console.log(`🔧 [工具筛选] ${alwaysTools.length}轻量 + ${mcpFileTools.length}MCP只读 + ${relevant.length}可选: ${relevant.map(t => t.function?.name).join(',') || '(无)'}`);
     return result;
 }
 
@@ -5076,6 +5080,13 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         if (currentUserMsgText) {
             const hasUrl = /(https?:\/\/[^\s]+)/i.test(currentUserMsgText);
             if (hasUrl && !xhsContext && !githubContext) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
+            const isToyStatusIntent = TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false
+                && /啵啵|玩具|toy|vibrat/i.test(currentUserMsgText)
+                && /状态|连接|在线|在吗|在不在|有没有|查|看|读|检查|连上/i.test(currentUserMsgText);
+            if (isToyStatusIntent && mcpTools.some(t => (t.function?.name || t.name) === 'toy_status')) {
+                forceToolChoice = { type: "function", function: { name: "toy_status" } };
+                console.log('🎯 [工具强制] 啵啵贝状态 → 强制 toy_status');
+            }
         }
         let filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
         traceEvent(_tr, 'tools', '工具筛选', { total: enabledTools.length, filtered: filteredTools.length, names: filteredTools.map(t => t.function?.name).slice(0, 10) });

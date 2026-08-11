@@ -16,5 +16,6 @@ $ngrokRunning = Get-CimInstance Win32_Process -Filter "Name='ngrok.exe'" |
     Where-Object { $_.CommandLine -match 'http\s+8000' } |
     Select-Object -First 1
 if (-not $ngrokRunning -and (Test-Path $ngrok)) {
-    Start-Process -FilePath $ngrok -ArgumentList @('http', '8000', '--log=stdout') -WindowStyle Hidden
+    # Keep the public address stable so the VPS never has to chase an ephemeral tunnel URL.
+    Start-Process -FilePath $ngrok -ArgumentList @('http', '--domain=yearling-expansive-pusher.ngrok-free.dev', '8000', '--log=stdout') -WindowStyle Hidden
 }
