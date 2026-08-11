@@ -4994,6 +4994,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         volatileRaw = volatileRaw ? dedupSections(volatileRaw) : null;
         logSectionSizes(volatileRaw);
         const volatileText = volatileRaw;
+        const xhsShareUrl = extractXhsUrl(currentUserMsgText);
         const xhsContext = await buildXhsVisionContext(currentUserMsgText);
         const githubContext = await buildGitHubContext(currentUserMsgText);
         const crumbContext = buildCrumbRecallContext(currentUserMsgText);
@@ -5079,7 +5080,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         let forceToolChoice = null;
         if (currentUserMsgText) {
             const hasUrl = /(https?:\/\/[^\s]+)/i.test(currentUserMsgText);
-            if (hasUrl && !xhsContext && !githubContext) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
+            if (hasUrl && !xhsShareUrl && !githubContext) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
             const isToyStatusIntent = TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false
                 && /啵啵|玩具|toy|vibrat/i.test(currentUserMsgText)
                 && /状态|连接|在线|在吗|在不在|有没有|查|看|读|检查|连上/i.test(currentUserMsgText);
@@ -5089,6 +5090,11 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             }
         }
         let filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
+        if (xhsShareUrl) {
+            // Xiaohongshu is read by buildXhsVisionContext above. Never let the
+            // model bypass it with generic fetch_txt/fetch_html/fetch_json.
+            filteredTools = filteredTools.filter(t => !['fetch_txt', 'fetch_html', 'fetch_json'].includes(t.function?.name));
+        }
         traceEvent(_tr, 'tools', '工具筛选', { total: enabledTools.length, filtered: filteredTools.length, names: filteredTools.map(t => t.function?.name).slice(0, 10) });
         console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
         console.log(`🔧 [MCP] TOOLS_ENABLED.mcp=${TOOLS_ENABLED.mcp}, mcp工具数=${mcpTools.length}, 筛选后MCP=${filteredTools.filter(t=>t._mcp).map(t=>t.function?.name||t.name).join(',') || '(无)'}`);
@@ -6562,6 +6568,7 @@ app.post('/api/web-chat', async (req, res) => {
                         ? [{ type: 'text', text: volatileText + '\n\n' }, ...finalUser]
                         : volatileText + '\n\n' + finalUser;
                 }
+                const webXhsShareUrl = extractXhsUrl(text);
                 const webXhsContext = await buildXhsVisionContext(text);
                 const webGitHubContext = await buildGitHubContext(text);
                 const webCrumbContext = buildCrumbRecallContext(text);
@@ -6604,9 +6611,12 @@ app.post('/api/web-chat', async (req, res) => {
                 let webForceToolChoice = null;
                 if (text) {
                     const hasUrl = /(https?:\/\/[^\s]+)/i.test(text);
-                    if (hasUrl && !webXhsContext && !webGitHubContext) webForceToolChoice = { type: "function", function: { name: "fetch_txt" } };
+                    if (hasUrl && !webXhsShareUrl && !webGitHubContext) webForceToolChoice = { type: "function", function: { name: "fetch_txt" } };
                 }
-                const filteredTools = filterRelevantTools(enabledTools, text, webForceToolChoice);
+                let filteredTools = filterRelevantTools(enabledTools, text, webForceToolChoice);
+                if (webXhsShareUrl) {
+                    filteredTools = filteredTools.filter(t => !['fetch_txt', 'fetch_html', 'fetch_json'].includes(t.function?.name));
+                }
                 console.log(`🔧 [web-chat工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
                 let webMaxRounds = 8, webLastSig = '';
                 while (webMaxRounds-- > 0 && filteredTools.length > 0) {

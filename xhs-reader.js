@@ -46,7 +46,8 @@ function isAllowedXhsMediaUrl(value) {
 }
 
 function extractXhsUrl(text) {
-    const match = String(text || '').match(/https?:\/\/(?:www\.)?(?:xhslink\.(?:com|cn)|xiaohongshu\.com)\/[^\s<>"']+/i);
+    const cleanText = String(text || '').replace(/[\u200B-\u200D\uFEFF]/g, '');
+    const match = cleanText.match(/https?:\/\/(?:www\.)?(?:xhslink\.(?:com|cn)|xiaohongshu\.com)\/[^\s<>"']+/i);
     if (!match) return null;
     // Strip punctuation before URL parsing. Mobile share text commonly puts a
     // Chinese comma immediately after the short link.
