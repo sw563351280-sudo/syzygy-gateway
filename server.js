@@ -3826,8 +3826,24 @@ async function callMCPTool(serverName, toolName, args) {
     const conn = mcpConnections.get(serverName);
     if (!conn) throw new Error(`MCP server ${serverName} not connected`);
     const result = await conn.send('tools/call', { name: toolName, arguments: args || {} });
-    const content = result.result?.content || [];
-    return content.map(c => c.text || JSON.stringify(c)).join('\n');
+    // stdio wraps JSON-RPC responses in `result`, while SDK clients return a
+    // CallToolResult directly. Keep both shapes readable so a valid MCP reply
+    // never turns into an empty tool message in the chat.
+    const payload = result?.result || result || {};
+    const content = Array.isArray(payload.content) ? payload.content : [];
+    const text = content
+        .map(c => c?.text || (c ? JSON.stringify(c) : ''))
+        .filter(Boolean)
+        .join('\n');
+    if (text) return text;
+
+    if (payload.structuredContent !== undefined) {
+        return JSON.stringify(payload.structuredContent);
+    }
+
+    const detail = payload.isError ? '（服务返回错误，但没有附带说明）' : '（服务没有返回可读内容）';
+    console.log(`⚠️ [MCP工具] ${serverName}/${toolName} empty response keys=${Object.keys(payload).join(',') || '(none)'}`);
+    return `[MCP工具 ${toolName} 未返回结果${detail}]`;
 }
 
 async function startAllMCPServers() {
