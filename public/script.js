@@ -187,6 +187,12 @@ function normForDedup(s) {
   return String(s || '').replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '').replace(/\|\|\|/g, '').replace(/\s+/g, '');
 }
 
+// Time prefixes belong to the model prompt only. They must never become part
+// of a cross-device message identity or visible chat content.
+function stripTransportTimePrefix(content) {
+  return String(content || '').replace(/^\[\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/, '');
+}
+
 function tailHasContent(session, content, lookback) {
   const target = normForDedup(content);
   if (!target) return false;
@@ -207,16 +213,19 @@ function handleCrossPlatformMessage(msg) {
     if (!mainSession) return;
 
     // 避免回灌重复：本地尾巴里已有同内容就跳过
-    const uc = msg.user?.content, ac = msg.assistant?.content;
+    const uc = stripTransportTimePrefix(msg.user?.content);
+    const ac = String(msg.assistant?.content || '');
     if ((uc && tailHasContent(mainSession, uc)) ||
         (ac && tailHasContent(mainSession, ac))) {
       console.log('[cross-platform] 本地已有同内容，跳过回灌');
       return;
     }
 
-    if (msg.user?.content) mainSession.messages.push({ _id: 'cp_' + (msg.fullTime || Date.now()), role: 'user', versions: [{ content: msg.user.content, fullTime: msg.fullTime || new Date().toISOString(), _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
-    if (msg.assistant?.content) mainSession.messages.push({ _id: 'cp_' + (msg.fullTime || Date.now()) + '_a', role: 'assistant', versions: [{ content: msg.assistant.content, fullTime: msg.fullTime || new Date().toISOString(), model: msg.assistant.model || '', _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
-    saveToCloud();
+    if (uc) mainSession.messages.push({ _id: 'cp_' + (msg.fullTime || Date.now()), role: 'user', versions: [{ content: uc, fullTime: msg.fullTime || new Date().toISOString(), _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
+    if (ac) mainSession.messages.push({ _id: 'cp_' + (msg.fullTime || Date.now()) + '_a', role: 'assistant', versions: [{ content: ac, fullTime: msg.fullTime || new Date().toISOString(), model: msg.assistant.model || '', _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
+    // The sender owns the canonical save.  Persisting this temporary websocket
+    // preview races the source device and turns one turn into two cloud copies.
+    setTimeout(() => resyncAndMerge('ws-message'), 1500);
     if (activeChatId === 'main') renderChatMessages();
     const preview = (typeof smsPlain === 'function' ? smsPlain(msg.assistant?.content || '') : (msg.assistant?.content || '')).substring(0, 30);
     if (preview) toast('⊹ 沈望在别处说了："' + preview + (preview.length >= 30 ? '…' : '') + '"');

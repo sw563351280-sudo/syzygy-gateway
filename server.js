@@ -4594,6 +4594,10 @@ app.get('/api/github-card', async (req, res) => {
 });
 
 // 跨平台锚点匹配：用多对user-assistant指纹定位前端对话在Zep中的位置
+function stripTransportTimePrefix(content) {
+    return String(content || '').replace(/^\[\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/, '');
+}
+
 function findZepAnchor(cleanMessages, zepMessages) {
     const pairs = [];
     for (let i = cleanMessages.length - 1; i >= 1 && pairs.length < 3; i--) {
@@ -4613,11 +4617,11 @@ function findZepAnchor(cleanMessages, zepMessages) {
         for (let p = pairs.length - 1; p >= 0; p--) {
             while (checkPos >= 0 && zepMessages[checkPos].role !== 'ai') checkPos--;
             if (checkPos < 0) break;
-            if (zepMessages[checkPos].content !== pairs[p].ai) break;
+            if (stripTransportTimePrefix(zepMessages[checkPos].content) !== stripTransportTimePrefix(pairs[p].ai)) break;
             let userPos = checkPos - 1;
             while (userPos >= 0 && zepMessages[userPos].role !== 'user') userPos--;
             if (userPos < 0) break;
-            if (zepMessages[userPos].content !== pairs[p].user) break;
+            if (stripTransportTimePrefix(zepMessages[userPos].content) !== stripTransportTimePrefix(pairs[p].user)) break;
             matched++; checkPos = userPos - 1;
         }
         if (matched >= Math.min(2, pairs.length)) {
@@ -4628,7 +4632,7 @@ function findZepAnchor(cleanMessages, zepMessages) {
     const lastAi = pairs[pairs.length - 1]?.ai;
     if (lastAi) {
         for (let i = zepMessages.length - 1; i >= 0; i--) {
-            if (zepMessages[i].role === 'ai' && zepMessages[i].content === lastAi) {
+            if (zepMessages[i].role === 'ai' && stripTransportTimePrefix(zepMessages[i].content) === stripTransportTimePrefix(lastAi)) {
                 console.log(`🔍 [锚点·降级] 单条匹配Zep#${i}`);
                 return { index: i, method: 'single_match' };
             }
@@ -4679,7 +4683,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             return msg;
         });
             const lastUserMsg = [...cleanMessages].reverse().find(m => m.role === 'user');
-            if (lastUserMsg) currentUserMsgText = extractText(lastUserMsg.content);
+            if (lastUserMsg) currentUserMsgText = stripTransportTimePrefix(extractText(lastUserMsg.content));
         }
 
         _tr.meta.userPreview = (currentUserMsgText || '').substring(0, 80);
@@ -4749,7 +4753,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     const c = typeof m.content === 'string' ? m.content : '';
                     return c.length > 0 && !c.includes('tool_use_id') && !c.includes('tool_call_id') && !c.includes('toolu_');
                 })
-                .map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content }));
+                .map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.role === 'user' ? stripTransportTimePrefix(m.content) : m.content }));
 
             if (crossMsgs.length > 0) {
                 const lastUserIdx = cleanMessages.map(m => m.role).lastIndexOf('user');
