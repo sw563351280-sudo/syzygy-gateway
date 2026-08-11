@@ -3642,7 +3642,8 @@ if (_configChanged) { saveToolsConfig(TOOLS_ENABLED); console.log('🔧 [工具�
 // 轻量工具（始终可见，不触发工具循环）
 const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'exec', 'bark_push', 'check_phone', 'search_transcript', 'check_environment']);
 // toy MCP 工具
-const TOY_TOOLS = new Set(['toy_vibrate', 'toy_stop_vibration', 'toy_status']);
+const TOY_TOOLS = new Set(['toy_vibrate', 'toy_suction', 'toy_stop_vibration', 'toy_stop_suction', 'toy_stop_all', 'toy_status']);
+let toyContextExpiresAt = 0;
 // 代码工具（只在有关键词或命令式时出现）
 const CODE_TOOLS = new Set(['read_file', 'write_file', 'edit_file', 'search_files', 'list_directory']);
 
@@ -3657,9 +3658,12 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
     const mcpAlways = TOOLS_ENABLED.mcp ? optionalTools.filter(t => MCP_READ_ONLY.has(t.function?.name)) : [];
 
     // toy 工具注入：仅当 toy_enabled=true 且用户明确表达振动/玩具意图时注入
-    const hasToyIntent = TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false && (
+    const hasExplicitToyIntent = TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false && (
         /振动|震动|玩具|啵啵|强度|停止.*振动|开启.*振动|调.*强度|toy|vibrat/i.test(textLower)
     );
+    if (hasExplicitToyIntent) toyContextExpiresAt = Date.now() + 10 * 60 * 1000;
+    const hasToyFollowUp = toyContextExpiresAt > Date.now() && /继续|再|轻一点|重一点|快一点|慢一点|停|加一点|减一点|换/.test(textLower);
+    const hasToyIntent = hasExplicitToyIntent || (TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false && hasToyFollowUp);
     const toyTools = hasToyIntent ? optionalTools.filter(t => TOY_TOOLS.has(t.function?.name)) : [];
 
     if (forceToolChoice) {

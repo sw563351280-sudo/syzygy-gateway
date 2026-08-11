@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import signal
 import sys
 import time
@@ -28,6 +29,7 @@ if _this_dir not in sys.path:
     sys.path.insert(0, _this_dir)
 from protocol import (  # type: ignore[import-not-found]
     WRITE_UUID,
+    encode_suction,
     encode_vibration,
     format_hex_payload,
 )
@@ -60,12 +62,20 @@ logger = logging.getLogger("toy_mcp")
 
 _client: BleakClient | None = None
 _write_lock = asyncio.Lock()
-_stop_timer_task: asyncio.Task[Any] | None = None
+_stop_timer_tasks: dict[str, asyncio.Task[Any]] = {}
 _connected = False
 _last_error: str | None = None
 _last_connect_attempt_at: float | None = None
 _last_connect_attempt_ok: bool = False
 _maintain_task: asyncio.Task[Any] | None = None
+_nonce = random.randint(0, 255)
+_active_modes: dict[str, dict[str, Any]] = {}
+
+
+def _next_nonce() -> int:
+    global _nonce
+    _nonce = (_nonce + 1) & 0xFF
+    return _nonce
 
 
 def _make_client() -> BleakClient:
@@ -132,8 +142,7 @@ async def _maintain_connection() -> None:
 
 
 async def _do_vibrate(intensity: int) -> None:
-    global _stop_timer_task
-    payload = encode_vibration(intensity=intensity, nonce=0x01)
+    payload = encode_vibration(intensity=intensity, nonce=_next_nonce())
     async with _write_lock:
         if _client is None or not _client.is_connected:
             raise RuntimeError("Not connected")
@@ -142,14 +151,27 @@ async def _do_vibrate(intensity: int) -> None:
             timeout=30,
         )
     logger.info("Vibrate intensity=%d OK: %s", intensity, format_hex_payload(payload))
+    _active_modes["vibration"] = {"intensity": intensity, "updated_at": time.time()}
+
+
+async def _do_suction(intensity: int) -> None:
+    payload = encode_suction(intensity=intensity, nonce=_next_nonce())
+    async with _write_lock:
+        if _client is None or not _client.is_connected:
+            raise RuntimeError("Not connected")
+        await asyncio.wait_for(
+            _client.write_gatt_char(WRITE_UUID, payload, response=True),
+            timeout=30,
+        )
+    logger.info("Suction intensity=%d OK: %s", intensity, format_hex_payload(payload))
+    _active_modes["suction"] = {"intensity": intensity, "updated_at": time.time()}
 
 
 async def _do_stop_vibration() -> None:
-    global _stop_timer_task
-    if _stop_timer_task is not None:
-        _stop_timer_task.cancel()
-        _stop_timer_task = None
-    payload = encode_vibration(intensity=0, nonce=0x01)
+    task = _stop_timer_tasks.pop("vibration", None)
+    if task is not None and task is not asyncio.current_task():
+        task.cancel()
+    payload = encode_vibration(intensity=0, nonce=_next_nonce())
     async with _write_lock:
         if _client is None or not _client.is_connected:
             raise RuntimeError("Not connected")
@@ -158,19 +180,44 @@ async def _do_stop_vibration() -> None:
             timeout=30,
         )
     logger.info("Vibration stop OK: %s", format_hex_payload(payload))
+    _active_modes.pop("vibration", None)
 
 
-def _schedule_auto_stop(delay: float) -> None:
-    global _stop_timer_task
-    if _stop_timer_task is not None:
-        _stop_timer_task.cancel()
+async def _do_stop_suction() -> None:
+    task = _stop_timer_tasks.pop("suction", None)
+    if task is not None and task is not asyncio.current_task():
+        task.cancel()
+    payload = encode_suction(intensity=0, nonce=_next_nonce())
+    async with _write_lock:
+        if _client is None or not _client.is_connected:
+            raise RuntimeError("Not connected")
+        await asyncio.wait_for(
+            _client.write_gatt_char(WRITE_UUID, payload, response=True),
+            timeout=30,
+        )
+    logger.info("Suction stop OK: %s", format_hex_payload(payload))
+    _active_modes.pop("suction", None)
+
+
+async def _do_stop_all() -> None:
+    await _do_stop_suction()
+    await _do_stop_vibration()
+
+
+def _schedule_auto_stop(mode: str, delay: float) -> None:
+    old_task = _stop_timer_tasks.get(mode)
+    if old_task is not None:
+        old_task.cancel()
     async def _delayed():
         await asyncio.sleep(delay)
         try:
-            await _do_stop_vibration()
+            if mode == "suction":
+                await _do_stop_suction()
+            else:
+                await _do_stop_vibration()
         except Exception as exc:
-            logger.error("Auto-stop failed: %s", exc)
-    _stop_timer_task = asyncio.create_task(_delayed())
+            logger.error("Auto-stop %s failed: %s", mode, exc)
+    _stop_timer_tasks[mode] = asyncio.create_task(_delayed())
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +245,28 @@ TOOLS_DEF = [
     {
         "name": "toy_stop_vibration",
         "description": "停止振动。仅用于完全停止，不用于切换强度。切换强度请直接再次调用 toy_vibrate。",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "toy_suction",
+        "description": "Control suction intensity. Use only for a clear device-control request. Repeating this tool updates the intensity and refreshes its timer.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "intensity": {"type": "integer", "minimum": 1, "maximum": 100},
+                "duration_seconds": {"type": "integer", "minimum": 1, "maximum": 30},
+            },
+            "required": ["intensity", "duration_seconds"],
+        },
+    },
+    {
+        "name": "toy_stop_suction",
+        "description": "Stop suction only.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "toy_stop_all",
+        "description": "Stop every active device mode immediately.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
@@ -281,7 +350,25 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
                 return f"Error: connection failed: {exc}"
 
         await _do_vibrate(intensity)
-        _schedule_auto_stop(float(duration))
+        _schedule_auto_stop("vibration", float(duration))
+        return f"OK intensity={intensity} duration={duration}"
+
+    elif name == "toy_suction":
+        intensity = args.get("intensity")
+        duration = args.get("duration_seconds")
+        if type(intensity) is not int or not (1 <= intensity <= 100):
+            return "Error: intensity must be a strict integer 1-100"
+        if type(duration) is not int or not (1 <= duration <= 30):
+            return "Error: duration_seconds must be a strict integer 1-30"
+        if not _is_live():
+            try:
+                await asyncio.wait_for(_connect(), timeout=8)
+            except asyncio.TimeoutError:
+                return "Error: connection timeout (8s). Retry."
+            except Exception as exc:
+                return f"Error: connection failed: {exc}"
+        await _do_suction(intensity)
+        _schedule_auto_stop("suction", float(duration))
         return f"OK intensity={intensity} duration={duration}"
 
     elif name == "toy_stop_vibration":
@@ -295,9 +382,22 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
         await _do_stop_vibration()
         return "OK stopped"
 
+    elif name == "toy_stop_suction":
+        if not _is_live():
+            return "OK already stopped (device disconnected)"
+        await _do_stop_suction()
+        return "OK stopped"
+
+    elif name == "toy_stop_all":
+        if not _is_live():
+            return "OK already stopped (device disconnected)"
+        await _do_stop_all()
+        return "OK all modes stopped"
+
     elif name == "toy_status":
         live = _is_live()
-        msg = "connected" if live else "disconnected"
+        active = ", ".join(f"{mode}={state['intensity']}" for mode, state in _active_modes.items()) or "none"
+        msg = ("connected" if live else "disconnected") + " active=" + active
         if _last_error:
             msg += "  last_error: " + _last_error
         return msg
@@ -352,11 +452,11 @@ async def _on_shutdown():
 
 async def _shutdown() -> None:
     logger.info("Shutting down...")
-    if _stop_timer_task:
-        _stop_timer_task.cancel()
+    for task in _stop_timer_tasks.values():
+        task.cancel()
     if _connected:
         try:
-            await _do_stop_vibration()
+            await _do_stop_all()
         except Exception:
             pass
     await _disconnect()
