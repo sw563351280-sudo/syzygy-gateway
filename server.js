@@ -6727,8 +6727,6 @@ let _dailyCuratorQueue = Promise.resolve();
 
 let _crumbCuratorQueue = Promise.resolve();
 
-const CRUMB_DAILY_LIMIT = 3;
-
 function crumbTopicKey(crumb) {
     const fact = String(crumb?.fact || '').replace(/\s+/g, '');
     if (/(?:困|疲|睡不着|失眠|想睡|睡眠)/.test(fact)) return 'body:sleep';
@@ -6757,11 +6755,6 @@ function queueCrumbCuration(userText, tr = null) {
     _crumbCuratorQueue = _crumbCuratorQueue.catch(() => {}).then(async () => {
         const now = new Date(); const dayKey = getChinaDateString(now);
         const existingItems = loadCrumbs();
-        const countToday = existingItems.filter(item => item.status === 'active' && getChinaDateString(new Date(item.created_at)) === dayKey).length;
-        if (countToday >= CRUMB_DAILY_LIMIT) {
-            traceEvent(tr, 'crumb_curator', '生活碎屑跳过：今日已满', { limit: CRUMB_DAILY_LIMIT });
-            return;
-        }
         const crumbs = await extractCrumbs({ fetchImpl: fetch, apiKey: curatorKey, endpoint: process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions', model: process.env.CRUMB_CURATOR_MODEL || 'gemini-3-flash-preview', userText });
         if (!crumbs.length) return;
         const items = existingItems; let autoCreated = false; let added = 0;

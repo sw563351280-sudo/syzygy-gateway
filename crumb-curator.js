@@ -43,6 +43,7 @@ function shouldConsiderCrumbs(userText) {
 
 function buildCrumbMessages(userText) {
     const instruction = [
+        'Important: default to an empty crumbs array. Keep one item only when it is a standalone, concrete life detail that may naturally be worth finding again later. Do not turn every sentence, passing feeling, or conversational reply into a record.',
         '你是后台生活碎屑管家。只从江鱼这一轮亲口说出的原话中提取最多2件具体发生的小事。',
         '不要判断它们重要不重要，不要使用沈望的话或推断。只收具体人/动物/食物/物品/地点、身体变化、明确计划、带对象的情绪事件。',
         '不收语气词、纯闲聊、技术讨论、RP、已经结束且没有后续的动作。',
