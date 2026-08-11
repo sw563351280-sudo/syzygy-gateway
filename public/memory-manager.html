@@ -61,6 +61,11 @@ body::before{
 .drawer-tags span{padding:2px 7px;border-radius:99px;background:rgba(140,190,210,.1);color:#a7c9d1}
 .anticipation-drawer{background:linear-gradient(135deg,rgba(183,139,176,.11),rgba(98,123,160,.08))}
 .anticipation-drawer .drawer-item{border-left:2px solid rgba(212,168,83,.5)}
+.merge-review-drawer{background:linear-gradient(135deg,rgba(212,168,83,.12),rgba(98,123,160,.08))}
+.merge-review-drawer .drawer-item{border-left:2px solid rgba(212,168,83,.7)}
+.review-candidate{margin-top:8px;padding:8px;border-radius:6px;background:rgba(255,255,255,.035);font-size:.75rem;color:var(--text-secondary);line-height:1.5}
+.review-actions{display:flex;gap:7px;justify-content:flex-end;margin-top:8px;flex-wrap:wrap}
+.review-scan-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:0 0 10px;font-size:.72rem;color:var(--text-muted)}
 .drawer-empty{font-size:.78rem;color:var(--text-muted);padding:4px 0}
 .drawer-resolve{border:1px solid rgba(212,168,83,.35);background:transparent;color:#d8bc82;border-radius:6px;padding:4px 8px;font:inherit;font-size:.7rem;cursor:pointer}
 
@@ -104,6 +109,7 @@ body::before{
 .mem-card .mem-actions button:hover{color:var(--text-secondary);border-color:rgba(255,255,255,.15)}
 .mem-card .mem-actions .act-del{color:rgba(217,90,74,.5)}
 .mem-card .mem-actions .act-del:hover{color:var(--danger)}.mem-check{position:absolute;top:10px;right:10px;z-index:2}
+.mem-history{margin-top:10px;padding:8px 10px;border-radius:7px;background:rgba(255,255,255,.025);color:var(--text-muted);font-size:.73rem;line-height:1.55}.mem-history summary{cursor:pointer;color:var(--text-secondary)}.mem-history-item{padding-top:7px;border-top:1px solid rgba(255,255,255,.05);margin-top:7px}.mem-history-item time{display:block;font-size:.67rem;color:var(--text-muted);margin-bottom:2px}
 .mem-check input{width:18px;height:18px;accent-color:var(--accent-gold)}
 .btn-del{color:var(--danger)!important}.btn-del:disabled{opacity:.4}
 
@@ -150,6 +156,12 @@ body::before{
   <button class="btn-add" onclick="openAddModal()">＋ 新增</button>
 </section>
 
+<section class="life-drawer merge-review-drawer">
+  <button class="life-drawer-head" type="button" onclick="toggleLifeDrawer('mergeReview')" aria-controls="mergeReviewDrawerContent" aria-expanded="false"><span><h2>待确认合并</h2><p>相近，但系统不替你擅自决定。</p></span><span class="life-drawer-head-right"><span id="mergeReviewCount" class="mem-tag">0</span><span id="mergeReviewToggleLabel">展开</span><span class="drawer-chevron">⌄</span></span></button>
+  <div class="review-scan-row"><span id="mergeScanStatus">存量扫描不会自动运行。</span><button class="drawer-resolve" type="button" onclick="startMemoryMergeScan()">检查存量</button></div>
+  <div id="mergeReviewDrawerContent" hidden><div id="mergeReviewList" class="drawer-list"><div class="drawer-empty">加载中…</div></div></div>
+</section>
+
 <section class="life-drawer">
   <button class="life-drawer-head" type="button" onclick="toggleLifeDrawer('crumb')" aria-controls="crumbDrawerContent" aria-expanded="false"><span><h2>生活碎屑</h2><p>先放着，不替它们判意义。</p></span><span class="life-drawer-head-right"><span id="crumbCount" class="mem-tag">0</span><span id="crumbToggleLabel">展开</span><span class="drawer-chevron">⌄</span></span></button>
   <div id="crumbDrawerContent" hidden><div id="crumbList" class="drawer-list"><div class="drawer-empty">加载中…</div></div></div>
@@ -185,7 +197,7 @@ body::before{
 
 <script>
 var PWD=new URLSearchParams(location.search).get('pwd')||'111111';
-var AR_MEMS=[],AR_COUNTS={},AR_HEAT={},AR_CRUMBS=[],AR_ANTICIPATIONS=[],arCat='all';
+var AR_MEMS=[],AR_COUNTS={},AR_HEAT={},AR_CRUMBS=[],AR_ANTICIPATIONS=[],AR_MERGE_REVIEWS=[],arCat='all';
 var multiSelectMode=false;
 var selectedMemoryIds=new Set();
 
@@ -228,12 +240,12 @@ async function loadArchive(){
     showLoadError('返回数据解析失败');
     return;
   }
-  AR_MEMS=d.memories||[];AR_COUNTS=d.counts||{};AR_HEAT=d.heatStats||{};AR_CRUMBS=d.crumbs||[];AR_ANTICIPATIONS=d.anticipations||[];
+  AR_MEMS=d.memories||[];AR_COUNTS=d.counts||{};AR_HEAT=d.heatStats||{};AR_CRUMBS=d.crumbs||[];AR_ANTICIPATIONS=d.anticipations||[];AR_MERGE_REVIEWS=d.mergeReviews||[];
   document.getElementById('arCount').textContent=AR_MEMS.length;
   document.getElementById('arHigh').textContent=AR_HEAT.high||0;
   document.getElementById('arMid').textContent=AR_HEAT.mid||0;
   document.getElementById('arLow').textContent=AR_HEAT.low||0;
-  renderLifeDrawer();renderChips();renderArchive();
+  renderMergeReviews();renderLifeDrawer();renderChips();renderArchive();refreshMemoryMergeScan();
 }
 
 function esc(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
@@ -241,6 +253,34 @@ function drawerTime(v){try{return new Date(v).toLocaleString('zh-CN',{month:'num
 function toggleLifeDrawer(name){
   var content=document.getElementById(name+'DrawerContent');var section=content.closest('.life-drawer');var button=section.querySelector('.life-drawer-head');var label=document.getElementById(name+'ToggleLabel');
   var opening=content.hidden;content.hidden=!opening;section.classList.toggle('open',opening);button.setAttribute('aria-expanded',String(opening));label.textContent=opening?'收起':'展开';
+}
+function renderMergeReviews(){
+  document.getElementById('mergeReviewCount').textContent=AR_MERGE_REVIEWS.length;
+  document.getElementById('mergeReviewList').innerHTML=AR_MERGE_REVIEWS.length?AR_MERGE_REVIEWS.map(function(review){
+    var candidates=review.candidates||[];var suggestion=review.suggested_target_id||'';
+    var candidateHtml=candidates.map(function(c){return '<div class="review-candidate"><div>候选 · 相似度 '+Number(c.similarity||0).toFixed(2)+' · '+esc((c.tags||[]).join(' / '))+'</div><div>'+esc(c.content)+'</div><div class="review-actions"><button class="drawer-resolve" onclick="resolveMergeReview(\''+esc(review.id)+'\',\'merge\',\''+esc(c.id)+'\')">合并到这条'+(c.id===suggestion?'（建议）':'')+'</button></div></div>'}).join('');
+    return '<div class="drawer-item"><div class="drawer-fact">'+esc(review.incoming&&review.incoming.content)+'</div><div class="drawer-meta"><span>'+drawerTime(review.created_at)+(review.decision_reason?' · '+esc(review.decision_reason):'')+'</span></div>'+candidateHtml+'<div class="review-actions"><button class="drawer-resolve" onclick="resolveMergeReview(\''+esc(review.id)+'\',\'keep_separate\')">保留两条</button></div></div>';
+  }).join(''):'<div class="drawer-empty">没有犹豫不决的记忆。</div>';
+}
+async function resolveMergeReview(id,action,targetId){
+  try{
+    var r=await fetch('/api/memory-merge-reviews/'+encodeURIComponent(id)+'/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:action,target_id:targetId||null})});
+    if(!r.ok)throw new Error('请求失败');
+    toast(action==='merge'?'合进去了，旧路还在。':'好，留成两条。');loadArchive();
+  }catch(e){toast('没处理成功，稍后再试。')}
+}
+async function refreshMemoryMergeScan(){
+  try{
+    var r=await fetch('/api/memory-merge-reviews/scan-status');if(!r.ok)return;var state=await r.json();var status=document.getElementById('mergeScanStatus');
+    if(state.running){status.textContent='正在看 '+(state.scanned||0)+' / '+(state.total||'?')+' 条，已提出 '+(state.suggested||0)+' 个建议。';setTimeout(refreshMemoryMergeScan,2500)}
+    else if(state.finished_at)status.textContent='上次检查提出 '+(state.suggested||0)+' 个待确认建议。';
+  }catch(e){}
+}
+async function startMemoryMergeScan(){
+  try{
+    var r=await fetch('/api/memory-merge-reviews/scan',{method:'POST'});if(!r.ok)throw new Error('请求失败');
+    document.getElementById('mergeScanStatus').textContent='已经开始，只生成建议，不会自动合并。';toast('开始检查存量记忆。');setTimeout(refreshMemoryMergeScan,800);
+  }catch(e){toast('没能开始检查，稍后再试。')}
 }
 function renderLifeDrawer(){
   var crumbs=AR_CRUMBS.filter(function(c){return c.status!=='archived'}).slice(0,8);
@@ -299,6 +339,7 @@ function renderArchive(){
     var ttl=getTTLLabel(m);
     var tags=[];
     if(m.tags)for(var i=0;i<m.tags.length;i++)tags.push('<span class="mem-tag">'+m.tags[i].replace(/</g,'&lt;')+'</span>');
+    var history=(m.history||[]);var historyHtml=history.length>1?'<details class="mem-history"><summary>演变记录 · '+history.length+' 版</summary>'+history.map(function(h){return '<div class="mem-history-item"><time>'+drawerTime(h.at||h.updated_at)+'</time>'+esc(h.snapshot||h.content)+'</div>'}).join('')+'</details>':'';
     var act=m.category==='archived'?'<button onclick="restoreMem(\''+m.id+'\')">解封</button><button class="act-del" onclick="delArchMem(\''+m.id+'\')">🗑</button>':'<button onclick="editMem(\''+m.id+'\')">✏️</button><button onclick="toggleResolved(\''+m.id+'\','+!!m.resolved+')">'+(m.resolved?'✓已解决':'○未解决')+'</button><button class="act-del" onclick="delMem(\''+m.id+'\')">🗑</button>';
     return '<div class="mem-card src-'+srcKey(m)+'" id="card-'+m.id+'">'
       +selectBox
@@ -306,6 +347,7 @@ function renderArchive(){
       +'<div class="mem-content clamped" id="ctitle-'+m.id+'">'+(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>'
       +'<button class="mem-expand" id="expand-'+m.id+'" onclick="toggleCardExpand(\''+m.id+'\')">展开 ▾</button>'
       +(tags.length||ttl?'<div class="mem-tags">'+tags.join('')+(ttl?'<span class="mem-tag">'+ttl+'</span>':'')+'</div>':'')
+      +historyHtml
       +'<div class="mem-meta"><span>'+new Date(m.created_at).toLocaleString('zh-CN')+' · '+srcLabel(m.source)+' '+heatBar+'</span><div class="mem-actions">'+act+'</div></div>'
       +'<div class="edit-area" id="edit-'+m.id+'"><textarea id="ta-'+m.id+'">'+(m.content||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</textarea><input id="tags-'+m.id+'" value="'+(m.tags||[]).join(',')+'" placeholder="标签,逗号分隔"><input id="heat-'+m.id+'" value="'+(m.heat||0.5)+'" placeholder="热度 0-1" style="width:80px"><input id="sum-'+m.id+'" value="'+(m.chunk_summary||'').replace(/"/g,'&quot;')+'" placeholder="摘要 (chunk_summary)"><div class="btn-row"><button class="btn-sm accent" onclick="saveEdit(\''+m.id+'\')">保存</button><button class="btn-sm" onclick="cancelEdit(\''+m.id+'\')">取消</button></div></div>'
       +'</div>';

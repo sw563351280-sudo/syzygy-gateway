@@ -11,7 +11,8 @@ const { promisify } = require('util');
 const { createCodexBridge } = require('./codex-bridge');
 const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
 const { extractDailyStateUpdates, stripLeakedStateUpdates } = require('./daily-state-curator');
-const { mergeMemoryRevision, selectMemoryMergeCandidate } = require('./memory-merge');
+const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-merge');
+const { decideMemoryWrite } = require('./memory-merge-curator');
 const { extractCrumbs } = require('./crumb-curator');
 const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
 const { extractXhsUrl, isAllowedXhsMediaUrl, isAllowedXhsUrl, readXhsNote } = require('./xhs-reader');
@@ -989,6 +990,7 @@ const DREAM_STATE_FILE = path.join(DATA_DIR, 'dream_state.json');
 const TODOS_FILE = path.join(DATA_DIR, 'todos.json');
 const CRUMBS_FILE = path.join(DATA_DIR, 'crumbs.json');
 const ANTICIPATIONS_FILE = path.join(DATA_DIR, 'anticipations.json');
+const MEMORY_MERGE_REVIEWS_FILE = path.join(DATA_DIR, 'memory_merge_reviews.json');
 const PERIOD_FILE = path.join(DATA_DIR, 'period_data.json');
 function loadDreamState() { try { return JSON.parse(fs.readFileSync(DREAM_STATE_FILE, 'utf8')); } catch(e) { return { pending_promises: '', foresight: [], updated_at: null }; } }
 function saveDreamState(state) { fs.writeFileSync(DREAM_STATE_FILE, JSON.stringify(state, null, 2), 'utf8'); }
@@ -998,6 +1000,8 @@ function loadCrumbs() { try { const items = JSON.parse(fs.readFileSync(CRUMBS_FI
 function saveCrumbs(items) { fs.writeFileSync(CRUMBS_FILE, JSON.stringify(items, null, 2), 'utf8'); }
 function loadAnticipations() { try { const items = JSON.parse(fs.readFileSync(ANTICIPATIONS_FILE, 'utf8')); return Array.isArray(items) ? items : []; } catch (_) { return []; } }
 function saveAnticipations(items) { fs.writeFileSync(ANTICIPATIONS_FILE, JSON.stringify(items, null, 2), 'utf8'); }
+function loadMemoryMergeReviews() { try { const items = JSON.parse(fs.readFileSync(MEMORY_MERGE_REVIEWS_FILE, 'utf8')); return Array.isArray(items) ? items : []; } catch (_) { return []; } }
+function saveMemoryMergeReviews(items) { fs.writeFileSync(MEMORY_MERGE_REVIEWS_FILE, JSON.stringify(items, null, 2), 'utf8'); }
 function loadPeriod() { try { return JSON.parse(fs.readFileSync(PERIOD_FILE, 'utf8')); } catch(e) { return { records: [], current: null }; } }
 function savePeriod(data) { fs.writeFileSync(PERIOD_FILE, JSON.stringify(data, null, 2), 'utf8'); }
 const PHOTOS_FILE = path.join(DATA_DIR, 'photos.json');
@@ -1930,24 +1934,8 @@ function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', 
         console.log(`🛡️ [防抽风拦截] 阻止了一条重复的现实记忆: ${content.substring(0, 15)}...`);
         return null;
     }
-    if (source !== 'manual') {
-        const candidate = selectMemoryMergeCandidate(content, tags, memories);
-        if (candidate) {
-            const index = memories.findIndex(m => m.id === candidate.memory.id);
-            const updated = mergeMemoryRevision(candidate.memory, {
-                content, tags, source, ttl, expires_at: calculateExpiry(ttl), arousal, emotional_weight: emotionalWeight
-            });
-            memories[index] = updated;
-            saveLongTermMemories(memories);
-            refreshMemoryEmbedding(updated.id, updated.content).catch(e => console.log(`⚠️ [向量] 记忆更新重建失败: ${e.message}`));
-            console.log(`🧩 [记忆合并] 更新 ${updated.id} | 标签重合=${candidate.overlap}, 内容相似=${candidate.similarity.toFixed(2)}`);
-            return { ...updated, write_action: 'updated' };
-        }
-    }
-    if (source !== 'manual' && isSemanticDuplicate(content, memories)) {
-        return null;
-    }
     const expiresAt = calculateExpiry(ttl);
+    const now = new Date().toISOString();
     const entry = {
         id: Date.now().toString(36) + Math.random().toString(36).substr(2, 4),
         content: content.trim(),
@@ -1956,33 +1944,19 @@ function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', 
         ttl: ttl || 'perm',
         expires_at: expiresAt,
         last_accessed: Date.now(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: now,
+        updated_at: now,
         arousal: arousal || 0.5,
         activation_count: 0,
         heat: arousal || 0.5,
         emotional_weight: emotionalWeight || 0,
         last_recalled_at: null,
-        query_hashes: []
+        query_hashes: [],
+        revision_count: 0,
+        history: [{ at: now, snapshot: content.trim(), tags: tags, kind: 'created' }]
     };
     memories.push(entry); saveLongTermMemories(memories);
     ensureEmbedding(entry.id, entry.content).catch(e => console.log(`⚠️ [向量] 异步失败: ${e.message}`));
-
-    const obsoleteIds = detectContradictions(content, tags, memories);
-    if (obsoleteIds.length > 0) {
-        const archived = loadArchivedMemories();
-        const remaining = memories.filter(m => {
-            if (obsoleteIds.includes(m.id)) {
-                archived.push({ ...m, archived_reason: 'contradiction' });
-                console.log(`⚡ [矛盾归档] 旧记忆[${m.id}]因信息更新被新记忆替代`);
-                return false;
-            }
-            return true;
-        });
-        saveLongTermMemories(remaining);
-        saveArchivedMemories(archived);
-        console.log(`⚡ [矛盾归档] 共归档${obsoleteIds.length}条过时记忆`);
-    }
 
     const ttlLabel = expiresAt ? `保质期=${ttl}` : '永久保存';
     console.log(`💎 长期记忆已刻入：[${source}] [${ttlLabel}] arousal=${arousal} tags=[${tags.join(',')}] | ${content.substring(0, 60)}...`);
@@ -2012,7 +1986,7 @@ function deleteLongTermMemory(id) {
 //现实记忆雷达（命中时更新 activation_count）
 async function scanLongTermRadar(userText) {
     if (!userText) return "";
-    const memories = loadLongTermMemories();
+    const memories = loadLongTermMemories().filter(m => !m.merged_into);
     console.log(`🔎 [长期记忆雷达·向量版] 扫描中... 库存${memories.length}条, 用户说: "${userText.substring(0, 30)}"`);
 
     const results = await rrfMergeSearch(userText, memories, RADAR_TOPK.longTerm);
@@ -2554,9 +2528,73 @@ function dedupRecallAcrossBlocks(blocks) {
 }
 
 // ==========================================
+// 记忆写入前：向量检索 → Flash 审稿 → 新建 / 更新 / 待确认
+// ==========================================
+async function retrieveMemoryMergeCandidates(content, tags) {
+    const memories = loadLongTermMemories().filter(m => !m.pinned && m.source !== 'manual' && !m.merged_into && m.content && (!m.expires_at || Date.now() <= m.expires_at));
+    const queryEmbedding = await getEmbedding(content);
+    const cache = loadEmbeddingsCache();
+    return memories.map(memory => {
+        const similarity = queryEmbedding && cache[memory.id] ? cosineSimilarity(queryEmbedding, cache[memory.id]) : bigramSimilarity(content, memory.content);
+        return { id: memory.id, content: memory.content, tags: memory.tags || [], created_at: memory.created_at, updated_at: memory.updated_at, similarity, shared_tags: (tags || []).filter(tag => (memory.tags || []).some(old => String(old).trim() === String(tag).trim())), tag_overlap: tagOverlap(tags, memory.tags) };
+    }).sort((a, b) => b.similarity - a.similarity).slice(0, 3);
+}
+
+function updateLongTermMemoryRevision(id, input) {
+    const memories = loadLongTermMemories();
+    const index = memories.findIndex(m => m.id === id && !m.pinned && m.source !== 'manual' && !m.merged_into);
+    if (index < 0) return null;
+    const updated = mergeMemoryRevision(memories[index], { ...input, expires_at: calculateExpiry(input.ttl) });
+    memories[index] = updated; saveLongTermMemories(memories);
+    refreshMemoryEmbedding(updated.id, updated.content).catch(e => console.log(`⚠️ [向量] 记忆更新重建失败: ${e.message}`));
+    return { ...updated, write_action: 'updated' };
+}
+
+function createMemoryMergeReview(incoming, candidates, decision) {
+    const reviews = loadMemoryMergeReviews();
+    if (reviews.some(item => item.status === 'pending' && item.incoming?.content === incoming.content)) return null;
+    const entry = { id: `merge_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, status: 'pending', created_at: new Date().toISOString(), incoming, candidates, suggested_target_id: decision.target_id || null, decision_reason: decision.reason || '', confidence: decision.confidence || 0 };
+    reviews.push(entry); saveMemoryMergeReviews(reviews.slice(-500));
+    return entry;
+}
+
+let _memoryMergeScan = { running: false, scanned: 0, suggested: 0, total: 0, started_at: null, finished_at: null };
+async function scanStoredMemoryMergeReviews() {
+    if (_memoryMergeScan.running) return _memoryMergeScan;
+    const curatorKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
+    if (!curatorKey) throw new Error('未配置记忆审稿模型');
+    _memoryMergeScan = { running: true, scanned: 0, suggested: 0, total: 0, started_at: new Date().toISOString(), finished_at: null };
+    try {
+        const memories = loadLongTermMemories().filter(m => !m.pinned && m.source !== 'manual' && !m.merged_into && m.content);
+        const cache = loadEmbeddingsCache(); const existing = new Set(loadMemoryMergeReviews().filter(item => item.status === 'pending').map(item => item.incoming?.memory_id).filter(Boolean));
+        _memoryMergeScan.total = memories.length;
+        for (const memory of memories) {
+            _memoryMergeScan.scanned++;
+            if (existing.has(memory.id) || !cache[memory.id]) continue;
+            const candidates = memories.filter(other => other.id !== memory.id && cache[other.id]).map(other => ({ id: other.id, content: other.content, tags: other.tags || [], created_at: other.created_at, updated_at: other.updated_at, similarity: cosineSimilarity(cache[memory.id], cache[other.id]), shared_tags: (memory.tags || []).filter(tag => (other.tags || []).some(old => String(old).trim() === String(tag).trim())), tag_overlap: tagOverlap(memory.tags, other.tags) })).filter(item => item.similarity >= 0.68).sort((a, b) => b.similarity - a.similarity).slice(0, 3);
+            if (!candidates.length) continue;
+            const incoming = { memory_id: memory.id, content: memory.content, tags: memory.tags || [], source: memory.source, ttl: memory.ttl || '1m', arousal: memory.arousal || 0.8, emotional_weight: memory.emotional_weight || 0 };
+            const decision = await decideMemoryWrite({ fetchImpl: fetch, apiKey: curatorKey, endpoint: process.env.MEMORY_MERGE_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions', model: process.env.MEMORY_MERGE_MODEL || 'gemini-3-flash-preview', incoming, candidates });
+            if (decision.action === 'update' || decision.action === 'review') {
+                if (createMemoryMergeReview({ ...incoming, content: decision.content, tags: decision.tags }, candidates, decision)) _memoryMergeScan.suggested++;
+            }
+        }
+    } finally {
+        _memoryMergeScan.running = false; _memoryMergeScan.finished_at = new Date().toISOString();
+    }
+    return _memoryMergeScan;
+}
+
+let _memoryWriteQueue = Promise.resolve();
+function queueSmartMemoryWrite(...args) {
+    _memoryWriteQueue = _memoryWriteQueue.catch(() => {}).then(() => smartMemoryWrite(...args)).catch(error => console.log(`⚠️ [记忆写入] 后台失败: ${error.message}`));
+    return _memoryWriteQueue;
+}
+
+// ==========================================
 //记忆写入统一入口（透传 arousal）
 // ==========================================
-function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5, userMsg = null, tr = null) {
+async function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5, userMsg = null, tr = null) {
     const validTags = (tags || []).filter(t => t.length >= 2);
     if (!content || content.trim().length < 10 || validTags.length === 0) {
         console.log(`🛡️ [统一守门] 拦截低质量记忆: ${(content || '').substring(0, 30)}`);
@@ -2569,17 +2607,45 @@ function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5, user
     }
     const effectiveArousal = source === 'ai_active' ? Math.max(arousal, 0.8) : arousal;
     const emoWeight = (userMsg && source === 'ai_active') ? detectEmotion(userMsg) : 0;
-    const result = addLongTermMemory(content, source, validTags, ttl, effectiveArousal, emoWeight);
+    const incoming = { content: content.trim(), tags: validTags, source, ttl, arousal: effectiveArousal, emotional_weight: emoWeight };
+    let candidates = [];
+    try { candidates = await retrieveMemoryMergeCandidates(incoming.content, incoming.tags); }
+    catch (error) { console.log(`⚠️ [记忆检索] 降级为无候选: ${error.message}`); }
+    const curatorKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
+    let decision;
+    try {
+        if (!curatorKey) decision = { action: candidates.length ? 'review' : 'new', content: incoming.content, tags: incoming.tags, target_id: null, reason: '未配置审稿模型', confidence: 0 };
+        else decision = await decideMemoryWrite({ fetchImpl: fetch, apiKey: curatorKey, endpoint: process.env.MEMORY_MERGE_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions', model: process.env.MEMORY_MERGE_MODEL || 'gemini-3-flash-preview', incoming, candidates });
+    } catch (error) {
+        console.log(`⚠️ [记忆审稿] 转入待确认: ${error.message}`);
+        decision = { action: candidates.length ? 'review' : 'new', content: incoming.content, tags: incoming.tags, target_id: null, reason: '审稿服务暂不可用', confidence: 0 };
+    }
+    let result = null;
+    if (decision.action === 'new') result = addLongTermMemory(decision.content, source, decision.tags, ttl, effectiveArousal, emoWeight);
+    else if (decision.action === 'update') {
+        result = updateLongTermMemoryRevision(decision.target_id, { content: decision.content, tags: decision.tags, source, ttl, arousal: effectiveArousal, emotional_weight: emoWeight });
+        if (!result) decision = { ...decision, action: 'review', reason: '候选已变化，请手动确认' };
+    }
+    if (decision.action === 'review') {
+        const review = createMemoryMergeReview({ ...incoming, content: decision.content, tags: decision.tags }, candidates, decision);
+        if (review) wsBroadcast({ type: 'memory_merge_review', id: review.id, preview: review.incoming.content.substring(0, 60) });
+        traceEvent(tr, 'memory_write', '待确认合并', { preview: incoming.content.substring(0, 60), candidates: candidates.map(item => ({ id: item.id, similarity: item.similarity })) });
+        return { write_action: 'review', review };
+    }
+    if (decision.action === 'skip') {
+        traceEvent(tr, 'memory_write', '跳过·尚非最终结论', { preview: incoming.content.substring(0, 60) });
+        return { write_action: 'skipped' };
+    }
     if (result) {
-        traceEvent(tr, 'memory_write', result.write_action === 'updated' ? '已合并更新' : '已写入', { id: result.id, preview: content.substring(0, 60), tags: validTags, ttl, arousal: effectiveArousal });
+        traceEvent(tr, 'memory_write', result.write_action === 'updated' ? '已合并更新' : '已写入', { id: result.id, preview: result.content.substring(0, 60), tags: result.tags, ttl, arousal: effectiveArousal });
     } else {
         traceEvent(tr, 'memory_write', '被拦截·重复', { reason: '内容完全重复 或 语义相似度>0.6', preview: content.substring(0, 60), tags: validTags });
     }
     if (source === 'ai_active' && result) {
-        wsBroadcast({ type: result.write_action === 'updated' ? 'memory_updated' : 'memory_saved', preview: content.trim().substring(0, 60), tags: validTags, source: 'ai_active', id: result.id });
+        wsBroadcast({ type: result.write_action === 'updated' ? 'memory_updated' : 'memory_saved', preview: result.content.substring(0, 60), tags: result.tags, source: 'ai_active', id: result.id });
         try {
             const diaries = loadDiaries();
-            diaries.push({ id: 'syzygy_' + Date.now().toString(36), text: `沈望记下了：${content.trim()}`, author: 'system', type: 'syzygy_note', date: new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' }).replace(/\//g, '-'), datetime: new Date().toISOString() });
+            diaries.push({ id: 'syzygy_' + Date.now().toString(36), text: `沈望${result.write_action === 'updated' ? '更新了' : '记下了'}：${result.content}`, author: 'system', type: 'syzygy_note', date: new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' }).replace(/\//g, '-'), datetime: new Date().toISOString() });
             saveDiaries(diaries);
             console.log('📖 [私语手记] 沈望自动记录了一条记忆');
         } catch(e) {}
@@ -4047,7 +4113,7 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
             const capped = summaryJson.permanent_memories.slice(0, 8);
             for (const mem of capped) {
                 if (typeof mem === 'object' && mem.content && mem.content.trim()) {
-                    const writeResult = smartMemoryWrite(mem.content, mem.tags, 'butler_summary', mem.ttl || '1m', mem.arousal || 0.5, null, null);
+                    const writeResult = await smartMemoryWrite(mem.content, mem.tags, 'butler_summary', mem.ttl || '1m', mem.arousal || 0.5, null, null);
                     diag.steps.push(`memWrite: tags=${JSON.stringify(mem.tags||[])}, ttl=${mem.ttl||'1m'}, written=${!!writeResult}, content前40字="${(mem.content||'').substring(0, 40)}"`);
                     if (!writeResult) diag.errors.push(`统一守门拦截: tags=${JSON.stringify(mem.tags||[])}, content="${(mem.content||'').substring(0, 60)}"`);
                     dreamLog.results.consolidated.new_memories++;
@@ -5060,7 +5126,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             const finalThink = reasoning || thinkFromTag;
 
             const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(cleanForFinal);
-            for (const mem of ntMems) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
+            for (const mem of ntMems) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
             const todoClean = processAssistantActionTags(ntMems.length > 0 ? ntClean : cleanForFinal);
             const finalContent = todoClean;
 
@@ -5235,7 +5301,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     moodLog('[MOOD DEBUG] fullAiResponse has tag:', fullAiResponse.includes('<MOOD_SNAPSHOT>') || fullAiResponse.includes('[[MOOD_SNAPSHOT]]'));
                     moodLog('[MOOD DEBUG] fullAiResponse tail:', fullAiResponse.slice(-1200));
                     const { cleanText: memClean, memories: streamMemories } = extractSaveMemoryTag(fullAiResponse);
-                    for (const mem of streamMemories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
+                    for (const mem of streamMemories) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
                     let streamCleanText = memClean || fullAiResponse;
                     const todoCleanMaybe = processAssistantActionTags(streamCleanText);
                     if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
@@ -5261,7 +5327,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     const { cleanText, memories } = extractSaveMemoryTag(assistantContent);
                     if (!noMemory) {
                         for (const mem of memories) {
-                           smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
+                           queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
                         }
                     }
                     const todoClean = processAssistantActionTags(memories.length > 0 ? cleanText : assistantContent);
@@ -6041,7 +6107,7 @@ app.get('/api/memory-page-data', async (req, res) => {
 
 app.get('/api/longterm-page-data', async (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
-    const activeMemories = loadLongTermMemories();
+    const activeMemories = loadLongTermMemories().filter(m => !m.merged_into);
     const archivedMemories = loadArchivedMemories();
     const rpMemories = loadRoleplayMemories();
     const profile = loadUserProfile();
@@ -6055,7 +6121,8 @@ app.get('/api/longterm-page-data', async (req, res) => {
     const monthlies = loadMonthlySummaries().sort((a, b) => b.month.localeCompare(a.month)).slice(0, 3);
     const crumbs = loadCrumbs().sort((a, b) => new Date(b.happened_at || b.created_at) - new Date(a.happened_at || a.created_at)).slice(0, 120);
     const anticipations = loadAnticipations().sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
-    res.json({ memories: allMems, counts, heatStats: { high: heatHigh, mid: heatMid, low: heatLow }, profile, dreamLogs, pendingPromises, weeklies, monthlies, crumbs, anticipations });
+    const mergeReviews = loadMemoryMergeReviews().filter(item => item.status === 'pending').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    res.json({ memories: allMems, counts, heatStats: { high: heatHigh, mid: heatMid, low: heatLow }, profile, dreamLogs, pendingPromises, weeklies, monthlies, crumbs, anticipations, mergeReviews });
 });
 
 app.get('/memory-manager', (req, res) => {
@@ -6514,7 +6581,7 @@ app.post('/api/web-chat', async (req, res) => {
                     }
                     const cleanAiContent = aiContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
                     const { cleanText, memories } = extractSaveMemoryTag(cleanAiContent);
-                    for (const mem of memories) smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
+                    for (const mem of memories) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
                     const todoClean = processAssistantActionTags(memories.length > 0 ? cleanText : cleanAiContent);
                     const finalReply = cleanAssistantInternalArtifacts(todoClean);
                     await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
@@ -6565,7 +6632,7 @@ app.post('/api/web-chat', async (req, res) => {
 
                 const { cleanText, memories } = extractSaveMemoryTag(aiReply);
                 for (const mem of memories) {
-                    smartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
+                    queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
                 }
                 aiReply = cleanAssistantInternalArtifacts(processAssistantActionTags(memories.length > 0 ? cleanText : aiReply));
 
@@ -6786,6 +6853,41 @@ app.post('/api/anticipations/:id/resolve', (req, res) => {
     if (!item) return res.status(404).json({ error: '未找到牵挂线' });
     item.status = 'resolved'; item.resolved_at = new Date().toISOString(); saveAnticipations(items);
     res.json({ success: true, anticipation: item });
+});
+
+app.post('/api/memory-merge-reviews/:id/resolve', (req, res) => {
+    const reviews = loadMemoryMergeReviews(); const review = reviews.find(item => item.id === req.params.id && item.status === 'pending');
+    if (!review) return res.status(404).json({ error: '未找到待确认合并' });
+    const action = req.body?.action;
+    let result = null;
+    if (action === 'merge') {
+        const targetId = String(req.body?.target_id || review.suggested_target_id || '');
+        result = updateLongTermMemoryRevision(targetId, review.incoming || {});
+        if (!result) return res.status(400).json({ error: '该候选不能自动合并' });
+        if (review.incoming?.memory_id && review.incoming.memory_id !== result.id) {
+            const memories = loadLongTermMemories(); const source = memories.find(item => item.id === review.incoming.memory_id); const target = memories.find(item => item.id === result.id);
+            if (source && target) {
+                target.history = Array.isArray(target.history) ? target.history : [];
+                target.history.push({ at: source.updated_at || source.created_at || new Date().toISOString(), snapshot: source.content, tags: source.tags || [], kind: 'merged_source' });
+                source.merged_into = target.id; source.merged_at = new Date().toISOString();
+                saveLongTermMemories(memories);
+            }
+        }
+    } else if (action === 'keep_separate') {
+        const input = review.incoming || {};
+        result = input.memory_id ? loadLongTermMemories().find(item => item.id === input.memory_id) : addLongTermMemory(input.content, input.source || 'ai_active', input.tags || [], input.ttl || '1m', input.arousal || 0.8, input.emotional_weight || 0);
+        if (!result) return res.status(409).json({ error: '这条记忆已经存在' });
+    } else return res.status(400).json({ error: '未知处理方式' });
+    review.status = 'resolved'; review.resolved_at = new Date().toISOString(); review.resolved_action = action; review.resolved_target_id = result.id;
+    saveMemoryMergeReviews(reviews);
+    res.json({ success: true, result });
+});
+
+app.get('/api/memory-merge-reviews/scan-status', (req, res) => res.json(_memoryMergeScan));
+app.post('/api/memory-merge-reviews/scan', (req, res) => {
+    if (_memoryMergeScan.running) return res.status(202).json(_memoryMergeScan);
+    scanStoredMemoryMergeReviews().catch(error => console.log(`⚠️ [存量记忆扫描] 失败: ${error.message}`));
+    res.status(202).json({ ..._memoryMergeScan, running: true });
 });
 
 function tryParseJsonFromText(raw) {
