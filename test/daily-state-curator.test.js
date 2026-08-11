@@ -7,6 +7,7 @@ const {
     extractDailyStateUpdates,
     normalizeUpdates,
     shouldCurateMessage,
+    shouldCuratePersistentState,
     stripLeakedStateUpdates,
 } = require('../daily-state-curator');
 
@@ -75,6 +76,14 @@ test('curator prompt treats only Jiangyu text as a fact source and skips empty c
     assert.match(messages[1].content, /江鱼本轮原话/);
     assert.equal(shouldCurateMessage('嗯。'), false);
     assert.equal(shouldCurateMessage('我晚饭吃了面'), true);
+});
+
+test('persistent-state gate only lets likely ongoing state changes spend a Pro call', () => {
+    assert.equal(shouldCuratePersistentState('我最近开始吃维生素D，每天一粒。'), true);
+    assert.equal(shouldCuratePersistentState('我现在在追那部剧，准备这周看完。'), true);
+    assert.equal(shouldCuratePersistentState('今晚吃了妈妈做的韭菜馅饼。'), false);
+    assert.equal(shouldCuratePersistentState('我今天好困，想睡觉。'), false);
+    assert.equal(shouldCuratePersistentState('我在改 Codex 的记忆库界面。'), false);
 });
 
 test('curator retries without response_format for a strict compatibility error', async () => {

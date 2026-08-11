@@ -10,7 +10,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const { createCodexBridge } = require('./codex-bridge');
 const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
-const { extractDailyStateUpdates, stripLeakedStateUpdates } = require('./daily-state-curator');
+const { extractDailyStateUpdates, stripLeakedStateUpdates, shouldCuratePersistentState } = require('./daily-state-curator');
 const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-merge');
 const { decideMemoryWrite } = require('./memory-merge-curator');
 const { extractCrumbs } = require('./crumb-curator');
@@ -6727,22 +6727,55 @@ let _dailyCuratorQueue = Promise.resolve();
 
 let _crumbCuratorQueue = Promise.resolve();
 
+const CRUMB_DAILY_LIMIT = 3;
+
+function crumbTopicKey(crumb) {
+    const fact = String(crumb?.fact || '').replace(/\s+/g, '');
+    if (/(?:困|疲|睡不着|失眠|想睡|睡眠)/.test(fact)) return 'body:sleep';
+    if (/(?:疼|痛|受伤|发烧|不舒服|生病|过敏)/.test(fact)) return 'body:health';
+    if (/(?:吵架|生气|难过|哭|委屈|烦)/.test(fact)) return 'emotion:event';
+    const tags = (Array.isArray(crumb?.tags) ? crumb.tags : [])
+        .map(tag => String(tag || '').trim()).filter(Boolean).sort().join('|');
+    const entities = (Array.isArray(crumb?.entities) ? crumb.entities : [])
+        .map(entity => String(entity || '').trim())
+        .filter(entity => entity && !/^(?:江鱼|我|自己|她)$/.test(entity)).sort().join('|');
+    return `${tags}#${entities}` || fact.slice(0, 12);
+}
+
+function isRecentCrumbDuplicate(existing, crumb, now) {
+    const createdAt = new Date(existing?.created_at || 0).getTime();
+    if (!createdAt || now.getTime() - createdAt > 8 * 3600000) return false;
+    if (existing?.source_quote === crumb.source_quote) return true;
+    const oldTopic = crumbTopicKey(existing);
+    const newTopic = crumbTopicKey(crumb);
+    return Boolean(oldTopic && newTopic && oldTopic === newTopic);
+}
+
 function queueCrumbCuration(userText, tr = null) {
     const curatorKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
     if (!curatorKey || String(userText || '').trim().length < 4) return;
     _crumbCuratorQueue = _crumbCuratorQueue.catch(() => {}).then(async () => {
+        const now = new Date(); const dayKey = getChinaDateString(now);
+        const existingItems = loadCrumbs();
+        const countToday = existingItems.filter(item => item.status === 'active' && getChinaDateString(new Date(item.created_at)) === dayKey).length;
+        if (countToday >= CRUMB_DAILY_LIMIT) {
+            traceEvent(tr, 'crumb_curator', '生活碎屑跳过：今日已满', { limit: CRUMB_DAILY_LIMIT });
+            return;
+        }
         const crumbs = await extractCrumbs({ fetchImpl: fetch, apiKey: curatorKey, endpoint: process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions', model: process.env.CRUMB_CURATOR_MODEL || 'gemini-3-flash-preview', userText });
         if (!crumbs.length) return;
-        const items = loadCrumbs(); const now = new Date(); const dayKey = getChinaDateString(now); let autoCreated = false;
+        const items = existingItems; let autoCreated = false; let added = 0;
         for (const crumb of crumbs) {
-            if (items.some(item => item.source_quote === crumb.source_quote && Date.now() - new Date(item.created_at).getTime() < 7 * 86400000)) continue;
+            if (items.some(item => isRecentCrumbDuplicate(item, crumb, now))) continue;
             const entry = { id: `crumb_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, kind: 'crumb', happened_at: now.toISOString(), fact: crumb.fact, source_quote: crumb.source_quote, source_message_id: null, entities: crumb.entities, tags: crumb.tags, status: 'active', archive_after_days: 90, created_at: now.toISOString(), last_surfaced_at: null, surface_count: 0 };
             items.push(entry);
+            added++;
             const hasAutoToday = autoCreated || loadAnticipations().some(item => item.created_from === 'auto' && getChinaDateString(new Date(item.created_at)) === dayKey);
             const sameEntityOpen = loadAnticipations().some(item => item.status === 'open' && crumb.entities.includes(item.entity) && Date.now() - new Date(item.created_at).getTime() < 7 * 86400000);
             if (crumb.follow_up && !hasAutoToday && !sameEntityOpen && addAnticipation({ source_crumb_id: entry.id, content: crumb.follow_up.content, entity: crumb.follow_up.entity, follow_up_after_hours: crumb.follow_up.follow_up_after_hours, reason: crumb.follow_up.reason, created_from: 'auto' })) autoCreated = true;
         }
-        saveCrumbs(items.slice(-2000)); traceEvent(tr, 'crumb_curator', '生活碎屑整理', { count: crumbs.length });
+        if (added) saveCrumbs(items.slice(-2000));
+        traceEvent(tr, 'crumb_curator', '生活碎屑整理', { found: crumbs.length, added });
     }).catch(error => { console.log('🧺 [生活碎屑] 整理失败，不影响本轮回复:', error.message); traceEvent(tr, 'crumb_curator', '生活碎屑失败', { error: error.message }); });
 }
 
@@ -6759,6 +6792,10 @@ function queueDailyStateCuration(userText, assistantText, tr = null) {
     }
     const cleanUser = String(userText || '').trim();
     const cleanAssistant = stripLeakedStateUpdates(String(assistantText || '')).trim();
+    if (!shouldCuratePersistentState(cleanUser)) {
+        traceEvent(tr, 'state_curator', '近况管家跳过：不像长期状态', {});
+        return;
+    }
     _dailyCuratorQueue = _dailyCuratorQueue
         .catch(() => {})
         .then(async () => {

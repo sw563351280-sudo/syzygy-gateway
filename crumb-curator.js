@@ -18,7 +18,9 @@ function findJson(text) {
 
 function normalizeCrumbs(payload, userText) {
     const source = String(userText || '').trim(); const seen = new Set(); const crumbs = [];
-    for (const item of (Array.isArray(payload?.crumbs) ? payload.crumbs : []).slice(0, 2)) {
+    // A message can contribute one independent detail at most.  This keeps
+    // the archive a safety net rather than a transcript.
+    for (const item of (Array.isArray(payload?.crumbs) ? payload.crumbs : []).slice(0, 1)) {
         const fact = String(item?.fact || '').trim().slice(0, 160); const quote = String(item?.source_quote || '').trim().slice(0, 240);
         if (fact.length < 4 || quote.length < 2 || !source.includes(quote)) continue;
         const entities = (Array.isArray(item.entities) ? item.entities : []).map(x => String(x || '').trim().slice(0, 32)).filter(x => x.length >= 2).filter((x, i, a) => a.indexOf(x) === i).slice(0, 4);
@@ -29,6 +31,14 @@ function normalizeCrumbs(payload, userText) {
         crumbs.push({ fact, source_quote: quote, entities, tags: (Array.isArray(item.tags) ? item.tags : []).map(String).map(x => x.slice(0, 20)).slice(0, 3), follow_up });
     }
     return crumbs;
+}
+
+function shouldConsiderCrumbs(userText) {
+    const text = String(userText || '').trim();
+    if (text.length < 5) return false;
+    if (/(?:codex|github|\bapi\b|\bbug\b|代码|编程|程序|模型|提示词|prompt|记忆库|界面|前端|后端|部署|服务器|数据库)/i.test(text)) return false;
+    if (/^(?:嗯+|哦+|好+|行+|可以+|知道了|没事|哈哈+|笑死|谢谢|对+)[！!。.…~～？?]*$/.test(text)) return false;
+    return true;
 }
 
 function buildCrumbMessages(userText) {
@@ -45,7 +55,7 @@ function buildCrumbMessages(userText) {
 
 async function extractCrumbs(options) {
     const { fetchImpl, apiKey, endpoint, model, userText, timeoutMs = 20000 } = options || {};
-    if (!apiKey || !fetchImpl || String(userText || '').trim().length < 4) return [];
+    if (!apiKey || !fetchImpl || !shouldConsiderCrumbs(userText)) return [];
     const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs);
     const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${String(apiKey).replace(/^Bearer\s+/i, '')}` };
     const request = body => fetchImpl(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
@@ -58,4 +68,4 @@ async function extractCrumbs(options) {
     } finally { clearTimeout(timer); }
 }
 
-module.exports = { buildCrumbMessages, extractCrumbs, findJson, normalizeCrumbs };
+module.exports = { buildCrumbMessages, extractCrumbs, findJson, normalizeCrumbs, shouldConsiderCrumbs };
