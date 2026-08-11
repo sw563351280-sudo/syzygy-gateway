@@ -3771,7 +3771,10 @@ async function _startHttpMCPServer(config) {
         requestInit: {
             headers: {
                 'Authorization': `Bearer ${config.token}`,
-                'User-Agent': 'syzygy-gateway/1.0'
+                'User-Agent': 'syzygy-gateway/1.0',
+                // ngrok free domains show an interstitial to browser-like requests.
+                // MCP is server-to-server traffic, so opt out explicitly.
+                'ngrok-skip-browser-warning': 'true'
             }
         }
     });
