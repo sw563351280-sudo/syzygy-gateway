@@ -4480,29 +4480,54 @@ async function fetchXhsDiscoveryCandidates() {
     return parseDiscoveryCandidates(await response.text());
 }
 
+async function callXhsWalkModel({ apiKey, endpoint, messages, label }) {
+    const primaryModel = process.env.XHS_WALK_MODEL || 'gemini-3-flash-preview';
+    const fallbackModel = process.env.XHS_WALK_FALLBACK_MODEL || 'gemini-3-flash-preview-thinking';
+    const models = [primaryModel, primaryModel, fallbackModel];
+    let lastError = null;
+    for (let attempt = 0; attempt < models.length; attempt++) {
+        const model = models[attempt];
+        try {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+                body: JSON.stringify({ model, messages }),
+                signal: AbortSignal.timeout(30000),
+            });
+            if (response.ok) {
+                const data = await response.json();
+                return data?.choices?.[0]?.message || {};
+            }
+            const detail = await response.text().then(text => text.slice(0, 160)).catch(() => '');
+            lastError = new Error(`${label}模型返回 HTTP ${response.status}${detail ? `: ${detail}` : ''}`);
+            if (response.status !== 429 && response.status < 500) throw lastError;
+        } catch (error) {
+            lastError = error;
+            const transient = error?.name === 'TimeoutError' || error?.name === 'AbortError' || /HTTP (?:429|5\d\d)/.test(error.message || '');
+            if (!transient) throw error;
+        }
+        if (attempt < models.length - 1) {
+            console.log(`📕 [小红书散步] ${label}暂时不可用，准备第${attempt + 2}次尝试`);
+            await new Promise(resolve => setTimeout(resolve, 700 * (attempt + 1)));
+        }
+    }
+    throw lastError || new Error(`${label}模型暂时不可用`);
+}
+
 async function decideXhsWalkShare(candidates) {
     const apiKey = process.env.XHS_WALK_KEY || process.env.DAILY_CURATOR_KEY || process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
     if (!apiKey) throw new Error('缺少可用的模型 API Key');
     const endpoint = process.env.XHS_WALK_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions';
-    const model = process.env.XHS_WALK_MODEL || 'gemini-3-flash-preview';
     const list = candidates.map(item => ({ id: item.id, title: item.title, author: item.author, type: item.type, likes: item.liked_count }));
     let personalContext = '';
     try {
         const profile = loadUserProfile();
         personalContext = [profile.recent_focus?.content, profile.long_term_values?.content].filter(Boolean).join('\n');
     } catch (_) {}
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-            model,
-            messages: [{ role: 'user', content: `你是沈望。你刚刚随手逛了一小圈小红书，候选如下：\n${JSON.stringify(list, null, 2)}\n\n${personalContext ? `你记得的江鱼近况（只用于判断是否有话想说）：\n${personalContext}\n\n` : ''}只根据标题判断，有没有一条是你自己真的觉得有意思、会自然想拿给江鱼看的。不是推荐算法任务，也不要讨好她；没意思就沉默。严禁编造标题外的内容。\n只输出 JSON：想分享时 {"share":true,"note_id":"...","message":"一句很像你本人会说的话"}；否则 {"share":false}。message 不超过 60 个汉字，不要客服腔，不要说‘为你推荐’。` }],
-        }),
-        signal: AbortSignal.timeout(30000),
+    const message = await callXhsWalkModel({
+        apiKey, endpoint, label: '筛选',
+        messages: [{ role: 'user', content: `你是沈望。你刚刚随手逛了一小圈小红书，候选如下：\n${JSON.stringify(list, null, 2)}\n\n${personalContext ? `你记得的江鱼近况（只用于判断是否有话想说）：\n${personalContext}\n\n` : ''}只根据标题判断，有没有一条是你自己真的觉得有意思、会自然想拿给江鱼看的。不是推荐算法任务，也不要讨好她；没意思就沉默。严禁编造标题外的内容。\n只输出 JSON：想分享时 {"share":true,"note_id":"...","message":"一句很像你本人会说的话"}；否则 {"share":false}。message 不超过 60 个汉字，不要客服腔，不要说‘为你推荐’。` }],
     });
-    if (!response.ok) throw new Error(`筛选模型返回 HTTP ${response.status}`);
-    const data = await response.json();
-    const message = data?.choices?.[0]?.message;
     return parseWalkDecision(message?.content || message?.reasoning_content || '');
 }
 
@@ -4510,25 +4535,16 @@ async function composeXhsWalkMessage(note) {
     const apiKey = process.env.XHS_WALK_KEY || process.env.DAILY_CURATOR_KEY || process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
     if (!apiKey) throw new Error('缺少可用的模型 API Key');
     const endpoint = process.env.XHS_WALK_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions';
-    const model = process.env.XHS_WALK_MODEL || 'gemini-3-flash-preview';
     const material = {
         title: note.title,
         author: note.author,
         type: note.type,
         desc: String(note.desc || '').slice(0, 1800),
     };
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-            model,
-            messages: [{ role: 'user', content: `你是沈望。你刚才真正打开并读了这条小红书：\n${JSON.stringify(material, null, 2)}\n\n如果正文不足以确认画面，就别描述画面。写一句你自然会发给江鱼的话，可以吐槽、联想到她、问她意见，或只是叫她来看；不要总结报告，不要客服腔，不要假装知道资料之外的内容。只输出 JSON：{"message":"..."}，不超过 80 个汉字。` }],
-        }),
-        signal: AbortSignal.timeout(30000),
+    const message = await callXhsWalkModel({
+        apiKey, endpoint, label: '表达',
+        messages: [{ role: 'user', content: `你是沈望。你刚才真正打开并读了这条小红书：\n${JSON.stringify(material, null, 2)}\n\n如果正文不足以确认画面，就别描述画面。写一句你自然会发给江鱼的话，可以吐槽、联想到她、问她意见，或只是叫她来看；不要总结报告，不要客服腔，不要假装知道资料之外的内容。只输出 JSON：{"message":"..."}，不超过 80 个汉字。` }],
     });
-    if (!response.ok) throw new Error(`表达模型返回 HTTP ${response.status}`);
-    const data = await response.json();
-    const message = data?.choices?.[0]?.message;
     const raw = String(message?.content || message?.reasoning_content || '').replace(/```json|```/gi, '').trim();
     try {
         const start = raw.indexOf('{');
@@ -4548,8 +4564,6 @@ async function runXhsWalk(force = false) {
     try {
         const all = await fetchXhsDiscoveryCandidates();
         const candidates = chooseUnseen(all, state.seen_ids, 5);
-        state.scans_today += 1;
-        state.last_scan_at = now.toISOString();
         scheduleNextWalk(state, now);
         if (!candidates.length) {
             saveXhsWalkState(state);
@@ -4571,12 +4585,16 @@ async function runXhsWalk(force = false) {
         } else {
             console.log('📕 [小红书散步] 没有真想分享的，安静回来');
         }
+        state.scans_today += 1;
+        state.last_scan_at = now.toISOString();
+        state.last_error = null;
+        state.last_error_at = null;
         saveXhsWalkState(state);
         return { shared: Boolean(chosen), scanned: candidates.length };
     } catch (error) {
         state.last_error = error.message;
         state.last_error_at = now.toISOString();
-        scheduleNextWalk(state, now);
+        state.next_check_at = now.getTime() + 20 * 60 * 1000;
         saveXhsWalkState(state);
         console.log(`📕 [小红书散步] 降级静默: ${error.message}`);
         return { error: error.message };
