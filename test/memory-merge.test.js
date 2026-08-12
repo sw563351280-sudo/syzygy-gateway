@@ -10,4 +10,6 @@ test('a revision replaces the visible summary and keeps a compact private histor
     assert.equal(updated.history[0].snapshot, '旧结论');
     assert.equal(updated.history[1].snapshot, '新结论，更完整。');
     assert.equal(updated.revision_count, 1);
+    assert.equal(updated.ttl, 'perm');
+    assert.equal(updated.expires_at, null);
 });

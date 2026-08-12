@@ -1524,6 +1524,19 @@ function loadLongTermMemories() {
     } catch(e) { return []; }
 }
 function saveLongTermMemories(memories) { fs.writeFileSync(LONG_TERM_FILE, JSON.stringify(memories, null, 2), 'utf8'); }
+function migrateLongTermMemoriesToPermanent() {
+    const memories = loadLongTermMemories();
+    const legacy = memories.filter(m => m.ttl !== 'perm' || m.expires_at !== null);
+    if (!legacy.length) return 0;
+    for (const memory of legacy) {
+        memory.ttl = 'perm';
+        memory.expires_at = null;
+        memory.updated_at = new Date().toISOString();
+    }
+    saveLongTermMemories(memories);
+    console.log(`💎 [长期记忆迁移] 已将${legacy.length}条旧的限时记忆改为永久保存`);
+    return legacy.length;
+}
 function loadArchivedMemories() { try { return JSON.parse(fs.readFileSync(ARCHIVE_FILE, 'utf8')); } catch(e) { return []; } }
 function saveArchivedMemories(memories) { fs.writeFileSync(ARCHIVE_FILE, JSON.stringify(memories, null, 2), 'utf8'); }
 function loadRoleplayMemories() { try { return JSON.parse(fs.readFileSync(ROLEPLAY_FILE, 'utf8')); } catch(e) { return []; } }
@@ -1933,22 +1946,22 @@ function addRoleplayMemory(content, tags = [], ttl = '1w') {
     return entry;
 }
 
-//现实记忆新增（加入 arousal + activation_count）
+//现实记忆新增（加入 arousal + activation_count）。
+// 长期记忆不再有保质期：它们只会被合并、人工归档，绝不因时间或热度自动消失。
 function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', arousal = 0.5, emotionalWeight = 0) {
     const memories = loadLongTermMemories();
     if (memories.some(m => m.content === content.trim())) {
         console.log(`🛡️ [防抽风拦截] 阻止了一条重复的现实记忆: ${content.substring(0, 15)}...`);
         return null;
     }
-    const expiresAt = calculateExpiry(ttl);
     const now = new Date().toISOString();
     const entry = {
         id: Date.now().toString(36) + Math.random().toString(36).substr(2, 4),
         content: content.trim(),
         tags: tags,
         source: source,
-        ttl: ttl || 'perm',
-        expires_at: expiresAt,
+        ttl: 'perm',
+        expires_at: null,
         last_accessed: Date.now(),
         created_at: now,
         updated_at: now,
@@ -1964,8 +1977,7 @@ function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', 
     memories.push(entry); saveLongTermMemories(memories);
     ensureEmbedding(entry.id, entry.content).catch(e => console.log(`⚠️ [向量] 异步失败: ${e.message}`));
 
-    const ttlLabel = expiresAt ? `保质期=${ttl}` : '永久保存';
-    console.log(`💎 长期记忆已刻入：[${source}] [${ttlLabel}] arousal=${arousal} tags=[${tags.join(',')}] | ${content.substring(0, 60)}...`);
+    console.log(`💎 长期记忆已刻入：[${source}] [永久保存] arousal=${arousal} tags=[${tags.join(',')}] | ${content.substring(0, 60)}...`);
     return entry;
 }
 
@@ -2009,16 +2021,6 @@ async function scanLongTermRadar(userText) {
             const hash = simpleHash(userText);
             if (!m.query_hashes) m.query_hashes = [];
             if (!m.query_hashes.includes(hash)) m.query_hashes.push(hash);
-            const uniqueQueries = new Set(m.query_hashes).size;
-            const isHighEmotion = (m.arousal >= 0.7 || (m.emotional_weight || 0) >= 5);
-            const actThreshold = isHighEmotion ? 6 : 10;
-            const divThreshold = isHighEmotion ? 3 : 5;
-            if (m.expires_at !== null && m.activation_count >= actThreshold && uniqueQueries >= divThreshold) {
-                m.expires_at = null;
-                m.ttl = 'perm';
-                m.pinned = true;
-                console.log(`🔒 [自动锁定] 记忆[${m.id}]因频繁跨话题召回(激活${m.activation_count}次/话题${uniqueQueries}个)，升级为永久记忆`);
-            }
             updated = true;
         }
     }
@@ -2160,48 +2162,17 @@ async function surfaceUnresolvedMemories(topK = RADAR_TOPK.unresolved, userText 
     return `\n\n==========\n【⚡ 相关记忆浮现：这些事可能跟当前话题有关，请自然融入对话，不要生硬念出来】\n${lines}\n==========\n`;
 }
 
-//自动清洗管家（基于 arousal 衰减）
+//自动清洗管家：碎屑与 RP 卡带仍可按各自生命周期清扫；长期记忆不自动淘汰。
 async function cleanAndArchiveMemories() {
     archiveStaleCrumbs();
-    console.log('🧠 [沈望的意识后台] 正在巡检记忆保质期...');
+    console.log('🧠 [沈望的意识后台] 正在巡检碎屑与 RP 卡带...');
     try {
         const memories = loadLongTermMemories();
         let archived = loadArchivedMemories();
         const now = Date.now();
-        let activeMemories = [];
-        let expiredCount = 0;
-        let decayCount = 0;
-
-        for (const m of memories) {
-            if (m.type === 'promise') { activeMemories.push(m); continue; }
-            if (m.expires_at && now > m.expires_at) {
-                archived.push({ ...m, archived_reason: 'expired' });
-                expiredCount++;
-                console.log(`⏰ [过期归档] ttl=${m.ttl} | ${m.content.substring(0, 30)}...`);
-            }
-            // 永久记忆：基于 arousal 的艾宾浩斯衰减
-            else if (!m.expires_at) {
-                const score = calculateHeat(m);
-                const ARCHIVE_THRESHOLD = 0.15;
-                if (score < ARCHIVE_THRESHOLD) {
-                    archived.push({ ...m, archived_reason: 'decay', decay_score: score });
-                    decayCount++;
-                    console.log(`📉 [衰减归档] score=${score.toFixed(3)} arousal=${m.arousal||0.5} | ${m.content.substring(0,30)}...`);
-                } else {
-                    activeMemories.push(m);
-                }
-            } else {
-                activeMemories.push(m);
-            }
-        }
-
-        if (expiredCount + decayCount > 0) {
-            saveLongTermMemories(activeMemories);
-            saveArchivedMemories(archived);
-            console.log(`📦 [记忆巡检完毕] 过期归档: ${expiredCount}条, 衰减归档: ${decayCount}条, 活跃: ${activeMemories.length}条`);
-        } else {
-            console.log(`✨ [巡检完毕] 全部${memories.length}条现实记忆都在保质期内。`);
-        }
+        // 长期记忆永久保留。merge / merged_into / 用户手动归档是唯一的整理入口。
+        const activeMemories = memories;
+        console.log(`✨ [长期记忆] ${memories.length}条永久保留，不做自动过期或热度归档。`);
 
         const rpMemories = loadRoleplayMemories();
         let rpActive = [];
@@ -2258,7 +2229,8 @@ function extractSaveMemoryTag(text) {
     while ((match = regex.exec(text)) !== null) {
         results.push({
             tags: match[1].split(/[,，]/).map(t => t.trim()).filter(Boolean),
-            ttl: match[2] || '1m',
+            // 兼容旧标签里的 ttl 属性，但现实长期记忆写入时会统一固定为 perm。
+            ttl: 'perm',
             content: match[3].trim()
         });
     }
@@ -2550,7 +2522,7 @@ function updateLongTermMemoryRevision(id, input) {
     const memories = loadLongTermMemories();
     const index = memories.findIndex(m => m.id === id && !m.pinned && m.source !== 'manual' && !m.merged_into);
     if (index < 0) return null;
-    const updated = mergeMemoryRevision(memories[index], { ...input, expires_at: calculateExpiry(input.ttl) });
+    const updated = mergeMemoryRevision(memories[index], { ...input, ttl: 'perm', expires_at: null });
     memories[index] = updated; saveLongTermMemories(memories);
     refreshMemoryEmbedding(updated.id, updated.content).catch(e => console.log(`⚠️ [向量] 记忆更新重建失败: ${e.message}`));
     return { ...updated, write_action: 'updated' };
@@ -2579,7 +2551,7 @@ async function scanStoredMemoryMergeReviews() {
             if (existing.has(memory.id) || !cache[memory.id]) continue;
             const candidates = memories.filter(other => other.id !== memory.id && cache[other.id]).map(other => ({ id: other.id, content: other.content, tags: other.tags || [], created_at: other.created_at, updated_at: other.updated_at, similarity: cosineSimilarity(cache[memory.id], cache[other.id]), shared_tags: (memory.tags || []).filter(tag => (other.tags || []).some(old => String(old).trim() === String(tag).trim())), tag_overlap: tagOverlap(memory.tags, other.tags) })).filter(item => item.similarity >= 0.68).sort((a, b) => b.similarity - a.similarity).slice(0, 3);
             if (!candidates.length) continue;
-            const incoming = { memory_id: memory.id, content: memory.content, tags: memory.tags || [], source: memory.source, ttl: memory.ttl || '1m', arousal: memory.arousal || 0.8, emotional_weight: memory.emotional_weight || 0 };
+            const incoming = { memory_id: memory.id, content: memory.content, tags: memory.tags || [], source: memory.source, ttl: 'perm', arousal: memory.arousal || 0.8, emotional_weight: memory.emotional_weight || 0 };
             const decision = await decideMemoryWrite({ fetchImpl: fetch, apiKey: curatorKey, endpoint: process.env.MEMORY_MERGE_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions', model: process.env.MEMORY_MERGE_MODEL || 'gemini-3-flash-preview', incoming, candidates });
             if (decision.action === 'update' || decision.action === 'review') {
                 if (createMemoryMergeReview({ ...incoming, content: decision.content, tags: decision.tags }, candidates, decision)) _memoryMergeScan.suggested++;
@@ -2600,7 +2572,7 @@ function queueSmartMemoryWrite(...args) {
 // ==========================================
 //记忆写入统一入口（透传 arousal）
 // ==========================================
-async function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5, userMsg = null, tr = null) {
+async function smartMemoryWrite(content, tags, source, ttl = 'perm', arousal = 0.5, userMsg = null, tr = null) {
     const validTags = (tags || []).filter(t => t.length >= 2);
     if (!content || content.trim().length < 10 || validTags.length === 0) {
         console.log(`🛡️ [统一守门] 拦截低质量记忆: ${(content || '').substring(0, 30)}`);
@@ -2613,7 +2585,7 @@ async function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5
     }
     const effectiveArousal = source === 'ai_active' ? Math.max(arousal, 0.8) : arousal;
     const emoWeight = (userMsg && source === 'ai_active') ? detectEmotion(userMsg) : 0;
-    const incoming = { content: content.trim(), tags: validTags, source, ttl, arousal: effectiveArousal, emotional_weight: emoWeight };
+    const incoming = { content: content.trim(), tags: validTags, source, ttl: 'perm', arousal: effectiveArousal, emotional_weight: emoWeight };
     let candidates = [];
     try { candidates = await retrieveMemoryMergeCandidates(incoming.content, incoming.tags); }
     catch (error) { console.log(`⚠️ [记忆检索] 降级为无候选: ${error.message}`); }
@@ -2627,9 +2599,9 @@ async function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5
         decision = { action: candidates.length ? 'review' : 'new', content: incoming.content, tags: incoming.tags, target_id: null, reason: '审稿服务暂不可用', confidence: 0 };
     }
     let result = null;
-    if (decision.action === 'new') result = addLongTermMemory(decision.content, source, decision.tags, ttl, effectiveArousal, emoWeight);
+    if (decision.action === 'new') result = addLongTermMemory(decision.content, source, decision.tags, 'perm', effectiveArousal, emoWeight);
     else if (decision.action === 'update') {
-        result = updateLongTermMemoryRevision(decision.target_id, { content: decision.content, tags: decision.tags, source, ttl, arousal: effectiveArousal, emotional_weight: emoWeight });
+        result = updateLongTermMemoryRevision(decision.target_id, { content: decision.content, tags: decision.tags, source, ttl: 'perm', arousal: effectiveArousal, emotional_weight: emoWeight });
         if (!result) decision = { ...decision, action: 'review', reason: '候选已变化，请手动确认' };
     }
     if (decision.action === 'review') {
@@ -2643,7 +2615,7 @@ async function smartMemoryWrite(content, tags, source, ttl = '1m', arousal = 0.5
         return { write_action: 'skipped' };
     }
     if (result) {
-        traceEvent(tr, 'memory_write', result.write_action === 'updated' ? '已合并更新' : '已写入', { id: result.id, preview: result.content.substring(0, 60), tags: result.tags, ttl, arousal: effectiveArousal });
+        traceEvent(tr, 'memory_write', result.write_action === 'updated' ? '已合并更新' : '已写入', { id: result.id, preview: result.content.substring(0, 60), tags: result.tags, ttl: 'perm', arousal: effectiveArousal });
     } else {
         traceEvent(tr, 'memory_write', '被拦截·重复', { reason: '内容完全重复 或 语义相似度>0.6', preview: content.substring(0, 60), tags: validTags });
     }
@@ -3979,22 +3951,17 @@ permanent_memories 每条必须包含：
     "new_preferences": "现实偏好（字符串，无变化写'无更新'）",
     "relationship_turning_points": "现实关系进展（字符串，严禁混入RP，无变化写'无更新'）",
     "pending_promises": "现实约定（字符串，无变化写'无更新'）",
-   "permanent_memories": [{"content": "记忆内容", "tags": ["关键词1","关键词2"], "ttl": "保质期", "arousal": 0.0到1.0的浮点数}],
+   "permanent_memories": [{"content": "记忆内容", "tags": ["关键词1","关键词2"], "arousal": 0.0到1.0的浮点数}],
 "roleplay_memories": [{"content": "RP设定与进度", "tags": ["副本名", "角色"], "ttl": "保质期"}],
 "foresight": ["基于近期对话发现的隐含关联或前瞻推断，1-3条"]
 }
-permanent_memories: 最多8条，无值得记录的内容则为空数组 []。每条必须包含 ttl 字段：
-  - "3d"：临时琐事（今天想吃什么、临时安排）
-  - "1w"：短期记忆（本周计划、近期情绪波动）
-  - "1m"：中期记忆（某次重要对话、阶段性事件）
-  - "perm"：永久记忆（生日、纪念日、核心偏好、重大人生事件）
-  ⚠️ 90%的记忆应该是 3d 或 1w，只有真正改变关系的里程碑才配用 perm！每条的tags 需要2-5个关键词且每个至少2个字。
+permanent_memories: 最多8条，无值得记录的内容则为空数组 []。这里仅放已经形成的稳定结论（“句号”），不写过程中的逗号；写入后会永久保留，之后只能合并更新或由用户手动归档。每条的tags 需要2-5个关键词且每个至少2个字。
   arousal（情感唤醒度，必填）：
   - 0.0~0.3：日常平静（随口一提、今天吃了什么）
   - 0.4~0.6：有情绪起伏（争吵、开心的约定）
   - 0.7~0.9：情感强烈（哭过、重大决定、创伤）
   - 1.0：极端情绪事件（极少使用）
-  arousal 越高，这条记忆衰减越慢，越难被遗忘。
+  arousal 只影响召回时的优先级，不会影响是否保留。
 roleplay_memories: 最多5条，无RP内容则为空数组 []。ttl 默认 "1w"。`;
 }
 
@@ -4167,8 +4134,8 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
             const capped = summaryJson.permanent_memories.slice(0, 8);
             for (const mem of capped) {
                 if (typeof mem === 'object' && mem.content && mem.content.trim()) {
-                    const writeResult = await smartMemoryWrite(mem.content, mem.tags, 'butler_summary', mem.ttl || '1m', mem.arousal || 0.5, null, null);
-                    diag.steps.push(`memWrite: tags=${JSON.stringify(mem.tags||[])}, ttl=${mem.ttl||'1m'}, written=${!!writeResult}, content前40字="${(mem.content||'').substring(0, 40)}"`);
+                    const writeResult = await smartMemoryWrite(mem.content, mem.tags, 'butler_summary', 'perm', mem.arousal || 0.5, null, null);
+                    diag.steps.push(`memWrite: tags=${JSON.stringify(mem.tags||[])}, ttl=perm, written=${!!writeResult}, content前40字="${(mem.content||'').substring(0, 40)}"`);
                     if (!writeResult) diag.errors.push(`统一守门拦截: tags=${JSON.stringify(mem.tags||[])}, content="${(mem.content||'').substring(0, 60)}"`);
                     dreamLog.results.consolidated.new_memories++;
                 }
@@ -7399,7 +7366,7 @@ app.post('/api/memory-merge-reviews/:id/resolve', (req, res) => {
         }
     } else if (action === 'keep_separate') {
         const input = review.incoming || {};
-        result = input.memory_id ? loadLongTermMemories().find(item => item.id === input.memory_id) : addLongTermMemory(input.content, input.source || 'ai_active', input.tags || [], input.ttl || '1m', input.arousal || 0.8, input.emotional_weight || 0);
+        result = input.memory_id ? loadLongTermMemories().find(item => item.id === input.memory_id) : addLongTermMemory(input.content, input.source || 'ai_active', input.tags || [], 'perm', input.arousal || 0.8, input.emotional_weight || 0);
         if (!result) return res.status(409).json({ error: '这条记忆已经存在' });
     } else return res.status(400).json({ error: '未知处理方式' });
     review.status = 'resolved'; review.resolved_at = new Date().toISOString(); review.resolved_action = action; review.resolved_target_id = result.id;
@@ -8307,6 +8274,7 @@ function wsBroadcast(data, excludeTabId = null) {
 
 server.listen(PORT, () => {
     console.log(`🚀 服务器已启动，端口: ${PORT}`);
+    migrateLongTermMemoriesToPermanent();
     loadLastInteraction();
     dedupePersistedProactiveMessages();
     latestSensorState = loadSensorState();
