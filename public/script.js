@@ -164,8 +164,18 @@ function handleProactiveMessage(msg) {
     const mainSession = chatSessions.find(s => s.id === 'main');
     if (mainSession) {
         if (!mainSession.messages) mainSession.messages = [];
-        mainSession.messages.push({ role: 'assistant', versions: [{ content: msg.content, fullTime: msg.fullTime || new Date().toISOString(), time: msg.time || '', model: 'proactive' }], activeVersion: 0 });
-        saveToCloud(); if (activeChatId === 'main') renderChatMessages();
+        const duplicate = mainSession.messages.some(m => {
+            const v = getActiveVersion(m);
+            if (msg.id && (m._id === msg.id || m.id === msg.id || v._id === msg.id)) return true;
+            return m.role === 'assistant' && normForDedup(v.content) === normForDedup(msg.content) &&
+                Math.abs(new Date(v.fullTime || 0).getTime() - new Date(msg.fullTime || 0).getTime()) < 2 * 60 * 1000;
+        });
+        if (!duplicate) {
+            mainSession.messages.push({ _id: msg.id || ('proactive_' + (msg.fullTime || Date.now())), role: 'assistant', versions: [{ content: msg.content, fullTime: msg.fullTime || new Date().toISOString(), time: msg.time || '', model: 'proactive' }], activeVersion: 0 });
+            // The server has already persisted this message. Do not immediately
+            // write the whole local snapshot back and race with that update.
+            if (activeChatId === 'main') renderChatMessages();
+        }
     }
     showProactiveNotification(msg.content);
     if ('Notification' in window && Notification.permission === 'granted') {

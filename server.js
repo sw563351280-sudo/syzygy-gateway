@@ -4398,7 +4398,7 @@ async function generateProactiveMessage(forceOverride = false) {
         deliverProactiveMessage(content);
     } catch(e) { _proactiveLastError = `异常: ${e.message}`; console.log(`💌 [主动消息] ${_proactiveLastError}`); }
 }
-function insertProactiveToConfig(content) {
+function insertProactiveToConfig(content, messageId = `proactive_${crypto.randomUUID()}`) {
     try {
         const configPath = path.join(DATA_DIR, 'web_config.json');
         if (!fs.existsSync(configPath)) return;
@@ -4407,13 +4407,48 @@ function insertProactiveToConfig(content) {
         const mainS = (config.chatSessions||[]).find(s => s.id === 'main');
         if (!mainS) return;
         if (!mainS.messages) mainS.messages = [];
-        mainS.messages.push({ role:'assistant', versions:[{ content, fullTime: new Date().toISOString(), time: new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Shanghai'}), model:'proactive' }], activeVersion:0 });
+        const fullTime = new Date().toISOString();
+        mainS.messages.push({ _id: messageId, role:'assistant', versions:[{ content, fullTime, time: new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Shanghai'}), model:'proactive' }], activeVersion:0 });
         if (mainS.messages.length > 200) mainS.messages = mainS.messages.slice(-200);
         config._version = (config._version || 0) + 1;
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
         const after = JSON.parse(fs.readFileSync(configPath, 'utf8'));
         console.log('✅ [proactive] v' + config._version + ' msgs=' + ((after.chatSessions||[]).find(s => s.id==='main')||{}).messages?.length + ' [Proactive]');
-    } catch(e) { console.error('❌ [proactive] write failed:', e.message); }
+        return { id: messageId, fullTime };
+    } catch(e) { console.error('❌ [proactive] write failed:', e.message); return null; }
+}
+
+function dedupePersistedProactiveMessages() {
+    try {
+        const configPath = path.join(DATA_DIR, 'web_config.json');
+        if (!fs.existsSync(configPath)) return 0;
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        const main = (config.chatSessions || []).find(session => session.id === 'main');
+        if (!main?.messages?.length) return 0;
+        const kept = [];
+        let removed = 0;
+        for (const item of main.messages) {
+            const version = item.versions?.[item.activeVersion || 0] || item.versions?.[0] || item;
+            const previous = kept[kept.length - 1];
+            const previousVersion = previous && (previous.versions?.[previous.activeVersion || 0] || previous.versions?.[0] || previous);
+            const sameProactive = previous && item.role === 'assistant' && previous.role === 'assistant' &&
+                version.model === 'proactive' && previousVersion.model === 'proactive' &&
+                String(version.content || '').replace(/\s+/g, '') === String(previousVersion.content || '').replace(/\s+/g, '') &&
+                Math.abs(new Date(version.fullTime || 0).getTime() - new Date(previousVersion.fullTime || 0).getTime()) < 2 * 60 * 1000;
+            if (sameProactive) { removed++; continue; }
+            kept.push(item);
+        }
+        if (removed) {
+            main.messages = kept;
+            config._version = (config._version || 0) + 1;
+            fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+            console.log(`🧹 [主动消息] 清理了 ${removed} 条重复消息`);
+        }
+        return removed;
+    } catch (error) {
+        console.log(`🧹 [主动消息] 去重失败: ${error.message}`);
+        return 0;
+    }
 }
 
 
@@ -4525,6 +4560,33 @@ function getXhsWalkModelConfig() {
     };
 }
 
+function getCurrentConversationModelConfig() {
+    try {
+        const config = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'web_config.json'), 'utf8'));
+        const supplier = config.suppliers?.[Number(config.activeSupIndex || 0)];
+        const main = (config.chatSessions || []).find(session => session.id === 'main');
+        let model = '';
+        for (const item of (main?.messages || []).slice(-40).reverse()) {
+            if (item.role !== 'assistant') continue;
+            const version = item.versions?.[item.activeVersion || 0] || item.versions?.[0] || item;
+            if (version.model && version.model !== 'proactive') { model = version.model; break; }
+        }
+        if (!supplier?.key || !model) return null;
+        const viaMatch = String(supplier.url || '').match(/\/via\/(\w+)\//);
+        let endpoint = viaMatch ? API_ROUTES[viaMatch[1].toLowerCase()] : '';
+        if (!endpoint && supplier.url && !String(supplier.url).includes('syrenth.uk')) {
+            endpoint = `${String(supplier.url).replace(/\/+$/, '').replace(/\/chat\/completions$/, '')}/chat/completions`;
+        }
+        if (!endpoint) endpoint = API_ROUTES.msui;
+        const recent = (main?.messages || []).slice(-16).map(item => {
+            const version = item.versions?.[item.activeVersion || 0] || item.versions?.[0] || item;
+            const content = typeof version.content === 'string' ? version.content : '';
+            return content ? { role: item.role === 'assistant' ? 'assistant' : 'user', content } : null;
+        }).filter(Boolean);
+        return { apiKey: supplier.key, endpoint, model, recent };
+    } catch (_) { return null; }
+}
+
 async function decideXhsWalkShare(candidates) {
     const { apiKey, endpoint } = getXhsWalkModelConfig();
     if (!apiKey) throw new Error('缺少可用的模型 API Key');
@@ -4542,25 +4604,32 @@ async function decideXhsWalkShare(candidates) {
 }
 
 async function composeXhsWalkMessage(note) {
-    const { apiKey, endpoint } = getXhsWalkModelConfig();
-    if (!apiKey) throw new Error('缺少可用的模型 API Key');
+    const conversation = getCurrentConversationModelConfig();
+    const apiKey = conversation?.apiKey || process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
+    const endpoint = conversation?.endpoint || process.env.PROACTIVE_URL || 'https://www.msuicode.com/v1/chat/completions';
+    const model = conversation?.model || process.env.PROACTIVE_MODEL || 'claude-opus-4-6';
+    if (!apiKey) throw new Error('缺少当前对话模型的 API Key');
     const material = {
         title: note.title,
         author: note.author,
         type: note.type,
         desc: String(note.desc || '').slice(0, 1800),
     };
-    const message = await callXhsWalkModel({
-        apiKey, endpoint, label: '表达',
-        messages: [{ role: 'user', content: `你是沈望。你刚才真正打开并读了这条小红书：\n${JSON.stringify(material, null, 2)}\n\n如果正文不足以确认画面，就别描述画面。写一句你自然会发给江鱼的话，可以吐槽、联想到她、问她意见，或只是叫她来看；不要总结报告，不要客服腔，不要假装知道资料之外的内容。只输出 JSON：{"message":"..."}，不超过 80 个汉字。` }],
+    const mpConfig = getModelPromptConfig(model);
+    const messages = [];
+    if (mpConfig.prepend) messages.push({ role: mpConfig.role || 'system', content: mpConfig.prepend });
+    messages.push({ role: 'system', content: systemPrompt });
+    messages.push(...(conversation?.recent || []));
+    messages.push({ role: 'user', content: `（你刚才自己逛小红书，真正打开并读了这条：\n${JSON.stringify(material, null, 2)}\n\n如果你想拿给江鱼看，就像平时聊天一样自然发给她。可以吐槽、联想到她、问她意见，或只叫她来看。不要总结报告，不要客服腔，不要假装知道资料之外的内容。链接由系统随后附上，不要在正文里重复链接。只说你会发出的那句话。）` });
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, messages }),
+        signal: AbortSignal.timeout(60000),
     });
-    const raw = String(message?.content || message?.reasoning_content || '').replace(/```json|```/gi, '').trim();
-    try {
-        const start = raw.indexOf('{');
-        const end = raw.lastIndexOf('}');
-        if (start >= 0 && end > start) return String(JSON.parse(raw.slice(start, end + 1)).message || '').trim();
-    } catch (_) {}
-    return '';
+    if (!response.ok) throw new Error(`当前对话模型返回 HTTP ${response.status}`);
+    const data = await response.json();
+    return cleanAssistantInternalArtifacts(String(data?.choices?.[0]?.message?.content || data?.choices?.[0]?.message?.reasoning_content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim());
 }
 
 async function runXhsWalk(force = false) {
@@ -4639,10 +4708,11 @@ async function resolveXhsViaCloud(url) {
 }
 
 function deliverProactiveMessage(content) {
-    insertProactiveToConfig(content);
+    const stored = insertProactiveToConfig(content);
+    if (!stored) return;
     const barkBody = content.length > 80 ? content.substring(0, 80) + '...' : content;
     fetch(`https://api.day.app/D9kpuZreHXGepYyuesohUZ/${encodeURIComponent('沈望')}/${encodeURIComponent(barkBody)}?icon=https://syrenth.uk/icon-192.png`, { signal: AbortSignal.timeout(10000) }).catch(() => {});
-    wsBroadcast({ type: 'proactive_message', content, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), fullTime: new Date().toISOString() });
+    wsBroadcast({ type: 'proactive_message', id: stored.id, content, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), fullTime: stored.fullTime });
     updateLastProactiveTime();
 }
 
@@ -8194,6 +8264,7 @@ function wsBroadcast(data, excludeTabId = null) {
 server.listen(PORT, () => {
     console.log(`🚀 服务器已启动，端口: ${PORT}`);
     loadLastInteraction();
+    dedupePersistedProactiveMessages();
     latestSensorState = loadSensorState();
     if (latestSensorState) console.log('📡 [Sensor] 已加载传感器状态');
     initUserProfile();
