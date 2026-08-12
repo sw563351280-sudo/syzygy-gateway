@@ -4335,24 +4335,54 @@ async function stateRender() {
 
         const slots = us.slots || {};
         const todayStr = new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric', day: 'numeric' }).split('/').map((x,i) => i===0 ? x : x.padStart(2,'0')).join('-');
+        window._stateSlots = slots;
         const dailyLines = [], persistentLines = [];
+        const renderSlot = (key, slot, suffix) => {
+            const encodedKey = encodeURIComponent(key);
+            return '<div style="display:flex;gap:8px;align-items:flex-start;margin:4px 0;">'
+                + '<div style="flex:1;min-width:0;">' + escapeHtml(key) + '：' + escapeHtml(slot.value) + suffix + '</div>'
+                + '<button type="button" onclick="stateEditSlot(\'' + encodedKey + '\')" aria-label="修改' + escapeHtml(key) + '" title="修改" style="flex:0 0 auto;border:0;background:transparent;color:#7A9AC5;cursor:pointer;padding:0 2px;font-size:13px;">改</button>'
+                + '</div>';
+        };
         for (const key of Object.keys(slots)) {
             const slot = slots[key];
             if (!slot || !slot.value) continue;
             if (slot.mode === 'persistent') {
                 const ageDays = Math.floor((Date.now() - new Date(slot.updated_at).getTime()) / 86400000);
                 const stale = ageDays >= (Number(slot.life_days) || 3);
-                persistentLines.push(key + '：' + slot.value + (stale ? ' ⚠️ 已' + ageDays + '天未更新，建议确认' : ''));
+                persistentLines.push(renderSlot(key, slot, stale ? ' <span style="color:#B7791F">⚠️ 已' + ageDays + '天未更新，建议确认</span>' : ''));
             } else {
                 const slotDate = new Date(slot.updated_at).toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: 'numeric', day: 'numeric' }).split('/').map((x,i) => i===0 ? x : x.padStart(2,'0')).join('-');
-                if (slotDate === todayStr) dailyLines.push(key + '：' + slot.value);
+                if (slotDate === todayStr) dailyLines.push(renderSlot(key, slot, ''));
             }
         }
-        if (dailyLines.length) parts.push('\n📌 今日\n' + dailyLines.join('\n'));
-        if (persistentLines.length) parts.push('\n📎 近期\n' + persistentLines.join('\n'));
+        if (dailyLines.length) parts.push('<div style="margin-bottom:10px;"><div style="font-weight:600;margin-bottom:4px;">📌 今日</div>' + dailyLines.join('') + '</div>');
+        if (persistentLines.length) parts.push('<div><div style="font-weight:600;margin-bottom:4px;">📎 近期</div>' + persistentLines.join('') + '</div>');
 
-        view.innerText = parts.join('\n') || '还没有记录过状态';
+        view.innerHTML = parts.join('') || '还没有记录过状态';
     } catch(e) { view.innerText = '加载失败'; }
+}
+
+async function stateEditSlot(encodedKey) {
+    const key = decodeURIComponent(encodedKey || '');
+    const current = (window._stateSlots || {})[key];
+    if (!key || !current) return;
+    const value = window.prompt(`修改「${key}」\n留空会删除这一项。`, current.value || '');
+    if (value === null) return;
+    const slots = { ...(window._stateSlots || {}) };
+    const nextValue = value.trim();
+    if (!nextValue) delete slots[key];
+    else slots[key] = { ...current, value: nextValue, updated_at: new Date().toISOString() };
+    try {
+        const r = await fetch('/api/user-state', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slots })
+        });
+        const d = await r.json();
+        if (!r.ok || !d.success) throw new Error(d.error || '保存失败');
+        toast(nextValue ? '当前状态已改' : '当前状态已删');
+        stateRender();
+    } catch (e) { toast('保存失败：' + (e.message || '网络错误')); }
 }
 
 async function stateSnapshot() {
