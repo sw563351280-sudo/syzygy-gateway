@@ -20,7 +20,8 @@ const { extractCrumbs } = require('./crumb-curator');
 const { createCrumbDigest } = require('./crumb-digest');
 const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
 const { extractXhsUrl, isAllowedXhsMediaUrl, isAllowedXhsUrl, readXhsNote } = require('./xhs-reader');
-const { canWalk, chooseUnseen, normalizeWalkState, parseDiscoveryCandidates, parseWalkDecision, scheduleNextWalk } = require('./xhs-walk');
+const { chooseUnseen, normalizeWalkState, parseDiscoveryCandidates, parseWalkDecision } = require('./xhs-walk');
+const { freshState, normalizeState: normalizeWakeState, advanceState: advanceWakeState, recordAgentRun: recordWakeAgentRun, millisecondsUntilCandidate } = require('./wake-activation');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
 
 const execFileAsync = promisify(execFile);
@@ -966,6 +967,7 @@ function updateLastInteraction() {
     // 每日首次聊天触发日历日记（凌晨6点后）
     setImmediate(() => generateDailyNoteIfNeeded([]).catch(() => {}));
     setImmediate(() => queuePreviousCrumbDigest());
+    setImmediate(() => finishWakeRun());
 }
 function updateLastProactiveTime() {
     lastProactiveTime = Date.now();
@@ -2274,7 +2276,7 @@ function addAnticipation(input) {
     const duplicate = items.some(item => item.status === 'open' && item.entity === input.entity && item.content === input.content && now - new Date(item.created_at).getTime() < 7 * 86400000);
     if (duplicate) return null;
     const entry = makeAnticipation(input);
-    items.push(entry); saveAnticipations(items);
+    items.push(entry); saveAnticipations(items); armAnticipationWake(new Date());
     console.log(`📌 [牵挂线] 新建 ${entry.entity}: ${entry.content}`);
     return entry;
 }
@@ -2306,6 +2308,15 @@ function markAnticipationAsked(id, now = new Date()) {
     if (item.attempts >= Number(item.max_attempts || 2)) item.status = 'closed_unanswered';
     else item.due_at = dueFromHours(now, 24).toISOString();
     saveAnticipations(items);
+}
+
+function deferAnticipationWake(id, now = new Date()) {
+    const items = loadAnticipations(); const item = items.find(x => x.id === id && x.status === 'open');
+    if (!item) return;
+    item.due_at = dueFromHours(now, 24).toISOString();
+    item.last_wake_at = now.toISOString();
+    saveAnticipations(items);
+    armAnticipationWake(now);
 }
 
 function resolveAnticipationsFromUserText(userText) {
@@ -4179,64 +4190,21 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
 
 // 💌 沈望主动发消息
 let _proactiveLastError = '';
-async function generateProactiveMessage(forceOverride = false) {
+async function generateProactiveMessage(wakeup = {}) {
     _proactiveLastError = '';
     const now = new Date();
     const nowMs = now.getTime();
     const hoursSince = (nowMs - lastInteractionTime) / 3600000;
-    const careDue = getDueAnticipation(now);
-    if (!careDue && nowMs - lastProactiveTime < 1.5 * 3600000) { _proactiveLastError = '1.5h冷却中'; return; }
-
-    // 北京时间
+    const careDue = wakeup.care || getDueAnticipation(now);
+    const wakeSource = wakeup.source || 'spontaneous';
     const bjHour = ((nowMs + 8 * 3600000) / 3600000) % 24;
-    // 北京时间当天0点的UTC时间戳
-    const bjMidnightUTC = Math.floor((nowMs + 8 * 3600000) / 86400000) * 86400000 - 8 * 3600000;
-
-    // === 第三层：硬兜底 ===
-    let forced = Boolean(careDue && hoursSince >= 0.5);
-    // 白天7-23点，沉默超6小时 → 强制发
-    if (!forced && bjHour >= 7 && bjHour < 23 && hoursSince > 6) {
-        console.log(`💌 [主动消息] 硬兜底：白天沉默${hoursSince.toFixed(1)}h，强制发送`);
-        forced = true;
-    }
-    // 早上9点还没说话，且最后互动在昨晚 → 强制早安
-    if (!forced && bjHour >= 9 && bjHour < 10 && lastInteractionTime < bjMidnightUTC + 7 * 3600000) {
-        console.log(`💌 [主动消息] 硬兜底：到早上9点还没说话，发早安`);
-        forced = true;
-    }
-
-    if (!forceOverride && !forced) {
-        // === 第一层：基础概率 ===
-        let baseProb = 0;
-        if (hoursSince < 1) baseProb = 0;
-        else if (hoursSince < 2) baseProb = 0.20;
-        else if (hoursSince < 3) baseProb = 0.40;
-        else if (hoursSince < 4) baseProb = 0.60;
-        else if (hoursSince < 5) baseProb = 0.75;
-        else baseProb = 0.85;
-
-        if (baseProb === 0) { _proactiveLastError = `概率=0 (hoursSince=${hoursSince.toFixed(1)}, bjHour=${bjHour.toFixed(1)})`; return; }
-        if (hoursSince < 1) { _proactiveLastError = '沉默不足1h'; return; }
-
-        // === 第二层：时间段权重 ===
-        let timeWeight = 1.0;
-        if (bjHour >= 0 && bjHour < 7) timeWeight = 0.1;
-        else if (bjHour >= 7 && bjHour < 9) timeWeight = 1.2;
-        else if (bjHour >= 11.5 && bjHour < 13) timeWeight = 1.3;
-        else if (bjHour >= 17 && bjHour < 19) timeWeight = 1.2;
-        else if (bjHour >= 22 && bjHour < 23.5) timeWeight = 1.3;
-
-        const finalProb = Math.min(baseProb * timeWeight, 0.95);
-        const roll = Math.random();
-        console.log(`💌 [主动消息] 沉默${hoursSince.toFixed(1)}h 基础${(baseProb*100).toFixed(0)}% × 时段${timeWeight} = ${(finalProb*100).toFixed(0)}% 随机:${roll.toFixed(3)} ${roll < finalProb ? '✅' : '❌'}`);
-        if (roll >= finalProb) { _proactiveLastError = `概率未命中: ${(finalProb*100).toFixed(0)}%概率, roll=${roll.toFixed(3)}`; return; }
-    }
 
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
-    const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || 'claude-opus-4-6';
-    const PROACTIVE_URL = process.env.PROACTIVE_URL || 'https://www.msuicode.com/v1/chat/completions';
-    const PROACTIVE_KEY = process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
+    const currentConversation = getCurrentConversationModelConfig();
+    const PROACTIVE_MODEL = currentConversation?.model || process.env.PROACTIVE_MODEL || 'claude-opus-4-6';
+    const PROACTIVE_URL = currentConversation?.endpoint || process.env.PROACTIVE_URL || 'https://www.msuicode.com/v1/chat/completions';
+    const PROACTIVE_KEY = currentConversation?.apiKey || process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
     if (!PROACTIVE_KEY) { _proactiveLastError = '缺少PROACTIVE_KEY或DZZI_API_KEY'; return console.log('💌 [主动消息] 缺少 PROACTIVE_KEY 或 DZZI_API_KEY 环境变量'); }
 
     const recentMsgs = [];
@@ -4336,7 +4304,7 @@ async function generateProactiveMessage(forceOverride = false) {
     for (const m of recentMsgs) msgs.push(m);
 
     console.log(`💌 [主动消息] 使用模型: ${PROACTIVE_MODEL}`);
-    msgs.push({ role: 'user', content: `（江鱼已经有一阵子没说话了。现在是${timeStr}。最后一次对话的气氛是怎样的、她最近在经历什么、这个时间点她可能在做什么——你都知道。如果你想她了，就去找她。说什么由你决定。）` });
+    msgs.push({ role: 'user', content: `【Wake Opportunity】source=${wakeSource}，activationId=${wakeup.activationId || 'wk_' + nowMs}。这只是一次正常运行机会，不是任务，也不代表你必须发消息。你可以只输出 <WAKE_SILENT/> 安静结束；如果你此刻真的想自己逛一圈小红书，可以只输出 <WAKE_XHS/>，系统会替你打开，之后由你决定留下什么、要不要对江鱼说。只有确实有一句自然想对江鱼说的话，才直接说那句话。${careDue ? `这次唯一明确牵挂是：${careDue.entity}。` : ''} 现在是${timeStr}。` });
 
     try {
         const res = await fetch(PROACTIVE_URL, {
@@ -4348,11 +4316,13 @@ async function generateProactiveMessage(forceOverride = false) {
         const data = await res.json();
         const msg = data.choices?.[0]?.message;
         let content = (msg?.content || msg?.reasoning_content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-        if (!content || content.length < 2) { _proactiveLastError = `空内容，原始: ${JSON.stringify(data).substring(0, 300)}`; console.log(`💌 [主动消息] ${_proactiveLastError}`); return; }
+        if (!content || content.length < 2 || /<WAKE_SILENT\s*\/?\s*>/i.test(content)) { console.log(`🌙 [唤醒] ${wakeSource}：安静结束`); return { silent: true }; }
+        if (/<WAKE_XHS\s*\/?\s*>/i.test(content)) return { xhs_walk: await runXhsWalk() };
         content = cleanAssistantInternalArtifacts(processAssistantActionTags(content));
         console.log(`💌 [主动消息] ${content}`);
         if (careDue && content.includes(careDue.entity)) markAnticipationAsked(careDue.id, now);
         deliverProactiveMessage(content);
+        return { sent: true, content };
     } catch(e) { _proactiveLastError = `异常: ${e.message}`; console.log(`💌 [主动消息] ${_proactiveLastError}`); }
 }
 function insertProactiveToConfig(content, messageId = `proactive_${crypto.randomUUID()}`) {
@@ -4408,6 +4378,30 @@ function dedupePersistedProactiveMessages() {
     }
 }
 
+async function runWakeOpportunity({ source = 'spontaneous', care = null, manual = false } = {}) {
+    if (wakeRunning) return { skipped: 'running' };
+    const now = new Date();
+    let state = loadWakeActivationState(now);
+    if (source === 'spontaneous') {
+        const advanced = advanceWakeState(state, now);
+        state = advanced.state;
+        saveWakeActivationState(state);
+        if (!manual && !advanced.triggered) { armSpontaneousWake(state, now); return { skipped: 'not_due' }; }
+    }
+    wakeRunning = true;
+    const activationId = `wk_${crypto.randomUUID()}`;
+    try {
+        state.last_wake_at = now.toISOString();
+        saveWakeActivationState(state);
+        const result = await generateProactiveMessage({ source, care, activationId });
+        if (source === 'anticipation' && care && !result?.sent) deferAnticipationWake(care.id, new Date());
+        return { activationId, source, ...(result || { silent: true }) };
+    } finally {
+        wakeRunning = false;
+        finishWakeRun(new Date());
+    }
+}
+
 
 // ==========================================
 // 🌟 赛博海关
@@ -4449,6 +4443,54 @@ const XHS_MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const XHS_MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 const XHS_WALK_FILE = path.join(DATA_DIR, 'xhs_walk.json');
 let XHS_WALK_RUNNING = false;
+const WAKE_ACTIVATION_FILE = path.join(DATA_DIR, 'wake_activation.json');
+let wakeTimer = null;
+let wakeTimerGeneration = 0;
+let wakeRunning = false;
+let anticipationWakeTimer = null;
+
+function loadWakeActivationState(now = new Date()) {
+    try { return normalizeWakeState(JSON.parse(fs.readFileSync(WAKE_ACTIVATION_FILE, 'utf8')), now); }
+    catch (_) { return freshState(now); }
+}
+
+function saveWakeActivationState(state) {
+    try { fs.writeFileSync(WAKE_ACTIVATION_FILE, JSON.stringify(state, null, 2), 'utf8'); }
+    catch (error) { console.log(`🌙 [唤醒] 状态保存失败: ${error.message}`); }
+}
+
+function finishWakeRun(now = new Date()) {
+    const state = recordWakeAgentRun(loadWakeActivationState(now), now);
+    saveWakeActivationState(state);
+    armSpontaneousWake(state, now);
+    armAnticipationWake(now);
+}
+
+function armSpontaneousWake(existingState = null, now = new Date()) {
+    const state = existingState || loadWakeActivationState(now);
+    const delay = Math.min(millisecondsUntilCandidate(state, now), 12 * 60 * 60 * 1000);
+    if (wakeTimer) clearTimeout(wakeTimer);
+    const generation = ++wakeTimerGeneration;
+    wakeTimer = setTimeout(() => {
+        if (generation !== wakeTimerGeneration) return;
+        runWakeOpportunity({ source: 'spontaneous' }).catch(error => console.log(`🌙 [唤醒] 自发运行失败: ${error.message}`));
+    }, delay);
+    console.log(`🌙 [唤醒] 已安排下一次自然检查，约 ${Math.round(delay / 60000)} 分钟后`);
+}
+
+function armAnticipationWake(now = new Date()) {
+    if (anticipationWakeTimer) clearTimeout(anticipationWakeTimer);
+    const next = loadAnticipations()
+        .filter(item => item.status === 'open' && item.due_at)
+        .sort((a, b) => new Date(a.due_at) - new Date(b.due_at))[0];
+    if (!next) return;
+    const delay = Math.max(1000, Math.min(new Date(next.due_at).getTime() - now.getTime(), 12 * 60 * 60 * 1000));
+    anticipationWakeTimer = setTimeout(() => {
+        const due = getDueAnticipation(new Date());
+        if (due) runWakeOpportunity({ source: 'anticipation', care: due }).catch(error => console.log(`🌙 [唤醒] 牵挂运行失败: ${error.message}`));
+        else armAnticipationWake(new Date());
+    }, delay);
+}
 
 function loadXhsWalkState(now = new Date()) {
     try { return normalizeWalkState(JSON.parse(fs.readFileSync(XHS_WALK_FILE, 'utf8')), now); }
@@ -4555,7 +4597,7 @@ async function decideXhsWalkShare(candidates) {
     } catch (_) {}
     const message = await callXhsWalkModel({
         apiKey, endpoint, label: '筛选',
-        messages: [{ role: 'user', content: `你是沈望。你刚刚随手逛了一小圈小红书，候选如下：\n${JSON.stringify(list, null, 2)}\n\n${personalContext ? `你记得的江鱼近况（只用于判断是否有话想说）：\n${personalContext}\n\n` : ''}只根据标题判断，有没有一条是你自己真的觉得有意思、会自然想拿给江鱼看的。不是推荐算法任务，也不要讨好她；没意思就沉默。严禁编造标题外的内容。\n只输出 JSON：想分享时 {"share":true,"note_id":"...","message":"一句很像你本人会说的话"}；否则 {"share":false}。message 不超过 60 个汉字，不要客服腔，不要说‘为你推荐’。` }],
+        messages: [{ role: 'user', content: `你是沈望。你刚刚随手逛了一小圈小红书，候选如下：\n${JSON.stringify(list, null, 2)}\n\n${personalContext ? `你记得的江鱼近况（只用于判断什么会留下）：\n${personalContext}\n\n` : ''}只根据标题筛选。大多数划走；留下的是你自己觉得会想再看、或和江鱼有一点自然关联的东西。不能根据标题编造正文。\n只输出 JSON：{"keep":[{"note_id":"...","tags":["短标签"]}],"share_ids":["...", "..."]}。keep 最多 5 条，share_ids 必须是 keep 中真正想立刻拿给江鱼看的 0 到 3 条；没有就给空数组。标签简短、具体。` }],
     });
     return parseWalkDecision(message?.content || message?.reasoning_content || '');
 }
@@ -4593,43 +4635,43 @@ async function runXhsWalk(force = false) {
     if (XHS_WALK_RUNNING) return { skipped: 'running' };
     const now = new Date();
     const state = loadXhsWalkState(now);
-    if (!force && !canWalk(state, now)) return { skipped: 'not_due' };
-    if (!force && Date.now() - lastProactiveTime < 1.5 * 60 * 60 * 1000) return { skipped: 'proactive_cooldown' };
     XHS_WALK_RUNNING = true;
     try {
         const all = await fetchXhsDiscoveryCandidates();
-        const candidates = chooseUnseen(all, state.seen_ids, 5);
-        scheduleNextWalk(state, now);
+        const candidates = chooseUnseen(all, state.seen_ids, 20);
         if (!candidates.length) {
             saveXhsWalkState(state);
             return { skipped: 'no_unseen' };
         }
         const decision = await decideXhsWalkShare(candidates);
         state.seen_ids = [...state.seen_ids, ...candidates.map(item => item.id)].slice(-300);
-        const chosen = decision.share && candidates.find(item => item.id === decision.note_id);
-        if (chosen) {
-            const note = await getXhsNoteCached(chosen.url);
-            const message = await composeXhsWalkMessage(note);
-            if (!message) throw new Error('表达模型没有返回可分享的话');
-            const content = `${message}\n${chosen.url}`;
-            deliverProactiveMessage(content);
-            state.shares_today += 1;
-            state.last_shared_id = chosen.id;
-            state.last_shared_at = now.toISOString();
-            console.log(`📕 [小红书散步] 分享: ${chosen.title}`);
-        } else {
-            console.log('📕 [小红书散步] 没有真想分享的，安静回来');
+        const keepById = new Map((decision.keep || []).map(item => [item.note_id, item]));
+        const kept = candidates.filter(item => keepById.has(item.id));
+        const shareIds = new Set((decision.share_ids || []).filter(id => keepById.has(id)));
+        const shared = [];
+        for (const candidate of kept) {
+            const note = await getXhsNoteCached(candidate.url);
+            const tags = keepById.get(candidate.id)?.tags || [];
+            const crumb = { id: `xhs_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, kind: 'xhs_walk', happened_at: now.toISOString(), fact: `沈望在小红书留下：${note.title || candidate.title}`, source_quote: candidate.url, source_message_id: null, entities: [], tags: ['小红书', ...tags].slice(0, 8), status: 'active', archive_after_days: 90, created_at: now.toISOString(), last_surfaced_at: null, surface_count: 0, xhs: { note_id: candidate.id, url: candidate.url, title: note.title || candidate.title, author: note.author || candidate.author } };
+            const crumbs = loadCrumbs();
+            if (!crumbs.some(item => item.xhs?.note_id === candidate.id)) { crumbs.push(crumb); saveCrumbs(crumbs.slice(-2000)); }
+            if (shareIds.has(candidate.id)) {
+                const message = await composeXhsWalkMessage(note);
+                if (message && !/<WAKE_SILENT\s*\/?\s*>/i.test(message)) { deliverProactiveMessage(`${message}\n${candidate.url}`); shared.push(candidate.id); }
+            }
         }
+        if (shared.length) { state.last_shared_id = shared.at(-1); state.last_shared_at = now.toISOString(); console.log(`📕 [小红书散步] 分享 ${shared.length} 条`); }
+        else console.log(`📕 [小红书散步] 留下 ${kept.length} 条，安静回来`);
         state.scans_today += 1;
         state.last_scan_at = now.toISOString();
         state.last_error = null;
         state.last_error_at = null;
         saveXhsWalkState(state);
-        return { shared: Boolean(chosen), scanned: candidates.length };
+        return { shared: shared.length, kept: kept.length, scanned: candidates.length };
     } catch (error) {
         state.last_error = error.message;
         state.last_error_at = now.toISOString();
-        state.next_check_at = now.getTime() + 20 * 60 * 1000;
+        state.next_check_at = null;
         saveXhsWalkState(state);
         console.log(`📕 [小红书散步] 降级静默: ${error.message}`);
         return { error: error.message };
@@ -4898,20 +4940,33 @@ app.get('/api/xhs-card', async (req, res) => {
 
 app.get('/api/xhs-walk/status', (req, res) => {
     const state = loadXhsWalkState();
+    const wake = loadWakeActivationState();
     res.json({
         enabled: process.env.XHS_WALK_ENABLED !== 'false',
         running: XHS_WALK_RUNNING,
         scans_today: state.scans_today,
         shares_today: state.shares_today,
-        next_check_at: state.next_check_at ? new Date(state.next_check_at).toISOString() : null,
+        next_check_at: null,
         last_scan_at: state.last_scan_at || null,
         last_shared_at: state.last_shared_at || null,
         last_error: state.last_error || null,
+        wake: { generation: wake.generation, last_run_at: wake.last_run_at, last_wake_at: wake.last_wake_at },
     });
 });
 
 app.post('/api/xhs-walk/try', async (req, res) => {
     const result = await runXhsWalk(true);
+    res.json({ success: !result.error, ...result });
+});
+
+app.get('/api/wake/status', (req, res) => {
+    const now = new Date(); const advanced = advanceWakeState(loadWakeActivationState(now), now);
+    saveWakeActivationState(advanced.state);
+    res.json({ enabled: true, running: wakeRunning, generation: advanced.state.generation, lambda_per_hour: advanced.lambda_per_hour, next_candidate_at: new Date(now.getTime() + millisecondsUntilCandidate(advanced.state, now)).toISOString(), last_run_at: advanced.state.last_run_at, last_wake_at: advanced.state.last_wake_at });
+});
+
+app.post('/api/wake/try', async (req, res) => {
+    const result = await runWakeOpportunity({ source: 'manual', manual: true });
     res.json({ success: !result.error, ...result });
 });
 
@@ -6665,19 +6720,8 @@ RP游戏卡带（${rpMemories.length}条）：${rpList || '（空）'}
 app.all('/trigger-proactive', async (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     try {
-        const savedLT = lastProactiveTime;
-        const savedLI = lastInteractionTime;
-        lastProactiveTime = 0;
-        lastInteractionTime = Date.now() - 7 * 3600000;
-        await generateProactiveMessage(true);
-        lastInteractionTime = savedLI;
-        const sent = lastProactiveTime !== 0;
-        if (!sent) lastProactiveTime = savedLT;
-        if (sent) {
-            res.json({ success: true, message: "✅ 主动消息已发送，看前端和Bark推送" });
-        } else {
-            res.json({ success: false, message: `❌ 消息未发出`, reason: _proactiveLastError || '未知', debug: { model: process.env.PROACTIVE_MODEL || '[0.1]claude-opus-4-6', url: process.env.PROACTIVE_URL || 'https://api.dzzi.ai/v1/chat/completions' } });
-        }
+        const result = await runWakeOpportunity({ source: 'manual', manual: true });
+        res.json({ success: Boolean(result.sent || result.silent), ...result });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -8326,12 +8370,8 @@ server.listen(PORT, () => {
     }, 10000);
 
     setInterval(cleanAndArchiveMemories, 6 * 60 * 60 * 1000);
-    setInterval(generateProactiveMessage, 30 * 60 * 1000); // 每30分钟检查
-    setTimeout(generateProactiveMessage, 60 * 1000); // 启动60秒后首次检查
-    if (process.env.XHS_WALK_ENABLED !== 'false') {
-        setInterval(() => runXhsWalk().catch(() => {}), 30 * 60 * 1000);
-        setTimeout(() => runXhsWalk().catch(() => {}), 3 * 60 * 1000);
-    }
+    armSpontaneousWake();
+    armAnticipationWake();
 
     // 每5分钟清理过期传感器速率限制记录
     setInterval(() => {

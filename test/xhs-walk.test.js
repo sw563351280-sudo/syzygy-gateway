@@ -33,6 +33,6 @@ test('walk schedules a quiet four-to-seven-hour interval', () => {
 test('unseen selection and strict JSON decision are safe', () => {
     const candidates = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
     assert.deepEqual(chooseUnseen(candidates, ['a'], 2, () => 0).map(x => x.id).sort(), ['b', 'c']);
-    assert.deepEqual(parseWalkDecision('```json\n{"share":true,"note_id":"b","message":"这个猫好笨。"}\n```'), { share: true, note_id: 'b', message: '这个猫好笨。' });
-    assert.equal(parseWalkDecision('not json').share, false);
+    assert.deepEqual(parseWalkDecision('```json\n{"keep":[{"note_id":"b","tags":["猫"]}],"share_ids":["b"]}\n```'), { keep: [{ note_id: 'b', tags: ['猫'] }], share_ids: ['b'] });
+    assert.deepEqual(parseWalkDecision('not json'), { keep: [], share_ids: [] });
 });

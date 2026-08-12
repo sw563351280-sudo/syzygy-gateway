@@ -54,6 +54,8 @@ function normalizeWalkState(raw, now = new Date()) {
     return state;
 }
 
+// Compatibility helpers for legacy callers and tests. The wake engine no
+// longer uses these to schedule browsing; spontaneous activation owns timing.
 function canWalk(state, now = new Date(), options = {}) {
     const cfg = { maxScansPerDay: 3, maxSharesPerDay: 1, ...options };
     if (beijingHour(now) < 8 || beijingHour(now) >= 23) return false;
@@ -62,7 +64,6 @@ function canWalk(state, now = new Date(), options = {}) {
 }
 
 function scheduleNextWalk(state, now = new Date(), random = Math.random) {
-    // Four to seven hours keeps this a quiet stroll, not a polling crawler.
     state.next_check_at = now.getTime() + (4 + random() * 3) * 60 * 60 * 1000;
     return state;
 }
@@ -71,16 +72,19 @@ function parseWalkDecision(raw) {
     const text = String(raw || '').replace(/```json|```/gi, '').trim();
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
-    if (start < 0 || end <= start) return { share: false, message: '' };
+    if (start < 0 || end <= start) return { keep: [], share_ids: [] };
     try {
         const value = JSON.parse(text.slice(start, end + 1));
+        const keep = Array.isArray(value.keep) ? value.keep.map(item => ({
+            note_id: String(item?.note_id || '').trim(),
+            tags: Array.isArray(item?.tags) ? item.tags.map(tag => String(tag || '').trim()).filter(Boolean).slice(0, 8) : [],
+        })).filter(item => item.note_id) : [];
         return {
-            share: value.share === true,
-            note_id: String(value.note_id || '').trim(),
-            message: String(value.message || '').trim(),
+            keep,
+            share_ids: Array.isArray(value.share_ids) ? value.share_ids.map(id => String(id || '').trim()).filter(Boolean) : [],
         };
     } catch (_) {
-        return { share: false, message: '' };
+        return { keep: [], share_ids: [] };
     }
 }
 
