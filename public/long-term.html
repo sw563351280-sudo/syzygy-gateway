@@ -39,7 +39,6 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
 <span class="pill rp-pill" onclick="setFilter(this,'roleplay','all')">🎮 游戏卡带 (<b id="cntRP">0</b>)</span>
 <span class="pill archive-pill" onclick="setFilter(this,'archived','all')">🥶 冰封档案 (<b id="cntArchived">0</b>)</span>
 </div>
-<div id="profileCard"></div>
 <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;font-size:13px;flex-wrap:wrap;" id="heatBar">
 <span style="color:#d86b4a;">🔥 高热度 <b id="heatHigh">0</b>条</span>
 <span style="color:#b99a5f;">🌡️ 中热度 <b id="heatMid">0</b>条</span>
@@ -61,7 +60,7 @@ const PWD = new URLSearchParams(location.search).get('pwd');
 if (!PWD) { document.getElementById('memoryList').innerHTML = '缺少密码参数'; throw new Error('no pwd'); }
 document.getElementById('mmLink').href = '/memory-manager?pwd=' + encodeURIComponent(PWD);
 
-let ALL_MEMS = [], COUNTS = {}, PROFILE = null, DREAM_LOGS = [], currentCat = 'active', currentSource = 'all';
+let ALL_MEMS = [], COUNTS = {}, currentCat = 'active', currentSource = 'all';
 
 function showToast(msg){ const t = document.getElementById('toast'); t.textContent = msg; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 2000); }
 function openModal(){ document.getElementById('addModal').classList.add('show'); }
@@ -77,7 +76,7 @@ async function loadData() {
     const res = await fetch('/api/longterm-page-data?pwd=' + encodeURIComponent(PWD));
     if (!res.ok) { document.getElementById('memoryList').innerHTML = '加载失败'; return; }
     const data = await res.json();
-    ALL_MEMS = data.memories || []; COUNTS = data.counts || {}; PROFILE = data.profile; DREAM_LOGS = data.dreamLogs || [];
+    ALL_MEMS = data.memories || []; COUNTS = data.counts || {};
     document.getElementById('cntAll').textContent = COUNTS.all || 0;
     document.getElementById('cntManual').textContent = COUNTS.manual || 0;
     document.getElementById('cntAI').textContent = COUNTS.ai_active || 0;
@@ -87,7 +86,6 @@ async function loadData() {
     document.getElementById('heatHigh').textContent = (data.heatStats||{}).high || 0;
     document.getElementById('heatMid').textContent = (data.heatStats||{}).mid || 0;
     document.getElementById('heatLow').textContent = (data.heatStats||{}).low || 0;
-    renderProfile();
     filterAll();
 }
 
@@ -101,18 +99,6 @@ function getTTLLabel(m) {
     return '📦 '+days+'天后过期';
 }
 function sourceLabel(s) { return ({'manual':'✍️ 手动','ai_active':'🤖 AI主动','butler_summary':'🌙 管家','roleplay':'🎮RP副本'})[s] || s; }
-
-function renderProfile() {
-    if (!PROFILE) return;
-    const updated = PROFILE.last_full_update ? new Date(PROFILE.last_full_update).toLocaleString('zh-CN') : '尚未更新';
-    let html = '<div class="memory-card" style="background:#f0f8ff;border-left:4px solid #1a73e8;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><b style="font-size:16px;">📋 江鱼画像</b><div style="display:flex;gap:8px;align-items:center;"><span style="font-size:11px;color:#888;">最后更新: '+updated+'</span><button class="normal" onclick="updateProfile()" style="font-size:11px;padding:3px 10px;">🔄 手动更新</button></div></div>';
-    if (PROFILE.basic_info?.content) html += '<details open><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">📌 基本信息</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">'+PROFILE.basic_info.content.replace(/</g,'&lt;')+'</p></details>';
-    if (PROFILE.communication_style?.content) html += '<details><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">🔍 沟通偏好</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">'+PROFILE.communication_style.content.replace(/</g,'&lt;')+'</p></details>';
-    if (PROFILE.recent_focus?.content) html += '<details open><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">🔥 近期关注</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">'+PROFILE.recent_focus.content.replace(/</g,'&lt;')+'</p></details>';
-    if (PROFILE.long_term_values?.content) html += '<details><summary style="cursor:pointer;font-weight:bold;margin:4px 0;">💡 长期偏好</summary><p style="margin:4px 0 8px 12px;white-space:pre-wrap;">'+PROFILE.long_term_values.content.replace(/</g,'&lt;')+'</p></details>';
-    html += '</div>';
-    document.getElementById('profileCard').innerHTML = html;
-}
 
 
 function renderCard(m) {
@@ -209,10 +195,6 @@ function clearSearch() {
     document.getElementById('clearSearchBtn').style.display = 'none'; document.getElementById('searchInput').value = ''; filterAll();
 }
 
-async function updateProfile() {
-    const r = await fetch('/trigger-profile-update?pwd='+encodeURIComponent(PWD), { method:'POST' });
-    const d = await r.json(); alert(d.success ? '✅ 更新成功' : '❌ '+(d.error||d.message)); if (d.success) location.reload();
-}
 async function triggerCleanup() {
     if (!confirm('让AI审查记忆库，清理重复和不重要的条目？\n（被清理的会移入冰封档案，不会彻底删除）')) return;
     const r = await fetch('/trigger-cleanup?pwd='+encodeURIComponent(PWD), { method:'POST' });
