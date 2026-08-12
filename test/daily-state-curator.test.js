@@ -81,6 +81,8 @@ test('curator prompt treats only Jiangyu text as a fact source and skips empty c
 test('persistent-state gate only lets likely ongoing state changes spend a Pro call', () => {
     assert.equal(shouldCuratePersistentState('我最近开始吃维生素D，每天一粒。'), true);
     assert.equal(shouldCuratePersistentState('我现在在追那部剧，准备这周看完。'), true);
+    assert.equal(shouldCuratePersistentState('高温假已经开始了。'), true);
+    assert.equal(shouldCuratePersistentState('我请假到下周，工作安排改了。'), true);
     assert.equal(shouldCuratePersistentState('今晚吃了妈妈做的韭菜馅饼。'), false);
     assert.equal(shouldCuratePersistentState('我今天好困，想睡觉。'), false);
     assert.equal(shouldCuratePersistentState('我在改 Codex 的记忆库界面。'), false);

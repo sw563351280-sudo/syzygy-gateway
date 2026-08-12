@@ -110,8 +110,11 @@ function shouldCuratePersistentState(userText) {
     const text = String(userText || '').trim();
     if (!shouldCurateMessage(text) || text.length < 5) return false;
     if (/(?:codex|github|\bapi\b|\bbug\b|代码|编程|程序|模型|提示词|prompt|记忆库|界面|前端|后端|部署|服务器|数据库)/i.test(text)) return false;
-    const stateSubject = /(?:吃药|服药|用药|药物|维生素|保健品|过敏|复诊|治疗|诊断|美甲|甲油|染发|发色|护肤|隐形眼镜|眼镜|追剧|在看|在追|课程|上课|健身|减肥|忌口|作息|搬家|住在|工作安排|上班)/;
-    const continuity = /(?:正在|开始|刚开始|最近|目前|现在|这阵子|这几天|接下来|改成|换成|停了|不再|一直|持续|每天|以后)/;
+    // Only open the Pro curator for facts that can replace a current slot.
+    // Include phase changes such as holidays: “假期已经开始了” must be
+    // able to overwrite an earlier work schedule, even without saying “上班”.
+    const stateSubject = /(?:吃药|服药|用药|药物|维生素|保健品|过敏|复诊|治疗|诊断|美甲|甲油|染发|发色|护肤|隐形眼镜|眼镜|追剧|在看|在追|课程|上课|开学|放学|健身|减肥|忌口|作息|搬家|住在|工作安排|上班|加班|排班|请假|放假|休假|假期|高温假|停工|返工|复工)/;
+    const continuity = /(?:正在|开始|刚开始|已经|已|最近|目前|现在|这阵子|这几天|接下来|改成|改了|换成|换了|调整|变成|停了|暂停|结束|不再|一直|持续|每天|以后|恢复|回去|延期|提前|推迟)/;
     return stateSubject.test(text) && continuity.test(text);
 }
 
