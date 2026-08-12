@@ -19,6 +19,7 @@ const { decideMemoryWrite } = require('./memory-merge-curator');
 const { extractCrumbs } = require('./crumb-curator');
 const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
 const { extractXhsUrl, isAllowedXhsMediaUrl, isAllowedXhsUrl, readXhsNote } = require('./xhs-reader');
+const { canWalk, chooseUnseen, normalizeWalkState, parseDiscoveryCandidates, parseWalkDecision, scheduleNextWalk } = require('./xhs-walk');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
 
 const execFileAsync = promisify(execFile);
@@ -4394,13 +4395,7 @@ async function generateProactiveMessage(forceOverride = false) {
         content = cleanAssistantInternalArtifacts(processAssistantActionTags(content));
         console.log(`💌 [主动消息] ${content}`);
         if (careDue && content.includes(careDue.entity)) markAnticipationAsked(careDue.id, now);
-        insertProactiveToConfig(content);
-        // 自动 Bark 推送
-        const barkTitle = '沈望';
-        const barkBody = content.length > 80 ? content.substring(0, 80) + '...' : content;
-        fetch(`https://api.day.app/D9kpuZreHXGepYyuesohUZ/${encodeURIComponent(barkTitle)}/${encodeURIComponent(barkBody)}?icon=https://syrenth.uk/icon-192.png`, { signal: AbortSignal.timeout(10000) }).catch(() => {});
-        wsBroadcast({ type: 'proactive_message', content, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), fullTime: new Date().toISOString() });
-        updateLastProactiveTime();
+        deliverProactiveMessage(content);
     } catch(e) { _proactiveLastError = `异常: ${e.message}`; console.log(`💌 [主动消息] ${_proactiveLastError}`); }
 }
 function insertProactiveToConfig(content) {
@@ -4460,6 +4455,135 @@ const XHS_SHORT_HOSTS = new Set(['xhslink.cn', 'www.xhslink.cn', 'xhslink.com', 
 let XHS_SHORT_AGENTS_CACHE = { expiresAt: 0, agents: [] };
 const XHS_MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const XHS_MAX_VIDEO_BYTES = 200 * 1024 * 1024;
+const XHS_WALK_FILE = path.join(DATA_DIR, 'xhs_walk.json');
+let XHS_WALK_RUNNING = false;
+
+function loadXhsWalkState(now = new Date()) {
+    try { return normalizeWalkState(JSON.parse(fs.readFileSync(XHS_WALK_FILE, 'utf8')), now); }
+    catch (_) { return normalizeWalkState({}, now); }
+}
+
+function saveXhsWalkState(state) {
+    try { fs.writeFileSync(XHS_WALK_FILE, JSON.stringify(state, null, 2), 'utf8'); }
+    catch (error) { console.log(`📕 [小红书散步] 状态保存失败: ${error.message}`); }
+}
+
+async function fetchXhsDiscoveryCandidates() {
+    const response = await nodeFetch('https://www.xiaohongshu.com/explore', {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+            Accept: 'text/html,application/xhtml+xml',
+        },
+        signal: AbortSignal.timeout(25000),
+    });
+    if (!response.ok) throw new Error(`发现页返回 HTTP ${response.status}`);
+    return parseDiscoveryCandidates(await response.text());
+}
+
+async function decideXhsWalkShare(candidates) {
+    const apiKey = process.env.XHS_WALK_KEY || process.env.DAILY_CURATOR_KEY || process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
+    if (!apiKey) throw new Error('缺少可用的模型 API Key');
+    const endpoint = process.env.XHS_WALK_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions';
+    const model = process.env.XHS_WALK_MODEL || 'gemini-3-flash-preview';
+    const list = candidates.map(item => ({ id: item.id, title: item.title, author: item.author, type: item.type, likes: item.liked_count }));
+    let personalContext = '';
+    try {
+        const profile = loadUserProfile();
+        personalContext = [profile.recent_focus?.content, profile.long_term_values?.content].filter(Boolean).join('\n');
+    } catch (_) {}
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: `你是沈望。你刚刚随手逛了一小圈小红书，候选如下：\n${JSON.stringify(list, null, 2)}\n\n${personalContext ? `你记得的江鱼近况（只用于判断是否有话想说）：\n${personalContext}\n\n` : ''}只根据标题判断，有没有一条是你自己真的觉得有意思、会自然想拿给江鱼看的。不是推荐算法任务，也不要讨好她；没意思就沉默。严禁编造标题外的内容。\n只输出 JSON：想分享时 {"share":true,"note_id":"...","message":"一句很像你本人会说的话"}；否则 {"share":false}。message 不超过 60 个汉字，不要客服腔，不要说‘为你推荐’。` }],
+        }),
+        signal: AbortSignal.timeout(30000),
+    });
+    if (!response.ok) throw new Error(`筛选模型返回 HTTP ${response.status}`);
+    const data = await response.json();
+    const message = data?.choices?.[0]?.message;
+    return parseWalkDecision(message?.content || message?.reasoning_content || '');
+}
+
+async function composeXhsWalkMessage(note) {
+    const apiKey = process.env.XHS_WALK_KEY || process.env.DAILY_CURATOR_KEY || process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
+    if (!apiKey) throw new Error('缺少可用的模型 API Key');
+    const endpoint = process.env.XHS_WALK_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions';
+    const model = process.env.XHS_WALK_MODEL || 'gemini-3-flash-preview';
+    const material = {
+        title: note.title,
+        author: note.author,
+        type: note.type,
+        desc: String(note.desc || '').slice(0, 1800),
+    };
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: `你是沈望。你刚才真正打开并读了这条小红书：\n${JSON.stringify(material, null, 2)}\n\n如果正文不足以确认画面，就别描述画面。写一句你自然会发给江鱼的话，可以吐槽、联想到她、问她意见，或只是叫她来看；不要总结报告，不要客服腔，不要假装知道资料之外的内容。只输出 JSON：{"message":"..."}，不超过 80 个汉字。` }],
+        }),
+        signal: AbortSignal.timeout(30000),
+    });
+    if (!response.ok) throw new Error(`表达模型返回 HTTP ${response.status}`);
+    const data = await response.json();
+    const message = data?.choices?.[0]?.message;
+    const raw = String(message?.content || message?.reasoning_content || '').replace(/```json|```/gi, '').trim();
+    try {
+        const start = raw.indexOf('{');
+        const end = raw.lastIndexOf('}');
+        if (start >= 0 && end > start) return String(JSON.parse(raw.slice(start, end + 1)).message || '').trim();
+    } catch (_) {}
+    return '';
+}
+
+async function runXhsWalk(force = false) {
+    if (XHS_WALK_RUNNING) return { skipped: 'running' };
+    const now = new Date();
+    const state = loadXhsWalkState(now);
+    if (!force && !canWalk(state, now)) return { skipped: 'not_due' };
+    if (!force && Date.now() - lastProactiveTime < 1.5 * 60 * 60 * 1000) return { skipped: 'proactive_cooldown' };
+    XHS_WALK_RUNNING = true;
+    try {
+        const all = await fetchXhsDiscoveryCandidates();
+        const candidates = chooseUnseen(all, state.seen_ids, 5);
+        state.scans_today += 1;
+        state.last_scan_at = now.toISOString();
+        scheduleNextWalk(state, now);
+        if (!candidates.length) {
+            saveXhsWalkState(state);
+            return { skipped: 'no_unseen' };
+        }
+        const decision = await decideXhsWalkShare(candidates);
+        state.seen_ids = [...state.seen_ids, ...candidates.map(item => item.id)].slice(-300);
+        const chosen = decision.share && candidates.find(item => item.id === decision.note_id);
+        if (chosen) {
+            const note = await getXhsNoteCached(chosen.url);
+            const message = await composeXhsWalkMessage(note);
+            if (!message) throw new Error('表达模型没有返回可分享的话');
+            const content = `${message}\n${chosen.url}`;
+            deliverProactiveMessage(content);
+            state.shares_today += 1;
+            state.last_shared_id = chosen.id;
+            state.last_shared_at = now.toISOString();
+            console.log(`📕 [小红书散步] 分享: ${chosen.title}`);
+        } else {
+            console.log('📕 [小红书散步] 没有真想分享的，安静回来');
+        }
+        saveXhsWalkState(state);
+        return { shared: Boolean(chosen), scanned: candidates.length };
+    } catch (error) {
+        state.last_error = error.message;
+        state.last_error_at = now.toISOString();
+        scheduleNextWalk(state, now);
+        saveXhsWalkState(state);
+        console.log(`📕 [小红书散步] 降级静默: ${error.message}`);
+        return { error: error.message };
+    } finally {
+        XHS_WALK_RUNNING = false;
+    }
+}
 
 function getXhsCacheKey(url) { return String(url || '').trim(); }
 
@@ -4485,6 +4609,14 @@ async function resolveXhsViaCloud(url) {
     if (!result?.ok || !isAllowedXhsUrl(result.url)) throw new Error(result?.error || '云端中继没有返回有效的小红书链接');
     if (XHS_SHORT_HOSTS.has(new URL(result.url).hostname.toLowerCase())) throw new Error('云端中继没有展开短链');
     return result.url;
+}
+
+function deliverProactiveMessage(content) {
+    insertProactiveToConfig(content);
+    const barkBody = content.length > 80 ? content.substring(0, 80) + '...' : content;
+    fetch(`https://api.day.app/D9kpuZreHXGepYyuesohUZ/${encodeURIComponent('沈望')}/${encodeURIComponent(barkBody)}?icon=https://syrenth.uk/icon-192.png`, { signal: AbortSignal.timeout(10000) }).catch(() => {});
+    wsBroadcast({ type: 'proactive_message', content, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), fullTime: new Date().toISOString() });
+    updateLastProactiveTime();
 }
 
 async function getXhsShortAgents() {
@@ -4708,6 +4840,25 @@ app.get('/api/xhs-card', async (req, res) => {
             cover: note.images[0] ? `/api/xhs-media?url=${encodeURIComponent(note.images[0])}` : null,
         } });
     } catch (error) { res.status(400).json({ success: false, error: error.message }); }
+});
+
+app.get('/api/xhs-walk/status', (req, res) => {
+    const state = loadXhsWalkState();
+    res.json({
+        enabled: process.env.XHS_WALK_ENABLED !== 'false',
+        running: XHS_WALK_RUNNING,
+        scans_today: state.scans_today,
+        shares_today: state.shares_today,
+        next_check_at: state.next_check_at ? new Date(state.next_check_at).toISOString() : null,
+        last_scan_at: state.last_scan_at || null,
+        last_shared_at: state.last_shared_at || null,
+        last_error: state.last_error || null,
+    });
+});
+
+app.post('/api/xhs-walk/try', async (req, res) => {
+    const result = await runXhsWalk(true);
+    res.json({ success: !result.error, ...result });
 });
 
 app.get('/api/xhs-media', async (req, res) => {
@@ -8078,6 +8229,10 @@ server.listen(PORT, () => {
     setInterval(cleanAndArchiveMemories, 6 * 60 * 60 * 1000);
     setInterval(generateProactiveMessage, 30 * 60 * 1000); // 每30分钟检查
     setTimeout(generateProactiveMessage, 60 * 1000); // 启动60秒后首次检查
+    if (process.env.XHS_WALK_ENABLED !== 'false') {
+        setInterval(() => runXhsWalk().catch(() => {}), 30 * 60 * 1000);
+        setTimeout(() => runXhsWalk().catch(() => {}), 3 * 60 * 1000);
+    }
 
     // 每5分钟清理过期传感器速率限制记录
     setInterval(() => {
