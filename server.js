@@ -4514,10 +4514,20 @@ async function callXhsWalkModel({ apiKey, endpoint, messages, label }) {
     throw lastError || new Error(`${label}模型暂时不可用`);
 }
 
+function getXhsWalkModelConfig() {
+    // Reuse the curator route that already serves Gemini Flash successfully.
+    // PROACTIVE_KEY may belong to a different upstream model pool even when
+    // the endpoint hostname happens to be the same.
+    const curatorKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
+    return {
+        apiKey: process.env.XHS_WALK_KEY || curatorKey || process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY,
+        endpoint: process.env.XHS_WALK_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions',
+    };
+}
+
 async function decideXhsWalkShare(candidates) {
-    const apiKey = process.env.XHS_WALK_KEY || process.env.DAILY_CURATOR_KEY || process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
+    const { apiKey, endpoint } = getXhsWalkModelConfig();
     if (!apiKey) throw new Error('缺少可用的模型 API Key');
-    const endpoint = process.env.XHS_WALK_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions';
     const list = candidates.map(item => ({ id: item.id, title: item.title, author: item.author, type: item.type, likes: item.liked_count }));
     let personalContext = '';
     try {
@@ -4532,9 +4542,8 @@ async function decideXhsWalkShare(candidates) {
 }
 
 async function composeXhsWalkMessage(note) {
-    const apiKey = process.env.XHS_WALK_KEY || process.env.DAILY_CURATOR_KEY || process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
+    const { apiKey, endpoint } = getXhsWalkModelConfig();
     if (!apiKey) throw new Error('缺少可用的模型 API Key');
-    const endpoint = process.env.XHS_WALK_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions';
     const material = {
         title: note.title,
         author: note.author,
