@@ -1,6 +1,7 @@
 'use strict';
 
 const MOBILE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+const DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36';
 const XHS_HOSTS = new Set(['xhslink.com', 'www.xhslink.com', 'xhslink.cn', 'www.xhslink.cn', 'xiaohongshu.com', 'www.xiaohongshu.com']);
 const XHS_HTTP_SHORT_HOSTS = new Set(['xhslink.cn', 'www.xhslink.cn']);
 const XHS_MEDIA_HOST_SUFFIXES = ['.xhscdn.com', '.xiaohongshu.com'];
@@ -59,24 +60,37 @@ function extractXhsUrl(text) {
 
 async function fetchWithSafeRedirects(fetchImpl, input, options = {}) {
     const maxRedirects = options.maxRedirects || 5;
+    const requestTimeoutMs = options.requestTimeoutMs || 22000;
+    const userAgent = options.userAgent || MOBILE_UA;
     let current = input instanceof URL ? input : parseXhsShareUrl(input);
     if (!isAllowedXhsUrl(current)) throw new Error('只支持小红书分享链接');
 
     for (let hop = 0; hop <= maxRedirects; hop++) {
+        const stage = hop === 0 ? 'short_link' : `redirect_${hop}`;
+        const startedAt = Date.now();
+        const timeoutSignal = AbortSignal.timeout(requestTimeoutMs);
+        const signal = options.signal && typeof AbortSignal.any === 'function'
+            ? AbortSignal.any([options.signal, timeoutSignal])
+            : (options.signal || timeoutSignal);
+        options.onStage?.({ stage, event: 'start', hop, url: current.toString() });
         const response = await fetchImpl(current, {
+            ...(options.fetchOptions || {}),
             method: 'GET',
             redirect: 'manual',
-            headers: { 'User-Agent': MOBILE_UA, Accept: 'text/html,application/xhtml+xml' },
-            signal: options.signal,
+            headers: { 'User-Agent': userAgent, Accept: 'text/html,application/xhtml+xml' },
+            signal,
         });
+        options.onStage?.({ stage, event: 'response', hop, status: response.status, elapsedMs: Date.now() - startedAt });
         if (response.status >= 300 && response.status < 400) {
             const location = response.headers.get('location');
             if (!location) throw new Error('小红书跳转缺少地址');
+            response.body?.cancel?.().catch?.(() => {});
+            response.body?.destroy?.();
             current = new URL(location, current);
             if (!isAllowedXhsUrl(current)) throw new Error('小红书跳转到了不受支持的地址');
             continue;
         }
-        return { response, url: current.toString() };
+        return { response, url: current.toString(), signal };
     }
     throw new Error('小红书跳转次数过多');
 }
@@ -186,17 +200,64 @@ function normalizeNote(note, canonicalUrl) {
     };
 }
 
+function isRetryableReadError(error) {
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError' || error?.name === 'FetchError') return true;
+    if (error instanceof TypeError) return true;
+    if (['ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENETUNREACH', 'ETIMEDOUT'].includes(error?.code)) return true;
+    return /小红书页面请求失败 (?:403|408|425|429|5\d\d)|页面里没有找到笔记数据|没有找到笔记正文|笔记数据解析失败/.test(error?.message || '');
+}
+
 async function readXhsNote(fetchImpl, url, options = {}) {
-    const { response, url: canonicalUrl } = await fetchWithSafeRedirects(fetchImpl, url, options);
-    if (!response.ok) throw new Error(`小红书页面请求失败 ${response.status}`);
-    const state = parseInitialState(await readTextLimited(response, options.maxHtmlBytes));
-    const note = findNoteData(state);
-    if (!note) throw new Error('没有找到笔记正文');
-    return normalizeNote(note, canonicalUrl);
+    const maxAttempts = Math.max(1, Number(options.maxAttempts || 2));
+    const userAgents = options.userAgents || [MOBILE_UA, DESKTOP_UA];
+    let lastError;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const attemptStartedAt = Date.now();
+        let stage = 'short_link';
+        try {
+            const result = await fetchWithSafeRedirects(fetchImpl, url, {
+                ...options,
+                userAgent: userAgents[(attempt - 1) % userAgents.length],
+                onStage(info) {
+                    stage = info.stage || stage;
+                    options.onStage?.({ ...info, attempt });
+                },
+            });
+            const { response, url: canonicalUrl } = result;
+            if (!response.ok) throw new Error(`小红书页面请求失败 ${response.status}`);
+
+            stage = 'page_body';
+            options.onStage?.({ stage, event: 'start', attempt, url: canonicalUrl });
+            const html = await readTextLimited(response, options.maxHtmlBytes);
+            options.onStage?.({ stage, event: 'complete', attempt, elapsedMs: Date.now() - attemptStartedAt, bytes: Buffer.byteLength(html) });
+
+            stage = 'initial_state';
+            const state = parseInitialState(html);
+            const note = findNoteData(state);
+            if (!note) throw new Error('没有找到笔记正文');
+            options.onStage?.({ stage, event: 'complete', attempt, elapsedMs: Date.now() - attemptStartedAt });
+            return normalizeNote(note, canonicalUrl);
+        } catch (error) {
+            lastError = error;
+            const elapsedMs = Date.now() - attemptStartedAt;
+            options.onStage?.({ stage, event: 'error', attempt, elapsedMs, error: error.message });
+            if (options.signal?.aborted || attempt >= maxAttempts || !isRetryableReadError(error)) {
+                const detail = error?.name === 'TimeoutError' || error?.name === 'AbortError'
+                    ? '请求超时'
+                    : error.message;
+                throw new Error(`小红书读取在 ${stage} 阶段失败（${elapsedMs}ms）：${detail}`);
+            }
+            await new Promise(resolve => setTimeout(resolve, 250 * attempt));
+        }
+    }
+    throw lastError;
 }
 
 module.exports = {
     MOBILE_UA,
+    DESKTOP_UA,
+    fetchWithSafeRedirects,
     extractBalancedObject,
     extractXhsUrl,
     findNoteData,

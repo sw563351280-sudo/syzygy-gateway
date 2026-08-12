@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const WebSocket = require('ws');
 const { Client: SSHClient } = require('ssh2');
 const fs = require('fs');
@@ -8,6 +9,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const nodeFetch = require('node-fetch');
 const { createCodexBridge } = require('./codex-bridge');
 const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
 const { extractDailyStateUpdates, stripLeakedStateUpdates, shouldCuratePersistentState } = require('./daily-state-curator');
@@ -4451,6 +4453,8 @@ app.post('/proxy/v1/chat/completions', async (req, res) => {
 // ==========================================
 const XHS_CACHE_TTL = 6 * 60 * 60 * 1000;
 const XHS_NOTE_CACHE = new Map();
+const XHS_NOTE_INFLIGHT = new Map();
+const XHS_HTTPS_AGENT = new https.Agent({ keepAlive: true, family: 4 });
 const XHS_MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const XHS_MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 
@@ -4461,14 +4465,35 @@ async function getXhsNoteCached(url) {
     const key = getXhsCacheKey(url);
     const cached = XHS_NOTE_CACHE.get(key);
     if (cached && Date.now() - cached.createdAt < XHS_CACHE_TTL) return cached.note;
-    const note = await readXhsNote(fetch, url, { signal: AbortSignal.timeout(20000) });
-    XHS_NOTE_CACHE.set(key, { createdAt: Date.now(), note });
-    if (XHS_NOTE_CACHE.size > 40) {
-        const oldest = [...XHS_NOTE_CACHE.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt)[0];
-        if (oldest) XHS_NOTE_CACHE.delete(oldest[0]);
+    if (XHS_NOTE_INFLIGHT.has(key)) {
+        console.log('📕 [XHS] 复用同一链接的进行中请求');
+        return XHS_NOTE_INFLIGHT.get(key);
     }
-    console.log(`📕 [XHS] 已读取 ${note.type} 笔记: ${(note.title || note.note_id || '无标题').substring(0, 40)}`);
-    return note;
+
+    const startedAt = Date.now();
+    const pending = (async () => {
+        const note = await readXhsNote(nodeFetch, url, {
+            requestTimeoutMs: 22000,
+            maxAttempts: 2,
+            fetchOptions: { agent: XHS_HTTPS_AGENT },
+            onStage(info) {
+                const suffix = info.elapsedMs == null ? '' : ` ${info.elapsedMs}ms`;
+                const status = info.status == null ? '' : ` HTTP ${info.status}`;
+                const error = info.error ? ` ${info.error}` : '';
+                console.log(`📕 [XHS] attempt=${info.attempt} stage=${info.stage} ${info.event}${status}${suffix}${error}`);
+            },
+        });
+        XHS_NOTE_CACHE.set(key, { createdAt: Date.now(), note });
+        if (XHS_NOTE_CACHE.size > 40) {
+            const oldest = [...XHS_NOTE_CACHE.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt)[0];
+            if (oldest) XHS_NOTE_CACHE.delete(oldest[0]);
+        }
+        console.log(`📕 [XHS] 已读取 ${note.type} 笔记 ${Date.now() - startedAt}ms: ${(note.title || note.note_id || '无标题').substring(0, 40)}`);
+        return note;
+    })();
+    XHS_NOTE_INFLIGHT.set(key, pending);
+    try { return await pending; }
+    finally { XHS_NOTE_INFLIGHT.delete(key); }
 }
 
 async function readResponseBufferLimited(response, maxBytes) {

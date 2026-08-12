@@ -51,6 +51,40 @@ test('parses INITIAL_STATE and normalizes a video note', async () => {
 });
 
 test('rejects redirects that leave the Xiaohongshu allowlist', async () => {
-    const fetchImpl = async () => ({ ok: false, status: 302, headers: new Headers({ location: 'https://example.com/private' }) });
+    let requests = 0;
+    const fetchImpl = async () => {
+        requests++;
+        return { ok: false, status: 302, headers: new Headers({ location: 'https://example.com/private' }) };
+    };
     await assert.rejects(() => readXhsNote(fetchImpl, 'https://xhslink.com/abc'), /不受支持/);
+    assert.equal(requests, 1);
+});
+
+test('retries a transient request failure with a fallback user agent', async () => {
+    const state = { noteData: { data: { noteData: { noteId: 'retry_1', title: '重试成功' } } } };
+    const html = `<script>window.__INITIAL_STATE__ = ${JSON.stringify(state)};</script>`;
+    const seenAgents = [];
+    const fetchImpl = async (_url, options) => {
+        seenAgents.push(options.headers['User-Agent']);
+        if (seenAgents.length === 1) throw new TypeError('socket reset');
+        return {
+            ok: true,
+            status: 200,
+            headers: new Headers(),
+            text: async () => html,
+        };
+    };
+    const note = await readXhsNote(fetchImpl, 'https://xhslink.cn/o/retry', { maxAttempts: 2 });
+    assert.equal(note.note_id, 'retry_1');
+    assert.equal(seenAgents.length, 2);
+    assert.notEqual(seenAgents[0], seenAgents[1]);
+});
+
+test('reports the stage that timed out', async () => {
+    const timeout = new Error('timed out');
+    timeout.name = 'TimeoutError';
+    await assert.rejects(
+        () => readXhsNote(async () => { throw timeout; }, 'https://xhslink.cn/o/slow', { maxAttempts: 1 }),
+        /short_link.*请求超时/,
+    );
 });
