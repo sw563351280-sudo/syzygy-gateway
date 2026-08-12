@@ -60,7 +60,6 @@ function extractXhsUrl(text) {
 
 async function fetchWithSafeRedirects(fetchImpl, input, options = {}) {
     const maxRedirects = options.maxRedirects || 5;
-    const requestTimeoutMs = options.requestTimeoutMs || 22000;
     const userAgent = options.userAgent || MOBILE_UA;
     let current = input instanceof URL ? input : parseXhsShareUrl(input);
     if (!isAllowedXhsUrl(current)) throw new Error('只支持小红书分享链接');
@@ -68,13 +67,19 @@ async function fetchWithSafeRedirects(fetchImpl, input, options = {}) {
     for (let hop = 0; hop <= maxRedirects; hop++) {
         const stage = hop === 0 ? 'short_link' : `redirect_${hop}`;
         const startedAt = Date.now();
+        const requestTimeoutMs = typeof options.requestTimeoutMs === 'function'
+            ? options.requestTimeoutMs({ url: current, hop, stage, attempt: options.attempt || 1 })
+            : (options.requestTimeoutMs || 22000);
         const timeoutSignal = AbortSignal.timeout(requestTimeoutMs);
         const signal = options.signal && typeof AbortSignal.any === 'function'
             ? AbortSignal.any([options.signal, timeoutSignal])
             : (options.signal || timeoutSignal);
         options.onStage?.({ stage, event: 'start', hop, url: current.toString() });
+        const extraFetchOptions = typeof options.fetchOptions === 'function'
+            ? await options.fetchOptions({ url: current, hop, stage, attempt: options.attempt || 1 })
+            : (options.fetchOptions || {});
         const response = await fetchImpl(current, {
-            ...(options.fetchOptions || {}),
+            ...extraFetchOptions,
             method: 'GET',
             redirect: 'manual',
             headers: { 'User-Agent': userAgent, Accept: 'text/html,application/xhtml+xml' },
@@ -218,6 +223,7 @@ async function readXhsNote(fetchImpl, url, options = {}) {
         try {
             const result = await fetchWithSafeRedirects(fetchImpl, url, {
                 ...options,
+                attempt,
                 userAgent: userAgents[(attempt - 1) % userAgents.length],
                 onStage(info) {
                     stage = info.stage || stage;

@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const dns = require('dns').promises;
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const nodeFetch = require('node-fetch');
@@ -4455,10 +4456,43 @@ const XHS_CACHE_TTL = 6 * 60 * 60 * 1000;
 const XHS_NOTE_CACHE = new Map();
 const XHS_NOTE_INFLIGHT = new Map();
 const XHS_HTTPS_AGENT = new https.Agent({ keepAlive: true, family: 4 });
+const XHS_SHORT_HOSTS = new Set(['xhslink.cn', 'www.xhslink.cn', 'xhslink.com', 'www.xhslink.com']);
+let XHS_SHORT_AGENTS_CACHE = { expiresAt: 0, agents: [] };
 const XHS_MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const XHS_MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 
 function getXhsCacheKey(url) { return String(url || '').trim(); }
+
+async function getXhsShortAgents() {
+    if (XHS_SHORT_AGENTS_CACHE.expiresAt > Date.now() && XHS_SHORT_AGENTS_CACHE.agents.length) {
+        return XHS_SHORT_AGENTS_CACHE.agents;
+    }
+    try {
+        const resolved = await dns.lookup('xhslink.cn', { family: 4, all: true });
+        const addresses = [...new Set(resolved.map(item => item.address).filter(Boolean))];
+        const agents = addresses.map(ip => ({
+            ip,
+            agent: new https.Agent({
+                keepAlive: true,
+                lookup(_hostname, options, callback) {
+                    const done = typeof options === 'function' ? options : callback;
+                    if (typeof options === 'object' && options?.all) {
+                        done(null, [{ address: ip, family: 4 }]);
+                    } else {
+                        done(null, ip, 4);
+                    }
+                },
+            }),
+        }));
+        if (agents.length) {
+            XHS_SHORT_AGENTS_CACHE = { expiresAt: Date.now() + 10 * 60 * 1000, agents };
+            return agents;
+        }
+    } catch (error) {
+        console.log(`📕 [XHS] 短链 DNS 解析失败，回退普通 IPv4: ${error.message}`);
+    }
+    return [];
+}
 
 async function getXhsNoteCached(url) {
     if (!isAllowedXhsUrl(url)) throw new Error('请使用小红书 app 分享出来的链接');
@@ -4472,10 +4506,19 @@ async function getXhsNoteCached(url) {
 
     const startedAt = Date.now();
     const pending = (async () => {
+        const shortAgents = await getXhsShortAgents();
+        if (shortAgents.length) console.log(`📕 [XHS] 短链节点: ${shortAgents.map(item => item.ip).join(', ')}`);
         const note = await readXhsNote(nodeFetch, url, {
-            requestTimeoutMs: 22000,
-            maxAttempts: 2,
-            fetchOptions: { agent: XHS_HTTPS_AGENT },
+            requestTimeoutMs({ url: requestUrl }) {
+                return XHS_SHORT_HOSTS.has(requestUrl.hostname.toLowerCase()) ? 8000 : 22000;
+            },
+            maxAttempts: Math.max(2, shortAgents.length),
+            fetchOptions({ url: requestUrl, attempt }) {
+                if (XHS_SHORT_HOSTS.has(requestUrl.hostname.toLowerCase()) && shortAgents.length) {
+                    return { agent: shortAgents[(attempt - 1) % shortAgents.length].agent };
+                }
+                return { agent: XHS_HTTPS_AGENT };
+            },
             onStage(info) {
                 const suffix = info.elapsedMs == null ? '' : ` ${info.elapsedMs}ms`;
                 const status = info.status == null ? '' : ` HTTP ${info.status}`;

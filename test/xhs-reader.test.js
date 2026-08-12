@@ -88,3 +88,27 @@ test('reports the stage that timed out', async () => {
         /short_link.*请求超时/,
     );
 });
+
+test('can choose timeout and transport per redirect stage and retry attempt', async () => {
+    const state = { noteData: { data: { noteData: { noteId: 'route_1', title: '节点切换成功' } } } };
+    const html = `<script>window.__INITIAL_STATE__ = ${JSON.stringify(state)};</script>`;
+    const choices = [];
+    const fetchImpl = async (url, options) => {
+        choices.push({ url: String(url), marker: options.marker });
+        if (choices.length === 1) throw new TypeError('first node stalled');
+        if (String(url).includes('xhslink.cn')) {
+            return { ok: false, status: 302, headers: new Headers({ location: 'https://www.xiaohongshu.com/explore/route_1' }) };
+        }
+        return { ok: true, status: 200, headers: new Headers(), text: async () => html };
+    };
+    const note = await readXhsNote(fetchImpl, 'https://xhslink.cn/o/route', {
+        requestTimeoutMs: ({ url }) => url.hostname === 'xhslink.cn' ? 8000 : 22000,
+        fetchOptions: ({ attempt, url }) => ({ marker: `${attempt}:${url.hostname}` }),
+    });
+    assert.equal(note.note_id, 'route_1');
+    assert.deepEqual(choices.map(item => item.marker), [
+        '1:xhslink.cn',
+        '2:xhslink.cn',
+        '2:www.xiaohongshu.com',
+    ]);
+});
