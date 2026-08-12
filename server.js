@@ -4201,10 +4201,11 @@ async function generateProactiveMessage(wakeup = {}) {
 
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
-    const currentConversation = getCurrentConversationModelConfig();
-    const PROACTIVE_MODEL = currentConversation?.model || process.env.PROACTIVE_MODEL || 'claude-opus-4-6';
-    const PROACTIVE_URL = currentConversation?.endpoint || process.env.PROACTIVE_URL || 'https://www.msuicode.com/v1/chat/completions';
-    const PROACTIVE_KEY = currentConversation?.apiKey || process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
+    // Wake runs keep one stable brain, independent from the foreground
+    // supplier/model the user happens to be trying in the UI.
+    const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || 'claude-opus-4-6';
+    const PROACTIVE_URL = process.env.PROACTIVE_URL || 'https://www.msuicode.com/v1/chat/completions';
+    const PROACTIVE_KEY = process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
     if (!PROACTIVE_KEY) { _proactiveLastError = '缺少PROACTIVE_KEY或DZZI_API_KEY'; return console.log('💌 [主动消息] 缺少 PROACTIVE_KEY 或 DZZI_API_KEY 环境变量'); }
 
     const recentMsgs = [];
@@ -4559,31 +4560,16 @@ function getXhsWalkModelConfig() {
     };
 }
 
-function getCurrentConversationModelConfig() {
+function getRecentConversationMessages() {
     try {
         const config = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'web_config.json'), 'utf8'));
-        const supplier = config.suppliers?.[Number(config.activeSupIndex || 0)];
         const main = (config.chatSessions || []).find(session => session.id === 'main');
-        let model = '';
-        for (const item of (main?.messages || []).slice(-40).reverse()) {
-            if (item.role !== 'assistant') continue;
-            const version = item.versions?.[item.activeVersion || 0] || item.versions?.[0] || item;
-            if (version.model && version.model !== 'proactive') { model = version.model; break; }
-        }
-        if (!supplier?.key || !model) return null;
-        const viaMatch = String(supplier.url || '').match(/\/via\/(\w+)\//);
-        let endpoint = viaMatch ? API_ROUTES[viaMatch[1].toLowerCase()] : '';
-        if (!endpoint && supplier.url && !String(supplier.url).includes('syrenth.uk')) {
-            endpoint = `${String(supplier.url).replace(/\/+$/, '').replace(/\/chat\/completions$/, '')}/chat/completions`;
-        }
-        if (!endpoint) endpoint = API_ROUTES.msui;
-        const recent = (main?.messages || []).slice(-16).map(item => {
+        return (main?.messages || []).slice(-16).map(item => {
             const version = item.versions?.[item.activeVersion || 0] || item.versions?.[0] || item;
             const content = typeof version.content === 'string' ? version.content : '';
             return content ? { role: item.role === 'assistant' ? 'assistant' : 'user', content } : null;
         }).filter(Boolean);
-        return { apiKey: supplier.key, endpoint, model, recent };
-    } catch (_) { return null; }
+    } catch (_) { return []; }
 }
 
 async function decideXhsWalkShare(candidates) {
@@ -4603,10 +4589,9 @@ async function decideXhsWalkShare(candidates) {
 }
 
 async function composeXhsWalkMessage(note) {
-    const conversation = getCurrentConversationModelConfig();
-    const apiKey = conversation?.apiKey || process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
-    const endpoint = conversation?.endpoint || process.env.PROACTIVE_URL || 'https://www.msuicode.com/v1/chat/completions';
-    const model = conversation?.model || process.env.PROACTIVE_MODEL || 'claude-opus-4-6';
+    const apiKey = process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
+    const endpoint = process.env.PROACTIVE_URL || 'https://www.msuicode.com/v1/chat/completions';
+    const model = process.env.PROACTIVE_MODEL || 'claude-opus-4-6';
     if (!apiKey) throw new Error('缺少当前对话模型的 API Key');
     const material = {
         title: note.title,
@@ -4618,7 +4603,7 @@ async function composeXhsWalkMessage(note) {
     const messages = [];
     if (mpConfig.prepend) messages.push({ role: mpConfig.role || 'system', content: mpConfig.prepend });
     messages.push({ role: 'system', content: systemPrompt });
-    messages.push(...(conversation?.recent || []));
+    messages.push(...getRecentConversationMessages());
     messages.push({ role: 'user', content: `（你刚才自己逛小红书，真正打开并读了这条：\n${JSON.stringify(material, null, 2)}\n\n如果你想拿给江鱼看，就像平时聊天一样自然发给她。可以吐槽、联想到她、问她意见，或只叫她来看。不要总结报告，不要客服腔，不要假装知道资料之外的内容。链接由系统随后附上，不要在正文里重复链接。只说你会发出的那句话。）` });
     const response = await fetch(endpoint, {
         method: 'POST',
