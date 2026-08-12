@@ -54,6 +54,7 @@ body::before{
 .life-drawer-head-right{display:flex;align-items:center;gap:8px;color:var(--text-muted);font-size:.72rem}
 .drawer-chevron{display:inline-block;transition:transform .18s ease;color:#d8bc82}.life-drawer.open .drawer-chevron{transform:rotate(180deg)}
 .drawer-list{display:grid;gap:7px}
+.drawer-day{margin:6px 2px 0;color:var(--accent-gold);font-size:.72rem;letter-spacing:.04em}.drawer-more{margin-top:9px;width:100%;padding:9px;border:1px solid var(--border);border-radius:9px;background:rgba(255,255,255,.025);color:var(--text-secondary);cursor:pointer}.crumb-digest{border-left:2px solid rgba(212,168,83,.55);background:rgba(212,168,83,.045)}.crumb-digest .drawer-meta{margin-top:6px}
 .drawer-item{padding:10px 11px;border-radius:8px;background:rgba(10,13,17,.22);border:1px solid rgba(255,255,255,.055)}
 .drawer-fact{font-size:.84rem;line-height:1.55;color:#e7e1d5}
 .drawer-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;color:var(--text-muted);font-size:.68rem}
@@ -197,7 +198,7 @@ body::before{
 
 <script>
 var PWD=new URLSearchParams(location.search).get('pwd')||'111111';
-var AR_MEMS=[],AR_COUNTS={},AR_HEAT={},AR_CRUMBS=[],AR_ANTICIPATIONS=[],AR_MERGE_REVIEWS=[],arCat='all';
+var AR_MEMS=[],AR_COUNTS={},AR_HEAT={},AR_CRUMBS=[],AR_CRUMB_COUNT=0,AR_CRUMB_DIGESTS=[],AR_ANTICIPATIONS=[],AR_MERGE_REVIEWS=[],arCat='all',crumbShowAll=false;
 var multiSelectMode=false;
 var selectedMemoryIds=new Set();
 
@@ -240,7 +241,7 @@ async function loadArchive(){
     showLoadError('返回数据解析失败');
     return;
   }
-  AR_MEMS=d.memories||[];AR_COUNTS=d.counts||{};AR_HEAT=d.heatStats||{};AR_CRUMBS=d.crumbs||[];AR_ANTICIPATIONS=d.anticipations||[];AR_MERGE_REVIEWS=d.mergeReviews||[];
+  AR_MEMS=d.memories||[];AR_COUNTS=d.counts||{};AR_HEAT=d.heatStats||{};AR_CRUMBS=d.crumbs||[];AR_CRUMB_COUNT=Number(d.crumbCount||0);AR_CRUMB_DIGESTS=d.crumbDigests||[];AR_ANTICIPATIONS=d.anticipations||[];AR_MERGE_REVIEWS=d.mergeReviews||[];
   document.getElementById('arCount').textContent=AR_MEMS.length;
   document.getElementById('arHigh').textContent=AR_HEAT.high||0;
   document.getElementById('arMid').textContent=AR_HEAT.mid||0;
@@ -283,12 +284,15 @@ async function startMemoryMergeScan(){
   }catch(e){toast('没能开始检查，稍后再试。')}
 }
 function renderLifeDrawer(){
-  var crumbs=AR_CRUMBS.filter(function(c){return c.status!=='archived'}).slice(0,8);
-  document.getElementById('crumbCount').textContent=crumbs.length;
-  document.getElementById('crumbList').innerHTML=crumbs.length?crumbs.map(function(c){
+  var allCrumbs=AR_CRUMBS.filter(function(c){return c.status!=='archived'});var crumbs=crumbShowAll?allCrumbs:allCrumbs.slice(0,8);
+  document.getElementById('crumbCount').textContent=AR_CRUMB_COUNT;
+  var digestHtml=AR_CRUMB_DIGESTS.slice(0,crumbShowAll?30:1).map(function(d){var state=d.status==='completed'?(d.source_count?('已整理 '+d.source_count+' 条'+(d.memory_candidates_count?' · '+d.memory_candidates_count+' 条送去长期记忆':' · 没有需要升级的长期记忆')):'没有碎屑'):'尚未完成';return '<div class="drawer-item crumb-digest"><div class="drawer-fact">'+esc(d.summary||'这天没有留下生活碎屑。')+'</div><div class="drawer-meta"><span>'+esc(d.date)+' · '+esc(state)+'</span></div></div>'}).join('');
+  var crumbsHtml=crumbs.map(function(c){
     var tags=(c.entities||[]).map(function(e){return '<span>'+esc(e)+'</span>'}).join('');
     return '<div class="drawer-item"><div class="drawer-fact">'+esc(c.fact)+'</div><div class="drawer-meta"><span>'+drawerTime(c.happened_at||c.created_at)+'</span><span class="drawer-tags">'+tags+'</span></div></div>';
-  }).join(''):'<div class="drawer-empty">最近没留什么，趴着就行。</div>';
+  }).join('');
+  var more=AR_CRUMB_COUNT>8?'<button class="drawer-more" onclick="crumbShowAll=!crumbShowAll;renderLifeDrawer()">'+(crumbShowAll?'收起，只看最近 8 条':'查看全部 '+AR_CRUMB_COUNT+' 条')+'</button>':'';
+  document.getElementById('crumbList').innerHTML=(digestHtml||crumbsHtml)?digestHtml+crumbsHtml+more:'<div class="drawer-empty">最近没留什么，趴着就行。</div>';
   var open=AR_ANTICIPATIONS.filter(function(a){return a.status==='open'}).slice(0,6);
   document.getElementById('anticipationCount').textContent=open.length;
   document.getElementById('anticipationList').innerHTML=open.length?open.map(function(a){

@@ -17,6 +17,7 @@ const { extractDailyStateUpdates, stripLeakedStateUpdates, shouldCuratePersisten
 const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-merge');
 const { decideMemoryWrite } = require('./memory-merge-curator');
 const { extractCrumbs } = require('./crumb-curator');
+const { createCrumbDigest } = require('./crumb-digest');
 const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
 const { extractXhsUrl, isAllowedXhsMediaUrl, isAllowedXhsUrl, readXhsNote } = require('./xhs-reader');
 const { canWalk, chooseUnseen, normalizeWalkState, parseDiscoveryCandidates, parseWalkDecision, scheduleNextWalk } = require('./xhs-walk');
@@ -964,6 +965,7 @@ function updateLastInteraction() {
     try { fs.writeFileSync(LAST_INTERACTION_FILE, JSON.stringify({ time: lastInteractionTime, lastProactive: lastProactiveTime })); } catch(e) {}
     // 每日首次聊天触发日历日记（凌晨6点后）
     setImmediate(() => generateDailyNoteIfNeeded([]).catch(() => {}));
+    setImmediate(() => queuePreviousCrumbDigest());
 }
 function updateLastProactiveTime() {
     lastProactiveTime = Date.now();
@@ -6563,10 +6565,13 @@ app.get('/api/longterm-page-data', async (req, res) => {
     const pendingPromises = (loadDreamState().pending_promises !== '无更新' ? loadDreamState().pending_promises : '');
     const weeklies = loadWeeklySummaries().sort((a, b) => b.week.localeCompare(a.week)).slice(0, 5);
     const monthlies = loadMonthlySummaries().sort((a, b) => b.month.localeCompare(a.month)).slice(0, 3);
-    const crumbs = loadCrumbs().sort((a, b) => new Date(b.happened_at || b.created_at) - new Date(a.happened_at || a.created_at)).slice(0, 120);
+    const allCrumbs = loadCrumbs().sort((a, b) => new Date(b.happened_at || b.created_at) - new Date(a.happened_at || a.created_at));
+    const crumbs = allCrumbs.slice(0, 300);
+    const crumbCount = allCrumbs.filter(item => item.status !== 'archived').length;
     const anticipations = loadAnticipations().sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
     const mergeReviews = loadMemoryMergeReviews().filter(item => item.status === 'pending').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    res.json({ memories: allMems, counts, heatStats: { high: heatHigh, mid: heatMid, low: heatLow }, profile, dreamLogs, pendingPromises, weeklies, monthlies, crumbs, anticipations, mergeReviews });
+    const crumbDigests = loadDailyPages().filter(page => page.crumb_digest).map(page => ({ date: page.date, ...page.crumb_digest })).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30);
+    res.json({ memories: allMems, counts, heatStats: { high: heatHigh, mid: heatMid, low: heatLow }, profile, dreamLogs, pendingPromises, weeklies, monthlies, crumbs, crumbCount, crumbDigests, anticipations, mergeReviews });
 });
 
 app.get('/memory-manager', (req, res) => {
@@ -7176,6 +7181,45 @@ function upsertStateSlot(key, value, mode, lifeDays) {
 let _dailyCuratorQueue = Promise.resolve();
 
 let _crumbCuratorQueue = Promise.resolve();
+let _crumbDigestQueue = Promise.resolve();
+
+function previousChinaDateKey(now = new Date()) {
+    return getChinaDateString(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+}
+
+async function generatePreviousCrumbDigestIfNeeded(now = new Date()) {
+    const chinaHour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', hour: '2-digit', hourCycle: 'h23' }).format(now));
+    if (chinaHour < 6) return null;
+    const date = previousChinaDateKey(now);
+    const pages = loadDailyPages();
+    const existing = pages.find(page => page.date === date);
+    if (existing?.crumb_digest?.status === 'completed') return existing.crumb_digest;
+    const crumbs = loadCrumbs().filter(item => getChinaDateString(new Date(item.happened_at || item.created_at)) === date);
+    if (!crumbs.length) {
+        const digest = { status: 'completed', summary: '', themes: [], source_count: 0, memory_candidates_count: 0, completed_at: now.toISOString() };
+        if (existing) existing.crumb_digest = digest; else pages.push({ date, crumb_digest: digest });
+        saveDailyPages(pages);
+        return digest;
+    }
+    const curatorKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
+    if (!curatorKey) throw new Error('缺少碎屑小结模型 API Key');
+    const result = await createCrumbDigest({ fetchImpl: fetch, apiKey: curatorKey, endpoint: process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions', model: process.env.CRUMB_CURATOR_MODEL || 'gemini-3-flash-preview', date, crumbs });
+    const digest = { status: 'completed', summary: result.summary, themes: result.themes, source_count: crumbs.length, memory_candidates_count: result.memory_candidates.length, completed_at: now.toISOString() };
+    const latestPages = loadDailyPages();
+    const page = latestPages.find(item => item.date === date);
+    if (page) page.crumb_digest = digest; else latestPages.push({ date, crumb_digest: digest });
+    saveDailyPages(latestPages);
+    for (const candidate of result.memory_candidates) {
+        await queueSmartMemoryWrite(candidate.content, candidate.tags, 'butler_summary', 'perm', 0.75, candidate.reason || null, null);
+    }
+    console.log(`🧺 [昨日碎屑] ${date} 已整理 ${crumbs.length} 条，长期候选 ${result.memory_candidates.length} 条`);
+    return digest;
+}
+
+function queuePreviousCrumbDigest() {
+    _crumbDigestQueue = _crumbDigestQueue.catch(() => {}).then(() => generatePreviousCrumbDigestIfNeeded()).catch(error => console.log(`🧺 [昨日碎屑] 整理失败，稍后重试: ${error.message}`));
+    return _crumbDigestQueue;
+}
 
 function crumbTopicKey(crumb) {
     const fact = String(crumb?.fact || '').replace(/\s+/g, '');
