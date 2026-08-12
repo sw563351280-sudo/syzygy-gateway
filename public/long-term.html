@@ -26,7 +26,7 @@
 textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:vertical;}
 .toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);background:#333;color:white;padding:10px 24px;border-radius:8px;display:none}
 </style></head><body>
-<div class="top-bar"><b>🧠 Syzygy Memory</b><a href="/memory-manager?pwd=" id="mmLink">📋 对话记忆</a><a href="#" class="active">💎 长期记忆</a></div>
+<div class="top-bar"><b>🧠 Syzygy Memory</b><a href="/memory-vault.html?pwd=" id="mmLink">🧺 记忆库</a><a href="#" class="active">💎 长期记忆</a></div>
 <div class="main">
 <div class="header"><h1>💎 永久记忆档案 (海马体接管中)</h1></div>
 <div class="search-row"><input type="text" id="searchInput" placeholder="搜索记忆内容..." oninput="filterAll()"><button class="btn-add" onclick="openModal()">＋ 新增</button><button class="normal" onclick="smartSearch()" style="background:#7c4dff;color:white;border:none;padding:10px 18px;border-radius:8px;cursor:pointer;margin-left:4px;">🧠 智能搜索</button><button class="normal" onclick="clearSearch()" id="clearSearchBtn" style="display:none;padding:10px 14px;border-radius:8px;cursor:pointer;">✕ 清除</button><button style="padding:10px 18px;background:#ff9800;color:white;border:none;border-radius:8px;cursor:pointer;margin-left:8px;" onclick="triggerCleanup()">🧹 AI清理</button></div>
@@ -40,7 +40,6 @@ textarea{width:100%;padding:10px;border-radius:8px;border:1px solid #ddd;resize:
 <span class="pill archive-pill" onclick="setFilter(this,'archived','all')">🥶 冰封档案 (<b id="cntArchived">0</b>)</span>
 </div>
 <div id="profileCard"></div>
-<div id="dreamCard"></div>
 <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;font-size:13px;flex-wrap:wrap;" id="heatBar">
 <span style="color:#d86b4a;">🔥 高热度 <b id="heatHigh">0</b>条</span>
 <span style="color:#b99a5f;">🌡️ 中热度 <b id="heatMid">0</b>条</span>
@@ -89,7 +88,6 @@ async function loadData() {
     document.getElementById('heatMid').textContent = (data.heatStats||{}).mid || 0;
     document.getElementById('heatLow').textContent = (data.heatStats||{}).low || 0;
     renderProfile();
-    renderDream();
     filterAll();
 }
 
@@ -116,21 +114,6 @@ function renderProfile() {
     document.getElementById('profileCard').innerHTML = html;
 }
 
-function renderDream() {
-    let html = '<div class="memory-card" style="background:#f3e5f5;border-left:4px solid #7c4dff;margin-bottom:16px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><b style="font-size:16px;">🌙 Dream 日志</b><button class="normal" onclick="triggerDreamManual()" style="font-size:11px;padding:3px 10px;background:#7c4dff;color:white;border:none;">🌙 手动触发 Dream</button></div>';
-    if (DREAM_LOGS.length === 0) html += '<p style="color:#999;font-size:13px;">暂无 Dream 记录</p>';
-    else DREAM_LOGS.forEach(log => {
-        html += '<div style="margin-bottom:8px;padding:8px;background:white;border-radius:6px;font-size:12px;"><div>🌙 '+new Date(log.triggered_at).toLocaleString('zh-CN')+' | '+(log.trigger_type==='manual'?'🖐 手动':'🤖 自动')+' | 清理'+(log.results.cleaned.expired+log.results.cleaned.decayed)+'条 | 固化'+(log.results.consolidated.new_memories+log.results.consolidated.new_rp)+'条 | '+(log.duration_ms/1000).toFixed(1)+'s</div>';
-        if (log.results.foresight?.length > 0) {
-            html += '<details style="margin-top:4px;"><summary style="cursor:pointer;color:#7c4dff;font-size:11px;">🔮 前瞻推断 ('+log.results.foresight.length+'条)</summary>';
-            log.results.foresight.forEach(f => { html += '<div style="margin:2px 0 2px 12px;color:#555;">• '+f+'</div>'; });
-            html += '</details>';
-        }
-        html += '</div>';
-    });
-    html += '</div>';
-    document.getElementById('dreamCard').innerHTML = html;
-}
 
 function renderCard(m) {
     const ttl = getTTLLabel(m);
@@ -229,10 +212,6 @@ function clearSearch() {
 async function updateProfile() {
     const r = await fetch('/trigger-profile-update?pwd='+encodeURIComponent(PWD), { method:'POST' });
     const d = await r.json(); alert(d.success ? '✅ 更新成功' : '❌ '+(d.error||d.message)); if (d.success) location.reload();
-}
-async function triggerDreamManual() {
-    const r = await fetch('/trigger-dream?pwd='+encodeURIComponent(PWD), { method:'POST' });
-    const d = await r.json(); alert(d.success ? '✅ Dream已触发' : '❌ '+(d.error||d.message)); if (d.success) location.reload();
 }
 async function triggerCleanup() {
     if (!confirm('让AI审查记忆库，清理重复和不重要的条目？\n（被清理的会移入冰封档案，不会彻底删除）')) return;

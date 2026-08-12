@@ -2192,25 +2192,7 @@ async function cleanAndArchiveMemories() {
             console.log(`🎮 [卡带清扫] ${rpExpired}条过期RP记忆已归档`);
         }
 
-        // 自动 Dream 触发：活跃记忆≥30条 且 距上次Dream超过7天
-        if (activeMemories.length >= 30) {
-            const lastDream = getLastDreamTime();
-            if (!lastDream || (Date.now() - lastDream) > 7 * 24 * 60 * 60 * 1000) {
-                console.log(`🌙 [自动Dream] 活跃记忆${activeMemories.length}条，触发定期整理...`);
-                // 从本地聊天记录读取近期对话，触发Dream
-                const configPath = path.join(DATA_DIR, 'web_config.json');
-                if (fs.existsSync(configPath)) {
-                    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-                    const mainS = (config.chatSessions || []).find(s => s.id === 'main');
-                    const allMsgs = (mainS?.messages || []).slice(-50);
-                    const localMsgs = allMsgs.map(m => {
-                        const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
-                        return { role: m.role === 'assistant' ? 'ai' : 'user', content: typeof v.content === 'string' ? v.content : '' };
-                    });
-                    if (localMsgs.length >= 8) backgroundMemoryDream(SESSION_ID, localMsgs);
-                }
-            }
-        }
+        // Dream 不再自动吃整段聊天并写入记忆；日常整理由碎屑与次日摘要负责。
     } catch (e) {
         console.error('❌ [归档失败] 潜意识整理受阻:', e.message);
     }
@@ -2340,17 +2322,46 @@ function resolveAnticipationsFromUserText(userText) {
     if (changed) saveAnticipations(items);
 }
 
-function buildCrumbRecallContext(userText, now = new Date()) {
+function normalizeCrumbTerm(value) {
+    return String(value || '').toLowerCase().replace(/[\s，。、“”"'!?！？]/g, '').replace(/(小|阿|儿|咪|子)$/g, '');
+}
+
+function crumbIndexScore(crumb, userText) {
+    const text = String(userText || '').toLowerCase();
+    const compact = normalizeCrumbTerm(text);
+    const terms = [...(crumb.entities || []), ...(crumb.tags || [])].map(normalizeCrumbTerm).filter(term => term.length >= 2);
+    let score = 0;
+    for (const term of terms) {
+        if (text.includes(term) || compact.includes(term)) score += 4;
+        else if (term.length >= 3 && (term.includes(compact) || compact.includes(term))) score += 2;
+    }
+    // 旧碎屑没有完整标签时，用极轻量字面相似度让它们仍能进入候选池。
+    score += bigramSimilarity(`${crumb.fact || ''} ${(crumb.entities || []).join(' ')}`, text) * 2;
+    return score;
+}
+
+async function buildCrumbRecallContext(userText, now = new Date()) {
     const text = String(userText || '');
     if (!text) return '';
     const crumbs = loadCrumbs();
-    const matches = crumbs.filter(item => item.status === 'active' && now.getTime() - new Date(item.happened_at || item.created_at).getTime() <= 7 * 86400000 && (item.entities || []).some(entity => entity.length >= 2 && text.includes(entity)))
+    const activeMatches = crumbs.filter(item => item.status === 'active' && now.getTime() - new Date(item.happened_at || item.created_at).getTime() <= 7 * 86400000 && crumbIndexScore(item, text) >= 3);
+    // quiet 碎屑先走 entities/tags 的轻量索引，最多只留下 12 条；只有这些候选才请求一次向量。
+    const quietCandidates = crumbs.filter(item => item.status === 'quiet' && crumbIndexScore(item, text) >= 2)
+        .sort((a, b) => crumbIndexScore(b, text) - crumbIndexScore(a, text)).slice(0, 12);
+    let quietMatches = [];
+    if (quietCandidates.length) {
+        const queryEmbedding = await getEmbedding(text);
+        const cache = loadEmbeddingsCache();
+        quietMatches = quietCandidates.map(item => ({ item, score: queryEmbedding && cache[item.id] ? cosineSimilarity(queryEmbedding, cache[item.id]) : Math.min(0.9, 0.45 + crumbIndexScore(item, text) / 20) }))
+            .filter(entry => entry.score >= 0.42).sort((a, b) => b.score - a.score).slice(0, 2).map(entry => entry.item);
+    }
+    const matches = [...activeMatches, ...quietMatches]
         .sort((a, b) => new Date(b.happened_at || b.created_at) - new Date(a.happened_at || a.created_at)).slice(0, 2);
     if (!matches.length) return '';
     const ids = new Set(matches.map(item => item.id)); let changed = false;
     for (const crumb of crumbs) if (ids.has(crumb.id)) { crumb.last_surfaced_at = now.toISOString(); crumb.surface_count = Number(crumb.surface_count || 0) + 1; changed = true; }
     if (changed) saveCrumbs(crumbs);
-    return `【最近生活碎屑】\n${matches.map(item => `- ${getChinaDateString(new Date(item.happened_at || item.created_at))}：${item.fact}`).join('\n')}\n只把它们当作自然背景；除非和眼前的话有关，否则不要生硬提起。`;
+    return `【生活碎屑·仅在当前话题确实相关时自然想起】\n${matches.map(item => `- ${getChinaDateString(new Date(item.happened_at || item.created_at))}：${item.fact}`).join('\n')}\n只把它们当作自然背景；除非和眼前的话有关，否则不要生硬提起。`;
 }
 
 function archiveStaleCrumbs(now = new Date()) {
@@ -3242,33 +3253,10 @@ function extractText(content) {
     return "[未知格式消息]";
 }
 
-const SLEEP_KEYWORDS = ['去睡吧', '晚安', '睡觉去', '休息吧', '早点睡', '快去睡', '睡了', '困了睡觉'];
-let lastAutoDreamTime = 0;
-
 async function tryAutoDream(userText) {
-    if (!userText) return;
-    const triggered = SLEEP_KEYWORDS.some(kw => userText.includes(kw));
-    if (!triggered) return;
-    if (stateSlotsEnabled()) { try { archiveDailyStateToDiary(); } catch(e) {} }
-    if (Date.now() - lastAutoDreamTime < 3600000) {
-        console.log('🌙 [自动Dream] 1小时内已触发过，跳过');
-        return;
-    }
-    lastAutoDreamTime = Date.now();
-    console.log('🌙 [自动Dream] 检测到睡眠关键词，触发Dream...');
-    try {
-        const configPath2 = path.join(DATA_DIR, 'web_config.json');
-        if (fs.existsSync(configPath2)) {
-            const config2 = JSON.parse(fs.readFileSync(configPath2, 'utf8'));
-            const mainS2 = (config2.chatSessions || []).find(s => s.id === 'main');
-            const allMsgs2 = (mainS2?.messages || []).slice(-50);
-            const msgs = allMsgs2.map(m => {
-                const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
-                return { role: m.role === 'assistant' ? 'ai' : 'user', content: typeof v.content === 'string' ? v.content : '' };
-            });
-            if (msgs.length >= 4) backgroundMemoryDream(SESSION_ID, msgs, 'auto');
-        }
-    } catch(e) { console.log('🌙 [自动Dream] 失败:', e.message); }
+    // Dream 曾经会在晚安时吞整段聊天、再把概括写进记忆；现在由碎屑/次日摘要接管。
+    // 保留空函数兼容旧调用，不再产生模型调用或写入。
+    return;
 }
 
 async function executeToolCall(name, args, mcpServer) {
@@ -5326,7 +5314,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         const xhsAuthorityPrompt = formatXhsAuthorityPrompt(xhsContext);
         if (xhsAuthorityPrompt) systemMsg.content += `\n\n${xhsAuthorityPrompt}`;
         const githubContext = await buildGitHubContext(currentUserMsgText);
-        const crumbContext = buildCrumbRecallContext(currentUserMsgText);
+        const crumbContext = await buildCrumbRecallContext(currentUserMsgText);
         if (xhsContext) traceEvent(_tr, 'xhs', '小红书读取', { ok: !xhsContext.error, type: xhsContext.note?.type || null, images: xhsContext.images.length, error: xhsContext.error || null });
         if (githubContext) traceEvent(_tr, 'github', 'GitHub读取', { ok: !githubContext.error, type: githubContext.card?.type || null, error: githubContext.error || null });
         traceEvent(_tr, 'inject', 'volatile 组装', { totalLen: (volatileText || '').length, sections: (volatileText || '').split(/\n(?=【)/).map(s => ({ key: (s.match(/^【([^】]+)】/) || [])[1] || '?', len: s.length })).slice(0, 20) });
@@ -6543,11 +6531,11 @@ app.get('/api/longterm-page-data', async (req, res) => {
 
 app.get('/memory-manager', (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).send('🔒 请输入访问密码');
-    res.redirect(`/memory-manager.html?tab=timeline&pwd=${encodeURIComponent(req.query.pwd)}`);
+    res.redirect(`/memory-vault.html?pwd=${encodeURIComponent(req.query.pwd)}`);
 });
 app.get('/long-term', (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).send('请提供 pwd 参数');
-    res.redirect(`/memory-manager.html?tab=archive&pwd=${encodeURIComponent(req.query.pwd)}`);
+    res.redirect(`/long-term.html?pwd=${encodeURIComponent(req.query.pwd)}`);
 });
 
 app.get(['/v1/models', '/via/:platform/v1/models'], async (req, res) => {
@@ -6905,7 +6893,7 @@ app.post('/api/web-chat', async (req, res) => {
                 const webXhsAuthorityPrompt = formatXhsAuthorityPrompt(webXhsContext);
                 if (webXhsAuthorityPrompt) webSystemMsg.content += `\n\n${webXhsAuthorityPrompt}`;
                 const webGitHubContext = await buildGitHubContext(text);
-                const webCrumbContext = buildCrumbRecallContext(text);
+                const webCrumbContext = await buildCrumbRecallContext(text);
                 if (webXhsContext) {
                     const prefix = webXhsContext.text + '\n\n';
                     finalUser = Array.isArray(finalUser)
@@ -7223,6 +7211,7 @@ function queueCrumbCuration(userText, tr = null) {
             if (items.some(item => isRecentCrumbDuplicate(item, crumb, now))) continue;
             const entry = { id: `crumb_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, kind: 'crumb', happened_at: now.toISOString(), fact: crumb.fact, source_quote: crumb.source_quote, source_message_id: null, entities: crumb.entities, tags: crumb.tags, status: 'active', archive_after_days: 90, created_at: now.toISOString(), last_surfaced_at: null, surface_count: 0 };
             items.push(entry);
+            ensureEmbedding(entry.id, `${entry.fact}\n${entry.entities.join(' ')}\n${entry.tags.join(' ')}`).catch(error => console.log(`⚠️ [碎屑向量] 异步失败: ${error.message}`));
             added++;
             const hasAutoToday = autoCreated || loadAnticipations().some(item => item.created_from === 'auto' && getChinaDateString(new Date(item.created_at)) === dayKey);
             const sameEntityOpen = loadAnticipations().some(item => item.status === 'open' && crumb.entities.includes(item.entity) && Date.now() - new Date(item.created_at).getTime() < 7 * 86400000);
