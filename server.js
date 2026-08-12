@@ -4463,6 +4463,30 @@ const XHS_MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 
 function getXhsCacheKey(url) { return String(url || '').trim(); }
 
+async function resolveXhsViaCloud(url) {
+    const resolverUrl = String(process.env.XHS_RESOLVER_URL || '').trim();
+    const resolverToken = String(process.env.XHS_RESOLVER_TOKEN || '').trim();
+    if (!resolverUrl || !resolverToken) return null;
+    const parsed = new URL(url);
+    if (!XHS_SHORT_HOSTS.has(parsed.hostname.toLowerCase())) return url;
+
+    const response = await nodeFetch(resolverUrl, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${resolverToken}`,
+            'Content-Type': 'application/json',
+            'User-Agent': 'syzygy-gateway/1.0',
+        },
+        body: JSON.stringify({ url }),
+        signal: AbortSignal.timeout(12000),
+    });
+    if (!response.ok) throw new Error(`云端短链中继返回 HTTP ${response.status}`);
+    const result = await response.json();
+    if (!result?.ok || !isAllowedXhsUrl(result.url)) throw new Error(result?.error || '云端中继没有返回有效的小红书链接');
+    if (XHS_SHORT_HOSTS.has(new URL(result.url).hostname.toLowerCase())) throw new Error('云端中继没有展开短链');
+    return result.url;
+}
+
 async function getXhsShortAgents() {
     if (XHS_SHORT_AGENTS_CACHE.expiresAt > Date.now() && XHS_SHORT_AGENTS_CACHE.agents.length) {
         return XHS_SHORT_AGENTS_CACHE.agents;
@@ -4506,9 +4530,19 @@ async function getXhsNoteCached(url) {
 
     const startedAt = Date.now();
     const pending = (async () => {
+        let readUrl = url;
+        try {
+            const resolved = await resolveXhsViaCloud(url);
+            if (resolved && resolved !== url) {
+                readUrl = resolved;
+                console.log(`📕 [XHS] 云端中继已展开手机短链: ${new URL(readUrl).pathname}`);
+            }
+        } catch (error) {
+            console.log(`📕 [XHS] 云端中继不可用，回退 VPS 直连: ${error.message}`);
+        }
         const shortAgents = await getXhsShortAgents();
         if (shortAgents.length) console.log(`📕 [XHS] 短链节点: ${shortAgents.map(item => item.ip).join(', ')}`);
-        const note = await readXhsNote(nodeFetch, url, {
+        const note = await readXhsNote(nodeFetch, readUrl, {
             requestTimeoutMs({ url: requestUrl }) {
                 return XHS_SHORT_HOSTS.has(requestUrl.hostname.toLowerCase()) ? 8000 : 22000;
             },

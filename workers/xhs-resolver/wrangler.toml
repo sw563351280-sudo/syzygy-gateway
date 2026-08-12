@@ -1,0 +1,7 @@
+name = "syzygy-xhs-resolver"
+main = "worker.mjs"
+compatibility_date = "2026-08-01"
+workers_dev = true
+
+# Set RESOLVER_TOKEN with `wrangler secret put RESOLVER_TOKEN`.
+# Never commit the token to this file.
