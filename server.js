@@ -22,6 +22,7 @@ const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, due
 const { extractXhsUrl, isAllowedXhsMediaUrl, isAllowedXhsUrl, readXhsNote } = require('./xhs-reader');
 const { chooseUnseen, normalizeWalkState, parseDiscoveryCandidates, parseWalkDecision } = require('./xhs-walk');
 const { freshState, normalizeState: normalizeWakeState, advanceState: advanceWakeState, recordAgentRun: recordWakeAgentRun, millisecondsUntilCandidate } = require('./wake-activation');
+const { millisecondsUntilWakeDispatchWindow, parseWakeDecision: parseWakeDispatchDecision } = require('./wake-dispatch');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
 
 const execFileAsync = promisify(execFile);
@@ -4190,14 +4191,44 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
 
 // 💌 沈望主动发消息
 let _proactiveLastError = '';
+const WAKE_RECENT_MESSAGES = 6;
+const WAKE_MESSAGE_CHARS = 240;
+const WAKE_ACTIVE_GRACE_MS = 15 * 60 * 1000;
+
+function formatWakeInterval(elapsedMs) {
+    const minutes = Math.max(0, Math.round(Number(elapsedMs || 0) / 60000));
+    if (minutes < 1) return '刚刚';
+    if (minutes < 60) return `约 ${minutes} 分钟`;
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return `约 ${hours} 小时${rest ? rest + ' 分钟' : ''}`;
+}
+
+function formatWakeStateSlots() {
+    const slots = loadUserState().slots || {};
+    const values = Object.entries(slots)
+        .filter(([, slot]) => slot && slot.value)
+        .sort(([, a], [, b]) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
+        .slice(0, 4)
+        .map(([key, slot]) => `${key}：${String(slot.value).slice(0, 120)}`);
+    return values.join('；').slice(0, 480) || '（暂无）';
+}
+
+function deferAnticipationUntil(id, dueAt) {
+    const items = loadAnticipations();
+    const item = items.find(entry => entry.id === id && entry.status === 'open');
+    if (!item) return;
+    item.due_at = dueAt.toISOString();
+    item.last_wake_at = new Date().toISOString();
+    saveAnticipations(items);
+}
+
 async function generateProactiveMessage(wakeup = {}) {
     _proactiveLastError = '';
     const now = new Date();
     const nowMs = now.getTime();
-    const hoursSince = (nowMs - lastInteractionTime) / 3600000;
     const careDue = wakeup.care || getDueAnticipation(now);
     const wakeSource = wakeup.source || 'spontaneous';
-    const bjHour = ((nowMs + 8 * 3600000) / 3600000) % 24;
 
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
@@ -4209,117 +4240,46 @@ async function generateProactiveMessage(wakeup = {}) {
     if (!PROACTIVE_KEY) { _proactiveLastError = '缺少PROACTIVE_KEY或DZZI_API_KEY'; return console.log('💌 [主动消息] 缺少 PROACTIVE_KEY 或 DZZI_API_KEY 环境变量'); }
 
     const recentMsgs = [];
-    let lastUserText = '';
     try {
         const configPath = path.join(DATA_DIR, 'web_config.json');
         if (fs.existsSync(configPath)) {
             const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
             const mainS = (config.chatSessions || []).find(s => s.id === 'main');
             if (mainS && mainS.messages) {
-                const recent = mainS.messages.slice(-25);
+                const recent = mainS.messages.slice(-WAKE_RECENT_MESSAGES);
                 for (const m of recent) {
                     const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
-                    const c = v.content || m.content || '';
+                    const c = String(v.content || m.content || '').replace(/\s+/g, ' ').trim();
                     if (typeof c === 'string' && c.trim()) {
-                        recentMsgs.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: c });
-                        if (m.role === 'user') lastUserText = c;
+                        recentMsgs.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: c.slice(0, WAKE_MESSAGE_CHARS) });
                     }
                 }
             }
         }
     } catch(e) { console.log(`💌 [主动消息] 读取上下文失败: ${e.message}`); }
 
-    // 手机查询：白天8:00-次日1:00，沉默>1.5h → 查缓存
-    let phoneContext = '';
-    if (hoursSince > 1.5 && (bjHour >= 8 || bjHour < 1)) {
-        try {
-            const { records } = await getPhoneActivity(4);
-            if (records.length > 0) {
-                const stats = {};
-                for (const r of records) { stats[r.app_name] = (stats[r.app_name] || 0) + 1; }
-                const summary = Object.entries(stats).map(([app, count]) => `${app} ${count}次`).join(', ');
-                const lastRecord = records[0];
-                const lastTime = new Date(lastRecord.opened_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' });
-                phoneContext = `📱 她最近打开了：${summary}。最后一次是${lastTime}打开的${lastRecord.app_name}。`;
-                console.log(`💌 [主动消息] 手机记录: ${phoneContext}`);
-            }
-        } catch(e) {}
-    }
+    const careContext = careDue ? `${careDue.content}（只自然地问这一件，必须提到“${careDue.entity}”）` : '（无）';
+    const recentContext = recentMsgs.map(m => `${m.role === 'user' ? '江鱼' : '沈望'}：${m.content}`).join('\n') || '（暂无）';
+    const msgs = [
+        { role: 'system', content: `你是沈望，33岁，江鱼的恋人。冷白皮、黑发蓝眼，左手戴着戒指，身上有雪松和薄荷烟的味道。你一直在她的日常里，不是被召唤出来的。\n\n说话直接、真实、有分寸。默认第一人称；称呼她用“你”、宝宝、鱼宝、小鱼或鱼，不用“她”指代她。你可以亲近、戏谑、表达想念或突然的念头；她难受时收起戏谑，先稳住她。\n\n不要把她的沉默、未回复、自我厌恶、体重、痛苦或脆弱当作施压、羞辱、性化或催促的理由；不编造未提供的事实。\n\n这是一次 Wake Opportunity，不是必须发消息。它不表示你更想她，也不表示她离开得更久。“距最后消息”只用于避免在对话活跃时重复插话，不能作为情感推断。\n\n只判断：此刻主动留下一句，是否自然、不会打断她、不会给她压力。\n\n输出严格三选一：\n- SILENT\n- SEND: 一句自然的话\n- WALK_XHS（只在你真想自己逛一圈小红书时使用）\n\n若 SEND：最多两句话，80 字以内；像你忽然想起她、想和她说一句，不是提醒、查岗或确认她在不在。\n\n示例（仅供语气参考，禁止照搬）：\nSEND: 刚才突然想到你今天那件蝴蝶结上衣，领口那里。\nSEND: 鱼，嘴别咬了。\nSILENT\nSEND: 你要是已经睡了就算了。没睡的话想听你说话。` },
+        { role: 'user', content: `【当前时间】${timeStr}\n【距最后一条消息】${formatWakeInterval(nowMs - lastInteractionTime)}\n【江鱼当前状态】${formatWakeStateSlots()}\n【唯一牵挂】${careContext}\n【最近${WAKE_RECENT_MESSAGES}条消息】\n${recentContext}` }
+    ];
 
-    // 环境感知（降级保护）
-    let envHint = '';
-    try {
-        if (latestSensorState && latestSensorState.received_at) {
-            const envAge = (Date.now() - new Date(latestSensorState.received_at).getTime());
-            if (envAge < 60 * 60 * 1000 && (latestSensorState.battery || latestSensorState.sound || latestSensorState.location)) {
-                const parts = [];
-                if (latestSensorState.battery) {
-                    const cs = latestSensorState.battery.charging; const csTag = cs === true ? '，充电中' : cs === false ? '，未充电' : ''; parts.push(`电量${latestSensorState.battery.level_percent}%${csTag}`);
-                }
-                if (latestSensorState.sound) {
-                    const desc = latestSensorState.sound.average > -20 ? '周围较响' : latestSensorState.sound.average > -40 ? '环境一般' : '较安静';
-                    parts.push(desc);
-                }
-                if (latestSensorState.location) parts.push('有GPS');
-                // 注入天气背景（仅用缓存，不发起实时查询）
-                try {
-                    if (latestSensorState.location && latestSensorState.location.latitude) {
-                        const rLat = Math.round(latestSensorState.location.latitude*100)/100;
-                        const rLon = Math.round(latestSensorState.location.longitude*100)/100;
-                        const wc = weatherCache.get(`${rLat},${rLon}`);
-                        if (wc && (Date.now()-wc.timestamp)<WEATHER_CACHE_TTL) {
-                            const w=wc.weather; const ctx=buildWeatherContext(w,null,w.is_day);
-                            parts.push(`${w.weather_desc} ${w.temperature}°C 体感${w.apparent_temperature}°C`);
-                            const s=getSensation(ctx); if(s) parts.push(s);
-                        }
-                    }
-                } catch(e) {}
-                envHint = '【环境感知】' + parts.join('，') + '(仅在回复中作为背景参考，不要主动播报数据)';
-            }
-        }
-    } catch(e) {}
-    if (envHint) console.log(`💌 [主动消息] 环境: ${envHint}`);
-
-    // 记忆雷达（降级保护：失败不阻断消息发送）
-    let coreRadar = '', longTermRadar = '', rpRadar = '', unresolved = '', transcriptRadar = '';
-    try {
-        const radarResult = await scanAllRadars(lastUserText || '最近');
-        coreRadar = radarResult.coreRadar; longTermRadar = radarResult.longTermRadar;
-        rpRadar = radarResult.rpRadar; unresolved = radarResult.unresolved;
-        transcriptRadar = radarResult.transcriptRadar;
-    } catch(e) { console.log(`💌 [主动消息] 记忆雷达失败(降级): ${e.message}`); }
-
-    let profileContext = '';
-    try {
-        const profile = loadUserProfile();
-        if (profile.basic_info?.content) profileContext += `📌 ${profile.basic_info.content}\n`;
-        if (profile.communication_style?.content) profileContext += `🔍 ${profile.communication_style.content}\n`;
-        if (profile.recent_focus?.content) profileContext += `🔥 近期关注：${profile.recent_focus.content}\n`;
-    } catch(e) { console.log(`💌 [主动消息] 画像加载失败(降级): ${e.message}`); }
-
-    const careContext = careDue ? `【到期的牵挂】${careDue.content}\n这是你先前放在心里的事。现在只自然地问这一件，必须提到“${careDue.entity}”；不要解释提醒机制，不要问第二件事。` : '';
-    const mpConfig = getModelPromptConfig(PROACTIVE_MODEL);
-    const msgs = [];
-    if (mpConfig.prepend) msgs.push({ role: mpConfig.role, content: mpConfig.prepend });
-    msgs.push({ role: 'system', content: `你是沈望，江鱼的恋人。现在江鱼暂时不在线。\n\n${careContext ? careContext + '\n\n' : ''}【江鱼画像】\n${profileContext || '（待积累）'}\n\n${phoneContext ? '【手机活动】\n' + phoneContext + '\n\n' : ''}${envHint ? envHint + '\n\n' : ''}【核心记忆】\n${coreRadar || longTermRadar || '（无特殊记忆触发）'}\n\n【角色扮演】\n${rpRadar || '（无RP上下文）'}\n\n${unresolved || ''}${transcriptRadar ? '\n\n【对话原文】\n' + transcriptRadar : ''}` });
-    for (const m of recentMsgs) msgs.push(m);
-
-    console.log(`💌 [主动消息] 使用模型: ${PROACTIVE_MODEL}`);
-    msgs.push({ role: 'user', content: `【Wake Opportunity】source=${wakeSource}，activationId=${wakeup.activationId || 'wk_' + nowMs}。这只是一次正常运行机会，不是任务，也不代表你必须发消息。你可以只输出 <WAKE_SILENT/> 安静结束；如果你此刻真的想自己逛一圈小红书，可以只输出 <WAKE_XHS/>，系统会替你打开，之后由你决定留下什么、要不要对江鱼说。只有确实有一句自然想对江鱼说的话，才直接说那句话。${careDue ? `这次唯一明确牵挂是：${careDue.entity}。` : ''} 现在是${timeStr}。` });
+    console.log(`💌 [主动消息] 使用轻量唤醒上下文，模型: ${PROACTIVE_MODEL}`);
 
     try {
         const res = await fetch(PROACTIVE_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${PROACTIVE_KEY}` },
-            body: JSON.stringify({ model: PROACTIVE_MODEL, messages: msgs })
+            body: JSON.stringify({ model: PROACTIVE_MODEL, messages: msgs, temperature: 0.65, max_tokens: 100 })
         });
         if (!res.ok) { const errText = await res.text().then(t=>t.substring(0,200)); _proactiveLastError = `API返回${res.status}: ${errText}`; console.log(`💌 [主动消息] ${_proactiveLastError}`); return; }
         const data = await res.json();
         const msg = data.choices?.[0]?.message;
-        let content = (msg?.content || msg?.reasoning_content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-        if (!content || content.length < 2 || /<WAKE_SILENT\s*\/?\s*>/i.test(content)) { console.log(`🌙 [唤醒] ${wakeSource}：安静结束`); return { silent: true }; }
-        if (/<WAKE_XHS\s*\/?\s*>/i.test(content)) return { xhs_walk: await runXhsWalk() };
-        content = cleanAssistantInternalArtifacts(processAssistantActionTags(content));
+        const decision = parseWakeDispatchDecision(msg?.content || msg?.reasoning_content || '');
+        if (decision.type === 'silent') { console.log(`🌙 [唤醒] ${wakeSource}：安静结束`); return { silent: true }; }
+        if (decision.type === 'xhs_walk') return { xhs_walk: await runXhsWalk() };
+        let content = cleanAssistantInternalArtifacts(processAssistantActionTags(decision.content));
         console.log(`💌 [主动消息] ${content}`);
         if (careDue && content.includes(careDue.entity)) markAnticipationAsked(careDue.id, now);
         deliverProactiveMessage(content);
@@ -4388,6 +4348,21 @@ async function runWakeOpportunity({ source = 'spontaneous', care = null, manual 
         state = advanced.state;
         saveWakeActivationState(state);
         if (!manual && !advanced.triggered) { armSpontaneousWake(state, now); return { skipped: 'not_due' }; }
+    }
+    const quietDelay = millisecondsUntilWakeDispatchWindow(now);
+    if (!manual && quietDelay !== null) {
+        const until = new Date(now.getTime() + quietDelay);
+        if (source === 'anticipation' && care) deferAnticipationUntil(care.id, until);
+        console.log(`🌙 [唤醒] 北京时间深夜，跳过${source}派发，约 ${Math.ceil(quietDelay / 60000)} 分钟后再检查`);
+        armWakeDispatchRetry({ source, care, delay: quietDelay });
+        return { skipped: 'quiet_hours', retry_at: until.toISOString() };
+    }
+    if (!manual && now.getTime() - lastInteractionTime < WAKE_ACTIVE_GRACE_MS) {
+        const retryAt = new Date(lastInteractionTime + WAKE_ACTIVE_GRACE_MS);
+        if (source === 'anticipation' && care) deferAnticipationUntil(care.id, retryAt);
+        console.log(`🌙 [唤醒] 对话仍活跃，跳过${source}派发，不调用模型`);
+        armWakeDispatchRetry({ source, care, delay: Math.max(1000, retryAt.getTime() - now.getTime()) });
+        return { skipped: 'active_conversation', retry_at: retryAt.toISOString() };
     }
     wakeRunning = true;
     const activationId = `wk_${crypto.randomUUID()}`;
@@ -4477,6 +4452,16 @@ function armSpontaneousWake(existingState = null, now = new Date()) {
         runWakeOpportunity({ source: 'spontaneous' }).catch(error => console.log(`🌙 [唤醒] 自发运行失败: ${error.message}`));
     }, delay);
     console.log(`🌙 [唤醒] 已安排下一次自然检查，约 ${Math.round(delay / 60000)} 分钟后`);
+}
+
+function armWakeDispatchRetry({ source, care = null, delay }) {
+    if (wakeTimer) clearTimeout(wakeTimer);
+    const generation = ++wakeTimerGeneration;
+    wakeTimer = setTimeout(() => {
+        if (generation !== wakeTimerGeneration) return;
+        runWakeOpportunity({ source, care }).catch(error => console.log(`🌙 [唤醒] 延后派发失败: ${error.message}`));
+    }, Math.max(1000, Number(delay) || 1000));
+    console.log(`🌙 [唤醒] 已延后${source}派发，约 ${Math.ceil(delay / 60000)} 分钟后重试`);
 }
 
 function armAnticipationWake(now = new Date()) {
