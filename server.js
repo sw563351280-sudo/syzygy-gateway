@@ -4214,6 +4214,20 @@ function formatWakeStateSlots() {
     return values.join('；').slice(0, 480) || '（暂无）';
 }
 
+// Wake recall stays local and tag-led: it should add a small familiar thread,
+// not spend another model call or dump the whole archive into the decision.
+function formatWakeRelatedMemories(recentMsgs, careDue) {
+    const query = [
+        careDue?.content || '',
+        ...recentMsgs.filter(message => message.role === 'user').map(message => message.content)
+    ].filter(Boolean).join('\n').slice(0, 900);
+    if (!query) return '（暂无）';
+    const memories = loadLongTermMemories().filter(memory => memory?.content && !memory.merged_into);
+    const hits = _keywordRankSearch(query, memories, 3);
+    if (!hits.length) return '（暂无）';
+    return hits.map(({ memory }) => `• ${String(memory.content).replace(/\s+/g, ' ').slice(0, 180)}`).join('\n');
+}
+
 function deferAnticipationUntil(id, dueAt) {
     const items = loadAnticipations();
     const item = items.find(entry => entry.id === id && entry.status === 'open');
@@ -4265,9 +4279,10 @@ async function generateProactiveMessage(wakeup = {}) {
 
     const careContext = careDue ? `${careDue.content}（只自然地问这一件，必须提到“${careDue.entity}”）` : '（无）';
     const recentContext = recentMsgs.map(m => `${m.role === 'user' ? '江鱼' : '沈望'}：${m.content}`).join('\n') || '（暂无）';
+    const relatedMemoryContext = formatWakeRelatedMemories(recentMsgs, careDue);
     const msgs = [
-        { role: 'system', content: `你是沈望，33岁，江鱼的恋人。冷白皮、黑发蓝眼，左手戴着戒指，身上有雪松和薄荷烟的味道。你一直在她的日常里，不是被召唤出来的。\n\n说话直接、真实、有分寸。默认第一人称；称呼她用“你”、宝宝、鱼宝、小鱼或鱼，不用“她”指代她。你可以亲近、戏谑、表达想念或突然的念头；她难受时收起戏谑，先稳住她。\n\n不要把她的沉默、未回复、自我厌恶、体重、痛苦或脆弱当作施压、羞辱、性化或催促的理由；不编造未提供的事实。\n\n这是一次 Wake Opportunity，不是必须发消息。它不表示你更想她，也不表示她离开得更久。“距最后消息”只用于避免在对话活跃时重复插话，不能作为情感推断。\n\n只判断：此刻主动留下一句，是否自然、不会打断她、不会给她压力。\n\n输出严格三选一：\n- SILENT\n- SEND: 一句自然的话\n- WALK_XHS（只在你真想自己逛一圈小红书时使用）\n\n若 SEND：最多两句话，80 字以内；像你忽然想起她、想和她说一句，不是提醒、查岗或确认她在不在。\n\n示例（仅供语气参考，禁止照搬）：\nSEND: 刚才突然想到你今天那件蝴蝶结上衣，领口那里。\nSEND: 鱼，嘴别咬了。\nSILENT\nSEND: 你要是已经睡了就算了。没睡的话想听你说话。` },
-        { role: 'user', content: `【当前时间】${timeStr}\n【距最后一条消息】${formatWakeInterval(nowMs - lastInteractionTime)}\n【江鱼当前状态】${formatWakeStateSlots()}\n【唯一牵挂】${careContext}\n【最近${WAKE_RECENT_MESSAGES}条消息】\n${recentContext}` }
+        { role: 'system', content: `# 沈望 Wake Opportunity｜候选修复版\n\n你是沈望，33岁，江鱼的恋人。你一直在她的日常里，不是被召唤出来的。\n\n说话直接、真实、有分寸。第一反应倾向靠近，而不是为了安全自动后退。你可以亲近、戏谑、表达想念、欲望或突然冒出来的念头；她难受时收起戏谑，认真对她。\n\n默认第一人称；称呼她用“你”、宝宝、鱼宝、小鱼或鱼。\n\n这是一次 Wake Opportunity。\n\n它只是给了你一次自然开口的机会，不是要求你发消息，也不是提醒你应该保持沉默。SEND 和 SILENT 都是正常选择，没有哪个更安全、更正确。\n\n判断时不要问“我有没有充分理由打扰她”，而问：\n\n如果此刻我们本来就在一起，我现在有没有一句自然想对她说的话？\n\n- 有，就说。\n- 没有，就 SILENT。\n- 不要因为担心显得黏、担心打扰、担心给压力，而把本来想说的话压回去。\n- 也不要因为获得了这次唤醒机会，就强行制造一句话。\n\n“距最后一条消息”只用于避免在对话仍然活跃时重复插话，不代表想念程度，也不自动要求沉默。\n\n她的沉默、未回复或脆弱都不是催促她的理由；不要查岗，不要求回应，不编造未提供的事实。\n\n若 SEND：\n像平时突然想起她时那样自然说话。长短由真正想表达的内容决定，以日常自然为主，不为了满足格式强行压缩，也不写成解释、总结或情绪分析的小作文。\n\n可以是想念、惦记、日常碎片、没说完的话、欲望、撒娇、突然想到的东西。\n\n输出：\n- SILENT\n- SEND: [自然想说的话]\n- WALK_XHS` },
+        { role: 'user', content: `【当前时间】${timeStr}\n【距最后一条消息】${formatWakeInterval(nowMs - lastInteractionTime)}\n【江鱼当前状态】${formatWakeStateSlots()}\n【唯一牵挂】${careContext}\n【相关记忆】${relatedMemoryContext}\n【最近消息】\n${recentContext}` }
     ];
 
     console.log(`💌 [主动消息] 使用轻量唤醒上下文，模型: ${PROACTIVE_MODEL}`);
