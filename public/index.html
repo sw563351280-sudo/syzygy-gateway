@@ -8,7 +8,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=46">
+    <link rel="stylesheet" href="style.css?v=47">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body class="neu-mode">
@@ -212,6 +212,17 @@
                 <span class="device-state-dot" aria-hidden="true"></span>
             </div>
             <div class="device-panel-foot" id="mcp-tools-list">工具已常开。这里以后只放值得你看一眼的连接。</div>
+        </div>
+
+        <div class="glass device-panel wake-journal-panel" id="wakeJournalPanel">
+            <div class="device-panel-head">
+                <div>
+                    <p>唤醒记录</p>
+                    <span>只记发生了什么，不保存它的内部思考。</span>
+                </div>
+                <button type="button" class="device-refresh" onclick="refreshWakeJournal()">刷新</button>
+            </div>
+            <div class="wake-journal-list" id="wakeJournalList" aria-live="polite">正在看看最近的唤醒……</div>
         </div>
 
         <div class="glass">
@@ -525,7 +536,7 @@
 </div>
 
 <script src="clipboard-images.js?v=1"></script>
-<script src="script.js?v=45"></script>
+<script src="script.js?v=46"></script>
 <script src="sms-mode.js?v=5"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>

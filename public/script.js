@@ -3610,8 +3610,48 @@ async function refreshToyConnectionStatus() {
     }
 }
 
+function formatWakeJournalTime(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return new Intl.DateTimeFormat('zh-CN', {
+        timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
+    }).format(date).replace(/\//g, '.');
+}
+
+function renderWakeJournalEntry(entry) {
+    const labels = {
+        sent: '留了一句',
+        silent: '没有硬开口',
+        xhs_walk: '去散步了',
+        deferred_quiet: '留到早上',
+        deferred_active: '没有插话',
+        error: '这次没跑完'
+    };
+    const label = labels[entry.outcome] || '记录了一次';
+    const retry = entry.retry_at ? ' · ' + formatWakeJournalTime(entry.retry_at) + '后再看' : '';
+    return '<article class="wake-journal-entry wake-' + String(entry.outcome || 'unknown').replace(/[^a-z_]/g, '') + '">'
+        + '<div><strong>' + label + '</strong><span>' + (entry.reason || '') + retry + '</span></div>'
+        + '<time>' + formatWakeJournalTime(entry.at) + '</time></article>';
+}
+
+async function refreshWakeJournal() {
+    const list = document.getElementById('wakeJournalList');
+    if (!list) return;
+    try {
+        const response = await fetch('/api/wake/status');
+        const status = await response.json();
+        if (!response.ok) throw new Error(status.error || '读取失败');
+        const entries = Array.isArray(status.recent) ? status.recent.slice(0, 6) : [];
+        list.innerHTML = entries.length
+            ? entries.map(renderWakeJournalEntry).join('')
+            : '<div class="wake-journal-empty">最近还没有一轮需要记录的唤醒。</div>';
+    } catch (_) {
+        list.innerHTML = '<div class="wake-journal-empty">暂时看不到记录，之后再来一眼就好。</div>';
+    }
+}
+
 async function refreshDevicePanel() {
-    await Promise.all([syncMcpTools(), refreshToyConnectionStatus()]);
+    await Promise.all([syncMcpTools(), refreshToyConnectionStatus(), refreshWakeJournal()]);
 }
 
 refreshDevicePanel();

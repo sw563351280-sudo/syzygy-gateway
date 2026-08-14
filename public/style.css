@@ -859,6 +859,21 @@ body.neu-mode .device-refresh { color:#3ba99d; background:#E8EFF7; border:0; box
 body.neu-mode .device-card { background:#E8EFF7; border:0; box-shadow:inset 3px 3px 7px rgba(163,177,198,.23),inset -3px -3px 7px rgba(255,255,255,.72); }
 body.neu-mode .device-card-copy strong { color:#40536b; }
 
+.wake-journal-panel { margin-top:18px; }
+.wake-journal-list { display:flex; flex-direction:column; gap:8px; margin-top:16px; }
+.wake-journal-entry { display:flex; align-items:flex-start; gap:12px; padding:11px 12px; border-radius:12px; background:rgba(99,214,197,.055); border:1px solid rgba(99,214,197,.13); }
+.wake-journal-entry > div { min-width:0; display:flex; flex:1; flex-direction:column; gap:3px; }
+.wake-journal-entry strong { color:var(--text); font-size:.82em; font-weight:600; }
+.wake-journal-entry span { color:var(--dim); font-size:.73em; line-height:1.5; }
+.wake-journal-entry time { flex:0 0 auto; color:var(--dim); font-size:.68em; white-space:nowrap; padding-top:2px; }
+.wake-journal-entry.wake-sent { border-color:rgba(99,214,197,.28); }
+.wake-journal-entry.wake-silent { border-color:rgba(129,157,194,.18); }
+.wake-journal-entry.wake-error { border-color:rgba(217,135,135,.22); }
+.wake-journal-empty { padding:12px 2px 2px; color:var(--dim); font-size:.76em; }
+body.neu-mode .wake-journal-entry { background:#E8EFF7; border:0; box-shadow:inset 2px 2px 5px rgba(163,177,198,.17),inset -2px -2px 5px rgba(255,255,255,.64); }
+body.neu-mode .wake-journal-entry strong { color:#52657d; }
+body.neu-mode .wake-journal-entry span, body.neu-mode .wake-journal-entry time, body.neu-mode .wake-journal-empty { color:#8395aa; }
+
 /* 中枢也属于浅蓝模式：旧的 glass 卡片不能再保留夜间深灰底。 */
 body.neu-mode #sec-data > .glass:not(.device-panel) {
     background:#E8EFF7 !important;

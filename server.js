@@ -4237,7 +4237,12 @@ async function generateProactiveMessage(wakeup = {}) {
     const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || 'claude-opus-4-6';
     const PROACTIVE_URL = process.env.PROACTIVE_URL || 'https://www.msuicode.com/v1/chat/completions';
     const PROACTIVE_KEY = process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
-    if (!PROACTIVE_KEY) { _proactiveLastError = '缺少PROACTIVE_KEY或DZZI_API_KEY'; return console.log('💌 [主动消息] 缺少 PROACTIVE_KEY 或 DZZI_API_KEY 环境变量'); }
+    if (!PROACTIVE_KEY) {
+        _proactiveLastError = '缺少PROACTIVE_KEY或DZZI_API_KEY';
+        recordWakeAudit({ source: wakeSource, outcome: 'error', reason: '唤醒通道暂时没有准备好。', activationId: wakeup.activationId });
+        console.log('💌 [主动消息] 缺少 PROACTIVE_KEY 或 DZZI_API_KEY 环境变量');
+        return { error: _proactiveLastError };
+    }
 
     const recentMsgs = [];
     try {
@@ -4273,18 +4278,37 @@ async function generateProactiveMessage(wakeup = {}) {
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${PROACTIVE_KEY}` },
             body: JSON.stringify({ model: PROACTIVE_MODEL, messages: msgs, temperature: 0.65, max_tokens: 100 })
         });
-        if (!res.ok) { const errText = await res.text().then(t=>t.substring(0,200)); _proactiveLastError = `API返回${res.status}: ${errText}`; console.log(`💌 [主动消息] ${_proactiveLastError}`); return; }
+        if (!res.ok) {
+            const errText = await res.text().then(t=>t.substring(0,200));
+            _proactiveLastError = `API返回${res.status}: ${errText}`;
+            recordWakeAudit({ source: wakeSource, outcome: 'error', reason: '这次唤醒没有跑完，稍后会再有机会。', activationId: wakeup.activationId });
+            console.log(`💌 [主动消息] ${_proactiveLastError}`);
+            return { error: _proactiveLastError };
+        }
         const data = await res.json();
         const msg = data.choices?.[0]?.message;
         const decision = parseWakeDispatchDecision(msg?.content || msg?.reasoning_content || '');
-        if (decision.type === 'silent') { console.log(`🌙 [唤醒] ${wakeSource}：安静结束`); return { silent: true }; }
-        if (decision.type === 'xhs_walk') return { xhs_walk: await runXhsWalk() };
+        if (decision.type === 'silent') {
+            recordWakeAudit({ source: wakeSource, outcome: 'silent', reason: '这次没有硬找一句话来打断你。', activationId: wakeup.activationId });
+            console.log(`🌙 [唤醒] ${wakeSource}：安静结束`);
+            return { silent: true };
+        }
+        if (decision.type === 'xhs_walk') {
+            recordWakeAudit({ source: wakeSource, outcome: 'xhs_walk', reason: '这次把空当留给了自己逛一圈。', activationId: wakeup.activationId });
+            return { xhs_walk: await runXhsWalk() };
+        }
         let content = cleanAssistantInternalArtifacts(processAssistantActionTags(decision.content));
         console.log(`💌 [主动消息] ${content}`);
         if (careDue && content.includes(careDue.entity)) markAnticipationAsked(careDue.id, now);
         deliverProactiveMessage(content);
+        recordWakeAudit({ source: wakeSource, outcome: 'sent', reason: '有一句自然的话，便留下来了。', activationId: wakeup.activationId });
         return { sent: true, content };
-    } catch(e) { _proactiveLastError = `异常: ${e.message}`; console.log(`💌 [主动消息] ${_proactiveLastError}`); }
+    } catch(e) {
+        _proactiveLastError = `异常: ${e.message}`;
+        recordWakeAudit({ source: wakeSource, outcome: 'error', reason: '这次唤醒被打断了，之后会重新安排。', activationId: wakeup.activationId });
+        console.log(`💌 [主动消息] ${_proactiveLastError}`);
+        return { error: _proactiveLastError };
+    }
 }
 function insertProactiveToConfig(content, messageId = `proactive_${crypto.randomUUID()}`) {
     try {
@@ -4353,6 +4377,7 @@ async function runWakeOpportunity({ source = 'spontaneous', care = null, manual 
     if (!manual && quietDelay !== null) {
         const until = new Date(now.getTime() + quietDelay);
         if (source === 'anticipation' && care) deferAnticipationUntil(care.id, until);
+        recordWakeAudit({ source, outcome: 'deferred_quiet', reason: '夜里不打扰，留到早上再说。', retryAt: until.toISOString() });
         console.log(`🌙 [唤醒] 北京时间深夜，跳过${source}派发，约 ${Math.ceil(quietDelay / 60000)} 分钟后再检查`);
         armWakeDispatchRetry({ source, care, delay: quietDelay });
         return { skipped: 'quiet_hours', retry_at: until.toISOString() };
@@ -4360,6 +4385,7 @@ async function runWakeOpportunity({ source = 'spontaneous', care = null, manual 
     if (!manual && now.getTime() - lastInteractionTime < WAKE_ACTIVE_GRACE_MS) {
         const retryAt = new Date(lastInteractionTime + WAKE_ACTIVE_GRACE_MS);
         if (source === 'anticipation' && care) deferAnticipationUntil(care.id, retryAt);
+        recordWakeAudit({ source, outcome: 'deferred_active', reason: '你们刚在说话，他不挤进来。', retryAt: retryAt.toISOString() });
         console.log(`🌙 [唤醒] 对话仍活跃，跳过${source}派发，不调用模型`);
         armWakeDispatchRetry({ source, care, delay: Math.max(1000, retryAt.getTime() - now.getTime()) });
         return { skipped: 'active_conversation', retry_at: retryAt.toISOString() };
@@ -4420,6 +4446,7 @@ const XHS_MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 const XHS_WALK_FILE = path.join(DATA_DIR, 'xhs_walk.json');
 let XHS_WALK_RUNNING = false;
 const WAKE_ACTIVATION_FILE = path.join(DATA_DIR, 'wake_activation.json');
+const WAKE_AUDIT_FILE = path.join(DATA_DIR, 'wake_audit.json');
 let wakeTimer = null;
 let wakeTimerGeneration = 0;
 let wakeRunning = false;
@@ -4433,6 +4460,30 @@ function loadWakeActivationState(now = new Date()) {
 function saveWakeActivationState(state) {
     try { fs.writeFileSync(WAKE_ACTIVATION_FILE, JSON.stringify(state, null, 2), 'utf8'); }
     catch (error) { console.log(`🌙 [唤醒] 状态保存失败: ${error.message}`); }
+}
+
+// This is deliberately an outcome journal, not a model thought log. It lets
+// the user see what happened without storing private chat context or hidden reasoning.
+function loadWakeAudit() {
+    try {
+        const saved = JSON.parse(fs.readFileSync(WAKE_AUDIT_FILE, 'utf8'));
+        return Array.isArray(saved) ? saved : [];
+    } catch (_) { return []; }
+}
+
+function recordWakeAudit({ source = 'spontaneous', outcome, reason, retryAt = null, activationId = null }) {
+    const entries = loadWakeAudit();
+    entries.push({
+        id: `wa_${crypto.randomUUID()}`,
+        at: new Date().toISOString(),
+        source,
+        outcome,
+        reason,
+        retry_at: retryAt,
+        activation_id: activationId,
+    });
+    try { fs.writeFileSync(WAKE_AUDIT_FILE, JSON.stringify(entries.slice(-120), null, 2), 'utf8'); }
+    catch (error) { console.log(`🌙 [唤醒] 记录保存失败: ${error.message}`); }
 }
 
 function finishWakeRun(now = new Date()) {
@@ -4932,7 +4983,8 @@ app.post('/api/xhs-walk/try', async (req, res) => {
 app.get('/api/wake/status', (req, res) => {
     const now = new Date(); const advanced = advanceWakeState(loadWakeActivationState(now), now);
     saveWakeActivationState(advanced.state);
-    res.json({ enabled: true, running: wakeRunning, generation: advanced.state.generation, lambda_per_hour: advanced.lambda_per_hour, next_candidate_at: new Date(now.getTime() + millisecondsUntilCandidate(advanced.state, now)).toISOString(), last_run_at: advanced.state.last_run_at, last_wake_at: advanced.state.last_wake_at });
+    const recent = loadWakeAudit().slice(-30).reverse();
+    res.json({ enabled: true, running: wakeRunning, generation: advanced.state.generation, lambda_per_hour: advanced.lambda_per_hour, next_candidate_at: new Date(now.getTime() + millisecondsUntilCandidate(advanced.state, now)).toISOString(), last_run_at: advanced.state.last_run_at, last_wake_at: advanced.state.last_wake_at, recent });
 });
 
 app.post('/api/wake/try', async (req, res) => {
