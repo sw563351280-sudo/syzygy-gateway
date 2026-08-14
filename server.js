@@ -4273,11 +4273,21 @@ async function generateProactiveMessage(wakeup = {}) {
     console.log(`💌 [主动消息] 使用轻量唤醒上下文，模型: ${PROACTIVE_MODEL}`);
 
     try {
-        const res = await fetch(PROACTIVE_URL, {
+        const basePayload = { model: PROACTIVE_MODEL, messages: msgs, temperature: 0.35, max_tokens: 24 };
+        let res = await fetch(PROACTIVE_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${PROACTIVE_KEY}` },
-            body: JSON.stringify({ model: PROACTIVE_MODEL, messages: msgs, temperature: 0.65, max_tokens: 100 })
+            body: JSON.stringify({ ...basePayload, reasoning_effort: 'none' })
         });
+        // Older OpenAI-compatible relays may reject the optional setting. A
+        // rejected request is not an inference run, so retry once without it.
+        if (res.status === 400 || res.status === 422) {
+            res = await fetch(PROACTIVE_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${PROACTIVE_KEY}` },
+                body: JSON.stringify(basePayload)
+            });
+        }
         if (!res.ok) {
             const errText = await res.text().then(t=>t.substring(0,200));
             _proactiveLastError = `API返回${res.status}: ${errText}`;
@@ -4287,21 +4297,33 @@ async function generateProactiveMessage(wakeup = {}) {
         }
         const data = await res.json();
         const msg = data.choices?.[0]?.message;
-        const decision = parseWakeDispatchDecision(msg?.content || msg?.reasoning_content || '');
+        const usage = data?.usage ? {
+            input_tokens: data.usage.input_tokens ?? data.usage.prompt_tokens ?? null,
+            output_tokens: data.usage.output_tokens ?? data.usage.completion_tokens ?? null,
+            reasoning_tokens: data.usage.reasoning_tokens ?? data.usage.completion_tokens_details?.reasoning_tokens ?? null,
+        } : null;
+        // reasoning_content is never a final wake instruction. Some relays put
+        // hidden thinking there while leaving the actual decision blank.
+        const decision = parseWakeDispatchDecision(msg?.content || '');
+        if (decision.type === 'invalid') {
+            recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason: '供应端给了过程，但没有交出有效的最终指令；不把它算成静默。', activationId: wakeup.activationId, usage });
+            console.log(`🌙 [唤醒] ${wakeSource}：没有有效最终指令`);
+            return { error: '模型没有返回有效的唤醒指令', invalid: true };
+        }
         if (decision.type === 'silent') {
-            recordWakeAudit({ source: wakeSource, outcome: 'silent', reason: '这次没有硬找一句话来打断你。', activationId: wakeup.activationId });
+            recordWakeAudit({ source: wakeSource, outcome: 'silent', reason: '这次没有硬找一句话来打断你。', activationId: wakeup.activationId, usage });
             console.log(`🌙 [唤醒] ${wakeSource}：安静结束`);
             return { silent: true };
         }
         if (decision.type === 'xhs_walk') {
-            recordWakeAudit({ source: wakeSource, outcome: 'xhs_walk', reason: '这次把空当留给了自己逛一圈。', activationId: wakeup.activationId });
+            recordWakeAudit({ source: wakeSource, outcome: 'xhs_walk', reason: '这次把空当留给了自己逛一圈。', activationId: wakeup.activationId, usage });
             return { xhs_walk: await runXhsWalk() };
         }
         let content = cleanAssistantInternalArtifacts(processAssistantActionTags(decision.content));
         console.log(`💌 [主动消息] ${content}`);
         if (careDue && content.includes(careDue.entity)) markAnticipationAsked(careDue.id, now);
         deliverProactiveMessage(content);
-        recordWakeAudit({ source: wakeSource, outcome: 'sent', reason: '有一句自然的话，便留下来了。', activationId: wakeup.activationId });
+        recordWakeAudit({ source: wakeSource, outcome: 'sent', reason: '有一句自然的话，便留下来了。', activationId: wakeup.activationId, usage });
         return { sent: true, content };
     } catch(e) {
         _proactiveLastError = `异常: ${e.message}`;
@@ -4471,7 +4493,7 @@ function loadWakeAudit() {
     } catch (_) { return []; }
 }
 
-function recordWakeAudit({ source = 'spontaneous', outcome, reason, retryAt = null, activationId = null }) {
+function recordWakeAudit({ source = 'spontaneous', outcome, reason, retryAt = null, activationId = null, usage = null }) {
     const entries = loadWakeAudit();
     entries.push({
         id: `wa_${crypto.randomUUID()}`,
@@ -4481,6 +4503,7 @@ function recordWakeAudit({ source = 'spontaneous', outcome, reason, retryAt = nu
         reason,
         retry_at: retryAt,
         activation_id: activationId,
+        usage,
     });
     try { fs.writeFileSync(WAKE_AUDIT_FILE, JSON.stringify(entries.slice(-120), null, 2), 'utf8'); }
     catch (error) { console.log(`🌙 [唤醒] 记录保存失败: ${error.message}`); }

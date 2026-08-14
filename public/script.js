@@ -3625,12 +3625,15 @@ function renderWakeJournalEntry(entry) {
         xhs_walk: '去散步了',
         deferred_quiet: '留到早上',
         deferred_active: '没有插话',
+        invalid: '没有拿到最终指令',
         error: '这次没跑完'
     };
     const label = labels[entry.outcome] || '记录了一次';
     const retry = entry.retry_at ? ' · ' + formatWakeJournalTime(entry.retry_at) + '后再看' : '';
+    const outputTokens = Number(entry?.usage?.output_tokens);
+    const usage = Number.isFinite(outputTokens) ? ' · 回传 ' + outputTokens + ' 输出 token' : '';
     return '<article class="wake-journal-entry wake-' + String(entry.outcome || 'unknown').replace(/[^a-z_]/g, '') + '">'
-        + '<div><strong>' + label + '</strong><span>' + (entry.reason || '') + retry + '</span></div>'
+        + '<div><strong>' + label + '</strong><span>' + (entry.reason || '') + retry + usage + '</span></div>'
         + '<time>' + formatWakeJournalTime(entry.at) + '</time></article>';
 }
 

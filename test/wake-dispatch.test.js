@@ -15,5 +15,6 @@ test('wake replies accept only explicit silent, send, or XHS decisions', () => {
     assert.deepEqual(parseWakeDecision('SILENT'), { type: 'silent' });
     assert.deepEqual(parseWakeDecision('SEND: 鱼，嘴别咬了。'), { type: 'send', content: '鱼，嘴别咬了。' });
     assert.deepEqual(parseWakeDecision('WALK_XHS'), { type: 'xhs_walk' });
-    assert.deepEqual(parseWakeDecision('我想找你。'), { type: 'silent' });
+    assert.deepEqual(parseWakeDecision('我想找你。'), { type: 'invalid' });
+    assert.deepEqual(parseWakeDecision('<think>先分析一下</think>'), { type: 'invalid' });
 });

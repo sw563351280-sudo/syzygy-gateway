@@ -27,11 +27,12 @@ function millisecondsUntilWakeDispatchWindow(now = new Date()) {
 
 function parseWakeDecision(raw) {
     const text = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-    if (!text || /^SILENT\s*[.!。]*$/i.test(text) || /<WAKE_SILENT\s*\/?\s*>/i.test(text)) return { type: 'silent' };
+    if (!text) return { type: 'invalid' };
+    if (/^SILENT\s*[.!。]*$/i.test(text) || /<WAKE_SILENT\s*\/?\s*>/i.test(text)) return { type: 'silent' };
     if (/^WALK_XHS\s*[.!。]*$/i.test(text) || /<WAKE_XHS\s*\/?\s*>/i.test(text)) return { type: 'xhs_walk' };
     const send = text.match(/^SEND\s*:\s*([\s\S]+)$/i);
     const content = send?.[1]?.trim().slice(0, 160);
-    return content ? { type: 'send', content } : { type: 'silent' };
+    return content ? { type: 'send', content } : { type: 'invalid' };
 }
 
 module.exports = { QUIET_START_HOUR, QUIET_END_HOUR, getChinaHour, isWakeQuietHours, millisecondsUntilWakeDispatchWindow, parseWakeDecision };
