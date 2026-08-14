@@ -4273,21 +4273,13 @@ async function generateProactiveMessage(wakeup = {}) {
     console.log(`💌 [主动消息] 使用轻量唤醒上下文，模型: ${PROACTIVE_MODEL}`);
 
     try {
-        const basePayload = { model: PROACTIVE_MODEL, messages: msgs, temperature: 0.35, max_tokens: 24 };
-        let res = await fetch(PROACTIVE_URL, {
+        // A wake decision needs a little room to weigh the context. We keep
+        // that reasoning available; only the final instruction is constrained.
+        const res = await fetch(PROACTIVE_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${PROACTIVE_KEY}` },
-            body: JSON.stringify({ ...basePayload, reasoning_effort: 'none' })
+            body: JSON.stringify({ model: PROACTIVE_MODEL, messages: msgs, temperature: 0.65, max_tokens: 100 })
         });
-        // Older OpenAI-compatible relays may reject the optional setting. A
-        // rejected request is not an inference run, so retry once without it.
-        if (res.status === 400 || res.status === 422) {
-            res = await fetch(PROACTIVE_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${PROACTIVE_KEY}` },
-                body: JSON.stringify(basePayload)
-            });
-        }
         if (!res.ok) {
             const errText = await res.text().then(t=>t.substring(0,200));
             _proactiveLastError = `API返回${res.status}: ${errText}`;
