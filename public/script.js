@@ -2360,6 +2360,7 @@ async function sendChat(options = {}) {
     const win = document.getElementById('chatWindow');
 
     let existingUserVersion = null;
+    let submittedMessageId = null;
     let val = input.value.trim();
 
     if (reuseLastUser) {
@@ -2367,6 +2368,7 @@ async function sendChat(options = {}) {
         if (!lastMsg || lastMsg.role !== 'user') return;
 
         existingUserVersion = getActiveVersion(lastMsg);
+        submittedMessageId = lastMsg._id || null;
         val = (existingUserVersion.content || '').trim();
 
         if (!val && !(existingUserVersion.images && existingUserVersion.images.length) && !existingUserVersion.image) return;
@@ -2405,7 +2407,8 @@ async function sendChat(options = {}) {
 
     // 📸 保存压缩后的图片到版本记录（保留最近 5 轮可查看/重新生成）
     const savedImages = currentImgBase64List.length > 0 ? [...currentImgBase64List] : null;
-    session.messages.push({ _id: crypto.randomUUID(), role: 'user', versions: [{ content: val, fullTime: curFullTime, image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
+    submittedMessageId = crypto.randomUUID();
+    session.messages.push({ _id: submittedMessageId, role: 'user', versions: [{ content: val, fullTime: curFullTime, image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
     saveToCloud(true);  // 立即保存，不延迟
 
     }  // end if (!reuseLastUser)
@@ -2558,7 +2561,8 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${currentSup.key}`,
-                'X-Tab-Id': SYZYGY_TAB_ID
+                'X-Tab-Id': SYZYGY_TAB_ID,
+                ...(submittedMessageId ? { 'X-Message-Id': submittedMessageId } : {})
             },
             body: payloadText
         });

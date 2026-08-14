@@ -1951,13 +1951,19 @@ function addRoleplayMemory(content, tags = [], ttl = '1w') {
 
 //现实记忆新增（加入 arousal + activation_count）。
 // 长期记忆不再有保质期：它们只会被合并、人工归档，绝不因时间或热度自动消失。
-function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', arousal = 0.5, emotionalWeight = 0) {
+function normalizeMemorySource(sourceRef = null, fallbackAt = new Date().toISOString()) {
+    const quote = String(sourceRef?.quote || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+    return { source_quote: quote, source_at: sourceRef?.at || fallbackAt, source_message_id: sourceRef?.message_id || null };
+}
+
+function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', arousal = 0.5, emotionalWeight = 0, sourceRef = null) {
     const memories = loadLongTermMemories();
     if (memories.some(m => m.content === content.trim())) {
         console.log(`🛡️ [防抽风拦截] 阻止了一条重复的现实记忆: ${content.substring(0, 15)}...`);
         return null;
     }
     const now = new Date().toISOString();
+    const origin = normalizeMemorySource(sourceRef, now);
     const entry = {
         id: Date.now().toString(36) + Math.random().toString(36).substr(2, 4),
         content: content.trim(),
@@ -1972,10 +1978,11 @@ function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', 
         activation_count: 0,
         heat: arousal || 0.5,
         emotional_weight: emotionalWeight || 0,
+        ...origin,
         last_recalled_at: null,
         query_hashes: [],
         revision_count: 0,
-        history: [{ at: now, snapshot: content.trim(), tags: tags, kind: 'created' }]
+        history: [{ at: now, snapshot: content.trim(), tags: tags, kind: 'created', ...origin }]
     };
     memories.push(entry); saveLongTermMemories(memories);
     ensureEmbedding(entry.id, entry.content).catch(e => console.log(`⚠️ [向量] 异步失败: ${e.message}`));
@@ -2595,7 +2602,7 @@ function queueSmartMemoryWrite(...args) {
 // ==========================================
 //记忆写入统一入口（透传 arousal）
 // ==========================================
-async function smartMemoryWrite(content, tags, source, ttl = 'perm', arousal = 0.5, userMsg = null, tr = null) {
+async function smartMemoryWrite(content, tags, source, ttl = 'perm', arousal = 0.5, userMsg = null, tr = null, sourceRef = null) {
     const validTags = (tags || []).filter(t => t.length >= 2);
     if (!content || content.trim().length < 10 || validTags.length === 0) {
         console.log(`🛡️ [统一守门] 拦截低质量记忆: ${(content || '').substring(0, 30)}`);
@@ -2608,7 +2615,8 @@ async function smartMemoryWrite(content, tags, source, ttl = 'perm', arousal = 0
     }
     const effectiveArousal = source === 'ai_active' ? Math.max(arousal, 0.8) : arousal;
     const emoWeight = (userMsg && source === 'ai_active') ? detectEmotion(userMsg) : 0;
-    const incoming = { content: content.trim(), tags: validTags, source, ttl: 'perm', arousal: effectiveArousal, emotional_weight: emoWeight };
+    const origin = normalizeMemorySource(sourceRef);
+    const incoming = { content: content.trim(), tags: validTags, source, ttl: 'perm', arousal: effectiveArousal, emotional_weight: emoWeight, ...origin };
     let candidates = [];
     try { candidates = await retrieveMemoryMergeCandidates(incoming.content, incoming.tags); }
     catch (error) { console.log(`⚠️ [记忆检索] 降级为无候选: ${error.message}`); }
@@ -2622,9 +2630,9 @@ async function smartMemoryWrite(content, tags, source, ttl = 'perm', arousal = 0
         decision = { action: candidates.length ? 'review' : 'new', content: incoming.content, tags: incoming.tags, target_id: null, reason: '审稿服务暂不可用', confidence: 0 };
     }
     let result = null;
-    if (decision.action === 'new') result = addLongTermMemory(decision.content, source, decision.tags, 'perm', effectiveArousal, emoWeight);
+    if (decision.action === 'new') result = addLongTermMemory(decision.content, source, decision.tags, 'perm', effectiveArousal, emoWeight, origin);
     else if (decision.action === 'update') {
-        result = updateLongTermMemoryRevision(decision.target_id, { content: decision.content, tags: decision.tags, source, ttl: 'perm', arousal: effectiveArousal, emotional_weight: emoWeight });
+        result = updateLongTermMemoryRevision(decision.target_id, { content: decision.content, tags: decision.tags, source, ttl: 'perm', arousal: effectiveArousal, emotional_weight: emoWeight, ...origin });
         if (!result) decision = { ...decision, action: 'review', reason: '候选已变化，请手动确认' };
     }
     if (decision.action === 'review') {
@@ -5144,6 +5152,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         let body = req.body;
         const noMemory = req.headers['x-no-memory'] === 'true';
         const sourceTabId = req.headers['x-tab-id'] || null;
+        const sourceMessageId = req.headers['x-message-id'] || null;
 
         let cleanMessages = [];
         let currentUserMsgText = "";
@@ -5173,6 +5182,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         }
 
         _tr.meta.userPreview = (currentUserMsgText || '').substring(0, 80);
+        const currentMessageSource = currentUserMsgText ? { quote: currentUserMsgText, at: new Date().toISOString(), message_id: sourceMessageId, tab_id: sourceTabId } : null;
         traceEvent(_tr, 'start', '请求进入', { msgCount: cleanMessages.length });
 
        if (currentUserMsgText) updateRpTracker(currentUserMsgText, 'main');
@@ -5631,7 +5641,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             const finalThink = reasoning || thinkFromTag;
 
             const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(cleanForFinal);
-            for (const mem of ntMems) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
+            for (const mem of ntMems) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr, currentMessageSource);
             const todoClean = processAssistantActionTags(ntMems.length > 0 ? ntClean : cleanForFinal);
             const finalContent = todoClean;
 
@@ -5653,7 +5663,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, visibleContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
-                    queueDailyStateCuration(currentUserMsgText, visibleContent, _tr); queueCrumbCuration(currentUserMsgText, _tr); resolveAnticipationsFromUserText(currentUserMsgText);
+                    queueDailyStateCuration(currentUserMsgText, visibleContent, _tr); queueCrumbCuration(currentUserMsgText, _tr, currentMessageSource); resolveAnticipationsFromUserText(currentUserMsgText);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, visibleContent);
                 traceEnd(_tr, { ok: true, replyLen: visibleContent.length, path: 'tool-stream' });
@@ -5667,7 +5677,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, moodCleaned, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
-                    queueDailyStateCuration(currentUserMsgText, moodCleaned, _tr); queueCrumbCuration(currentUserMsgText, _tr); resolveAnticipationsFromUserText(currentUserMsgText);
+                    queueDailyStateCuration(currentUserMsgText, moodCleaned, _tr); queueCrumbCuration(currentUserMsgText, _tr, currentMessageSource); resolveAnticipationsFromUserText(currentUserMsgText);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, moodCleaned);
                 traceEnd(_tr, { ok: true, replyLen: (moodCleaned || '').length, path: 'tool-json' });
@@ -5806,7 +5816,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     moodLog('[MOOD DEBUG] fullAiResponse has tag:', fullAiResponse.includes('<MOOD_SNAPSHOT>') || fullAiResponse.includes('[[MOOD_SNAPSHOT]]'));
                     moodLog('[MOOD DEBUG] fullAiResponse tail:', fullAiResponse.slice(-1200));
                     const { cleanText: memClean, memories: streamMemories } = extractSaveMemoryTag(fullAiResponse);
-                    for (const mem of streamMemories) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
+                    for (const mem of streamMemories) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr, currentMessageSource);
                     let streamCleanText = memClean || fullAiResponse;
                     const todoCleanMaybe = processAssistantActionTags(streamCleanText);
                     if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
@@ -5815,7 +5825,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     streamCleanText = cleanAssistantInternalArtifacts(streamCleanText, _tr);
                     moodLog('[MOOD DEBUG] after mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     moodLog('[MOOD DEBUG] mood handler text changed:', beforeMood !== streamCleanText);
-                    if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr); tryAutoDream(currentUserMsgText); queueDailyStateCuration(currentUserMsgText, streamCleanText, _tr); queueCrumbCuration(currentUserMsgText, _tr); resolveAnticipationsFromUserText(currentUserMsgText); }
+                    if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr); tryAutoDream(currentUserMsgText); queueDailyStateCuration(currentUserMsgText, streamCleanText, _tr); queueCrumbCuration(currentUserMsgText, _tr, currentMessageSource); resolveAnticipationsFromUserText(currentUserMsgText); }
                     if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, streamCleanText);
                     moodLog('[MOOD DEBUG] stream finalize done');
                 } catch(e) { moodLog('[MOOD ERROR] stream finalize error:', e && (e.stack || e.message || e)); }
@@ -5832,7 +5842,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     const { cleanText, memories } = extractSaveMemoryTag(assistantContent);
                     if (!noMemory) {
                         for (const mem of memories) {
-                           queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr);
+                           queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr, currentMessageSource);
                         }
                     }
                     const todoClean = processAssistantActionTags(memories.length > 0 ? cleanText : assistantContent);
@@ -5851,7 +5861,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
-                    queueDailyStateCuration(currentUserMsgText, finalContent, _tr); queueCrumbCuration(currentUserMsgText, _tr); resolveAnticipationsFromUserText(currentUserMsgText);
+                    queueDailyStateCuration(currentUserMsgText, finalContent, _tr); queueCrumbCuration(currentUserMsgText, _tr, currentMessageSource); resolveAnticipationsFromUserText(currentUserMsgText);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, finalContent);
                 traceEnd(_tr, { ok: true, replyLen: (finalContent || '').length, path: 'json' });
@@ -7310,7 +7320,7 @@ function isRecentCrumbDuplicate(existing, crumb, now) {
     return Boolean(oldTopic && newTopic && oldTopic === newTopic);
 }
 
-function queueCrumbCuration(userText, tr = null) {
+function queueCrumbCuration(userText, tr = null, sourceRef = null) {
     const curatorKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
     if (!curatorKey || String(userText || '').trim().length < 4) return;
     _crumbCuratorQueue = _crumbCuratorQueue.catch(() => {}).then(async () => {
@@ -7321,7 +7331,7 @@ function queueCrumbCuration(userText, tr = null) {
         const items = existingItems; let autoCreated = false; let added = 0;
         for (const crumb of crumbs) {
             if (items.some(item => isRecentCrumbDuplicate(item, crumb, now))) continue;
-            const entry = { id: `crumb_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, kind: 'crumb', happened_at: now.toISOString(), fact: crumb.fact, source_quote: crumb.source_quote, source_message_id: null, entities: crumb.entities, tags: crumb.tags, status: 'active', archive_after_days: 90, created_at: now.toISOString(), last_surfaced_at: null, surface_count: 0 };
+            const entry = { id: `crumb_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, kind: 'crumb', happened_at: now.toISOString(), fact: crumb.fact, source_quote: crumb.source_quote, source_message_id: sourceRef?.message_id || null, source_at: sourceRef?.at || now.toISOString(), entities: crumb.entities, tags: crumb.tags, status: 'active', archive_after_days: 90, created_at: now.toISOString(), last_surfaced_at: null, surface_count: 0 };
             items.push(entry);
             ensureEmbedding(entry.id, `${entry.fact}\n${entry.entities.join(' ')}\n${entry.tags.join(' ')}`).catch(error => console.log(`⚠️ [碎屑向量] 异步失败: ${error.message}`));
             added++;
