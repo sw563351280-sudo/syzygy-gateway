@@ -4304,6 +4304,16 @@ async function generateProactiveMessage(wakeup = {}) {
         }
         const data = await res.json();
         const msg = data.choices?.[0]?.message;
+        const rawContent = typeof msg?.content === 'string' ? msg.content : '';
+        const reasoningContent = typeof msg?.reasoning_content === 'string'
+            ? msg.reasoning_content
+            : (typeof msg?.reasoning === 'string' ? msg.reasoning : '');
+        const responseDebug = {
+            model: data?.model || PROACTIVE_MODEL,
+            finish_reason: data?.choices?.[0]?.finish_reason ?? null,
+            content: rawContent.slice(0, 2000),
+            reasoning_content: reasoningContent.slice(0, 2000),
+        };
         const usage = data?.usage ? {
             input_tokens: data.usage.input_tokens ?? data.usage.prompt_tokens ?? null,
             output_tokens: data.usage.output_tokens ?? data.usage.completion_tokens ?? null,
@@ -4311,26 +4321,30 @@ async function generateProactiveMessage(wakeup = {}) {
         } : null;
         // reasoning_content is never a final wake instruction. Some relays put
         // hidden thinking there while leaving the actual decision blank.
-        const decision = parseWakeDispatchDecision(msg?.content || '');
+        const decision = parseWakeDispatchDecision(rawContent);
         if (decision.type === 'invalid') {
-            recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason: '供应端给了过程，但没有交出有效的最终指令；不把它算成静默。', activationId: wakeup.activationId, usage });
+            recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason: '供应端给了过程，但没有交出有效的最终指令；不把它算成静默。', activationId: wakeup.activationId, usage, response: responseDebug });
             console.log(`🌙 [唤醒] ${wakeSource}：没有有效最终指令`);
             return { error: '模型没有返回有效的唤醒指令', invalid: true };
         }
         if (decision.type === 'silent') {
-            recordWakeAudit({ source: wakeSource, outcome: 'silent', reason: '这次没有硬找一句话来打断你。', activationId: wakeup.activationId, usage });
+            recordWakeAudit({ source: wakeSource, outcome: 'silent', reason: '这次没有硬找一句话来打断你。', activationId: wakeup.activationId, usage, response: responseDebug });
             console.log(`🌙 [唤醒] ${wakeSource}：安静结束`);
             return { silent: true };
         }
         if (decision.type === 'xhs_walk') {
-            recordWakeAudit({ source: wakeSource, outcome: 'xhs_walk', reason: '这次把空当留给了自己逛一圈。', activationId: wakeup.activationId, usage });
+            recordWakeAudit({ source: wakeSource, outcome: 'xhs_walk', reason: '这次把空当留给了自己逛一圈。', activationId: wakeup.activationId, usage, response: responseDebug });
             return { xhs_walk: await runXhsWalk() };
         }
         let content = cleanAssistantInternalArtifacts(processAssistantActionTags(decision.content));
         console.log(`💌 [主动消息] ${content}`);
         if (careDue && content.includes(careDue.entity)) markAnticipationAsked(careDue.id, now);
-        deliverProactiveMessage(content);
-        recordWakeAudit({ source: wakeSource, outcome: 'sent', reason: '有一句自然的话，便留下来了。', activationId: wakeup.activationId, usage });
+        const delivery = deliverProactiveMessage(content);
+        if (!delivery.ok) {
+            recordWakeAudit({ source: wakeSource, outcome: 'delivery_failed', reason: delivery.reason, activationId: wakeup.activationId, usage, response: responseDebug });
+            return { error: delivery.reason, delivery_failed: true };
+        }
+        recordWakeAudit({ source: wakeSource, outcome: 'sent', reason: '有一句自然的话，便留下来了。', activationId: wakeup.activationId, usage, response: responseDebug });
         return { sent: true, content };
     } catch(e) {
         _proactiveLastError = `异常: ${e.message}`;
@@ -4500,7 +4514,7 @@ function loadWakeAudit() {
     } catch (_) { return []; }
 }
 
-function recordWakeAudit({ source = 'spontaneous', outcome, reason, retryAt = null, activationId = null, usage = null }) {
+function recordWakeAudit({ source = 'spontaneous', outcome, reason, retryAt = null, activationId = null, usage = null, response = null }) {
     const entries = loadWakeAudit();
     entries.push({
         id: `wa_${crypto.randomUUID()}`,
@@ -4511,6 +4525,7 @@ function recordWakeAudit({ source = 'spontaneous', outcome, reason, retryAt = nu
         retry_at: retryAt,
         activation_id: activationId,
         usage,
+        response,
     });
     try { fs.writeFileSync(WAKE_AUDIT_FILE, JSON.stringify(entries.slice(-120), null, 2), 'utf8'); }
     catch (error) { console.log(`🌙 [唤醒] 记录保存失败: ${error.message}`); }
@@ -4759,11 +4774,12 @@ async function resolveXhsViaCloud(url) {
 
 function deliverProactiveMessage(content) {
     const stored = insertProactiveToConfig(content);
-    if (!stored) return;
+    if (!stored) return { ok: false, reason: '主动消息没有成功写入 web_config.json，未发送给前端。' };
     const barkBody = content.length > 80 ? content.substring(0, 80) + '...' : content;
     fetch(`https://api.day.app/D9kpuZreHXGepYyuesohUZ/${encodeURIComponent('沈望')}/${encodeURIComponent(barkBody)}?icon=https://syrenth.uk/icon-192.png`, { signal: AbortSignal.timeout(10000) }).catch(() => {});
     wsBroadcast({ type: 'proactive_message', id: stored.id, content, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), fullTime: stored.fullTime });
     updateLastProactiveTime();
+    return { ok: true, id: stored.id };
 }
 
 async function getXhsShortAgents() {

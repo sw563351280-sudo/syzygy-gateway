@@ -3626,12 +3626,19 @@ function renderWakeJournalEntry(entry) {
         deferred_quiet: '留到早上',
         deferred_active: '没有插话',
         invalid: '没有拿到最终指令',
+        delivery_failed: '消息写入失败',
         error: '这次没跑完'
     };
     const label = labels[entry.outcome] || '记录了一次';
     const retry = entry.retry_at ? ' · ' + formatWakeJournalTime(entry.retry_at) + '后再看' : '';
+    const inputTokens = Number(entry?.usage?.input_tokens);
     const outputTokens = Number(entry?.usage?.output_tokens);
-    const usage = Number.isFinite(outputTokens) ? ' · 回传 ' + outputTokens + ' 输出 token' : '';
+    const reasoningTokens = Number(entry?.usage?.reasoning_tokens);
+    const tokenParts = [];
+    if (Number.isFinite(inputTokens)) tokenParts.push('输入 ' + inputTokens);
+    if (Number.isFinite(outputTokens)) tokenParts.push('输出 ' + outputTokens);
+    if (Number.isFinite(reasoningTokens)) tokenParts.push('推理 ' + reasoningTokens);
+    const usage = tokenParts.length ? ' · ' + tokenParts.join(' / ') + ' token' : '';
     return '<article class="wake-journal-entry wake-' + String(entry.outcome || 'unknown').replace(/[^a-z_]/g, '') + '">'
         + '<div><strong>' + label + '</strong><span>' + (entry.reason || '') + retry + usage + '</span></div>'
         + '<time>' + formatWakeJournalTime(entry.at) + '</time></article>';
