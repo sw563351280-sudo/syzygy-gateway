@@ -175,7 +175,10 @@ function isAuthenticated(req) {
 // ==========================================
 const ALLOWED_ORIGINS = [
     'https://syrenth.uk',
-    'https://www.syrenth.uk'
+    'https://www.syrenth.uk',
+    // OpenClaw's local gateway calls the remote syzygy provider from loopback.
+    'http://127.0.0.1:18789',
+    'http://localhost:18789'
 ];
 
 function handleCORS(req, res) {
