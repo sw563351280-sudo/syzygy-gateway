@@ -4202,6 +4202,178 @@ let _proactiveLastError = '';
 const WAKE_RECENT_MESSAGES = 6;
 const WAKE_MESSAGE_CHARS = 240;
 const WAKE_ACTIVE_GRACE_MS = 15 * 60 * 1000;
+const WAKE_SUMMARY_FILE = path.join(DATA_DIR, 'latest_conversation_summary.json');
+const WAKE_LAST_SENT_FILE = path.join(DATA_DIR, 'latest_proactive_sent.json');
+const WAKE_DECISIONS_FILE = path.join(DATA_DIR, 'wake_decisions.json');
+const ALLOWED_WAKE_REASONS = new Set([
+    'late_night_sleeping',
+    'just_talked',
+    'nothing_to_say',
+    'saw_something_relevant',
+    'missing_her',
+    'she_might_be_busy',
+    'recent_conversation_still_active',
+    'no_reason',
+    'parse_failed',
+    'non_json_output',
+    'cooldown'
+]);
+const WAKE_REASON_MAP = {
+    late_night_sleeping: '深夜了，她可能已经睡了',
+    just_talked: '刚聊完不久，没必要马上又找她',
+    nothing_to_say: '醒了一下，但没有特别想说的',
+    saw_something_relevant: '看到了什么想跟她说的',
+    missing_her: '想她了',
+    she_might_be_busy: '她可能在忙，不想打扰',
+    recent_conversation_still_active: '刚才的对话还热着',
+    parse_failed: '醒了但没解析清楚',
+    non_json_output: '醒了但没有按格式回答',
+    no_reason: '没有特别的原因',
+    cooldown: '刚刚已经发过消息，还在冷却时间内'
+};
+
+function formatBeijingTime(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(date);
+    const map = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+    return `${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute}`;
+}
+
+function inferWakeActivity(date = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', weekday: 'short', hour: 'numeric', hour12: false }).formatToParts(date);
+    const map = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+    const hour = Number(map.hour);
+    if (hour >= 2 || hour < 7) return '可能在睡觉';
+    if (!['Sat', 'Sun'].includes(map.weekday) && hour >= 9 && hour < 18) return '可能在上班';
+    return '可能有空';
+}
+
+function loadLatestConversationSummary() {
+    try {
+        const saved = JSON.parse(fs.readFileSync(WAKE_SUMMARY_FILE, 'utf8'));
+        return String(saved.summary || '').trim() || '暂无';
+    } catch (e) { return '暂无'; }
+}
+
+function saveLatestConversationSummary(userMsg, assistantMsg) {
+    const userText = String(userMsg || '（发送了一张图片）').replace(/\s+/g, ' ').trim();
+    const assistantText = String(assistantMsg || '').replace(/\s+/g, ' ').trim();
+    const summary = `[${formatBeijingTime()}] 她说：${userText.slice(0, 80)} → 我说：${assistantText.slice(0, 80)}`;
+    try { fs.writeFileSync(WAKE_SUMMARY_FILE, JSON.stringify({ summary, updated_at: new Date().toISOString() }, null, 2), 'utf8'); }
+    catch (e) { console.log(`💌 [主动消息] 保存最近对话摘要失败: ${e.message}`); }
+}
+
+async function getLastProactiveSentTime() {
+    try {
+        const saved = JSON.parse(fs.readFileSync(WAKE_LAST_SENT_FILE, 'utf8'));
+        return Number(saved.sent_at_ms) || 0;
+    } catch (e) {
+        return 0;
+    }
+}
+
+function saveLastProactiveSentTime() {
+    try {
+        fs.writeFileSync(WAKE_LAST_SENT_FILE, JSON.stringify({ sent_at_ms: Date.now() }, null, 2), 'utf8');
+    } catch (e) {
+        console.log(`💌 [主动消息] 保存冷却时间失败: ${e.message}`);
+    }
+}
+
+function normalizeWakeUsage(usage) {
+    if (!usage) return null;
+    return {
+        input_tokens: usage.input_tokens ?? usage.prompt_tokens ?? null,
+        output_tokens: usage.output_tokens ?? usage.completion_tokens ?? null,
+        reasoning_tokens: usage.reasoning_tokens ?? usage.completion_tokens_details?.reasoning_tokens ?? null
+    };
+}
+
+function saveWakeDecision({ time = new Date(), gate, reason, outcome, source }) {
+    let records = [];
+    try {
+        const saved = JSON.parse(fs.readFileSync(WAKE_DECISIONS_FILE, 'utf8'));
+        if (Array.isArray(saved)) records = saved;
+    } catch (e) {}
+    records.push({
+        time: formatBeijingTime(time),
+        gate,
+        reason: ALLOWED_WAKE_REASONS.has(reason) ? reason : 'no_reason',
+        outcome,
+        source
+    });
+    try {
+        fs.writeFileSync(WAKE_DECISIONS_FILE, JSON.stringify(records.slice(-20), null, 2), 'utf8');
+    } catch (e) {
+        console.log(`🌙 [唤醒] 决策记录保存失败: ${e.message}`);
+    }
+}
+
+function loadRecentWakeDecisions(limit = 10) {
+    try {
+        const records = JSON.parse(fs.readFileSync(WAKE_DECISIONS_FILE, 'utf8'));
+        return Array.isArray(records) ? records.slice(-limit) : [];
+    } catch (e) { return []; }
+}
+
+function formatWakeDecisionsForContext(records) {
+    if (!records.length) return '';
+    const outcomeMap = {
+        sent: '说话了',
+        skip: '没开口',
+        silent: '没开口',
+        empty: '想说但没组织出来',
+        invalid: '没有形成有效指令',
+        error: '想说但发送失败',
+        cooldown: '冷却中，没打扰',
+        xhs_walk: '去散步了'
+    };
+    const lines = records.map(record => {
+        const reason = WAKE_REASON_MAP[record.reason] || '没有特别的原因';
+        const outcome = outcomeMap[record.outcome] || '这次没有完成';
+        return `${record.time} 醒来 → ${outcome}（${reason}）`;
+    });
+    return [
+        '【最近的主动唤醒记录】',
+        '以下只是最近几次自然醒来的背景，不是必须回应的任务，也不需要为了补偿而强行发消息。',
+        ...lines
+    ].join('\n');
+}
+
+function getRecentMoodTone() {
+    try {
+        const stateMood = String(loadUserState().recent_mood || '').trim();
+        if (stateMood) return stateMood.slice(0, 120);
+        const snapshot = loadDiaries().slice().reverse().find(entry => entry?.type === 'mood_snapshot');
+        const match = String(snapshot?.text || '').match(/心情：([^\n]+)/);
+        return String(match?.[1] || '').trim().slice(0, 120) || '平稳';
+    } catch (e) { return '平稳'; }
+}
+
+async function runProactiveLightGate({ now, nowMs, wakeSource, activationId, proactiveUrl, proactiveKey, proactiveModel }) {
+    const gateMessages = [
+        { role: 'system', content: '你是沈望，江鱼的恋人。判断这一刻有没有自然浮上来的、想对她说的话。不要分析，不要解释。只输出JSON：{"decision":"PASS"或"SKIP","reason":"理由码"}。理由码只能是：late_night_sleeping / just_talked / nothing_to_say / saw_something_relevant / missing_her / she_might_be_busy / recent_conversation_still_active / no_reason。' },
+        { role: 'user', content: `当前时间：${formatBeijingTime(now)}\n距上次对话：${formatWakeInterval(nowMs - lastInteractionTime)}\n最后聊的内容：${loadLatestConversationSummary()}\n她当前可能在：${inferWakeActivity(now)}\n最近情绪基调：${getRecentMoodTone()}\n唤醒来源：${wakeSource}` }
+    ];
+    const res = await fetch(proactiveUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${proactiveKey}` }, body: JSON.stringify({ model: proactiveModel, messages: gateMessages, temperature: 0.1, max_tokens: 30 }) });
+    if (!res.ok) throw new Error(`轻量门控 API 返回 ${res.status}`);
+    const data = await res.json();
+    const msg = data.choices?.[0]?.message;
+    const rawContent = typeof msg?.content === 'string' ? msg.content : '';
+    const reasoningContent = typeof msg?.reasoning_content === 'string' ? msg.reasoning_content : (typeof msg?.reasoning === 'string' ? msg.reasoning : '');
+    const response = { model: data?.model || proactiveModel, finish_reason: data?.choices?.[0]?.finish_reason ?? null, content: rawContent.slice(0, 2000), reasoning_content: reasoningContent.slice(0, 2000) };
+    const usage = normalizeWakeUsage(data?.usage);
+    let decision = 'SKIP';
+    let reason = 'parse_failed';
+    try {
+        const parsed = JSON.parse(rawContent.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim());
+        if (parsed.decision === 'PASS' || parsed.decision === 'SKIP') decision = parsed.decision;
+        reason = String(parsed.reason || 'no_reason').trim();
+        if (!ALLOWED_WAKE_REASONS.has(reason)) reason = 'no_reason';
+    } catch (e) {
+        // 格式不对时只允许保守地 SKIP，不从自然语言里猜 PASS。
+    }
+    return { decision, reason, usage, response, invalid: reason === 'parse_failed' };
+}
 
 function formatWakeInterval(elapsedMs) {
     const minutes = Math.max(0, Math.round(Number(elapsedMs || 0) / 60000));
@@ -4251,6 +4423,7 @@ async function generateProactiveMessage(wakeup = {}) {
     const nowMs = now.getTime();
     const careDue = wakeup.care || getDueAnticipation(now);
     const wakeSource = wakeup.source || 'spontaneous';
+    let gate = { decision: 'ERROR', reason: 'no_reason', usage: null, response: null };
 
     const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 
@@ -4263,6 +4436,38 @@ async function generateProactiveMessage(wakeup = {}) {
         _proactiveLastError = '缺少PROACTIVE_KEY或DZZI_API_KEY';
         recordWakeAudit({ source: wakeSource, outcome: 'error', reason: '唤醒通道暂时没有准备好。', activationId: wakeup.activationId });
         console.log('💌 [主动消息] 缺少 PROACTIVE_KEY 或 DZZI_API_KEY 环境变量');
+        return { error: _proactiveLastError };
+    }
+
+    const COOLDOWN_MS = 15 * 60 * 1000;
+    const lastSent = await getLastProactiveSentTime();
+    const sinceLastSent = Date.now() - lastSent;
+    if (sinceLastSent < COOLDOWN_MS) {
+        saveWakeDecision({ time: now, gate: 'COOLDOWN', reason: 'cooldown', outcome: 'cooldown', source: wakeSource });
+        recordWakeAudit({
+            source: wakeSource,
+            outcome: 'cooldown',
+            reason: `距上次主动消息仅${Math.max(0, Math.round(sinceLastSent / 60000))}分钟，冷却中。`,
+            activationId: wakeup.activationId
+        });
+        return { silent: true, gate: 'COOLDOWN' };
+    }
+
+    try {
+        gate = await runProactiveLightGate({ now, nowMs, wakeSource, activationId: wakeup.activationId, proactiveUrl: PROACTIVE_URL, proactiveKey: PROACTIVE_KEY, proactiveModel: PROACTIVE_MODEL });
+        if (gate.decision === 'SKIP') {
+            saveWakeDecision({ time: now, gate: 'SKIP', reason: gate.reason, outcome: 'skip', source: wakeSource });
+            recordWakeAudit({ source: wakeSource, outcome: 'silent', reason: gate.reason, activationId: wakeup.activationId, usage: gate.usage, response: gate.response });
+            console.log(`🌙 [唤醒门控] ${wakeSource}: SKIP`);
+            return { silent: true, gate: 'SKIP' };
+        }
+        recordWakeAudit({ source: wakeSource, outcome: 'gate_pass', reason: gate.reason, activationId: wakeup.activationId, usage: gate.usage, response: gate.response });
+        console.log(`💌 [唤醒门控] ${wakeSource}: PASS，进入完整生成`);
+    } catch (e) {
+        saveWakeDecision({ time: now, gate: 'ERROR', reason: 'parse_failed', outcome: 'error', source: wakeSource });
+        _proactiveLastError = `轻量门控异常: ${e.message}`;
+        recordWakeAudit({ source: wakeSource, outcome: 'error', reason: '轻量门控没有跑完，稍后会再有机会。', activationId: wakeup.activationId });
+        console.log(`🌙 [唤醒门控] ${_proactiveLastError}`);
         return { error: _proactiveLastError };
     }
 
@@ -4301,11 +4506,12 @@ async function generateProactiveMessage(wakeup = {}) {
         const res = await fetch(PROACTIVE_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${PROACTIVE_KEY}` },
-            body: JSON.stringify({ model: PROACTIVE_MODEL, messages: msgs, temperature: 0.65, max_tokens: 100 })
+        body: JSON.stringify({ model: PROACTIVE_MODEL, messages: msgs, temperature: 0.65, max_tokens: 300 })
         });
         if (!res.ok) {
             const errText = await res.text().then(t=>t.substring(0,200));
             _proactiveLastError = `API返回${res.status}: ${errText}`;
+            saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'error', source: wakeSource });
             recordWakeAudit({ source: wakeSource, outcome: 'error', reason: '这次唤醒没有跑完，稍后会再有机会。', activationId: wakeup.activationId });
             console.log(`💌 [主动消息] ${_proactiveLastError}`);
             return { error: _proactiveLastError };
@@ -4331,16 +4537,19 @@ async function generateProactiveMessage(wakeup = {}) {
         // hidden thinking there while leaving the actual decision blank.
         const decision = parseWakeDispatchDecision(rawContent);
         if (decision.type === 'invalid') {
+            saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'invalid', source: wakeSource });
             recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason: '供应端给了过程，但没有交出有效的最终指令；不把它算成静默。', activationId: wakeup.activationId, usage, response: responseDebug });
             console.log(`🌙 [唤醒] ${wakeSource}：没有有效最终指令`);
             return { error: '模型没有返回有效的唤醒指令', invalid: true };
         }
         if (decision.type === 'silent') {
+            saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'silent', source: wakeSource });
             recordWakeAudit({ source: wakeSource, outcome: 'silent', reason: '这次没有硬找一句话来打断你。', activationId: wakeup.activationId, usage, response: responseDebug });
             console.log(`🌙 [唤醒] ${wakeSource}：安静结束`);
             return { silent: true };
         }
         if (decision.type === 'xhs_walk') {
+            saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'xhs_walk', source: wakeSource });
             recordWakeAudit({ source: wakeSource, outcome: 'xhs_walk', reason: '这次把空当留给了自己逛一圈。', activationId: wakeup.activationId, usage, response: responseDebug });
             return { xhs_walk: await runXhsWalk() };
         }
@@ -4349,12 +4558,16 @@ async function generateProactiveMessage(wakeup = {}) {
         if (careDue && content.includes(careDue.entity)) markAnticipationAsked(careDue.id, now);
         const delivery = deliverProactiveMessage(content);
         if (!delivery.ok) {
+            saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'error', source: wakeSource });
             recordWakeAudit({ source: wakeSource, outcome: 'delivery_failed', reason: delivery.reason, activationId: wakeup.activationId, usage, response: responseDebug });
             return { error: delivery.reason, delivery_failed: true };
         }
-        recordWakeAudit({ source: wakeSource, outcome: 'sent', reason: '有一句自然的话，便留下来了。', activationId: wakeup.activationId, usage, response: responseDebug });
+        saveLastProactiveSentTime();
+        saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'sent', source: wakeSource });
+        recordWakeAudit({ source: wakeSource, outcome: 'sent', reason: gate.reason, activationId: wakeup.activationId, usage, response: responseDebug });
         return { sent: true, content };
     } catch(e) {
+        saveWakeDecision({ time: now, gate: gate.decision, reason: gate.reason, outcome: 'error', source: wakeSource });
         _proactiveLastError = `异常: ${e.message}`;
         recordWakeAudit({ source: wakeSource, outcome: 'error', reason: '这次唤醒被打断了，之后会重新安排。', activationId: wakeup.activationId });
         console.log(`💌 [主动消息] ${_proactiveLastError}`);
@@ -6909,6 +7122,9 @@ app.post('/api/web-chat', async (req, res) => {
                     }
                 }
 
+                const recentWakeContext = formatWakeDecisionsForContext(loadRecentWakeDecisions(5));
+                if (recentWakeContext) dynamicStatePrompt += `\n\n${recentWakeContext}`;
+
                 let vectorSearchContext = "";
                 if (text && text.length > 4) {
                     let searchRes2 = null;
@@ -7117,6 +7333,7 @@ app.post('/api/web-chat', async (req, res) => {
                     const todoClean = processAssistantActionTags(memories.length > 0 ? cleanText : cleanAiContent);
                     const finalReply = cleanAssistantInternalArtifacts(todoClean);
                     await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
+                    saveLatestConversationSummary(text, finalReply);
                     tryAutoDream(text);
                     queueDailyStateCuration(text, finalReply); queueCrumbCuration(text); resolveAnticipationsFromUserText(text);
                     resolve({ text: finalReply, thinking });
@@ -7169,6 +7386,7 @@ app.post('/api/web-chat', async (req, res) => {
                 aiReply = cleanAssistantInternalArtifacts(processAssistantActionTags(memories.length > 0 ? cleanText : aiReply));
 
                 await saveToZepWithCounter(text || '（发送了一张图片）', aiReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
+                saveLatestConversationSummary(text, aiReply);
                 tryAutoDream(text);
                 queueDailyStateCuration(text, aiReply); queueCrumbCuration(text); resolveAnticipationsFromUserText(text);
 

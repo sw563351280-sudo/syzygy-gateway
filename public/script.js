@@ -3629,6 +3629,9 @@ function renderWakeJournalEntry(entry) {
         xhs_walk: '去散步了',
         deferred_quiet: '留到早上',
         deferred_active: '没有插话',
+        gate_pass: '通过门控',
+        cooldown: '冷却中',
+        empty_after_pass: '通过后没产出',
         invalid: '没有拿到最终指令',
         delivery_failed: '消息写入失败',
         error: '这次没跑完'
