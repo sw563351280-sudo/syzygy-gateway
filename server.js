@@ -1977,6 +1977,41 @@ function normalizeMemorySource(sourceRef = null, fallbackAt = new Date().toISOSt
     return { source_quote: quote, source_at: sourceRef?.at || fallbackAt, source_message_id: sourceRef?.message_id || null };
 }
 
+// OpenClaw 会把一小段运行时元数据放进 user message。它不是用户说的话，
+// 不能参与记忆、同步到前端，也不应该占用模型上下文。
+function stripOpenClawInternalContext(value) {
+    if (typeof value !== 'string') return value;
+    return value
+        .replace(/OpenClaw runtime context[\s\S]*?<<<END_OPENCLAW_INTERNAL_CONTEXT>>>/gi, '')
+        .replace(/<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>[\s\S]*?<<<END_OPENCLAW_INTERNAL_CONTEXT>>>/gi, '')
+        .trim();
+}
+
+function sanitizeOpenClawContent(content) {
+    if (typeof content === 'string') return stripOpenClawInternalContext(content);
+    if (Array.isArray(content)) {
+        return content.map(part => {
+            if (part && typeof part === 'object' && typeof part.text === 'string') {
+                return { ...part, text: stripOpenClawInternalContext(part.text) };
+            }
+            return part;
+        }).filter(part => !(part && part.type === 'text' && !String(part.text || '').trim()));
+    }
+    return content;
+}
+
+function contentHasOpenClawInternalContext(content) {
+    if (typeof content === 'string') return /OPENCLAW_INTERNAL_CONTEXT|OpenClaw runtime context/i.test(content);
+    if (Array.isArray(content)) return content.some(part => contentHasOpenClawInternalContext(part?.text || ''));
+    return false;
+}
+
+function contentHasVisibleText(content) {
+    if (typeof content === 'string') return Boolean(content.trim());
+    if (Array.isArray(content)) return content.some(part => part?.type === 'image_url' || (part?.type === 'text' && String(part.text || '').trim()));
+    return Boolean(content);
+}
+
 function addLongTermMemory(content, source = 'manual', tags = [], ttl = 'perm', arousal = 0.5, emotionalWeight = 0, sourceRef = null) {
     const memories = loadLongTermMemories();
     if (memories.some(m => m.content === content.trim())) {
@@ -5412,6 +5447,8 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         const noMemory = req.headers['x-no-memory'] === 'true';
         const sourceTabId = req.headers['x-tab-id'] || null;
         const sourceMessageId = req.headers['x-message-id'] || null;
+        const incomingMessages = Array.isArray(body.messages) ? body.messages : [];
+        const isOpenClawRequest = incomingMessages.some(msg => contentHasOpenClawInternalContext(msg?.content));
 
         let cleanMessages = [];
         let currentUserMsgText = "";
@@ -5420,6 +5457,9 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
     cleanMessages = body.messages
         .filter(msg => msg.role !== 'system' && msg.role !== 'tool')
         .map((msg, i, arr) => {
+            const sanitizedContent = sanitizeOpenClawContent(msg.content);
+            msg = sanitizedContent === msg.content ? msg : { ...msg, content: sanitizedContent };
+            if (isOpenClawRequest && msg.role === 'user' && !contentHasVisibleText(msg.content)) return null;
             // 清除 assistant 消息里残留的 tool_calls
             if (msg.role === 'assistant' && msg.tool_calls) {
                 const { tool_calls, ...clean } = msg;
@@ -5435,7 +5475,12 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 if (!isLastUser) return { ...msg, content: '（发送了图片）' };
             }
             return msg;
-        });
+        }).filter(Boolean);
+            // 微信日常聊天不需要把整段历史重新发送；记忆仍由 Syzygy 的独立记忆层负责。
+            if (isOpenClawRequest && cleanMessages.length > 12) {
+                cleanMessages = cleanMessages.slice(-12);
+                console.log(`📱 [OpenClawHistory] 仅保留最近12条消息，降低上下文占用`);
+            }
             const lastUserMsg = [...cleanMessages].reverse().find(m => m.role === 'user');
             if (lastUserMsg) currentUserMsgText = stripTransportTimePrefix(extractText(lastUserMsg.content));
         }
@@ -5664,9 +5709,13 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 3. 不要替江鱼判断她"真正想要什么"。
 4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。
 5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。`;
+        const openClawChatStyle = isOpenClawRequest ? `
+
+【微信日常聊天模式】
+这是微信即时聊天，不是长文问答。默认用 1-4 句短消息回应，先回应最重要的一点；每句尽量短，自然使用口语、停顿和轻微情绪。除非你在解释复杂问题、用户明确要求详细说明，或确实需要列步骤，否则不要写长段落、总结、标题或小作文。不要复述用户刚刚说过的话。` : '';
         const stableSystemBlock = modelPromptText
-            ? `${modelPromptText}\n\n${stableSystemPrompt}\n\n${STABLE_CHECK}`
-            : `${stableSystemPrompt}\n\n${STABLE_CHECK}`;
+            ? `${modelPromptText}\n\n${stableSystemPrompt}\n\n${STABLE_CHECK}${openClawChatStyle}`
+            : `${stableSystemPrompt}\n\n${STABLE_CHECK}${openClawChatStyle}`;
         const isClaudeModel = (body.model || '').toLowerCase().includes('claude');
         const systemMsg = { role: 'system', content: stableSystemBlock };
         if (isClaudeModel) {
@@ -5800,6 +5849,10 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             }
         }
         let filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
+        if (isOpenClawRequest && !forceToolChoice) {
+            filteredTools = [];
+            console.log(`📱 [OpenClawTools] 普通微信聊天不发送工具定义`);
+        }
         if (xhsShareUrl) {
             // Xiaohongshu is read by buildXhsVisionContext above. Never let the
             // model bypass it with generic fetch_txt/fetch_html/fetch_json.
@@ -8322,9 +8375,14 @@ app.get('/api/sync-config', (req, res) => {
                 if (!s.messages) continue;
                 const before = s.messages.length;
                 s.messages = s.messages.filter(m => {
+                    const versions = Array.isArray(m.versions) && m.versions.length ? m.versions : [m];
+                    for (const v of versions) {
+                        if (typeof v.content === 'string') v.content = stripOpenClawInternalContext(v.content);
+                    }
                     const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
                     const c = (v && v.content) || m.content || '';
-                    return String(c).indexOf('数据加载失败，请刷新页面重试') === -1;
+                    if (contentHasOpenClawInternalContext(c)) return false;
+                    return String(c).indexOf('数据加载失败，请刷新页面重试') === -1 && contentHasVisibleText(c);
                 });
                 if (s.messages.length !== before) {
                     console.log(`🛡️ [GET] 过滤 ${before - s.messages.length} 条兜底脏消息 (会话 ${s.id})`);
@@ -8351,14 +8409,27 @@ app.post('/api/sync-config', (req, res) => {
             return res.json({ success: false, _version: serverVersion, _rejected: true, message: '数据已被较新标签页更新，请刷新页面' });
         }
         const { suppliers, chatSessions, activeSupIndex, activeChatId } = req.body;
+        const sanitizedChatSessions = (chatSessions || []).map(session => ({
+            ...session,
+            messages: (session.messages || []).map(message => {
+                const versions = Array.isArray(message.versions) && message.versions.length ? message.versions : null;
+                if (versions) {
+                    return { ...message, versions: versions.map(version => ({ ...version, content: sanitizeOpenClawContent(version.content) })) };
+                }
+                return { ...message, content: sanitizeOpenClawContent(message.content) };
+            }).filter(message => {
+                const version = message.versions?.[message.activeVersion || 0] || message.versions?.[0] || message;
+                return !contentHasOpenClawInternalContext(version?.content);
+            })
+        }));
         // 🛡️ 拒绝保存兜底脏状态：会话名为"加载中...（请刷新）"时拒绝写入，防止前端断连后覆盖正常数据
-        const dirtySession = (chatSessions || []).find(s => (s.name || '').includes('加载中'));
+        const dirtySession = sanitizedChatSessions.find(s => (s.name || '').includes('加载中'));
         if (dirtySession) {
             console.log(`🛡️ [脏数据] 拒绝保存脏会话 "${dirtySession.name}" (client v${clientVersion})`);
             return res.json({ success: false, _version: serverVersion, _rejected: true, message: '检测到脏会话状态，请刷新页面' });
         }
         // 🛡️ 拒绝含兜底脏消息的 payload（"数据加载失败"假消息）
-        const hasDirtyMsg = (chatSessions || []).some(s => (s.messages || []).some(m => {
+        const hasDirtyMsg = sanitizedChatSessions.some(s => (s.messages || []).some(m => {
             const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
             const c = (v && v.content) || m.content || '';
             return String(c).indexOf('数据加载失败，请刷新页面重试') !== -1;
@@ -8368,7 +8439,7 @@ app.post('/api/sync-config', (req, res) => {
             return res.json({ success: false, _version: serverVersion, _rejected: true, message: '检测到兜底假消息，请刷新页面' });
         }
         // 🛡️ 拒绝空数据覆盖：main 会话必须存在且有消息（防止 sendBeacon 空 payload 清空数据）
-        const hasMain = (chatSessions || []).some(s => s.id === 'main' && Array.isArray(s.messages) && s.messages.length > 0);
+        const hasMain = sanitizedChatSessions.some(s => s.id === 'main' && Array.isArray(s.messages) && s.messages.length > 0);
         if (!hasMain && existingData && existingData.chatSessions && existingData.chatSessions.some(s => s.id === 'main' && s.messages && s.messages.length > 0)) {
             console.log(`🛡️ [空数据] 拒绝保存空会话覆盖 (client v${clientVersion}, server v${serverVersion})`);
             return res.json({ success: false, _version: serverVersion, _rejected: true, message: '空数据写入被拒绝，请刷新页面' });
@@ -8378,7 +8449,7 @@ app.post('/api/sync-config', (req, res) => {
             ...(existingData || {}),
             _version: newVersion,
             suppliers: suppliers || [],
-            chatSessions: chatSessions || [],
+            chatSessions: sanitizedChatSessions,
             activeSupIndex: activeSupIndex || 0,
             activeChatId: activeChatId || 'main'
         };
