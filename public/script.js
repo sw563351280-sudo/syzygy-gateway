@@ -1587,11 +1587,11 @@ function neuGetMemoryPwd() {
 }
 function neuOpenMemoryManager() {
     const pwd = neuGetMemoryPwd();
-    if (pwd) window.open('/memory-vault.html?pwd=' + encodeURIComponent(pwd), '_blank');
+    if (pwd) window.location.assign('/memory-vault.html?pwd=' + encodeURIComponent(pwd));
 }
 function neuOpenLongTerm() {
     const pwd = neuGetMemoryPwd();
-    if (pwd) window.open('/long-term?pwd=' + encodeURIComponent(pwd), '_blank');
+    if (pwd) window.location.assign('/long-term?pwd=' + encodeURIComponent(pwd));
 }
 
 let _isOpeningArchiveRoom = false;
