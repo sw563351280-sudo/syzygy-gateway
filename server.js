@@ -184,9 +184,15 @@ const ALLOWED_ORIGINS = [
 function handleCORS(req, res) {
     const origin = req.headers.origin;
     const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
+    // OpenAI-compatible endpoints are also used by server-side bridges such as
+    // OpenClaw. They still require upstream Bearer authentication, but should
+    // not be blocked by browser-only Origin checks.
+    const isServerApi = req.path === '/v1/chat/completions'
+        || req.path === '/v1/models'
+        || req.path.startsWith('/via/');
 
     // 有 Origin 时校验
-    if (origin) {
+    if (origin && !isServerApi) {
         if (!ALLOWED_ORIGINS.includes(origin)) {
             res.set('Vary', 'Origin');
             return { allowed: false };
@@ -201,7 +207,7 @@ function handleCORS(req, res) {
         }
     }
 
-    if (isWrite && !origin) {
+    if (isWrite && !origin && !isServerApi) {
         // 传感器上传允许无 Origin（iOS App 可能不带 Origin）
         if (req.path === '/api/sensors/ingest') {
             return { allowed: true };
