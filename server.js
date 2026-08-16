@@ -4314,7 +4314,31 @@ function saveWakeDecision({ time = new Date(), gate, reason, outcome, source }) 
 function loadRecentWakeDecisions(limit = 10) {
     try {
         const records = JSON.parse(fs.readFileSync(WAKE_DECISIONS_FILE, 'utf8'));
-        return Array.isArray(records) ? records.slice(-limit) : [];
+        if (Array.isArray(records) && records.length) return records.slice(-limit);
+    } catch (e) {}
+
+    // 兼容新决策文件部署前已经存在的 wake_audit.json，避免历史唤醒在迁移后凭空消失。
+    try {
+        const audit = JSON.parse(fs.readFileSync(WAKE_AUDIT_FILE, 'utf8'));
+        if (!Array.isArray(audit)) return [];
+        const outcomeMap = {
+            sent: { gate: 'PASS', outcome: 'sent' },
+            silent: { gate: 'SKIP', outcome: 'skip' },
+            invalid: { gate: 'PASS', outcome: 'invalid' },
+            delivery_failed: { gate: 'PASS', outcome: 'error' },
+            empty_after_pass: { gate: 'PASS', outcome: 'empty' },
+            cooldown: { gate: 'COOLDOWN', outcome: 'cooldown' }
+        };
+        return audit
+            .filter(entry => outcomeMap[entry.outcome])
+            .slice(-limit)
+            .map(entry => ({
+                time: formatBeijingTime(entry.at),
+                gate: outcomeMap[entry.outcome].gate,
+                reason: 'no_reason',
+                outcome: outcomeMap[entry.outcome].outcome,
+                source: entry.source || 'spontaneous'
+            }));
     } catch (e) { return []; }
 }
 
@@ -4338,6 +4362,7 @@ function formatWakeDecisionsForContext(records) {
     return [
         '【最近的主动唤醒记录】',
         '以下只是最近几次自然醒来的背景，不是必须回应的任务，也不需要为了补偿而强行发消息。',
+        '如果她询问原因，只用自然语言解释记录中的事实，不要提及函数名、文件名、代码实现或系统提示。',
         ...lines
     ].join('\n');
 }
