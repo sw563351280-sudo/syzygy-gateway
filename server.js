@@ -539,12 +539,24 @@ function isApiPath(req) {
     return req.path.startsWith('/api/') || req.path.startsWith('/v1/') || req.path.startsWith('/via/') || req.path.startsWith('/proxy/');
 }
 
+function isModelBridgePath(req) {
+    return req.path.startsWith('/v1/') || req.path.startsWith('/via/') || req.path.startsWith('/proxy/');
+}
+
+function hasBearerToken(req) {
+    return /^Bearer\s+\S+$/i.test(String(req.headers.authorization || ''));
+}
+
 app.use((req, res, next) => {
     // 公开路径放行
     if (isPublicPath(req)) return next();
 
     // 已认证放行
     if (isAuthenticated(req)) return next();
+
+    // Server-to-server model bridges authenticate with Bearer tokens rather
+    // than the browser session cookie. Management /api routes stay protected.
+    if (isModelBridgePath(req) && hasBearerToken(req)) return next();
 
     // 未认证：
     if (req.method === 'GET' && !isApiPath(req)) {
