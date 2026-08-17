@@ -1518,6 +1518,7 @@ body.neu-mode {
 .fav-active-filter { display:flex; align-items:center; justify-content:space-between; margin-top:9px; padding-top:9px; border-top:1px solid rgba(201,169,97,.1); color:var(--gold); font-size:.76em; }
 .fav-active-filter button { border:0; background:transparent; color:var(--dim); font:inherit; cursor:pointer; padding:2px 0; }
 .fav-tag-bar { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; padding-top:10px; border-top:1px solid rgba(201,169,97,.1); }
+.fav-tag-bar[hidden] { display:none; }
 .fav-tag-chip { border:1px solid rgba(201,169,97,.16); border-radius:999px; padding:5px 9px; color:var(--dim); background:rgba(255,255,255,.025); font:inherit; font-size:.75em; cursor:pointer; }
 .fav-tag-chip span { color:var(--gold); opacity:.8; }
 .fav-tag-chip.active { border-color:rgba(201,169,97,.38); background:rgba(201,169,97,.1); color:var(--cream); }
