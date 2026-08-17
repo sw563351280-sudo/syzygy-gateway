@@ -3896,6 +3896,8 @@ window.addEventListener('beforeunload', function() {
 // ⭐ 收藏夹
 let _favTargetMsgIdx = 0;
 let _favCache = [];
+let _favActiveTag = null;
+let _favTagsExpanded = false;
 
 async function loadFavCache() {
     const r = await fetch('/api/favorites', { cache: 'no-store' });
@@ -3984,60 +3986,114 @@ async function confirmFavorite() {
 
 async function loadAndRenderFavorites() {
     const list = document.getElementById('favList');
-    const tagBar = document.getElementById('favTagBar');
     if (!list) return;
 
     try {
         await loadFavCache();
     } catch (e) {
+        const tagBar = document.getElementById('favTagBar');
         if (tagBar) tagBar.innerHTML = '';
-        list.innerHTML = '<div style="text-align:center;color:var(--warm-red);padding:60px 20px;">收藏加载失败<br><small>' + escapeHtml(e.message) + '</small></div>';
+        list.innerHTML = '<div class="fav-empty fav-error">收藏加载失败<br><small>' + escapeHtml(e.message) + '</small></div>';
         toast('收藏加载失败: ' + e.message);
         return;
     }
 
-    // 收集所有标签
-    const allTags = new Set();
-    _favCache.forEach(f => f.tags && f.tags.forEach(t => allTags.add(t)));
-
-    // 渲染标签筛选栏
-    tagBar.innerHTML = '<button onclick="filterFavByTag(null)" style="padding:4px 12px;border-radius:14px;border:1px solid rgba(201,169,97,0.3);background:rgba(201,169,97,0.1);color:var(--gold);cursor:pointer;font-size:0.85em;">全部 (' + _favCache.length + ')</button>';
-    allTags.forEach(t => {
-        const count = _favCache.filter(f => f.tags && f.tags.includes(t)).length;
-        tagBar.innerHTML += '<button onclick="filterFavByTag(JSON.parse(this.dataset.tag))" data-tag=\'' + escapeHtml(JSON.stringify(t)) + '\' style="padding:4px 12px;border-radius:14px;border:1px solid rgba(201,169,97,0.15);background:rgba(201,169,97,0.03);color:var(--cream);cursor:pointer;font-size:0.85em;">' + escapeHtml(t) + ' (' + count + ')</button>';
-    });
-
-    // 渲染列表
-    renderFavList(_favCache);
+    if (_favActiveTag && !_favCache.some(f => f.tags.includes(_favActiveTag))) _favActiveTag = null;
+    renderFavFilters();
+    filterFavByTag(_favActiveTag, false);
 }
 
-function filterFavByTag(tag) {
+function toggleFavTags() {
+    _favTagsExpanded = !_favTagsExpanded;
+    renderFavFilters();
+}
+
+function renderFavFilters() {
+    const tagBar = document.getElementById('favTagBar');
+    const toggle = document.getElementById('favTagToggle');
+    const countLabel = document.getElementById('favCountLabel');
+    const activeFilter = document.getElementById('favActiveFilter');
+    if (!tagBar || !toggle) return;
+
+    const counts = new Map();
+    _favCache.forEach(f => f.tags.forEach(t => counts.set(t, (counts.get(t) || 0) + 1)));
+    const tags = Array.from(counts.keys()).sort((a, b) => counts.get(b) - counts.get(a) || a.localeCompare(b, 'zh-CN'));
+    tagBar.hidden = !_favTagsExpanded;
+    toggle.setAttribute('aria-expanded', String(_favTagsExpanded));
+    toggle.innerHTML = '标签 <span>' + (_favTagsExpanded ? '⌃' : '⌄') + '</span>';
+    if (countLabel) countLabel.textContent = _favCache.length + ' 条';
+    if (activeFilter) {
+        activeFilter.hidden = !_favActiveTag;
+        activeFilter.innerHTML = _favActiveTag
+            ? '<span>标签：' + escapeHtml(_favActiveTag) + '</span><button onclick="filterFavByTag(null)">清除</button>'
+            : '';
+    }
+
+    let html = '<button class="fav-tag-chip' + (!_favActiveTag ? ' active' : '') + '" onclick="filterFavByTag(null)">全部 <span>' + _favCache.length + '</span></button>';
+    tags.forEach(t => {
+        html += '<button class="fav-tag-chip' + (_favActiveTag === t ? ' active' : '') + '" onclick="filterFavByTag(this.dataset.favTag)" data-fav-tag="' + escapeHtml(t) + '">' + escapeHtml(t) + ' <span>' + counts.get(t) + '</span></button>';
+    });
+    tagBar.innerHTML = html;
+}
+
+function filterFavByTag(tag, rerenderFilters = true) {
+    _favActiveTag = tag || null;
+    if (rerenderFilters) renderFavFilters();
     const items = tag ? _favCache.filter(f => f.tags && f.tags.includes(tag)) : _favCache;
     renderFavList(items);
+}
+
+function getFavDateMeta(timestamp) {
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return { key: 'unknown', label: '未标日期', time: '' };
+    const inShanghai = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+    const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+    return {
+        key: [inShanghai.getFullYear(), String(inShanghai.getMonth() + 1).padStart(2, '0'), String(inShanghai.getDate()).padStart(2, '0')].join('-'),
+        label: inShanghai.getFullYear() + '年' + (inShanghai.getMonth() + 1) + '月' + inShanghai.getDate() + '日 · 周' + weekDays[inShanghai.getDay()],
+        time: date.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' })
+    };
 }
 
 function renderFavList(items) {
     const list = document.getElementById('favList');
     if (!list) return;
     if (items.length === 0) {
-        list.innerHTML = '<div style="text-align:center;color:var(--dim);padding:60px 20px;">还没有收藏的对话<br><br>在聊天中点消息旁的 ★ 即可收藏</div>';
+        list.innerHTML = '<div class="fav-empty">' + (_favActiveTag ? '这个标签下还没有收藏' : '还没有收藏的对话<br><small>在聊天中点消息旁的 ★ 即可收藏</small>') + '</div>';
         return;
     }
+
+    const groups = [];
+    items.forEach(f => {
+        const meta = getFavDateMeta(f.timestamp);
+        let group = groups[groups.length - 1];
+        if (!group || group.key !== meta.key) {
+            group = { key: meta.key, label: meta.label, items: [] };
+            groups.push(group);
+        }
+        group.items.push({ ...f, _dateMeta: meta });
+    });
+
     let html = '';
-    items.forEach((f, fi) => {
-        const dt = new Date(f.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+    groups.forEach(group => {
+        html += '<section class="fav-date-group"><header class="fav-date-heading"><span>' + group.label + '</span><small>' + group.items.length + ' 条</small></header><div class="fav-card-stack">';
+        group.items.forEach(f => {
         const userC = (typeof smsPlain === 'function' ? smsPlain(f.messages[0]?.content || '') : (f.messages[0]?.content || ''));
         const aiC = (typeof smsPlain === 'function' ? smsPlain(f.messages[1]?.content || '') : (f.messages[1]?.content || ''));
-        const tagsHtml = (f.tags || []).map(t => '<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:rgba(201,169,97,0.08);color:var(--gold);font-size:0.75em;margin-right:4px;">' + escapeHtml(t) + '</span>').join('');
-        html += '<div class="fav-card" onclick="viewFavDetail(' + JSON.stringify(f.id) + ')" style="background:rgba(12,16,28,0.6);border:1px solid rgba(201,169,97,0.12);border-radius:12px;padding:10px 14px;cursor:pointer;transition:border-color 0.2s;">';
-        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
-        html += '<span style="font-size:0.7em;color:var(--dim);">' + dt + '</span>';
-        html += '<button onclick="event.stopPropagation();deleteFavorite(\'' + f.id + '\')" style="background:transparent;border:none;color:var(--warm-red);cursor:pointer;font-size:0.85em;padding:2px 6px;">✕</button>';
+        const preview = aiC || userC || '（空白收藏）';
+        const shownTags = (f.tags || []).slice(0, 2).map(t => '<span>' + escapeHtml(t) + '</span>').join('');
+        const extraTagCount = Math.max(0, (f.tags || []).length - 2);
+        const safeId = escapeHtml(f.id);
+        html += '<article class="fav-card" role="button" tabindex="0" data-fav-id="' + safeId + '" onclick="viewFavDetail(this.dataset.favId)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();viewFavDetail(this.dataset.favId)}">';
+        html += '<div class="fav-card-topline"><span class="fav-card-time">' + f._dateMeta.time + '</span>';
+        html += '<button class="fav-delete-btn" onclick="event.stopPropagation();deleteFavorite(this.dataset.favId)" data-fav-id="' + safeId + '" title="删除收藏" aria-label="删除收藏">×</button>';
         html += '</div>';
-        html += '<div style="font-size:0.82em;color:var(--cream);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px;">🤖 ' + escapeHtml(aiC).substring(0, 80) + (aiC.length > 80 ? '…' : '') + '</div>';
-        if (tagsHtml) html += '<div style="margin-bottom:2px;">' + tagsHtml + '</div>';
-        if (f.note) html += '<div style="font-size:0.72em;color:var(--gold-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📝 ' + escapeHtml(f.note) + '</div>';
-        html += '</div>';
+        html += '<div class="fav-card-preview">' + escapeHtml(preview) + '</div>';
+        if (shownTags) html += '<div class="fav-card-tags">' + shownTags + (extraTagCount ? '<span>+' + extraTagCount + '</span>' : '') + '</div>';
+        if (f.note) html += '<div class="fav-card-note">' + escapeHtml(f.note) + '</div>';
+        html += '</article>';
+        });
+        html += '</div></section>';
     });
     list.innerHTML = html;
 }

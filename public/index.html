@@ -8,7 +8,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=52">
+    <link rel="stylesheet" href="style.css?v=53">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body class="neu-mode">
@@ -250,8 +250,17 @@
         <span style="flex:1"></span>
         <button class="chat-rename-topbar-btn" onclick="loadAndRenderFavorites()" title="刷新">↻</button>
     </div>
-    <div style="padding:12px 16px;display:flex;gap:8px;flex-wrap:wrap;" id="favTagBar"></div>
-    <div id="favList" style="padding:0 16px 80px 16px;overflow-y:auto;max-height:calc(100vh - 120px);display:flex;flex-direction:column;gap:12px;"></div>
+    <div class="fav-page">
+        <div class="fav-filter-panel">
+            <div class="fav-filter-topline">
+                <div><span class="fav-filter-label">全部收藏</span><span class="fav-filter-count" id="favCountLabel"></span></div>
+                <button class="fav-tag-toggle" id="favTagToggle" onclick="toggleFavTags()" aria-expanded="false">标签 <span>⌄</span></button>
+            </div>
+            <div class="fav-active-filter" id="favActiveFilter" hidden></div>
+            <div class="fav-tag-bar" id="favTagBar" hidden></div>
+        </div>
+        <div class="fav-list" id="favList"></div>
+    </div>
 </div>
 
 <div class="section" id="sec-dev">
@@ -536,7 +545,7 @@
 </div>
 
 <script src="clipboard-images.js?v=1"></script>
-<script src="script.js?v=48"></script>
+<script src="script.js?v=49"></script>
 <script src="sms-mode.js?v=5"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>

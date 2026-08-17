@@ -1506,8 +1506,40 @@ body.neu-mode {
 .fav-star.faved { color: #FFD700; background: rgba(255,215,0,0.12); border-color: rgba(255,215,0,0.5); text-shadow: 0 0 6px rgba(255,215,0,0.4); }
 .msg:hover .fav-star { opacity: 1; }
 
-
-.fav-card:hover { border-color: rgba(201,169,97,0.35) !important; background: rgba(201,169,97,0.03) !important; }
+/* ═══ 收藏夹 ═══ */
+.fav-page { padding: 12px 16px 44px; }
+.fav-filter-panel { padding: 11px 12px; border: 1px solid rgba(201,169,97,.14); border-radius: 14px; background: rgba(12,16,28,.34); }
+.fav-filter-topline { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.fav-filter-label { color:var(--cream); font-size:.88em; font-weight:600; }
+.fav-filter-count { margin-left:7px; color:var(--dim); font-size:.76em; }
+.fav-tag-toggle { border:1px solid rgba(201,169,97,.2); border-radius:9px; padding:5px 9px; color:var(--gold); background:rgba(201,169,97,.06); font:inherit; font-size:.76em; cursor:pointer; }
+.fav-tag-toggle span { display:inline-block; margin-left:4px; transition:transform .2s ease; }
+.fav-tag-toggle[aria-expanded="true"] span { transform:translateY(-1px); }
+.fav-active-filter { display:flex; align-items:center; justify-content:space-between; margin-top:9px; padding-top:9px; border-top:1px solid rgba(201,169,97,.1); color:var(--gold); font-size:.76em; }
+.fav-active-filter button { border:0; background:transparent; color:var(--dim); font:inherit; cursor:pointer; padding:2px 0; }
+.fav-tag-bar { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; padding-top:10px; border-top:1px solid rgba(201,169,97,.1); }
+.fav-tag-chip { border:1px solid rgba(201,169,97,.16); border-radius:999px; padding:5px 9px; color:var(--dim); background:rgba(255,255,255,.025); font:inherit; font-size:.75em; cursor:pointer; }
+.fav-tag-chip span { color:var(--gold); opacity:.8; }
+.fav-tag-chip.active { border-color:rgba(201,169,97,.38); background:rgba(201,169,97,.1); color:var(--cream); }
+.fav-list { display:flex; flex-direction:column; gap:20px; padding-top:18px; }
+.fav-date-group { display:flex; flex-direction:column; gap:8px; }
+.fav-date-heading { display:flex; align-items:center; justify-content:space-between; color:var(--gold); font-size:.78em; letter-spacing:.5px; }
+.fav-date-heading::after { content:''; flex:1; height:1px; margin:0 9px; background:linear-gradient(90deg,rgba(201,169,97,.22),transparent); }
+.fav-date-heading small { color:var(--dim); font-size:1em; }
+.fav-card-stack { display:flex; flex-direction:column; gap:8px; }
+.fav-card { padding:11px 12px; border:1px solid rgba(201,169,97,.13); border-radius:13px; background:rgba(12,16,28,.48); cursor:pointer; outline:none; transition:transform .18s ease,border-color .18s ease,background .18s ease; }
+.fav-card:hover,.fav-card:focus-visible { transform:translateY(-1px); border-color:rgba(201,169,97,.36); background:rgba(201,169,97,.045); }
+.fav-card-topline { display:flex; align-items:center; justify-content:space-between; margin-bottom:5px; }
+.fav-card-time { color:var(--dim); font-size:.72em; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+.fav-delete-btn { width:22px; height:22px; border:0; border-radius:7px; color:var(--warm-red); background:transparent; font-size:1.15em; line-height:1; cursor:pointer; opacity:.62; }
+.fav-delete-btn:hover { background:rgba(196,83,74,.12); opacity:1; }
+.fav-card-preview { color:var(--cream); font-size:.86em; line-height:1.6; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }
+.fav-card-tags { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
+.fav-card-tags span { padding:2px 6px; border-radius:999px; color:var(--gold); background:rgba(201,169,97,.08); font-size:.69em; }
+.fav-card-note { margin-top:7px; color:var(--dim); font-size:.73em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.fav-empty { padding:64px 16px; color:var(--dim); text-align:center; line-height:1.8; }
+.fav-empty small { opacity:.75; }
+.fav-error { color:var(--warm-red); }
 
 /* ═══ 收藏详情 — 全屏不透明阅读页 ═══ */
 #favDetail {
@@ -1551,6 +1583,22 @@ body.neu-mode {
 body.neu-mode #favDetail { background: linear-gradient(180deg, #E8EFF7 0%, #E8EFF7 100%) !important; }
 body.neu-mode #favDetail .view-topbar { background: rgba(232,239,247,0.96); border-bottom-color: rgba(163,177,198,0.25); }
 body.neu-mode .fav-think-box { background: rgba(0,0,0,0.02); }
+body.neu-mode .fav-filter-panel { border-color:rgba(163,177,198,.22); background:#E8EFF7; box-shadow:4px 4px 10px rgba(163,177,198,.19),-4px -4px 10px rgba(255,255,255,.62); }
+body.neu-mode .fav-filter-label { color:#2D3748; }
+body.neu-mode .fav-filter-count,body.neu-mode .fav-active-filter button,body.neu-mode .fav-date-heading small,body.neu-mode .fav-card-time,body.neu-mode .fav-card-note,body.neu-mode .fav-empty { color:#8395aa; }
+body.neu-mode .fav-tag-toggle { border-color:rgba(90,143,202,.2); color:#5A8FCA; background:rgba(255,255,255,.5); }
+body.neu-mode .fav-active-filter { border-top-color:rgba(163,177,198,.24); color:#5A8FCA; }
+body.neu-mode .fav-tag-bar { border-top-color:rgba(163,177,198,.2); }
+body.neu-mode .fav-tag-chip { border-color:rgba(163,177,198,.22); color:#718096; background:rgba(255,255,255,.34); }
+body.neu-mode .fav-tag-chip span { color:#5A8FCA; }
+body.neu-mode .fav-tag-chip.active { border-color:rgba(90,143,202,.34); background:rgba(90,143,202,.1); color:#2D3748; }
+body.neu-mode .fav-date-heading { color:#5A8FCA; }
+body.neu-mode .fav-date-heading::after { background:linear-gradient(90deg,rgba(90,143,202,.24),transparent); }
+body.neu-mode .fav-card { border-color:rgba(255,255,255,.68); background:linear-gradient(145deg,#eff5fb,#e3ebf5); box-shadow:3px 3px 8px rgba(163,177,198,.18),-3px -3px 7px rgba(255,255,255,.6); }
+body.neu-mode .fav-card:hover,body.neu-mode .fav-card:focus-visible { border-color:rgba(90,143,202,.32); background:#f1f6fb; }
+body.neu-mode .fav-card-preview { color:#344158; }
+body.neu-mode .fav-card-tags span { color:#5A8FCA; background:rgba(90,143,202,.08); }
+body.neu-mode .fav-delete-btn { color:#c96d6d; }
 
 /* ═══════════════════════════════════════
    溯星小屋 v3.0 · 新拟态白天模式 (Neu Day)
