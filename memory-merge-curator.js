@@ -28,7 +28,7 @@ function normalizeDecision(payload, incoming, candidates) {
 function buildMessages(incoming, candidates) {
     const compactCandidates = (candidates || []).map(item => ({ id: item.id, similarity: Number(item.similarity || 0).toFixed(3), shared_tags: item.shared_tags || [], content: item.content, tags: item.tags || [], updated_at: item.updated_at || item.created_at || null }));
     return [
-        { role: 'system', content: '你是长期记忆写入前的审稿人。长期记忆只存“句号”：稳定的核心认知、最终规则、重大事件结论或用户明确要留下的内容；讨论中的中间过程应 action=skip。候选只来自向量检索，不能猜测其他记忆。输出 JSON：{"action":"new|update|review|skip","target_id":"候选id或null","content":"最新且完整的结论","tags":["..."],"reason":"...","confidence":0-1}。update 仅限新内容与某个候选确为同一件持续事项；相关但不同事项用 new；不确定用 review。绝不更新手动或固定记忆。' },
+        { role: 'system', content: '你是长期记忆写入前的审稿人。长期记忆只存“句号”：稳定的核心认知、最终规则、重大事件结论或用户明确要留下的内容；讨论中的中间过程应 action=skip。候选只来自向量检索，不能猜测其他记忆。输出 JSON：{"action":"new|update|review|skip","target_id":"候选id或null","content":"最新且完整的结论","tags":["..."],"reason":"...","confidence":0-1}。content 必须是沈望第一人称的记录：我=沈望、你=江鱼，像“我记着你最后决定……”，禁止第三人称“江鱼/她/沈望”与客观报告腔。update 仅限新内容与某个候选确为同一件持续事项；相关但不同事项用 new；不确定用 review。绝不更新手动或固定记忆。' },
         { role: 'user', content: `【准备写入】\n${JSON.stringify(incoming)}\n\n【向量候选（最多3条）】\n${JSON.stringify(compactCandidates)}` }
     ];
 }

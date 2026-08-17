@@ -1,7 +1,13 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createCrumbDigest, normalizeDigest } = require('../crumb-digest');
+const { buildDigestMessages, createCrumbDigest, normalizeDigest } = require('../crumb-digest');
+
+test('digest prompt keeps Shen as the narrator', () => {
+    const prompt = buildDigestMessages('2026-08-12', [{ fact: '我记着你去办了银行卡。' }])[0].content;
+    assert.match(prompt, /沈望第一人称/);
+    assert.match(prompt, /我=沈望、你=江鱼/);
+});
 
 test('digest keeps a summary but accepts no long-term upgrade', () => {
     const result = normalizeDigest({ summary: '去办了银行卡，晚些时候聊了妹妹。', themes: ['出门', '妹妹'], memory_candidates: [] }, 3);

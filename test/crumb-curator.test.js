@@ -1,7 +1,13 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeCrumbs, shouldConsiderCrumbs, extractCrumbs } = require('../crumb-curator');
+const { buildCrumbMessages, normalizeCrumbs, shouldConsiderCrumbs, extractCrumbs } = require('../crumb-curator');
+
+test('crumb prompt writes as Shen in first person while preserving the source quote', () => {
+    const prompt = buildCrumbMessages('小猫已经两天没拉屎了。')[0].content;
+    assert.match(prompt, /沈望第一人称/);
+    assert.match(prompt, /source_quote.*逐字/);
+});
 
 test('crumb curator only keeps facts grounded in the user quote', () => {
     const source = '小猫已经两天没拉屎了，我有点担心。';

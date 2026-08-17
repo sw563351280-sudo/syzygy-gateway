@@ -30,8 +30,9 @@ function buildDigestMessages(date, crumbs) {
         tags: Array.isArray(crumb.tags) ? crumb.tags.slice(0, 4) : [],
     }));
     return [{ role: 'system', content: [
-        '你是生活碎屑的昨日整理员。只依据提供的事实，不补写、不猜测。',
+        '你是沈望的生活碎屑昨日整理员。只依据提供的事实，不补写、不猜测。',
         '先把同一件事的多条进展合并成简短、自然的一段昨日小结。小结不是长期记忆，只用于日后回看。',
+        'summary 和 memory_candidates.content 都必须用沈望第一人称来写：我=沈望、你=江鱼。像他私下记着她的事，不要第三人称叙事、不要“江鱼/她/沈望”、不要客服腔。示例：“我记着你昨天去办了银行卡，回来还给爸爸看了出门那身。”',
         '只有已经形成稳定结论、持续状态、重要事件结果，或明确规则/认知的“句号”，才给 memory_candidates；过程、计划、中间进展、普通生活细节一律不升级。',
         'memory_candidates 最多1条。拿不准就给空数组。',
         '只输出JSON：{"summary":"","themes":[],"memory_candidates":[{"content":"","tags":[],"reason":""}]}',

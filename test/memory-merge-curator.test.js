@@ -24,4 +24,5 @@ test('memory merge curator uses Flash-compatible JSON and retries without respon
     assert.equal(requests[0].model, 'gemini-3-flash-preview');
     assert.ok(requests[0].response_format);
     assert.equal(requests[1].response_format, undefined);
+    assert.match(requests[0].messages[0].content, /沈望第一人称/);
 });
