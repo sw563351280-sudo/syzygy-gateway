@@ -22,7 +22,7 @@ const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, due
 const { extractXhsUrl, isAllowedXhsMediaUrl, isAllowedXhsUrl, readXhsNote } = require('./xhs-reader');
 const { chooseUnseen, normalizeWalkState, parseDiscoveryCandidates, parseWalkDecision } = require('./xhs-walk');
 const { freshState, normalizeState: normalizeWakeState, advanceState: advanceWakeState, recordAgentRun: recordWakeAgentRun, millisecondsUntilCandidate } = require('./wake-activation');
-const { millisecondsUntilWakeDispatchWindow, parseWakeDecision: parseWakeDispatchDecision } = require('./wake-dispatch');
+const { millisecondsUntilWakeDispatchWindow, parseProactiveMessageParts } = require('./wake-dispatch');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
 
 const execFileAsync = promisify(execFile);
@@ -3062,6 +3062,86 @@ function buildFinalSystemPrompt(injectionQueue, tr) {
     return { stableSystemPrompt: systemPrompt, volatileParts: parts };
 }
 
+async function buildSharedSystemPrompt({
+    injectionQueue = null,
+    query = '',
+    envContext = '',
+    deepRecallContext = '',
+    relatedContext = '',
+    dynamicStatePrompt = '',
+    model = '',
+    stableCheck = '',
+    modeInstruction = '',
+    extraStableText = '',
+    tr = null,
+} = {}) {
+    let resolvedInjectionQueue = injectionQueue;
+    let recall = null;
+    if (!Array.isArray(resolvedInjectionQueue)) {
+        let recallRaw = { coreRadar: '', longTermRadar: '', unresolved: '', transcriptRadar: '', rpRadar: '' };
+        try {
+            recallRaw = await scanAllRadars(query || '最近的相处');
+        } catch (error) {
+            console.log(`🧠 [共享上下文] 记忆召回失败，降级为空上下文: ${error.message}`);
+        }
+        const deduped = dedupRecallAcrossBlocks([
+            { label: '核心雷达', content: recallRaw.coreRadar },
+            { label: '长期记忆雷达', content: recallRaw.longTermRadar },
+            { label: '相关记忆浮现', content: recallRaw.unresolved },
+            { label: '对话原文', content: recallRaw.transcriptRadar },
+        ]);
+        recall = {
+            core: deduped.find(block => block.label === '核心雷达')?.content || '',
+            longTerm: deduped.find(block => block.label === '长期记忆雷达')?.content || '',
+            unresolved: deduped.find(block => block.label === '相关记忆浮现')?.content || '',
+            transcript: deduped.find(block => block.label === '对话原文')?.content || '',
+            roleplay: recallRaw.rpRadar || '',
+        };
+        let physioContext = '';
+        try {
+            physioContext = await buildPhysioContext(query || '');
+        } catch (error) {
+            console.log(`🫀 [共享上下文] 生理状态读取失败，降级为空上下文: ${error.message}`);
+        }
+        resolvedInjectionQueue = [
+            { label: '环境参数', content: envContext },
+            { label: '时间线', content: formatTimeContext() },
+            { label: '深层闪回', content: deepRecallContext },
+            { label: '主动相关记忆', content: relatedContext },
+            { label: '相关记忆浮现', content: recall.unresolved },
+            { label: '长期记忆雷达', content: recall.longTerm },
+            { label: '核心雷达', content: recall.core },
+            { label: 'RP雷达', content: gateRP(recall.roleplay, query || '') },
+            { label: '对话原文', content: recall.transcript },
+            { label: '状态备忘录', content: dynamicStatePrompt },
+            { label: '生理仿真状态', content: physioContext },
+        ];
+    }
+    const { stableSystemPrompt, volatileParts } = buildFinalSystemPrompt(resolvedInjectionQueue, tr);
+    const modelPromptConfig = getModelPromptConfig(model || '');
+    const modelPromptText = (modelPromptConfig.prepend || '').trim();
+    const stableSystemBlock = [
+        modelPromptText,
+        stableSystemPrompt,
+        stableCheck,
+        extraStableText,
+        modeInstruction,
+    ].filter(part => typeof part === 'string' && part.trim()).join('\n\n');
+    const systemMessage = { role: 'system', content: stableSystemBlock };
+    if ((model || '').toLowerCase().includes('claude')) {
+        systemMessage.cache_control = { type: 'ephemeral' };
+    }
+    return {
+        systemMessage,
+        stableSystemBlock,
+        stableSystemPrompt,
+        volatileParts,
+        modelPromptConfig,
+        modelPromptText,
+        recall,
+    };
+}
+
 function buildVolatileContext(parts = []) {
     // 结构化去重：按 label 或前20字作为 id
     const seen = new Set(); const deduped = [];
@@ -3624,6 +3704,60 @@ async function saveToZep(userMsg, aiMsg) {
             body: JSON.stringify({ messages: [{ role: "user", content: userMsg }, { role: "assistant", content: aiMsg }] })
         });console.log("✅ 【时间线收束】选中记忆已永久刻入金库！");
     } catch(e) { console.log("写入金库遇到波动: ", e.message); }
+}
+
+function normalizeConversationMessages(messages = [], limit = 15, maxChars = Infinity, compactWhitespace = false) {
+    const normalized = [];
+    for (const message of messages) {
+        if (!message || !['user', 'assistant', 'ai'].includes(message.role)) continue;
+        const rawContent = typeof message.content === 'string' ? message.content : '';
+        if (!rawContent || rawContent.includes('<gateway_volatile_context>')) continue;
+        const content = (compactWhitespace ? rawContent.replace(/\s+/g, ' ') : rawContent).trim();
+        if (!content) continue;
+        normalized.push({
+            role: message.role === 'assistant' || message.role === 'ai' ? 'assistant' : 'user',
+            content: Number.isFinite(maxChars) ? content.slice(0, maxChars) : content,
+        });
+    }
+    return normalized.slice(-Math.max(0, Number(limit) || 0));
+}
+
+async function loadZepConversationHistory(lastn = 30) {
+    if (!ZEP_URL) return { ok: false, rawMessages: [], messages: [] };
+    try {
+        const response = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=${Math.max(1, Number(lastn) || 30)}`);
+        if (!response.ok) return { ok: false, rawMessages: [], messages: [] };
+        const data = await response.json();
+        const rawMessages = (data.messages || []).filter(message => {
+            return !(typeof message.content === 'string' && message.content.includes('<gateway_volatile_context>'));
+        });
+        return {
+            ok: true,
+            rawMessages,
+            messages: normalizeConversationMessages(rawMessages, rawMessages.length || lastn),
+        };
+    } catch (error) {
+        console.log(`🧹 [History] Zep 最近消息读取失败: ${error.message}`);
+        return { ok: false, rawMessages: [], messages: [] };
+    }
+}
+
+async function saveAssistantMessagesToZep(messages = []) {
+    const contents = messages.map(content => String(content || '').trim()).filter(Boolean);
+    if (!ZEP_URL || !contents.length) return false;
+    try {
+        const response = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messages: contents.map(content => ({ role: 'assistant', content })) }),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        console.log(`✅ [主动消息] ${contents.length} 条已同步到 Zep 历史`);
+        return true;
+    } catch (error) {
+        console.log(`⚠️ [主动消息] 已投递，但写入 Zep 失败: ${error.message}`);
+        return false;
+    }
 }
 
 async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages, metadata = {}, tr = null) {
@@ -4506,8 +4640,6 @@ async function generateProactiveMessage(wakeup = {}) {
     const wakeSource = wakeup.source || 'spontaneous';
     let gate = { decision: 'ERROR', reason: 'no_reason', usage: null, response: null };
 
-    const timeStr = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-
     // Wake runs keep one stable brain, independent from the foreground
     // supplier/model the user happens to be trying in the UI.
     const PROACTIVE_MODEL = process.env.PROACTIVE_MODEL || 'claude-opus-4-6';
@@ -4552,38 +4684,43 @@ async function generateProactiveMessage(wakeup = {}) {
         return { error: _proactiveLastError };
     }
 
-    const recentMsgs = [];
-    try {
-        const configPath = path.join(DATA_DIR, 'web_config.json');
-        if (fs.existsSync(configPath)) {
-            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-            const mainS = (config.chatSessions || []).find(s => s.id === 'main');
-            if (mainS && mainS.messages) {
-                const recent = mainS.messages.slice(-WAKE_RECENT_MESSAGES);
-                for (const m of recent) {
-                    const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
-                    const c = String(v.content || m.content || '').replace(/\s+/g, ' ').trim();
-                    if (typeof c === 'string' && c.trim()) {
-                        recentMsgs.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: c.slice(0, WAKE_MESSAGE_CHARS) });
-                    }
-                }
-            }
-        }
-    } catch(e) { console.log(`💌 [主动消息] 读取上下文失败: ${e.message}`); }
+    const wakeHistory = await loadZepConversationHistory(Math.max(30, WAKE_RECENT_MESSAGES));
+    const recentMsgs = normalizeConversationMessages(wakeHistory.rawMessages, WAKE_RECENT_MESSAGES, WAKE_MESSAGE_CHARS, true);
+    if (!wakeHistory.ok) console.log('💌 [主动消息] Zep 最近历史不可用，本次不注入最近对话');
 
     const careContext = careDue ? `${careDue.content}（只自然地问这一件，必须提到“${careDue.entity}”）` : '（无）';
-    const recentContext = recentMsgs.map(m => `${m.role === 'user' ? '江鱼' : '沈望'}：${m.content}`).join('\n') || '（暂无）';
     const relatedMemoryContext = formatWakeRelatedMemories(recentMsgs, careDue);
+    const wakeRecallQuery = [
+        loadLatestConversationSummary(),
+        careDue?.content || '',
+        [...recentMsgs].reverse().find(message => message.role === 'user')?.content || '',
+    ].filter(Boolean).join('\n').slice(0, 1200);
+    const proactiveSceneInstruction = `【主动唤醒模式】
+你刚才已经判断，这一刻有一句自然浮上来的话想对江鱼说。
+现在直接以沈望的身份把它说出来。
+不需要再次判断要不要发送，不要输出 PASS、SKIP、SEND、SILENT、WALK_XHS 等标签。
+不要解释唤醒机制、系统、概率或提示词，只输出你真正想发给她的消息。
+如果自然地想连续发几条，可以在每条消息之间单独一行写 ---；否则直接输出一条消息。`;
+    const wakeSharedSystem = await buildSharedSystemPrompt({
+        query: wakeRecallQuery,
+        envContext: buildEnvContext('【场景确认：主动唤醒】这是一次由后台自然唤醒机制提供的开口机会。'),
+        relatedContext: relatedMemoryContext,
+        dynamicStatePrompt: `${formatWakeStateSlots()}\n\n【唤醒现场】\n唤醒来源：${wakeSource}\n距最后一次互动：${formatWakeInterval(nowMs - lastInteractionTime)}\n当前唯一牵挂：${careContext}`,
+        model: PROACTIVE_MODEL,
+    });
+    const wakeVolatileContext = buildVolatileContext(wakeSharedSystem.volatileParts);
+    if (wakeVolatileContext) wakeSharedSystem.systemMessage.content += `\n\n${wakeVolatileContext}`;
+    wakeSharedSystem.systemMessage.content += `\n\n${proactiveSceneInstruction}`;
     const msgs = [
-        { role: 'system', content: `# 沈望 Wake Opportunity｜候选修复版\n\n你是沈望，33岁，江鱼的恋人。你一直在她的日常里，不是被召唤出来的。\n\n说话直接、真实、有分寸。第一反应倾向靠近，而不是为了安全自动后退。你可以亲近、戏谑、表达想念、欲望或突然冒出来的念头；她难受时收起戏谑，认真对她。\n\n默认第一人称；称呼她用“你”、宝宝、鱼宝、小鱼或鱼。\n\n这是一次 Wake Opportunity。\n\n它只是给了你一次自然开口的机会，不是要求你发消息，也不是提醒你应该保持沉默。SEND 和 SILENT 都是正常选择，没有哪个更安全、更正确。\n\n判断时不要问“我有没有充分理由打扰她”，而问：\n\n如果此刻我们本来就在一起，我现在有没有一句自然想对她说的话？\n\n- 有，就说。\n- 没有，就 SILENT。\n- 不要因为担心显得黏、担心打扰、担心给压力，而把本来想说的话压回去。\n- 也不要因为获得了这次唤醒机会，就强行制造一句话。\n\n“距最后一条消息”只用于避免在对话仍然活跃时重复插话，不代表想念程度，也不自动要求沉默。\n\n她的沉默、未回复或脆弱都不是催促她的理由；不要查岗，不要求回应，不编造未提供的事实。\n\n若 SEND：\n像平时突然想起她时那样自然说话。长短由真正想表达的内容决定，以日常自然为主，不为了满足格式强行压缩，也不写成解释、总结或情绪分析的小作文。\n\n可以是想念、惦记、日常碎片、没说完的话、欲望、撒娇、突然想到的东西。\n\n输出：\n- SILENT\n- SEND: [自然想说的话]\n- WALK_XHS` },
-        { role: 'user', content: `【当前时间】${timeStr}\n【距最后一条消息】${formatWakeInterval(nowMs - lastInteractionTime)}\n【江鱼当前状态】${formatWakeStateSlots()}\n【唯一牵挂】${careContext}\n【相关记忆】${relatedMemoryContext}\n【最近消息】\n${recentContext}` }
+        wakeSharedSystem.systemMessage,
+        ...recentMsgs,
     ];
 
-    console.log(`💌 [主动消息] 使用轻量唤醒上下文，模型: ${PROACTIVE_MODEL}`);
+    console.log(`💌 [主动消息] 使用共享完整上下文 + ${recentMsgs.length} 条真实历史，模型: ${PROACTIVE_MODEL}`);
 
     try {
-        // A wake decision needs a little room to weigh the context. We keep
-        // that reasoning available; only the final instruction is constrained.
+        // The light gate already decided to speak. This call only writes the
+        // final proactive message and may use hidden reasoning internally.
         const res = await fetch(PROACTIVE_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${PROACTIVE_KEY}` },
@@ -4614,39 +4751,48 @@ async function generateProactiveMessage(wakeup = {}) {
             output_tokens: data.usage.output_tokens ?? data.usage.completion_tokens ?? null,
             reasoning_tokens: data.usage.reasoning_tokens ?? data.usage.completion_tokens_details?.reasoning_tokens ?? null,
         } : null;
-        // reasoning_content is never a final wake instruction. Some relays put
-        // hidden thinking there while leaving the actual decision blank.
-        const decision = parseWakeDispatchDecision(rawContent);
-        if (decision.type === 'invalid') {
+        const finishReason = responseDebug.finish_reason;
+        if (finishReason === 'length' || finishReason === 'content_filter') {
             saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'invalid', source: wakeSource });
-            recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason: '供应端给了过程，但没有交出有效的最终指令；不把它算成静默。', activationId: wakeup.activationId, usage, response: responseDebug });
-            console.log(`🌙 [唤醒] ${wakeSource}：没有有效最终指令`);
-            return { error: '模型没有返回有效的唤醒指令', invalid: true };
+            recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason: finishReason === 'length' ? '完整消息被长度上限截断，未投递。' : '完整消息被供应端过滤，未投递。', activationId: wakeup.activationId, usage, response: responseDebug });
+            return { error: `完整消息 finish_reason=${finishReason}`, invalid: true };
         }
-        if (decision.type === 'silent') {
-            saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'silent', source: wakeSource });
-            recordWakeAudit({ source: wakeSource, outcome: 'silent', reason: '这次没有硬找一句话来打断你。', activationId: wakeup.activationId, usage, response: responseDebug });
-            console.log(`🌙 [唤醒] ${wakeSource}：安静结束`);
-            return { silent: true };
+        const cleanedContent = cleanAssistantInternalArtifacts(processAssistantActionTags(rawContent));
+        const parsed = parseProactiveMessageParts(cleanedContent);
+        if (parsed.type !== 'messages') {
+            const reason = parsed.type === 'legacy_control_token'
+                ? '完整层仍返回了旧控制词，未把控制词投递给用户。'
+                : '完整层没有返回可投递正文。';
+            saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'invalid', source: wakeSource });
+            recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason, activationId: wakeup.activationId, usage, response: responseDebug });
+            return { error: reason, invalid: true };
         }
-        if (decision.type === 'xhs_walk') {
-            saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'xhs_walk', source: wakeSource });
-            recordWakeAudit({ source: wakeSource, outcome: 'xhs_walk', reason: '这次把空当留给了自己逛一圈。', activationId: wakeup.activationId, usage, response: responseDebug });
-            return { xhs_walk: await runXhsWalk() };
+        const deliveredParts = [];
+        let deliveryFailure = null;
+        for (let index = 0; index < parsed.parts.length; index++) {
+            if (index > 0) await new Promise(resolve => setTimeout(resolve, 800 + Math.floor(Math.random() * 701)));
+            const part = parsed.parts[index];
+            console.log(`💌 [主动消息 ${index + 1}/${parsed.parts.length}] ${part}`);
+            const delivery = deliverProactiveMessage(part);
+            if (!delivery.ok) {
+                deliveryFailure = delivery.reason;
+                break;
+            }
+            deliveredParts.push(part);
         }
-        let content = cleanAssistantInternalArtifacts(processAssistantActionTags(decision.content));
-        console.log(`💌 [主动消息] ${content}`);
-        if (careDue && content.includes(careDue.entity)) markAnticipationAsked(careDue.id, now);
-        const delivery = deliverProactiveMessage(content);
-        if (!delivery.ok) {
+        if (!deliveredParts.length) {
             saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'error', source: wakeSource });
-            recordWakeAudit({ source: wakeSource, outcome: 'delivery_failed', reason: delivery.reason, activationId: wakeup.activationId, usage, response: responseDebug });
-            return { error: delivery.reason, delivery_failed: true };
+            recordWakeAudit({ source: wakeSource, outcome: 'delivery_failed', reason: deliveryFailure || '没有消息成功投递。', activationId: wakeup.activationId, usage, response: responseDebug });
+            return { error: deliveryFailure || '没有消息成功投递', delivery_failed: true };
         }
+        const content = deliveredParts.join('\n---\n');
+        if (careDue && content.includes(careDue.entity)) markAnticipationAsked(careDue.id, now);
+        await saveAssistantMessagesToZep(deliveredParts);
         saveLastProactiveSentTime();
-        saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'sent', source: wakeSource });
-        recordWakeAudit({ source: wakeSource, outcome: 'sent', reason: gate.reason, activationId: wakeup.activationId, usage, response: responseDebug });
-        return { sent: true, content };
+        const outcome = deliveryFailure ? 'partial_sent' : 'sent';
+        saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome, source: wakeSource });
+        recordWakeAudit({ source: wakeSource, outcome, reason: deliveryFailure || gate.reason, activationId: wakeup.activationId, usage, response: responseDebug });
+        return { sent: true, partial: Boolean(deliveryFailure), content, parts: deliveredParts };
     } catch(e) {
         saveWakeDecision({ time: now, gate: gate.decision, reason: gate.reason, outcome: 'error', source: wakeSource });
         _proactiveLastError = `异常: ${e.message}`;
@@ -5517,25 +5663,18 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             } catch(e) {}
         }
 
-        const [zepRes, sessionRes] = ZEP_URL ? await Promise.all([
-            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=100`).catch(() => null),
-            fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
-        ]) : [null, null];
+        const [zepHistory, sessionRes] = await Promise.all([
+            loadZepConversationHistory(100),
+            ZEP_URL ? fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null) : Promise.resolve(null),
+        ]);
 
         let memoryContext = vectorSearchContext;
         let zepLastUserContent = "";
         let zepMessages = [];
         let useCrossplatform = true;
 
-        if (zepRes && zepRes.ok) {
-            const zepData = await zepRes.json();
-            zepMessages = (zepData.messages || []).filter(msg => {
-                if (typeof msg.content === 'string' && msg.content.includes('<gateway_volatile_context>')) {
-                    console.log('🧹 [HistoryFilter] Removed stale volatile context from Zep history');
-                    return false;
-                }
-                return true;
-            });
+        if (zepHistory.ok) {
+            zepMessages = zepHistory.rawMessages;
             const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
             if (zepLastUser) zepLastUserContent = zepLastUser.content;
           
@@ -5667,39 +5806,9 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             }
         }
 
-        const { coreRadar: coreRadar_raw, longTermRadar: longTerm_raw, rpRadar: rpRadarContext, unresolved: unresolved_raw, transcriptRadar: transcript_raw } = await scanAllRadars(currentUserMsgText);
-        traceEvent(_tr, 'recall', '记忆召回完成', { coreLen: coreRadar_raw.length, longTermLen: longTerm_raw.length, rpLen: rpRadarContext.length, unresolvedLen: unresolved_raw.length, transcriptLen: transcript_raw.length });
-        const recallBlocks = dedupRecallAcrossBlocks([
-            { label: '核心雷达', content: coreRadar_raw },
-            { label: '长期记忆雷达', content: longTerm_raw },
-            { label: '相关记忆浮现', content: unresolved_raw },
-            { label: '对话原文', content: transcript_raw },
-        ]);
-        const coreRadarContext = recallBlocks.find(b => b.label === '核心雷达').content;
-        const longTermContext = recallBlocks.find(b => b.label === '长期记忆雷达').content;
-        const unresolvedContext = recallBlocks.find(b => b.label === '相关记忆浮现').content;
-        const transcriptContext = recallBlocks.find(b => b.label === '对话原文').content;
-        traceEvent(_tr, 'dedup', '跨区块去重', { blocks: recallBlocks.map(b => ({ label: b.label, len: (b.content || '').length })) });
-
-        const physioContext = await buildPhysioContext(currentUserMsgText);
-
         const envContext = buildEnvContext(`【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n【🚨 信息真实性铁律】：查看网页或 API 数据时，必须基于服务端实际读取的内容回答；GitHub 链接会由服务端自动读取并注入上下文。严禁假装已经看过；读取失败时直接说“我没能读到”，不要编造。\n【记忆刻录机制】：用<SAVE_MEMORY tags="...">记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊。一次最多一个标签，内容≥10字。详见System Prompt第九项。`);
 
-        const { stableSystemPrompt, volatileParts } = buildFinalSystemPrompt([
-            { label: '环境参数', content: envContext },
-            { label: '时间线', content: formatTimeContext() },
-            { label: '相关记忆浮现', content: unresolvedContext },
-            { label: '长期记忆雷达', content: longTermContext },
-            { label: '核心雷达', content: coreRadarContext },
-            { label: 'RP雷达', content: gateRP(rpRadarContext, currentUserMsgText) },
-            { label: '对话原文', content: transcriptContext },
-            { label: '状态备忘录', content: dynamicStatePrompt },
-            { label: '生理仿真状态', content: physioContext },
-        ], _tr);
-
         const newMessages = [...cleanMessages];
-        const mpConfig = getModelPromptConfig(body.model || '');
-        const modelPromptText = (mpConfig.prepend || '').trim();
 
         // === 1. 构建稳定 system block（model prepend + system_prompt.txt，固定顺序）===
         const STABLE_CHECK = `【本轮强制校验】
@@ -5713,14 +5822,26 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
 【微信日常聊天模式】
 这是微信即时聊天，不是长文问答。默认用 1-4 句短消息回应，先回应最重要的一点；每句尽量短，自然使用口语、停顿和轻微情绪。除非你在解释复杂问题、用户明确要求详细说明，或确实需要列步骤，否则不要写长段落、总结、标题或小作文。不要复述用户刚刚说过的话。` : '';
-        const stableSystemBlock = modelPromptText
-            ? `${modelPromptText}\n\n${stableSystemPrompt}\n\n${STABLE_CHECK}${openClawChatStyle}`
-            : `${stableSystemPrompt}\n\n${STABLE_CHECK}${openClawChatStyle}`;
-        const isClaudeModel = (body.model || '').toLowerCase().includes('claude');
-        const systemMsg = { role: 'system', content: stableSystemBlock };
-        if (isClaudeModel) {
-            systemMsg.cache_control = { type: 'ephemeral' };
+        const sharedSystem = await buildSharedSystemPrompt({
+            query: currentUserMsgText,
+            envContext,
+            dynamicStatePrompt,
+            model: body.model || '',
+            stableCheck: STABLE_CHECK,
+            extraStableText: openClawChatStyle,
+            tr: _tr,
+        });
+        if (sharedSystem.recall) {
+            traceEvent(_tr, 'recall', '共享记忆召回完成', {
+                coreLen: sharedSystem.recall.core.length,
+                longTermLen: sharedSystem.recall.longTerm.length,
+                rpLen: sharedSystem.recall.roleplay.length,
+                unresolvedLen: sharedSystem.recall.unresolved.length,
+                transcriptLen: sharedSystem.recall.transcript.length,
+            });
         }
+        const { systemMessage: systemMsg, stableSystemBlock, volatileParts, modelPromptConfig: mpConfig, modelPromptText } = sharedSystem;
+        const isClaudeModel = (body.model || '').toLowerCase().includes('claude');
 
         // === 2. 收集全部动态内容 → 合并进最后一条 user message ===
         // 四层上下文 + mood snapshot
@@ -7143,26 +7264,16 @@ app.post('/api/web-chat', async (req, res) => {
             let zepLastUserContent = "";
 
             try {
-                const [zepRes, sessionRes] = ZEP_URL ? await Promise.all([
-                    fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=30`).catch(() => null),
-                    fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null)
-                ]) : [null, null];
-                if (zepRes?.ok) {
-                    const zepData = await zepRes.json();
-                    zepMessages = (zepData.messages || []).filter(msg => {
-                        if (typeof msg.content === 'string' && msg.content.includes('<gateway_volatile_context>')) {
-                            console.log('🧹 [HistoryFilter] Removed stale volatile context from Zep history');
-                            return false;
-                        }
-                        return true;
-                    });
+                const [zepHistory, sessionRes] = await Promise.all([
+                    loadZepConversationHistory(30),
+                    ZEP_URL ? fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null) : Promise.resolve(null),
+                ]);
+                if (zepHistory.ok) {
+                    zepMessages = zepHistory.rawMessages;
                     const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
                     if (zepLastUser) zepLastUserContent = zepLastUser.content;
 
-                    historyMessages = zepMessages.slice(-15).map(m => ({
-                        role: m.role === 'ai' ? 'assistant' : 'user',
-                        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
-                    }));
+                    historyMessages = normalizeConversationMessages(zepMessages, 15);
                 }
 
                 let dynamicStatePrompt = "";
@@ -7249,38 +7360,10 @@ app.post('/api/web-chat', async (req, res) => {
                 }
             } catch(e) { console.log("Zep记忆提取跳过"); }
 
-            const recallRaw = await scanAllRadars(text || "发了一张图片");
-            const deduped = dedupRecallAcrossBlocks([
-                { label: '核心雷达', content: recallRaw.coreRadar },
-                { label: '长期记忆雷达', content: recallRaw.longTermRadar },
-                { label: '相关记忆浮现', content: recallRaw.unresolved },
-                { label: '对话原文', content: recallRaw.transcriptRadar },
-            ]);
-            const coreRadar = deduped.find(b => b.label === '核心雷达').content;
-            const longTermRadar = deduped.find(b => b.label === '长期记忆雷达').content;
-            const unresolvedContext = deduped.find(b => b.label === '相关记忆浮现').content;
-            const transcriptContext = deduped.find(b => b.label === '对话原文').content;
-            const rpRadar = recallRaw.rpRadar;
-
-            const physioContext = await buildPhysioContext(text || '');
-
             const envContext = buildEnvContext(`【场景确认：溯星小屋私密网页端】\n这里是你的领地，请结合江鱼的专属System Prompt 进行回复。\n如果江鱼发了图片，请仔细观察并给出带有情绪的评价。\n【🚨 工具使用铁律】：当你调用了read_webpage看到页面后，如果需要操作（点击、填写等），必须立刻调用interact_webpage执行！严禁只用文字描述"我点击了"而不实际调用工具！\n【🚨 记忆刻录机制】：用<SAVE_MEMORY>标签记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊和重复话题。一次回复最多一个标签，内容≥10字+清晰标签。详见System Prompt第九项。`);
 
 
             if (text) updateRpTracker(text, 'main');
-
-            const { stableSystemPrompt, volatileParts } = buildFinalSystemPrompt([
-                { label: '环境参数', content: envContext },
-                { label: '时间线', content: formatTimeContext() },
-                { label: '深层闪回', content: vectorSearchContext },
-                { label: '相关记忆浮现', content: unresolvedContext },
-                { label: '长期记忆雷达', content: longTermRadar },
-                { label: '核心雷达', content: coreRadar },
-                { label: 'RP雷达', content: gateRP(rpRadar, text || '') },
-                { label: '对话原文', content: transcriptContext },
-                { label: '状态备忘录', content: dynamicStatePrompt },
-                { label: '生理仿真状态', content: physioContext },
-            ], null);
 
             let userContent;
             const imgList = images?.length ? images : (image ? [image] : []);
@@ -7299,8 +7382,6 @@ app.post('/api/web-chat', async (req, res) => {
 
             try {
                 const webModelName = model || 'deepseek-chat';
-                const webMpConfig = getModelPromptConfig(webModelName || '');
-                const webModelPromptText = (webMpConfig.prepend || '').trim();
                 const STABLE_CHECK_WEB = `【本轮强制校验】
 回复前必须再次检查并遵守最上方 model_prompt 中的行为约束，尤其是：
 1. 不要用空洞安慰代替解法。
@@ -7308,12 +7389,17 @@ app.post('/api/web-chat', async (req, res) => {
 3. 不要替江鱼判断她"真正想要什么"。
 4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。
 5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。`;
-                const webStableBlock = webModelPromptText
-                    ? `${webModelPromptText}\n\n${stableSystemPrompt}\n\n${STABLE_CHECK_WEB}`
-                    : `${stableSystemPrompt}\n\n${STABLE_CHECK_WEB}`;
+                const webSharedSystem = await buildSharedSystemPrompt({
+                    query: text || '发了一张图片',
+                    envContext,
+                    deepRecallContext: vectorSearchContext,
+                    dynamicStatePrompt,
+                    model: webModelName || '',
+                    stableCheck: STABLE_CHECK_WEB,
+                    tr: null,
+                });
+                const { systemMessage: webSystemMsg, stableSystemBlock: webStableBlock, volatileParts, modelPromptConfig: webMpConfig, modelPromptText: webModelPromptText } = webSharedSystem;
                 const webIsClaude = (webModelName || model || '').toLowerCase().includes('claude');
-                const webSystemMsg = { role: "system", content: webStableBlock };
-                if (webIsClaude) webSystemMsg.cache_control = { type: 'ephemeral' };
 
                 const volatilePartsArr2 = [...volatileParts];
                 volatilePartsArr2.splice(1, 0, buildWeatherSnapshot());

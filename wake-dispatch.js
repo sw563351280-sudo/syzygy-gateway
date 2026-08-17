@@ -25,14 +25,20 @@ function millisecondsUntilWakeDispatchWindow(now = new Date()) {
     return Math.max(1000, targetWallClock - wallClock.getTime());
 }
 
-function parseWakeDecision(raw) {
+function parseProactiveMessageParts(raw, maxParts = 4) {
     const text = String(raw || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-    if (!text) return { type: 'invalid' };
-    if (/^SILENT\s*[.!。]*$/i.test(text) || /<WAKE_SILENT\s*\/?\s*>/i.test(text)) return { type: 'silent' };
-    if (/^WALK_XHS\s*[.!。]*$/i.test(text) || /<WAKE_XHS\s*\/?\s*>/i.test(text)) return { type: 'xhs_walk' };
-    const send = text.match(/^SEND\s*:\s*([\s\S]+)$/i);
-    const content = send?.[1]?.trim().slice(0, 160);
-    return content ? { type: 'send', content } : { type: 'invalid' };
+    if (!text) return { type: 'empty', parts: [] };
+    if (/^(?:SILENT|PASS|SKIP|WALK_XHS)\s*[.!。]*$/i.test(text) || /<WAKE_(?:SILENT|XHS)\s*\/?\s*>/i.test(text)) {
+        return { type: 'legacy_control_token', parts: [] };
+    }
+    const migrated = text.match(/^SEND\s*:\s*([\s\S]+)$/i)?.[1]?.trim() || text;
+    const split = migrated.split(/\r?\n\s*---\s*\r?\n/).map(part => part.trim()).filter(Boolean);
+    if (!split.length) return { type: 'empty', parts: [] };
+    const limit = Math.max(1, Number(maxParts) || 4);
+    const parts = split.length <= limit
+        ? split
+        : [...split.slice(0, limit - 1), split.slice(limit - 1).join('\n\n')];
+    return { type: 'messages', parts };
 }
 
-module.exports = { QUIET_START_HOUR, QUIET_END_HOUR, getChinaHour, isWakeQuietHours, millisecondsUntilWakeDispatchWindow, parseWakeDecision };
+module.exports = { QUIET_START_HOUR, QUIET_END_HOUR, getChinaHour, isWakeQuietHours, millisecondsUntilWakeDispatchWindow, parseProactiveMessageParts };

@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { isWakeQuietHours, millisecondsUntilWakeDispatchWindow, parseWakeDecision } = require('../wake-dispatch');
+const { isWakeQuietHours, millisecondsUntilWakeDispatchWindow, parseProactiveMessageParts } = require('../wake-dispatch');
 
 test('wake dispatch pauses only during Beijing 02:00 through 06:59', () => {
     assert.equal(isWakeQuietHours(new Date('2026-08-13T18:30:00.000Z')), true); // 02:30 CST
@@ -11,10 +11,11 @@ test('wake dispatch pauses only during Beijing 02:00 through 06:59', () => {
     assert.equal(millisecondsUntilWakeDispatchWindow(new Date('2026-08-13T23:00:00.000Z')), null);
 });
 
-test('wake replies accept only explicit silent, send, or XHS decisions', () => {
-    assert.deepEqual(parseWakeDecision('SILENT'), { type: 'silent' });
-    assert.deepEqual(parseWakeDecision('SEND: 鱼，嘴别咬了。'), { type: 'send', content: '鱼，嘴别咬了。' });
-    assert.deepEqual(parseWakeDecision('WALK_XHS'), { type: 'xhs_walk' });
-    assert.deepEqual(parseWakeDecision('我想找你。'), { type: 'invalid' });
-    assert.deepEqual(parseWakeDecision('<think>先分析一下</think>'), { type: 'invalid' });
+test('proactive replies are direct messages and can split into a small batch', () => {
+    assert.deepEqual(parseProactiveMessageParts('我想找你。'), { type: 'messages', parts: ['我想找你。'] });
+    assert.deepEqual(parseProactiveMessageParts('第一条\n---\n第二条'), { type: 'messages', parts: ['第一条', '第二条'] });
+    assert.deepEqual(parseProactiveMessageParts('SEND: 鱼，嘴别咬了。'), { type: 'messages', parts: ['鱼，嘴别咬了。'] });
+    assert.deepEqual(parseProactiveMessageParts('SILENT'), { type: 'legacy_control_token', parts: [] });
+    assert.deepEqual(parseProactiveMessageParts('WALK_XHS'), { type: 'legacy_control_token', parts: [] });
+    assert.deepEqual(parseProactiveMessageParts('<think>先分析一下</think>'), { type: 'empty', parts: [] });
 });
