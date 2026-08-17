@@ -54,52 +54,6 @@ function renderMarkdown(text) { if (!text) return ''; text = String(text).replac
 // ==================== 版本化消息辅助函数 ====================
 function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; if (v.toolCalls === undefined && msg.toolCalls !== undefined) v.toolCalls = msg.toolCalls; return v; } return msg; }
 function normalizeMessageVersionFields(msg) { if (!msg) return msg; if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0]; if (!v) return msg; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; if (v.toolCalls === undefined && msg.toolCalls !== undefined) v.toolCalls = msg.toolCalls; return msg; } ensureVersioned(msg); return msg; }
-function extractThinkingFromContent(content) {
-    if (!content) return { thinking: '', visibleContent: '' };
-
-    const tagRe = /<(think|thinking|chain_of_thought|reasoning)>([\s\S]*?)<\/\1>/gi;
-    const thinkingParts = [];
-    let visibleContent = content.replace(tagRe, function(_, tag, inner) {
-        const trimmed = inner.trim();
-        if (trimmed) thinkingParts.push(trimmed);
-        return '';
-    });
-
-    const openTagRe = /<(think|thinking|chain_of_thought|reasoning)>/gi;
-    let openMatch;
-    let lastOpenMatch = null;
-    while ((openMatch = openTagRe.exec(visibleContent)) !== null) {
-        lastOpenMatch = openMatch;
-    }
-
-    if (lastOpenMatch) {
-        const openTagStart = lastOpenMatch.index;
-        const openTagEnd = openTagStart + lastOpenMatch[0].length;
-        const tagName = lastOpenMatch[1];
-        const afterOpenTag = visibleContent.slice(openTagEnd);
-        const closeTag = new RegExp('</' + tagName + '>', 'i');
-        if (!closeTag.test(afterOpenTag)) {
-            const partialThinking = afterOpenTag.trim();
-            if (partialThinking) thinkingParts.push(partialThinking);
-            visibleContent = visibleContent.slice(0, openTagStart);
-        }
-    }
-
-    const tagNames = ['think', 'thinking', 'chain_of_thought', 'reasoning'];
-    const lastLt = visibleContent.lastIndexOf('<');
-    if (lastLt !== -1) {
-        const suffix = visibleContent.slice(lastLt + 1);
-        const isPartial = suffix === '' || tagNames.some(function(tagName) {
-            return tagName.startsWith(suffix);
-        });
-        if (isPartial) visibleContent = visibleContent.slice(0, lastLt);
-    }
-
-    return {
-        thinking: thinkingParts.join('\n\n'),
-        visibleContent: visibleContent.trim()
-    };
-}
 function fmtTsTag(iso) {
     if (!iso) return '';
     var d = new Date(iso);
@@ -280,10 +234,12 @@ async function syncFromCloud() {
             activeChatId = chatSessions[0].id;
         }
 
-        // 迁移旧消息：把顶层thinking/reasoning迁入active version
-        for (const s of chatSessions) { if (!s.messages) continue; for (const m of s.messages) { normalizeMessageVersionFields(m); } }
-        // 🛡️ 过滤服务端返回的兜底脏消息
-        for (const s of chatSessions) { if (!s.messages) continue; s.messages = s.messages.filter(m => !isDirtyFallbackMessage(m)); }
+        // 迁移旧字段，并在首次加载时清掉已经落盘的近时重复回复。
+        for (const s of chatSessions) {
+            if (!s.messages) continue;
+            for (const m of s.messages) normalizeMessageVersionFields(m);
+            s.messages = mergeMessageLists([], s.messages).filter(m => !isDirtyFallbackMessage(m));
+        }
 
         renderSuppliers();
         renderChatSidebar();
@@ -496,6 +452,26 @@ function normMsgText(m) {
   return String(c).replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '').replace(/\|\|\|/g, '').replace(/\s+/g, '');
 }
 
+function msgTimeMs(m) {
+  const v = (typeof getActiveVersion === 'function') ? getActiveVersion(m) : m;
+  const raw = v.fullTime || m.fullTime || '';
+  const parsed = raw ? new Date(raw).getTime() : NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+// 不用正文去重普通短句；只处理时间极近、正文完全相同的较长 assistant 回声。
+function isNearDuplicateAssistant(a, b) {
+  if (!a || !b || a.role !== 'assistant' || b.role !== 'assistant') return false;
+  const textA = normMsgText(a), textB = normMsgText(b);
+  if (!textA || textA.length < 16 || textA !== textB) return false;
+  const timeA = msgTimeMs(a), timeB = msgTimeMs(b);
+  return timeA !== null && timeB !== null && Math.abs(timeA - timeB) <= 90 * 1000;
+}
+
+function messagesEquivalentForSync(a, b) {
+  return msgKey(a) === msgKey(b) || isNearDuplicateAssistant(a, b);
+}
+
 /* 丢弃服务端回声：id 为空或以 cp_ 开头，且内容已在亲手写的消息里出现过 */
 function dropServerEchoes(msgs) {
   const authored = new Set();
@@ -557,6 +533,19 @@ function mergeMessageLists(serverMsgs, localMsgs) {
             if (rm > rc || (rm === rc && getVersionCount(m) > getVersionCount(cur))) {
               out[i] = m;
             }
+            return;
+        }
+        const duplicateIndex = out.findIndex(existing => isNearDuplicateAssistant(existing, m));
+        if (duplicateIndex !== -1) {
+            const current = out[duplicateIndex];
+            const currentId = String(current._id || current.id || '');
+            const incomingId = String(m._id || m.id || '');
+            const currentCanonical = currentId && !currentId.startsWith('cp_') && !current._crossPlatform;
+            const incomingCanonical = incomingId && !incomingId.startsWith('cp_') && !m._crossPlatform;
+            const currentScore = smsRichness(current) + getVersionCount(current);
+            const incomingScore = smsRichness(m) + getVersionCount(m);
+            if ((!currentCanonical && incomingCanonical) || incomingScore > currentScore) out[duplicateIndex] = m;
+            seen.set(k, duplicateIndex);
             return;
         }
         seen.set(k, out.length);
@@ -635,10 +624,14 @@ async function resyncAndMerge(reason) {
         serverSessions.forEach(function (ss) {
             if (_deletedSessionIds.has(ss.id)) return;
             const ls = localById[ss.id];
-            const localKeys = new Set(((ls && ls.messages) || []).map(msgKey));
-            (ss.messages || []).forEach(function (m) { if (!localKeys.has(msgKey(m))) serverAdded++; });
-            const serverKeys = new Set((ss.messages || []).map(msgKey));
-            ((ls && ls.messages) || []).forEach(function (m) { if (!serverKeys.has(msgKey(m))) localOnly++; });
+            const localMessages = (ls && ls.messages) || [];
+            const serverMessages = ss.messages || [];
+            serverMessages.forEach(function (m) {
+                if (!localMessages.some(function (local) { return messagesEquivalentForSync(local, m); })) serverAdded++;
+            });
+            localMessages.forEach(function (m) {
+                if (!serverMessages.some(function (server) { return messagesEquivalentForSync(server, m); })) localOnly++;
+            });
         });
 
         chatSessions = mergeSessionLists(serverSessions, chatSessions);
@@ -2263,12 +2256,14 @@ function renderChatMessages(){
         for (let imgIdx = 0; imgIdx < imgsToRender.length; imgIdx++) {
             htmlContent += '<img src="' + imgsToRender[imgIdx] + '" style="max-width:200px;border-radius:8px;margin-bottom:5px;margin-right:4px;box-shadow:0 2px 10px rgba(0,0,0,0.3);display:inline-block;">';
         }
-        const rawThinking = v.thinking || v.reasoning || m.thinking || m.reasoning || '';
+        const rawThinking = v.reasoning || m.reasoning || v.thinking || m.thinking || '';
         // 兼容正文里混入 <thinking>...</thinking> 或 <think>...</think> 的旧格式
-        let displayContent = v.content || '';
-        let extractedThink = extractThinkingFromContent(displayContent);
-        if (extractedThink.thinking) { displayContent = extractedThink.visibleContent; }
-        const finalThinking = rawThinking || extractedThink.thinking || '';
+        const hasRawContent = typeof v.rawContent === 'string' && v.rawContent.trim();
+        let extractedThink = extractThinkingFromContent(hasRawContent ? v.rawContent : (v.content || ''));
+        let displayContent = extractedThink.visibleContent;
+        // rawContent 是模型原始正文。优先重新解析它，可修复旧版前端把
+        // 反引号里的 <thinking> 示例误拆进思考气泡的历史消息。
+        const finalThinking = (v.reasoning || m.reasoning || extractedThink.thinking || (!hasRawContent ? rawThinking : '')) || '';
         if(finalThinking) htmlContent += '<div class="think-box"><div class="think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">' + finalThinking.replace(/\n/g,'<br>') + '</div></div>';
         // 渲染工具调用记录（整组折叠）
         if (v.toolCalls && v.toolCalls.length > 0) htmlContent += renderToolCallGroupHTML(v.toolCalls, false);

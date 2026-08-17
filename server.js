@@ -19,8 +19,19 @@ const { decideMemoryWrite } = require('./memory-merge-curator');
 const { extractCrumbs } = require('./crumb-curator');
 const { createCrumbDigest } = require('./crumb-digest');
 const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
-const { extractXhsUrl, isAllowedXhsMediaUrl, isAllowedXhsUrl, readXhsNote } = require('./xhs-reader');
-const { chooseUnseen, normalizeWalkState, parseDiscoveryCandidates, parseWalkDecision } = require('./xhs-walk');
+const { extractXhsUrl, findNoteData, isAllowedXhsMediaUrl, isAllowedXhsUrl, normalizeNote, parseInitialState, readXhsNote } = require('./xhs-reader');
+const {
+    beijingHour,
+    canWalk: canXhsWalk,
+    mergeFeedCandidates,
+    normalizeFeedInbox,
+    normalizeWalkState,
+    parseDiscoveryCandidates,
+    parseWalkDecision,
+    scheduleNextCollection,
+    scheduleNextWalk,
+    takeUnseenFeedCandidates,
+} = require('./xhs-walk');
 const { freshState, normalizeState: normalizeWakeState, advanceState: advanceWakeState, recordAgentRun: recordWakeAgentRun, millisecondsUntilCandidate } = require('./wake-activation');
 const { millisecondsUntilWakeDispatchWindow, parseProactiveMessageParts } = require('./wake-dispatch');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
@@ -3706,14 +3717,23 @@ async function saveToZep(userMsg, aiMsg) {
     } catch(e) { console.log("写入金库遇到波动: ", e.message); }
 }
 
-function normalizeConversationMessages(messages = [], limit = 15, maxChars = Infinity, compactWhitespace = false) {
+function normalizeConversationMessages(messages = [], limit = 15, maxChars = Infinity, compactWhitespace = false, includeTimestamp = false) {
     const normalized = [];
     for (const message of messages) {
         if (!message || !['user', 'assistant', 'ai'].includes(message.role)) continue;
         const rawContent = typeof message.content === 'string' ? message.content : '';
         if (!rawContent || rawContent.includes('<gateway_volatile_context>')) continue;
-        const content = (compactWhitespace ? rawContent.replace(/\s+/g, ' ') : rawContent).trim();
+        let content = (compactWhitespace ? rawContent.replace(/\s+/g, ' ') : rawContent).trim();
         if (!content) continue;
+        if (includeTimestamp) {
+            const rawTimestamp = message.created_at || message.createdAt || message.timestamp
+                || message.metadata?.created_at || message.metadata?.timestamp || null;
+            const parsedTimestamp = rawTimestamp ? new Date(rawTimestamp) : null;
+            const timeLabel = parsedTimestamp && Number.isFinite(parsedTimestamp.getTime())
+                ? formatBeijingTime(parsedTimestamp)
+                : '未知；不可默认视为今天';
+            content = `【消息时间：${timeLabel}】${content}`;
+        }
         normalized.push({
             role: message.role === 'assistant' || message.role === 'ai' ? 'assistant' : 'user',
             content: Number.isFinite(maxChars) ? content.slice(0, maxChars) : content,
@@ -4599,14 +4619,34 @@ function formatWakeInterval(elapsedMs) {
     return `约 ${hours} 小时${rest ? rest + ' 分钟' : ''}`;
 }
 
-function formatWakeStateSlots() {
+function formatWakeStateSlots(now = new Date()) {
     const slots = loadUserState().slots || {};
-    const values = Object.entries(slots)
+    const today = getChinaDateString(now);
+    const daily = [];
+    const recent = [];
+    const sorted = Object.entries(slots)
         .filter(([, slot]) => slot && slot.value)
-        .sort(([, a], [, b]) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
-        .slice(0, 4)
-        .map(([key, slot]) => `${key}：${String(slot.value).slice(0, 120)}`);
-    return values.join('；').slice(0, 480) || '（暂无）';
+        .sort(([, a], [, b]) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+    for (const [key, slot] of sorted) {
+        const updatedAt = new Date(slot.updated_at || 0);
+        const validDate = Number.isFinite(updatedAt.getTime());
+        const dateKey = validDate ? getChinaDateString(updatedAt) : null;
+        const value = String(slot.value).replace(/\s+/g, ' ').slice(0, 120);
+        if (slot.mode !== 'persistent') {
+            if (dateKey === today) daily.push(`${key}：${value}`);
+            continue;
+        }
+        const ageDays = validDate ? Math.floor((now.getTime() - updatedAt.getTime()) / 86400000) : Infinity;
+        if (ageDays >= (Number(slot.life_days) || 3)) continue;
+        recent.push(`${key}（最后确认于${dateKey || '未知日期'}）：${value}`);
+    }
+    const lines = [`【主动唤醒时间锚点】当前北京日期：${today}`];
+    if (daily.length) lines.push(`今日状态：${daily.slice(0, 4).join('；')}`);
+    const remaining = Math.max(0, 4 - daily.slice(0, 4).length);
+    if (remaining && recent.length) lines.push(`近期状态：${recent.slice(0, remaining).join('；')}`);
+    if (!daily.length && !recent.length) lines.push('当前没有可用的今日或近期状态。');
+    lines.push('只有“今日状态”可以当作今天的事实；“近期状态”必须按括号里的最后确认日期理解，禁止擅自改写成今天。');
+    return lines.join('\n').slice(0, 720);
 }
 
 // Wake recall stays local and tag-led: it should add a small familiar thread,
@@ -4685,7 +4725,7 @@ async function generateProactiveMessage(wakeup = {}) {
     }
 
     const wakeHistory = await loadZepConversationHistory(Math.max(30, WAKE_RECENT_MESSAGES));
-    const recentMsgs = normalizeConversationMessages(wakeHistory.rawMessages, WAKE_RECENT_MESSAGES, WAKE_MESSAGE_CHARS, true);
+    const recentMsgs = normalizeConversationMessages(wakeHistory.rawMessages, WAKE_RECENT_MESSAGES, WAKE_MESSAGE_CHARS, true, true);
     if (!wakeHistory.ok) console.log('💌 [主动消息] Zep 最近历史不可用，本次不注入最近对话');
 
     const careContext = careDue ? `${careDue.content}（只自然地问这一件，必须提到“${careDue.entity}”）` : '（无）';
@@ -4821,31 +4861,43 @@ function insertProactiveToConfig(content, messageId = `proactive_${crypto.random
     } catch(e) { console.error('❌ [proactive] write failed:', e.message); return null; }
 }
 
-function dedupePersistedProactiveMessages() {
+function dedupePersistedDuplicateMessages() {
     try {
         const configPath = path.join(DATA_DIR, 'web_config.json');
         if (!fs.existsSync(configPath)) return 0;
         const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
         const main = (config.chatSessions || []).find(session => session.id === 'main');
         if (!main?.messages?.length) return 0;
+        const activeVersion = item => item?.versions?.[item.activeVersion || 0] || item?.versions?.[0] || item || {};
+        const normalizedContent = item => String(activeVersion(item).content || item?.content || '').replace(/\s+/g, '');
+        const messageTime = item => {
+            const version = activeVersion(item);
+            const parsed = new Date(version.fullTime || item?.fullTime || item?.createdAt || item?.created_at || 0).getTime();
+            return Number.isFinite(parsed) ? parsed : 0;
+        };
         const kept = [];
         let removed = 0;
         for (const item of main.messages) {
-            const version = item.versions?.[item.activeVersion || 0] || item.versions?.[0] || item;
             const previous = kept[kept.length - 1];
-            const previousVersion = previous && (previous.versions?.[previous.activeVersion || 0] || previous.versions?.[0] || previous);
-            const sameProactive = previous && item.role === 'assistant' && previous.role === 'assistant' &&
-                version.model === 'proactive' && previousVersion.model === 'proactive' &&
-                String(version.content || '').replace(/\s+/g, '') === String(previousVersion.content || '').replace(/\s+/g, '') &&
-                Math.abs(new Date(version.fullTime || 0).getTime() - new Date(previousVersion.fullTime || 0).getTime()) < 2 * 60 * 1000;
-            if (sameProactive) { removed++; continue; }
+            const version = activeVersion(item);
+            const previousVersion = activeVersion(previous);
+            const content = normalizedContent(item);
+            const previousContent = normalizedContent(previous);
+            const currentTime = messageTime(item);
+            const previousTime = messageTime(previous);
+            const bothProactive = version.model === 'proactive' && previousVersion.model === 'proactive';
+            const sameNearbyAssistant = previous && item.role === 'assistant' && previous.role === 'assistant' &&
+                content.length > 0 && content === previousContent &&
+                currentTime > 0 && previousTime > 0 && Math.abs(currentTime - previousTime) <= 90 * 1000 &&
+                (bothProactive || content.length >= 16);
+            if (sameNearbyAssistant) { removed++; continue; }
             kept.push(item);
         }
         if (removed) {
             main.messages = kept;
             config._version = (config._version || 0) + 1;
             fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-            console.log(`🧹 [主动消息] 清理了 ${removed} 条重复消息`);
+            console.log(`🧹 [消息去重] 清理了 ${removed} 条相邻重复回复`);
         }
         return removed;
     } catch (error) {
@@ -4935,7 +4987,17 @@ let XHS_SHORT_AGENTS_CACHE = { expiresAt: 0, agents: [] };
 const XHS_MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const XHS_MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 const XHS_WALK_FILE = path.join(DATA_DIR, 'xhs_walk.json');
+const XHS_FEED_INBOX_FILE = path.join(DATA_DIR, 'xhs_feed_inbox.json');
+const XHS_BROWSER_STATE_FILE = path.join(DATA_DIR, 'xhs_browser_state.json');
+const XHS_BROWSER_PROFILE_DIR = path.join(DATA_DIR, 'xhs-browser-profile');
+const XHS_LOGIN_SCREENSHOT_FILE = path.join(DATA_DIR, 'xhs-login.png');
 let XHS_WALK_RUNNING = false;
+let XHS_COLLECT_RUNNING = false;
+let xhsCollectionTimer = null;
+let xhsWalkTimer = null;
+let xhsBrowser = null;
+let xhsBrowserQueue = Promise.resolve();
+let xhsPuppeteer = null;
 const WAKE_ACTIVATION_FILE = path.join(DATA_DIR, 'wake_activation.json');
 const WAKE_AUDIT_FILE = path.join(DATA_DIR, 'wake_audit.json');
 let wakeTimer = null;
@@ -5022,6 +5084,224 @@ function armAnticipationWake(now = new Date()) {
     }, delay);
 }
 
+function loadXhsFeedInbox(now = new Date()) {
+    try { return normalizeFeedInbox(JSON.parse(fs.readFileSync(XHS_FEED_INBOX_FILE, 'utf8')), now); }
+    catch (_) { return normalizeFeedInbox({}, now); }
+}
+
+function saveXhsFeedInbox(inbox) {
+    try { fs.writeFileSync(XHS_FEED_INBOX_FILE, JSON.stringify(inbox, null, 2), 'utf8'); }
+    catch (error) { console.log(`📕 [小红书首页] 候选池保存失败: ${error.message}`); }
+}
+
+function loadXhsBrowserState() {
+    try { return JSON.parse(fs.readFileSync(XHS_BROWSER_STATE_FILE, 'utf8')); }
+    catch (_) { return { login_status: 'unknown' }; }
+}
+
+function saveXhsBrowserState(patch = {}) {
+    const previous = loadXhsBrowserState();
+    const next = { ...previous, ...patch, updated_at: new Date().toISOString() };
+    try { fs.writeFileSync(XHS_BROWSER_STATE_FILE, JSON.stringify(next, null, 2), 'utf8'); }
+    catch (error) { console.log(`📕 [小红书首页] 浏览器状态保存失败: ${error.message}`); }
+    return next;
+}
+
+function resolveXhsChromeExecutable() {
+    const candidates = [
+        process.env.XHS_CHROME_PATH,
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+        '/snap/bin/chromium',
+    ].filter(Boolean);
+    return candidates.find(candidate => fs.existsSync(candidate)) || null;
+}
+
+function queueXhsBrowserTask(task) {
+    const run = xhsBrowserQueue.catch(() => {}).then(task);
+    xhsBrowserQueue = run.catch(() => {});
+    return run;
+}
+
+async function getXhsBrowserPage() {
+    if (!xhsBrowser?.connected) {
+        const executablePath = resolveXhsChromeExecutable();
+        if (!executablePath) throw new Error('VPS 未找到 Chromium，请先安装或设置 XHS_CHROME_PATH');
+        if (!xhsPuppeteer) xhsPuppeteer = require('puppeteer-core');
+        fs.mkdirSync(XHS_BROWSER_PROFILE_DIR, { recursive: true });
+        xhsBrowser = await xhsPuppeteer.launch({
+            executablePath,
+            userDataDir: XHS_BROWSER_PROFILE_DIR,
+            headless: 'new',
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+            defaultViewport: { width: 1280, height: 900, deviceScaleFactor: 1 },
+        });
+        xhsBrowser.on('disconnected', () => { xhsBrowser = null; });
+    }
+    const pages = await xhsBrowser.pages();
+    const page = pages.find(candidate => !candidate.isClosed()) || await xhsBrowser.newPage();
+    page.setDefaultNavigationTimeout(45000);
+    return page;
+}
+
+async function isXhsLoggedIn(page) {
+    const cookies = await page.cookies('https://www.xiaohongshu.com');
+    return cookies.some(cookie => cookie.name === 'web_session' && String(cookie.value || '').length > 10);
+}
+
+async function inspectXhsSession(page) {
+    const loggedIn = await isXhsLoggedIn(page);
+    const pageState = await page.evaluate(() => {
+        const text = String(document.body?.innerText || '').slice(0, 5000);
+        const challenge = Boolean(document.querySelector(
+            'iframe[src*="captcha"], [class*="captcha"], [class*="Captcha"], [id*="captcha"], [class*="slide-verify"], [class*="risk-control"]'
+        )) || /网络环境存在风险|安全验证|拖动滑块|请完成验证/.test(text);
+        const loginNode = document.querySelector(
+            '[class*="login-container"], [class*="login-modal"], [class*="LoginModal"], input[placeholder*="手机号"]'
+        );
+        const loginRect = loginNode?.getBoundingClientRect();
+        const loginPrompt = Boolean(loginRect && loginRect.width > 20 && loginRect.height > 20)
+            || /扫码登录|手机号登录/.test(text.slice(0, 1800));
+        return { challenge, loginPrompt };
+    });
+    if (pageState.challenge) return 'challenge';
+    if (!loggedIn || pageState.loginPrompt || /\/login(?:[/?#]|$)/i.test(page.url())) return 'login_required';
+    return 'logged_in';
+}
+
+async function saveXhsLoginScreenshot(page) {
+    await page.screenshot({ path: XHS_LOGIN_SCREENSHOT_FILE, type: 'png', fullPage: false });
+    return XHS_LOGIN_SCREENSHOT_FILE;
+}
+
+async function startXhsLoginSession() {
+    return queueXhsBrowserTask(async () => {
+        const page = await getXhsBrowserPage();
+        await page.goto('https://www.xiaohongshu.com/explore', { waitUntil: 'domcontentloaded' });
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        if (!await isXhsLoggedIn(page)) {
+            await page.evaluate(() => {
+                const button = [...document.querySelectorAll('button, a, div')]
+                    .find(node => /^(登录|立即登录)$/.test(String(node.textContent || '').trim()));
+                if (button instanceof HTMLElement) button.click();
+            }).catch(() => {});
+            await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+        const loginStatus = await inspectXhsSession(page);
+        await saveXhsLoginScreenshot(page);
+        return saveXhsBrowserState({
+            login_status: loginStatus,
+            last_login_check_at: new Date().toISOString(),
+            last_error: loginStatus === 'challenge' ? '小红书要求安全验证，采集已暂停。' : null,
+        });
+    });
+}
+
+async function extractPersonalizedXhsCandidates(page) {
+    for (let index = 0; index < 2; index++) {
+        await page.evaluate(() => window.scrollBy(0, Math.max(window.innerHeight, 800)));
+        await new Promise(resolve => setTimeout(resolve, 1200));
+    }
+    const fromState = parseDiscoveryCandidates(await page.content());
+    const fromDom = await page.evaluate(() => {
+        return [...document.querySelectorAll('a[href*="/explore/"]')].map((anchor, rank) => {
+            const href = anchor.href || '';
+            const match = href.match(/\/explore\/([^?/#]+)/);
+            const container = anchor.closest('section, article, li') || anchor.parentElement?.parentElement;
+            const titleNode = container?.querySelector('.title, [class*="title"], span');
+            const authorNode = container?.querySelector('.author, [class*="author"], [class*="name"]');
+            const image = container?.querySelector('img');
+            return {
+                id: match?.[1] || '',
+                url: href,
+                title: (titleNode?.textContent || anchor.getAttribute('title') || anchor.textContent || '').trim(),
+                author: (authorNode?.textContent || '').trim(),
+                type: container?.querySelector('video') ? 'video' : 'image',
+                cover: image?.currentSrc || image?.src || null,
+                rank,
+            };
+        });
+    });
+    const unique = new Map();
+    for (const candidate of [...fromState, ...fromDom]) {
+        const id = String(candidate?.id || '').trim();
+        if (!id || !candidate?.title || unique.has(id)) continue;
+        try {
+            const url = new URL(candidate.url, 'https://www.xiaohongshu.com');
+            if (!isAllowedXhsUrl(url.toString())) continue;
+            unique.set(id, { ...candidate, id, url: url.toString() });
+        } catch (_) {}
+    }
+    return [...unique.values()].slice(0, 40);
+}
+
+async function collectPersonalizedXhsFeed(force = false) {
+    if (process.env.XHS_WALK_ENABLED === 'false') return { skipped: 'disabled' };
+    if (XHS_COLLECT_RUNNING) return { skipped: 'running' };
+    const now = new Date();
+    const state = loadXhsWalkState(now);
+    if (!force && state.next_collect_at && now.getTime() < state.next_collect_at) return { skipped: 'not_due' };
+    XHS_COLLECT_RUNNING = true;
+    try {
+        return await queueXhsBrowserTask(async () => {
+            const page = await getXhsBrowserPage();
+            await page.goto('https://www.xiaohongshu.com/explore', { waitUntil: 'domcontentloaded' });
+            await new Promise(resolve => setTimeout(resolve, 2500));
+            const loginStatus = await inspectXhsSession(page);
+            if (loginStatus !== 'logged_in') {
+                await saveXhsLoginScreenshot(page);
+                const message = loginStatus === 'challenge'
+                    ? '小红书要求安全验证，采集已暂停。'
+                    : '小红书登录已失效，请重新扫码。';
+                scheduleNextCollection(state, now);
+                state.last_error = message;
+                state.last_error_at = now.toISOString();
+                saveXhsWalkState(state);
+                saveXhsBrowserState({ login_status: loginStatus, last_login_check_at: now.toISOString(), last_error: message });
+                return { error: loginStatus };
+            }
+            const candidates = await extractPersonalizedXhsCandidates(page);
+            if (!candidates.length) throw new Error('已打开个性化首页，但没有解析到推荐卡片');
+            const inbox = mergeFeedCandidates(loadXhsFeedInbox(now), candidates, now);
+            saveXhsFeedInbox(inbox);
+            scheduleNextCollection(state, now);
+            state.last_collect_at = now.toISOString();
+            state.last_collect_count = candidates.length;
+            state.last_error = null;
+            saveXhsWalkState(state);
+            saveXhsBrowserState({ login_status: 'logged_in', last_login_check_at: now.toISOString(), last_collect_at: now.toISOString(), last_collect_count: candidates.length, last_error: null });
+            console.log(`📕 [小红书首页] 收入 ${candidates.length} 条个性化推荐，候选池共 ${inbox.items.length} 条`);
+            return { collected: candidates.length, inbox: inbox.items.length };
+        });
+    } catch (error) {
+        state.last_error = error.message;
+        state.last_error_at = now.toISOString();
+        scheduleNextCollection(state, now);
+        saveXhsWalkState(state);
+        saveXhsBrowserState({ last_error: error.message, last_error_at: now.toISOString() });
+        console.log(`📕 [小红书首页] 采集失败: ${error.message}`);
+        return { error: error.message };
+    } finally {
+        XHS_COLLECT_RUNNING = false;
+    }
+}
+
+async function readXhsNoteFromLoggedInBrowser(url) {
+    return queueXhsBrowserTask(async () => {
+        const page = await getXhsBrowserPage();
+        await page.goto(url, { waitUntil: 'domcontentloaded' });
+        await new Promise(resolve => setTimeout(resolve, 1800));
+        const loginStatus = await inspectXhsSession(page);
+        if (loginStatus !== 'logged_in') throw new Error(`浏览器登录状态不可用: ${loginStatus}`);
+        const state = parseInitialState(await page.content());
+        const rawNote = findNoteData(state);
+        if (!rawNote) throw new Error('登录浏览器里没有找到笔记正文');
+        return normalizeNote(rawNote, page.url());
+    });
+}
+
 function loadXhsWalkState(now = new Date()) {
     try { return normalizeWalkState(JSON.parse(fs.readFileSync(XHS_WALK_FILE, 'utf8')), now); }
     catch (_) { return normalizeWalkState({}, now); }
@@ -5030,18 +5310,6 @@ function loadXhsWalkState(now = new Date()) {
 function saveXhsWalkState(state) {
     try { fs.writeFileSync(XHS_WALK_FILE, JSON.stringify(state, null, 2), 'utf8'); }
     catch (error) { console.log(`📕 [小红书散步] 状态保存失败: ${error.message}`); }
-}
-
-async function fetchXhsDiscoveryCandidates() {
-    const response = await nodeFetch('https://www.xiaohongshu.com/explore', {
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
-            Accept: 'text/html,application/xhtml+xml',
-        },
-        signal: AbortSignal.timeout(25000),
-    });
-    if (!response.ok) throw new Error(`发现页返回 HTTP ${response.status}`);
-    return parseDiscoveryCandidates(await response.text());
 }
 
 async function callXhsWalkModel({ apiKey, endpoint, messages, label }) {
@@ -5089,18 +5357,6 @@ function getXhsWalkModelConfig() {
     };
 }
 
-function getRecentConversationMessages() {
-    try {
-        const config = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'web_config.json'), 'utf8'));
-        const main = (config.chatSessions || []).find(session => session.id === 'main');
-        return (main?.messages || []).slice(-16).map(item => {
-            const version = item.versions?.[item.activeVersion || 0] || item.versions?.[0] || item;
-            const content = typeof version.content === 'string' ? version.content : '';
-            return content ? { role: item.role === 'assistant' ? 'assistant' : 'user', content } : null;
-        }).filter(Boolean);
-    } catch (_) { return []; }
-}
-
 async function decideXhsWalkShare(candidates) {
     const { apiKey, endpoint } = getXhsWalkModelConfig();
     if (!apiKey) throw new Error('缺少可用的模型 API Key');
@@ -5128,32 +5384,69 @@ async function composeXhsWalkMessage(note) {
         type: note.type,
         desc: String(note.desc || '').slice(0, 1800),
     };
-    const mpConfig = getModelPromptConfig(model);
-    const messages = [];
-    if (mpConfig.prepend) messages.push({ role: mpConfig.role || 'system', content: mpConfig.prepend });
-    messages.push({ role: 'system', content: systemPrompt });
-    messages.push(...getRecentConversationMessages());
-    messages.push({ role: 'user', content: `（你刚才自己逛小红书，真正打开并读了这条：\n${JSON.stringify(material, null, 2)}\n\n如果你想拿给江鱼看，就像平时聊天一样自然发给她。可以吐槽、联想到她、问她意见，或只叫她来看。不要总结报告，不要客服腔，不要假装知道资料之外的内容。链接由系统随后附上，不要在正文里重复链接。只说你会发出的那句话。）` });
+    const history = await loadZepConversationHistory(Math.max(30, WAKE_RECENT_MESSAGES));
+    const recentMessages = normalizeConversationMessages(history.rawMessages, WAKE_RECENT_MESSAGES, WAKE_MESSAGE_CHARS, true, true);
+    const query = [material.title, material.desc, ...recentMessages.slice(-2).map(message => message.content)]
+        .filter(Boolean).join('\n').slice(0, 1400);
+    const shared = await buildSharedSystemPrompt({
+        query,
+        envContext: buildEnvContext('【场景确认：小红书散步】你独自在自己的个性化推荐首页随手逛了逛，现在想把刚读到的一条发给江鱼。'),
+        dynamicStatePrompt: formatWakeStateSlots(),
+        model,
+    });
+    const volatileContext = buildVolatileContext(shared.volatileParts);
+    if (volatileContext) shared.systemMessage.content += `\n\n${volatileContext}`;
+    shared.systemMessage.content += `\n\n【小红书主动分享模式】
+你已经决定把这条笔记发给江鱼。现在只负责说出随手分享时会发给她的话，不再判断要不要发送。
+像平时聊天一样自然，可以吐槽、联想到她、问她意见，或只叫她来看。不要写总结报告，不要用客服腔，不要编造资料之外的内容。
+不要输出 PASS、SKIP、KEEP、SHARE、SEND、SILENT、WALK_XHS 等标签。链接由系统附上，不要重复链接。`;
+    const messages = [
+        shared.systemMessage,
+        ...recentMessages,
+        { role: 'user', content: `（你刚才真正打开并读到的笔记资料如下：\n${JSON.stringify(material, null, 2)}\n\n直接说你会发给江鱼的话。）` },
+    ];
     const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, messages }),
+        body: JSON.stringify({ model, messages, temperature: 0.65, max_tokens: 400 }),
         signal: AbortSignal.timeout(60000),
     });
     if (!response.ok) throw new Error(`当前对话模型返回 HTTP ${response.status}`);
     const data = await response.json();
-    return cleanAssistantInternalArtifacts(String(data?.choices?.[0]?.message?.content || data?.choices?.[0]?.message?.reasoning_content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim());
+    const rawContent = typeof data?.choices?.[0]?.message?.content === 'string'
+        ? data.choices[0].message.content
+        : '';
+    return cleanAssistantInternalArtifacts(processAssistantActionTags(rawContent));
 }
 
 async function runXhsWalk(force = false) {
+    if (process.env.XHS_WALK_ENABLED === 'false') return { skipped: 'disabled' };
     if (XHS_WALK_RUNNING) return { skipped: 'running' };
     const now = new Date();
-    const state = loadXhsWalkState(now);
+    let state = loadXhsWalkState(now);
+    if (!force && now.getTime() - lastInteractionTime < 30 * 60 * 1000) {
+        state.next_check_at = Math.max(state.next_check_at || 0, lastInteractionTime + 30 * 60 * 1000);
+        saveXhsWalkState(state);
+        return { skipped: 'active_chat' };
+    }
+    if (!force && !canXhsWalk(state, now, { maxScansPerDay: 3 })) return { skipped: 'not_due' };
     XHS_WALK_RUNNING = true;
     try {
-        const all = await fetchXhsDiscoveryCandidates();
-        const candidates = chooseUnseen(all, state.seen_ids, 20);
+        let inbox = loadXhsFeedInbox(now);
+        let candidates = takeUnseenFeedCandidates(inbox, 20, now);
         if (!candidates.length) {
+            const collection = await collectPersonalizedXhsFeed(true);
+            if (collection.error) {
+                scheduleNextWalk(state, now);
+                saveXhsWalkState(state);
+                return { error: collection.error };
+            }
+            state = loadXhsWalkState(now);
+            inbox = loadXhsFeedInbox(now);
+            candidates = takeUnseenFeedCandidates(inbox, 20, now);
+        }
+        if (!candidates.length) {
+            scheduleNextWalk(state, now);
             saveXhsWalkState(state);
             return { skipped: 'no_unseen' };
         }
@@ -5163,35 +5456,142 @@ async function runXhsWalk(force = false) {
         const kept = candidates.filter(item => keepById.has(item.id));
         const shareIds = new Set((decision.share_ids || []).filter(id => keepById.has(id)));
         const shared = [];
-        for (const candidate of kept) {
-            const note = await getXhsNoteCached(candidate.url);
-            const tags = keepById.get(candidate.id)?.tags || [];
-            const crumb = { id: `xhs_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, kind: 'xhs_walk', happened_at: now.toISOString(), fact: `沈望在小红书留下：${note.title || candidate.title}`, source_quote: candidate.url, source_message_id: null, entities: [], tags: ['小红书', ...tags].slice(0, 8), status: 'active', archive_after_days: 90, created_at: now.toISOString(), last_surfaced_at: null, surface_count: 0, xhs: { note_id: candidate.id, url: candidate.url, title: note.title || candidate.title, author: note.author || candidate.author } };
-            const crumbs = loadCrumbs();
-            if (!crumbs.some(item => item.xhs?.note_id === candidate.id)) { crumbs.push(crumb); saveCrumbs(crumbs.slice(-2000)); }
-            if (shareIds.has(candidate.id)) {
-                const message = await composeXhsWalkMessage(note);
-                if (message && !/<WAKE_SILENT\s*\/?\s*>/i.test(message)) { deliverProactiveMessage(`${message}\n${candidate.url}`); shared.push(candidate.id); }
+        const inboxById = new Map(inbox.items.map(item => [item.id, item]));
+        for (const candidate of candidates) {
+            const item = inboxById.get(candidate.id);
+            if (item) {
+                item.status = keepById.has(candidate.id) ? 'kept' : 'seen';
+                item.processed_at = now.toISOString();
             }
         }
-        if (shared.length) { state.last_shared_id = shared.at(-1); state.last_shared_at = now.toISOString(); console.log(`📕 [小红书散步] 分享 ${shared.length} 条`); }
+        for (const candidate of kept) {
+            try {
+                const note = await getXhsNoteCached(candidate.url);
+                const tags = keepById.get(candidate.id)?.tags || [];
+                const crumb = { id: `xhs_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, kind: 'xhs_walk', happened_at: now.toISOString(), fact: `沈望在小红书留下：${note.title || candidate.title}`, source_quote: candidate.url, source_message_id: null, entities: [], tags: ['小红书', ...tags].slice(0, 8), status: 'active', archive_after_days: 90, created_at: now.toISOString(), last_surfaced_at: null, surface_count: 0, xhs: { note_id: candidate.id, url: candidate.url, title: note.title || candidate.title, author: note.author || candidate.author } };
+                const crumbs = loadCrumbs();
+                if (!crumbs.some(item => item.xhs?.note_id === candidate.id)) { crumbs.push(crumb); saveCrumbs(crumbs.slice(-2000)); }
+                if (!shareIds.has(candidate.id)) continue;
+                const message = await composeXhsWalkMessage(note);
+                const parsed = parseProactiveMessageParts(message);
+                if (parsed.type !== 'messages') throw new Error('分享生成没有返回可投递正文');
+                if (!force && Date.now() - lastInteractionTime < 30 * 60 * 1000) {
+                    throw new Error('生成期间聊天恢复，本次不插话');
+                }
+                const content = `${parsed.parts.join('\n')}\n${candidate.url}`;
+                const delivery = deliverProactiveMessage(content);
+                if (!delivery.ok) throw new Error(delivery.reason || '分享投递失败');
+                await saveAssistantMessagesToZep([content]);
+                shared.push(candidate.id);
+                const inboxItem = inboxById.get(candidate.id);
+                if (inboxItem) {
+                    inboxItem.status = 'shared';
+                    inboxItem.shared_at = new Date().toISOString();
+                    inboxItem.last_error = null;
+                }
+            } catch (error) {
+                const inboxItem = inboxById.get(candidate.id);
+                if (inboxItem) {
+                    inboxItem.attempts = Number(inboxItem.attempts || 0) + 1;
+                    inboxItem.last_error = error.message;
+                    if (shareIds.has(candidate.id) && inboxItem.attempts < 3) inboxItem.status = 'unseen';
+                }
+                console.log(`📕 [小红书散步] ${candidate.id} 处理失败: ${error.message}`);
+            }
+        }
+        if (shared.length) {
+            state.last_shared_id = shared.at(-1);
+            state.last_shared_at = now.toISOString();
+            state.shares_today += shared.length;
+            saveLastProactiveSentTime();
+            console.log(`📕 [小红书散步] 分享 ${shared.length} 条`);
+        }
         else console.log(`📕 [小红书散步] 留下 ${kept.length} 条，安静回来`);
         state.scans_today += 1;
         state.last_scan_at = now.toISOString();
         state.last_error = null;
         state.last_error_at = null;
+        scheduleNextWalk(state, now);
+        saveXhsFeedInbox(inbox);
         saveXhsWalkState(state);
         return { shared: shared.length, kept: kept.length, scanned: candidates.length };
     } catch (error) {
         state.last_error = error.message;
         state.last_error_at = now.toISOString();
-        state.next_check_at = null;
+        scheduleNextWalk(state, now);
         saveXhsWalkState(state);
         console.log(`📕 [小红书散步] 降级静默: ${error.message}`);
         return { error: error.message };
     } finally {
         XHS_WALK_RUNNING = false;
     }
+}
+
+function millisecondsUntilXhsDaytime(now = new Date(), forceNextDay = false) {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(now);
+    const values = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+    const minutes = Number(values.hour) * 60 + Number(values.minute);
+    if (!forceNextDay && minutes >= 8 * 60 && minutes < 23 * 60) return 0;
+    const target = !forceNextDay && minutes < 8 * 60 ? 8 * 60 : 24 * 60 + 8 * 60;
+    return Math.max(60 * 1000, (target - minutes) * 60 * 1000);
+}
+
+function armXhsCollection(now = new Date()) {
+    if (xhsCollectionTimer) clearTimeout(xhsCollectionTimer);
+    if (process.env.XHS_WALK_ENABLED === 'false') return;
+    const state = loadXhsWalkState(now);
+    if (!state.next_collect_at) {
+        state.next_collect_at = now.getTime() + 60 * 1000;
+        saveXhsWalkState(state);
+    }
+    let target = Math.max(now.getTime() + 1000, state.next_collect_at);
+    const targetDate = new Date(target);
+    if (beijingHour(targetDate) < 8 || beijingHour(targetDate) >= 23) {
+        target += millisecondsUntilXhsDaytime(targetDate);
+    }
+    if (state.next_collect_at !== target) {
+        state.next_collect_at = target;
+        saveXhsWalkState(state);
+    }
+    const delay = Math.min(Math.max(1000, target - now.getTime()), 12 * 60 * 60 * 1000);
+    xhsCollectionTimer = setTimeout(async () => {
+        try { await collectPersonalizedXhsFeed(false); }
+        finally { armXhsCollection(new Date()); }
+    }, delay);
+    xhsCollectionTimer.unref?.();
+    console.log(`📕 [小红书首页] 下一次个性化采集约 ${Math.ceil(delay / 60000)} 分钟后`);
+}
+
+function armXhsWalk(now = new Date()) {
+    if (xhsWalkTimer) clearTimeout(xhsWalkTimer);
+    if (process.env.XHS_WALK_ENABLED === 'false') return;
+    const state = loadXhsWalkState(now);
+    if (!state.next_check_at) {
+        scheduleNextWalk(state, now);
+        saveXhsWalkState(state);
+    }
+    let target = Math.max(now.getTime() + 1000, state.next_check_at);
+    if (state.scans_today >= 3) {
+        target = now.getTime() + millisecondsUntilXhsDaytime(now, beijingHour(now) >= 8 && beijingHour(now) < 23);
+    } else {
+        const targetDate = new Date(target);
+        if (beijingHour(targetDate) < 8 || beijingHour(targetDate) >= 23) {
+            target += millisecondsUntilXhsDaytime(targetDate);
+        }
+    }
+    if (state.next_check_at !== target) {
+        state.next_check_at = target;
+        saveXhsWalkState(state);
+    }
+    const delay = Math.min(Math.max(1000, target - now.getTime()), 12 * 60 * 60 * 1000);
+    xhsWalkTimer = setTimeout(async () => {
+        try { await runXhsWalk(false); }
+        finally { armXhsWalk(new Date()); }
+    }, delay);
+    xhsWalkTimer.unref?.();
+    console.log(`📕 [小红书散步] 下一次空闲散步机会约 ${Math.ceil(delay / 60000)} 分钟后`);
 }
 
 function getXhsCacheKey(url) { return String(url || '').trim(); }
@@ -5285,24 +5685,31 @@ async function getXhsNoteCached(url) {
         }
         const shortAgents = await getXhsShortAgents();
         if (shortAgents.length) console.log(`📕 [XHS] 短链节点: ${shortAgents.map(item => item.ip).join(', ')}`);
-        const note = await readXhsNote(nodeFetch, readUrl, {
-            requestTimeoutMs({ url: requestUrl }) {
-                return XHS_SHORT_HOSTS.has(requestUrl.hostname.toLowerCase()) ? 8000 : 22000;
-            },
-            maxAttempts: Math.max(2, shortAgents.length),
-            fetchOptions({ url: requestUrl, attempt }) {
-                if (XHS_SHORT_HOSTS.has(requestUrl.hostname.toLowerCase()) && shortAgents.length) {
-                    return { agent: shortAgents[(attempt - 1) % shortAgents.length].agent };
-                }
-                return { agent: XHS_HTTPS_AGENT };
-            },
-            onStage(info) {
-                const suffix = info.elapsedMs == null ? '' : ` ${info.elapsedMs}ms`;
-                const status = info.status == null ? '' : ` HTTP ${info.status}`;
-                const error = info.error ? ` ${info.error}` : '';
-                console.log(`📕 [XHS] attempt=${info.attempt} stage=${info.stage} ${info.event}${status}${suffix}${error}`);
-            },
-        });
+        let note;
+        try {
+            note = await readXhsNote(nodeFetch, readUrl, {
+                requestTimeoutMs({ url: requestUrl }) {
+                    return XHS_SHORT_HOSTS.has(requestUrl.hostname.toLowerCase()) ? 8000 : 22000;
+                },
+                maxAttempts: Math.max(2, shortAgents.length),
+                fetchOptions({ url: requestUrl, attempt }) {
+                    if (XHS_SHORT_HOSTS.has(requestUrl.hostname.toLowerCase()) && shortAgents.length) {
+                        return { agent: shortAgents[(attempt - 1) % shortAgents.length].agent };
+                    }
+                    return { agent: XHS_HTTPS_AGENT };
+                },
+                onStage(info) {
+                    const suffix = info.elapsedMs == null ? '' : ` ${info.elapsedMs}ms`;
+                    const status = info.status == null ? '' : ` HTTP ${info.status}`;
+                    const error = info.error ? ` ${info.error}` : '';
+                    console.log(`📕 [XHS] attempt=${info.attempt} stage=${info.stage} ${info.event}${status}${suffix}${error}`);
+                },
+            });
+        } catch (error) {
+            if (loadXhsBrowserState().login_status !== 'logged_in') throw error;
+            console.log(`📕 [XHS] 匿名读取失败，改用已登录浏览器读取: ${error.message}`);
+            note = await readXhsNoteFromLoggedInBrowser(readUrl);
+        }
         XHS_NOTE_CACHE.set(key, { createdAt: Date.now(), note });
         if (XHS_NOTE_CACHE.size > 40) {
             const oldest = [...XHS_NOTE_CACHE.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt)[0];
@@ -5455,22 +5862,77 @@ app.get('/api/xhs-card', async (req, res) => {
 
 app.get('/api/xhs-walk/status', (req, res) => {
     const state = loadXhsWalkState();
+    const inbox = loadXhsFeedInbox();
+    const browser = loadXhsBrowserState();
     const wake = loadWakeActivationState();
     res.json({
         enabled: process.env.XHS_WALK_ENABLED !== 'false',
         running: XHS_WALK_RUNNING,
+        collecting: XHS_COLLECT_RUNNING,
+        chromium_ready: Boolean(resolveXhsChromeExecutable()),
+        login_status: browser.login_status || 'unknown',
+        login_screenshot_url: fs.existsSync(XHS_LOGIN_SCREENSHOT_FILE) ? `/api/xhs-session/screenshot?v=${Date.now()}` : null,
+        inbox_count: inbox.items.length,
+        unseen_count: inbox.items.filter(item => item.status === 'unseen').length,
         scans_today: state.scans_today,
         shares_today: state.shares_today,
-        next_check_at: null,
+        next_collect_at: state.next_collect_at ? new Date(state.next_collect_at).toISOString() : null,
+        next_check_at: state.next_check_at ? new Date(state.next_check_at).toISOString() : null,
+        last_collect_at: state.last_collect_at || browser.last_collect_at || null,
+        last_collect_count: state.last_collect_count || browser.last_collect_count || 0,
         last_scan_at: state.last_scan_at || null,
         last_shared_at: state.last_shared_at || null,
-        last_error: state.last_error || null,
+        last_error: state.last_error || browser.last_error || null,
         wake: { generation: wake.generation, last_run_at: wake.last_run_at, last_wake_at: wake.last_wake_at },
     });
 });
 
+app.post('/api/xhs-session/start', async (req, res) => {
+    try {
+        const result = await startXhsLoginSession();
+        if (result.login_status === 'logged_in') {
+            const state = loadXhsWalkState();
+            state.next_collect_at = Date.now() + 1000;
+            saveXhsWalkState(state);
+            armXhsCollection();
+        }
+        res.json({ success: true, ...result, screenshot_url: `/api/xhs-session/screenshot?v=${Date.now()}` });
+    } catch (error) {
+        saveXhsBrowserState({ login_status: 'error', last_error: error.message, last_error_at: new Date().toISOString() });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/xhs-session/check', async (req, res) => {
+    try {
+        const result = await startXhsLoginSession();
+        if (result.login_status === 'logged_in') {
+            const state = loadXhsWalkState();
+            state.next_collect_at = Date.now() + 1000;
+            saveXhsWalkState(state);
+            armXhsCollection();
+        }
+        res.json({ success: true, ...result, screenshot_url: `/api/xhs-session/screenshot?v=${Date.now()}` });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/xhs-session/screenshot', (req, res) => {
+    if (!fs.existsSync(XHS_LOGIN_SCREENSHOT_FILE)) return res.status(404).json({ error: '还没有登录截图' });
+    res.set('Cache-Control', 'no-store');
+    res.sendFile(XHS_LOGIN_SCREENSHOT_FILE);
+});
+
+app.post('/api/xhs-collect/try', async (req, res) => {
+    const result = await collectPersonalizedXhsFeed(true);
+    armXhsCollection();
+    res.json({ success: !result.error, ...result });
+});
+
 app.post('/api/xhs-walk/try', async (req, res) => {
     const result = await runXhsWalk(true);
+    armXhsWalk();
     res.json({ success: !result.error, ...result });
 });
 
@@ -8809,7 +9271,7 @@ server.listen(PORT, () => {
     console.log(`🚀 服务器已启动，端口: ${PORT}`);
     migrateLongTermMemoriesToPermanent();
     loadLastInteraction();
-    dedupePersistedProactiveMessages();
+    dedupePersistedDuplicateMessages();
     latestSensorState = loadSensorState();
     if (latestSensorState) console.log('📡 [Sensor] 已加载传感器状态');
     initUserProfile();
@@ -8872,6 +9334,8 @@ server.listen(PORT, () => {
     setInterval(cleanAndArchiveMemories, 6 * 60 * 60 * 1000);
     armSpontaneousWake();
     armAnticipationWake();
+    armXhsCollection();
+    armXhsWalk();
 
     // 每5分钟清理过期传感器速率限制记录
     setInterval(() => {

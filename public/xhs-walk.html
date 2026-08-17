@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>小红书散步</title>
+  <style>
+    :root { color-scheme: light; font-family: ui-sans-serif, system-ui, "Microsoft YaHei", sans-serif; color: #35445f; background: #eef5fb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 28px 16px 60px; }
+    main { width: min(760px, 100%); margin: 0 auto; }
+    h1 { margin: 0 0 8px; color: #23a8a3; font-size: 24px; font-weight: 650; }
+    .sub { margin: 0 0 22px; color: #8191aa; }
+    .card { margin: 14px 0; padding: 18px; border: 1px solid #dce8f4; border-radius: 18px; background: rgba(255,255,255,.72); box-shadow: 0 8px 24px rgba(75,102,138,.08); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 10px 18px; }
+    .label { display: block; color: #8998ad; font-size: 12px; margin-bottom: 3px; }
+    .value { overflow-wrap: anywhere; }
+    .status { font-weight: 650; }
+    .status.logged_in { color: #159879; }
+    .status.login_required, .status.challenge, .error { color: #d45c64; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+    button { border: 0; border-radius: 999px; padding: 10px 16px; color: #276a7b; background: #e1f3f4; cursor: pointer; font: inherit; }
+    button.primary { color: white; background: #29aaa7; }
+    button:disabled { opacity: .55; cursor: wait; }
+    img { display: none; width: 100%; margin-top: 16px; border-radius: 14px; border: 1px solid #dce8f4; }
+    pre { white-space: pre-wrap; margin: 14px 0 0; color: #6d7d94; font: 13px/1.6 ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>小红书散步</h1>
+  <p class="sub">VPS 会保留登录态，只采集你的个性化推荐首页。采集本身不调用模型，也不会立刻推送。</p>
+  <section class="card">
+    <div class="grid">
+      <div><span class="label">Chromium</span><span id="chrome" class="value">读取中</span></div>
+      <div><span class="label">登录状态</span><span id="login" class="value status">读取中</span></div>
+      <div><span class="label">候选 / 未看</span><span id="inbox" class="value">—</span></div>
+      <div><span class="label">今日散步 / 分享（仅计数）</span><span id="today" class="value">—</span></div>
+      <div><span class="label">下次采集</span><span id="collectAt" class="value">—</span></div>
+      <div><span class="label">下次散步机会</span><span id="walkAt" class="value">—</span></div>
+    </div>
+    <div class="actions">
+      <button id="loginBtn" class="primary">打开 / 刷新扫码页</button>
+      <button id="checkBtn">我已扫码，检查登录</button>
+      <button id="collectBtn">立即采集首页</button>
+      <button id="walkBtn">让他现在逛一次</button>
+      <button id="refreshBtn">刷新状态</button>
+    </div>
+    <img id="shot" alt="小红书登录二维码截图">
+    <pre id="message"></pre>
+  </section>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  const fmt = value => value ? new Date(value).toLocaleString('zh-CN') : '—';
+  async function request(url) {
+    const response = await fetch(url, { method: 'POST' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    return data;
+  }
+  async function refresh() {
+    const response = await fetch('/api/xhs-walk/status');
+    const data = await response.json();
+    $('chrome').textContent = data.chromium_ready ? '已就绪' : '未安装';
+    $('login').textContent = data.login_status;
+    $('login').className = `value status ${data.login_status}`;
+    $('inbox').textContent = `${data.inbox_count} / ${data.unseen_count}`;
+    $('today').textContent = `${data.scans_today} / ${data.shares_today}`;
+    $('collectAt').textContent = fmt(data.next_collect_at);
+    $('walkAt').textContent = fmt(data.next_check_at);
+    if (data.login_screenshot_url && data.login_status !== 'logged_in') {
+      $('shot').src = data.login_screenshot_url;
+      $('shot').style.display = 'block';
+    } else $('shot').style.display = 'none';
+    $('message').textContent = data.last_error || (data.collecting ? '正在采集首页……' : data.running ? '正在散步……' : '');
+  }
+  async function act(button, url) {
+    button.disabled = true;
+    try {
+      const data = await request(url);
+      $('message').textContent = JSON.stringify(data, null, 2);
+      if (data.screenshot_url && data.login_status !== 'logged_in') {
+        $('shot').src = data.screenshot_url;
+        $('shot').style.display = 'block';
+      }
+    } catch (error) { $('message').textContent = error.message; }
+    finally { button.disabled = false; await refresh(); }
+  }
+  $('loginBtn').onclick = () => act($('loginBtn'), '/api/xhs-session/start');
+  $('checkBtn').onclick = () => act($('checkBtn'), '/api/xhs-session/check');
+  $('collectBtn').onclick = () => act($('collectBtn'), '/api/xhs-collect/try');
+  $('walkBtn').onclick = () => act($('walkBtn'), '/api/xhs-walk/try');
+  $('refreshBtn').onclick = refresh;
+  refresh().catch(error => { $('message').textContent = error.message; });
+</script>
+</body>
+</html>

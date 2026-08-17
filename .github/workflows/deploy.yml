@@ -39,6 +39,27 @@ jobs:
             git reset --hard origin/main
             npm install --production
 
+            # 小红书个性化首页使用 VPS 上的持久化 Chromium 登录态。
+            # 浏览器资料保存在 /opt/syzygy/data，不进入 Git，也不向前端暴露 Cookie。
+            CHROME_BIN=$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || command -v chromium-browser || true)
+            if [ -z "$CHROME_BIN" ]; then
+              echo "🔍 [Deploy] 安装小红书首页采集所需 Chromium..."
+              apt-get update -qq || echo "⚠️ apt 索引更新失败，继续尝试现有软件源"
+              DEBIAN_FRONTEND=noninteractive apt-get install -y chromium || \
+                DEBIAN_FRONTEND=noninteractive apt-get install -y chromium-browser || \
+                echo "⚠️ Chromium 安装失败；主服务仍会启动，小红书散步页会显示未就绪"
+              CHROME_BIN=$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || command -v chromium-browser || true)
+            fi
+            if [ -n "$CHROME_BIN" ]; then
+              mkdir -p /etc/systemd/system/syzygy.service.d /opt/syzygy/data/xhs-browser-profile
+              {
+                echo '[Service]'
+                echo "Environment=\"XHS_CHROME_PATH=${CHROME_BIN}\""
+              } > /etc/systemd/system/syzygy.service.d/xhs-browser.conf
+              chmod 600 /etc/systemd/system/syzygy.service.d/xhs-browser.conf
+              echo "✅ 小红书 Chromium 已配置: ${CHROME_BIN}"
+            fi
+
             # Codex Bridge uses the server-side app-server; a failed optional install must not block the main deployment
             if ! command -v codex >/dev/null 2>&1; then
               npm install -g @openai/codex || echo "WARNING: Codex CLI install failed; Codex Bridge remains unavailable"
