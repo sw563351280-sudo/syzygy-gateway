@@ -1289,6 +1289,12 @@ body{padding-bottom:0!important}
 .chat-window::-webkit-scrollbar-thumb{background:rgba(201,169,97,0.12);border-radius:3px}
 .chat-window::-webkit-scrollbar-thumb:hover{background:rgba(201,169,97,0.25)}
 
+/* 聊天页只允许纵向拖动；操作键和宽气泡都不能把整个页面拉出横向位移。 */
+#sec-chat,.chat-layout,.chat-main{max-width:100%;overflow-x:hidden;overflow-x:clip;overscroll-behavior-x:none}
+.chat-window{overflow-x:hidden;overflow-x:clip;overscroll-behavior-x:none;touch-action:pan-y}
+.msg-row,.msg{min-width:0}
+.md-content pre,.tool-call-item-body pre{touch-action:pan-x pan-y}
+
 /* ── 桌面端 ── */
 @media(min-width:768px){
 .msg-row{max-width:780px;margin-left:auto;margin-right:auto}
