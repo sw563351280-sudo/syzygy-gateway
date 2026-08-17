@@ -2283,8 +2283,8 @@ function renderChatMessages(){
         }
 
         const timeStr = v.fullTime ? new Date(v.fullTime).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) : (v.time || '');
-        const modelStr = v.model || '';
-        if(timeStr) htmlContent += '<div class="msg-meta">' + timeStr + (modelStr ? ' · ' + modelStr : '') + '</div>';
+        // 模型选择属于输入栏，不在每条消息里重复展示，避免打断对话阅读。
+        if(timeStr) htmlContent += '<div class="msg-meta">' + timeStr + '</div>';
 
         let actionsHtml = '<div class="msg-actions">';
         if(vCount > 1) {
@@ -2295,9 +2295,9 @@ function renderChatMessages(){
             if (m._failed || v._failed) {
                 actionsHtml += '<button class="msg-inline-btn" onclick="retryLastMessage()" title="重发" style="color:#e74c3c">↻ 重发</button>';
             } else {
-                actionsHtml += '<button class="msg-inline-btn" onclick="regenerateAt(' + index + ')" title="重新生成">↻</button>';
+                actionsHtml += '<button class="msg-inline-btn msg-regenerate" onclick="regenerateAt(' + index + ')" title="重新生成"><span aria-hidden="true">↻</span><span>重写</span></button>';
             }
-            actionsHtml += '<button class="msg-inline-btn fav-star" id="favBtn_' + index + '" onclick="openFavDialog(' + index + ')" title="收藏">★</button>';
+            actionsHtml += '<button class="msg-inline-btn fav-star" id="favBtn_' + index + '" onclick="openFavDialog(' + index + ')" title="收藏"><span aria-hidden="true">★</span><span>收藏</span></button>';
         }
         actionsHtml += '</div>';
         htmlContent += actionsHtml;
@@ -2759,12 +2759,12 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         // 追加 meta 和 action 按钮到现有气泡
         const metaDiv = document.createElement('div');
         metaDiv.className = 'msg-meta';
-        metaDiv.innerText = timeStr + (selectedModel ? ' · ' + selectedModel : '');
+        metaDiv.innerText = timeStr;
         sDiv.appendChild(metaDiv);
         const actionsDiv = document.createElement('div');
         actionsDiv.className = 'msg-actions';
         const msgIdx = getLiveSession(sessionId).messages.length - 1;
-        actionsDiv.innerHTML = '<button class="msg-inline-btn" onclick="regenerateAt(' + msgIdx + ')" title="重新生成">↻</button><button class="msg-inline-btn fav-star" id="favBtn_' + msgIdx + '" onclick="openFavDialog(' + msgIdx + ')" title="收藏">★</button>';
+        actionsDiv.innerHTML = '<button class="msg-inline-btn msg-regenerate" onclick="regenerateAt(' + msgIdx + ')" title="重新生成"><span aria-hidden="true">↻</span><span>重写</span></button><button class="msg-inline-btn fav-star" id="favBtn_' + msgIdx + '" onclick="openFavDialog(' + msgIdx + ')" title="收藏"><span aria-hidden="true">★</span><span>收藏</span></button>';
         sDiv.appendChild(actionsDiv);
         sDiv.classList.remove('msg-loading');
 
