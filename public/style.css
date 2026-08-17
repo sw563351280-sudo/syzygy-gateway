@@ -1090,6 +1090,8 @@ body.neu-mode #sec-data .stats-bar span { color:#40536b !important; }
 .md-content h1 { font-size: 1.1em; }
 .md-content h2 { font-size: 1.05em; }
 .md-content p { margin: 4px 0; }
+.md-content > :first-child { margin-top: 0; }
+.md-content > :last-child { margin-bottom: 0; }
 .md-content ul, .md-content ol { padding-left: 20px; margin: 6px 0; }
 .md-content li { margin: 2px 0; }
 .md-content code { background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; font-family: 'Consolas','Monaco',monospace; font-size: 0.88em; color: var(--gold); }
@@ -1104,7 +1106,7 @@ body.neu-mode #sec-data .stats-bar span { color:#40536b !important; }
 
 
 /* ═══ 消息元信息（时间戳） ═══ */
-.msg-meta { font-size: 0.68em; color: var(--dim); opacity: 0.5; margin-top: 8px; text-align: right; font-family: monospace; transition: opacity 0.2s; }
+.msg-meta { font-size: 0.68em; color: var(--dim); opacity: 0.5; margin-top: 4px; line-height: 1.2; text-align: right; font-family: monospace; transition: opacity 0.2s; }
 .msg:hover .msg-meta { opacity: 0.8; }
 
 /* ═══ 加载与错误状态 ═══ */
@@ -1115,7 +1117,7 @@ body.neu-mode #sec-data .stats-bar span { color:#40536b !important; }
 .msg-retry-btn:hover { background: rgba(196,83,74,0.2); border-color: var(--warm-red); }
 
 /* ═══ 气泡底部操作栏 + 翻页导航 ═══ */
-.msg-actions { position:absolute; bottom:-35px; display:flex; align-items:center; gap:0; width:max-content; min-height:28px; white-space:nowrap; opacity:.82; transition:opacity .2s,transform .2s; z-index:2; }
+.msg-actions { position:absolute; bottom:-31px; display:flex; align-items:center; gap:0; width:max-content; min-height:28px; white-space:nowrap; opacity:.82; transition:opacity .2s,transform .2s; z-index:2; }
 .msg.sys .msg-actions { left:0; }
 .msg.user .msg-actions { right:0; }
 .msg:hover .msg-actions { opacity:1; transform:translateY(-1px); }
@@ -1231,13 +1233,13 @@ body{padding-bottom:0!important}
 .chat-win-title{font-size:.88em;color:var(--gold);letter-spacing:2px;font-weight:normal;opacity:.7}
 
 /* ── 消息气泡 ── */
-.msg-row{display:flex;margin-bottom:42px;padding:0 20px;gap:8px;align-items:flex-end}
+.msg-row{display:flex;margin-bottom:34px;padding:0 12px;gap:8px;align-items:flex-end}
 .msg-row.user{justify-content:flex-end}
 .msg-row.sys{justify-content:flex-start}
-.msg{max-width:75%;padding:12px 16px;position:relative;word-break:break-word;line-height:1.7;transition:box-shadow .3s ease,transform .3s ease}
+.msg{max-width:75%;padding:10px 14px 7px;position:relative;word-break:break-word;line-height:1.7;transition:box-shadow .3s ease,transform .3s ease}
 .msg.user{background:linear-gradient(135deg,rgba(201,169,97,0.12) 0%,rgba(201,169,97,0.055) 100%);border:1px solid rgba(201,169,97,0.2);border-radius:18px 18px 6px 18px;color:var(--cream);box-shadow:0 2px 12px rgba(201,169,97,0.06)}
 .msg.user:hover{box-shadow:0 4px 20px rgba(201,169,97,0.1);border-color:rgba(201,169,97,0.3)}
-.msg.sys{max-width:94%;background:linear-gradient(135deg,rgba(255,255,255,0.04) 0%,rgba(255,255,255,0.02) 100%);border:1px solid rgba(255,255,255,0.06);border-left:2px solid rgba(201,169,97,0.25);border-radius:6px 18px 18px 18px;color:var(--text);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 2px 12px rgba(0,0,0,0.15);padding:12px 20px 12px 16px}
+.msg.sys{max-width:94%;background:linear-gradient(135deg,rgba(255,255,255,0.04) 0%,rgba(255,255,255,0.02) 100%);border:1px solid rgba(255,255,255,0.06);border-left:2px solid rgba(201,169,97,0.25);border-radius:6px 18px 18px 18px;color:var(--text);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 2px 12px rgba(0,0,0,0.15);padding:10px 16px 7px 14px}
 .msg.sys:hover{border-color:rgba(255,255,255,0.1);border-left-color:rgba(201,169,97,0.4);box-shadow:0 4px 20px rgba(0,0,0,0.2)}
 .msg img:not(.msg-inline-icon){border-radius:8px;max-width:100%;margin:4px 0;box-shadow:0 2px 10px rgba(0,0,0,0.3)}
 .msg-action-btn{background:transparent;border:none;color:var(--dim);cursor:pointer;font-size:1.1em;padding:4px 2px;opacity:0;transition:all .2s;align-self:flex-start;margin-top:10px;flex-shrink:0}
@@ -1317,6 +1319,13 @@ body{padding-bottom:0!important}
 /* ═══ 聊天文字缩小、气泡加宽 ═══ */
 .chat-window .msg{font-size:.78em!important;line-height:1.7!important}
 .msg{max-width:92%}
+
+/* 手机端：用横向空间换取更短的消息高度，避免阅读区显得拥挤。 */
+@media(max-width:767px){
+    .msg-row{padding-left:10px;padding-right:10px;margin-bottom:32px}
+    .msg{max-width:96%}
+    .msg.sys{max-width:calc(100% - 2px)}
+}
 
 
 /* ═══ 顶栏工具按钮 ═══ */
