@@ -4298,7 +4298,7 @@ function inferWakeActivity(date = new Date()) {
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', weekday: 'short', hour: 'numeric', hour12: false }).formatToParts(date);
     const map = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
     const hour = Number(map.hour);
-    if (hour >= 2 || hour < 7) return '可能在睡觉';
+    if (hour >= 2 && hour < 7) return '可能在睡觉';
     if (!['Sat', 'Sun'].includes(map.weekday) && hour >= 9 && hour < 18) return '可能在上班';
     return '可能有空';
 }
