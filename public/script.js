@@ -2295,9 +2295,9 @@ function renderChatMessages(){
             if (m._failed || v._failed) {
                 actionsHtml += '<button class="msg-inline-btn" onclick="retryLastMessage()" title="重发" style="color:#e74c3c">↻ 重发</button>';
             } else {
-                actionsHtml += '<button class="msg-inline-btn msg-regenerate" onclick="regenerateAt(' + index + ')" title="重新生成"><span aria-hidden="true">↻</span><span>重写</span></button>';
+                actionsHtml += '<button class="msg-inline-btn msg-regenerate" onclick="regenerateAt(' + index + ')" title="重新生成" aria-label="重新生成">↻</button>';
             }
-            actionsHtml += '<button class="msg-inline-btn fav-star" id="favBtn_' + index + '" onclick="openFavDialog(' + index + ')" title="收藏"><span aria-hidden="true">★</span><span>收藏</span></button>';
+            actionsHtml += '<button class="msg-inline-btn fav-star" id="favBtn_' + index + '" onclick="openFavDialog(' + index + ')" title="收藏" aria-label="收藏">★</button>';
         }
         actionsHtml += '</div>';
         htmlContent += actionsHtml;
@@ -2764,7 +2764,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         const actionsDiv = document.createElement('div');
         actionsDiv.className = 'msg-actions';
         const msgIdx = getLiveSession(sessionId).messages.length - 1;
-        actionsDiv.innerHTML = '<button class="msg-inline-btn msg-regenerate" onclick="regenerateAt(' + msgIdx + ')" title="重新生成"><span aria-hidden="true">↻</span><span>重写</span></button><button class="msg-inline-btn fav-star" id="favBtn_' + msgIdx + '" onclick="openFavDialog(' + msgIdx + ')" title="收藏"><span aria-hidden="true">★</span><span>收藏</span></button>';
+        actionsDiv.innerHTML = '<button class="msg-inline-btn msg-regenerate" onclick="regenerateAt(' + msgIdx + ')" title="重新生成" aria-label="重新生成">↻</button><button class="msg-inline-btn fav-star" id="favBtn_' + msgIdx + '" onclick="openFavDialog(' + msgIdx + ')" title="收藏" aria-label="收藏">★</button>';
         sDiv.appendChild(actionsDiv);
         sDiv.classList.remove('msg-loading');
 
