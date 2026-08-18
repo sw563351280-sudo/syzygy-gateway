@@ -5355,21 +5355,85 @@ async function saveXhsLoginScreenshot(page) {
     return XHS_LOGIN_SCREENSHOT_FILE;
 }
 
-async function waitForXhsLoginUi(page, attempts = 8) {
+async function waitForXhsLoginUi(page, attempts = 8, { requireQr = false } = {}) {
     for (let attempt = 0; attempt < attempts; attempt++) {
         await new Promise(resolve => setTimeout(resolve, 1000));
         const ready = await page.evaluate(() => {
             const text = String(document.body?.innerText || '').slice(0, 6000);
-            const qrNode = document.querySelector(
-                'canvas[class*="qr" i], img[src*="qr" i], img[alt*="二维码"], [class*="qrcode" i], [class*="qr-code" i], [class*="login-container"], [class*="login-modal" i]'
-            );
-            if (!qrNode) return /扫码登录|手机号登录|验证码登录/.test(text);
-            const rect = qrNode.getBoundingClientRect();
-            return rect.width > 40 && rect.height > 40;
+            const qrNodes = [...document.querySelectorAll(
+                'canvas, img[src*="qr" i], img[alt*="二维码"], [class*="qrcode" i], [class*="qr-code" i]'
+            )];
+            const visibleQr = qrNodes.some(node => {
+                const rect = node.getBoundingClientRect();
+                const style = getComputedStyle(node);
+                return rect.width >= 100 && rect.height >= 100
+                    && style.display !== 'none' && style.visibility !== 'hidden'
+                    && Number(style.opacity || 1) >= 0.05;
+            });
+            if (visibleQr) return true;
+            if (requireQr) return false;
+            return /扫码登录|手机号登录/.test(text);
         }).catch(() => false);
         if (ready) return true;
     }
     return false;
+}
+
+async function switchXhsCreatorLoginToQr(page) {
+    const target = await page.evaluate(() => {
+        const visible = node => {
+            if (!(node instanceof HTMLElement || node instanceof SVGElement)) return false;
+            const rect = node.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            return rect.width >= 12 && rect.height >= 12 && rect.width <= 180 && rect.height <= 180
+                && rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight
+                && style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || 1) >= 0.05;
+        };
+        const candidates = [...document.querySelectorAll('body *')].map(node => {
+            if (!visible(node)) return null;
+            const marker = `${node.id || ''} ${String(node.className?.baseVal || node.className || '')}`;
+            const text = String(node.textContent || '').replace(/\s+/g, '').trim();
+            if (!/qr|qrcode|scan/i.test(marker) && !/扫码登录|二维码登录/.test(text)) return null;
+            const rect = node.getBoundingClientRect();
+            let score = /qrcode|qr-code/i.test(marker) ? 100 : /qr|scan/i.test(marker) ? 70 : 50;
+            if (rect.left > innerWidth / 2 && rect.top < innerHeight * 0.65) score += 30;
+            return {
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+                marker: marker.slice(0, 160),
+                text: text.slice(0, 40),
+                score,
+            };
+        }).filter(Boolean).sort((a, b) => b.score - a.score);
+        if (candidates[0]) return candidates[0];
+
+        // Generic fallback for the creator login card: locate the visible
+        // phone input and click the folded QR corner at the card's top-right.
+        const input = [...document.querySelectorAll('input')].find(node => {
+            const rect = node.getBoundingClientRect();
+            return rect.width > 120 && rect.height > 20 && rect.top > 0;
+        });
+        if (!input) return null;
+        let card = input.parentElement;
+        while (card?.parentElement) {
+            const rect = card.getBoundingClientRect();
+            if (rect.width >= 240 && rect.width <= 520 && rect.height >= 220 && rect.height <= 650) {
+                return {
+                    x: Math.round(rect.right - 24),
+                    y: Math.round(rect.top + 24),
+                    marker: 'login-card-corner-fallback',
+                    text: '',
+                    score: 10,
+                };
+            }
+            card = card.parentElement;
+        }
+        return null;
+    }).catch(() => null);
+    if (!target) return null;
+    await page.mouse.move(target.x, target.y);
+    await page.mouse.click(target.x, target.y, { delay: 120 });
+    return target;
 }
 
 async function startXhsLoginSession() {
@@ -5447,12 +5511,15 @@ async function startXhsLoginSession() {
             // it shares the same persistent browser profile and cookies.
             if (!loginClick.ui_ready) {
                 await navigateXhsPage(page, 'https://creator.xiaohongshu.com/login', '官方扫码登录页');
+                await new Promise(resolve => setTimeout(resolve, 2500));
+                const qrSwitch = await switchXhsCreatorLoginToQr(page);
                 loginClick = {
                     found: true,
                     text: '官方扫码登录页',
                     tag: 'NAVIGATE',
                     url: page.url(),
-                    ui_ready: await waitForXhsLoginUi(page, 10),
+                    qr_switch: qrSwitch,
+                    ui_ready: await waitForXhsLoginUi(page, 10, { requireQr: true }),
                 };
             }
         }
