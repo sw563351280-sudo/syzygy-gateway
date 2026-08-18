@@ -5358,11 +5358,12 @@ async function saveXhsLoginScreenshot(page) {
 async function waitForXhsLoginUi(page, attempts = 8, { requireQr = false } = {}) {
     for (let attempt = 0; attempt < attempts; attempt++) {
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const ready = await page.evaluate(() => {
-            const text = String(document.body?.innerText || '').slice(0, 6000);
+        const ready = await page.evaluate(mustHaveQr => {
             // A QR-themed switch can itself have a large qrcode class. Count
             // only actual image/canvas pixels as a scannable QR code.
-            const qrNodes = [...document.querySelectorAll('canvas, img')];
+            const qrNodes = [...document.querySelectorAll(
+                'img.qrcode-img, img[class*="qr" i], canvas[class*="qr" i], [class*="qrcode" i] img, [class*="qrcode" i] canvas, [class*="qr-code" i] img, [class*="qr-code" i] canvas'
+            )];
             const visibleQr = qrNodes.some(node => {
                 const rect = node.getBoundingClientRect();
                 const style = getComputedStyle(node);
@@ -5371,9 +5372,20 @@ async function waitForXhsLoginUi(page, attempts = 8, { requireQr = false } = {})
                     && Number(style.opacity || 1) >= 0.05;
             });
             if (visibleQr) return true;
-            if (requireQr) return false;
-            return /扫码登录|手机号登录/.test(text);
-        }).catch(() => false);
+            if (mustHaveQr) return false;
+            const loginNodes = [...document.querySelectorAll(
+                '[class*="login-container" i], [class*="login-modal" i], input[placeholder*="手机号"]'
+            )];
+            return loginNodes.some(node => {
+                const rect = node.getBoundingClientRect();
+                const style = getComputedStyle(node);
+                const largePanel = rect.width >= 180 && rect.height >= 180;
+                const visiblePhoneInput = node.matches('input') && rect.width >= 100 && rect.height >= 20;
+                return (largePanel || visiblePhoneInput)
+                    && style.display !== 'none' && style.visibility !== 'hidden'
+                    && Number(style.opacity || 1) >= 0.05;
+            });
+        }, requireQr).catch(() => false);
         if (ready) return true;
     }
     return false;
