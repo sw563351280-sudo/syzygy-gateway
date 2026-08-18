@@ -5364,33 +5364,51 @@ async function startXhsLoginSession() {
         let loginCandidates = [];
         if (!await isXhsLoggedIn(page)) {
             loginCandidates = await page.evaluate(() => {
+                const seen = new Set();
                 return [...document.querySelectorAll('body *')].map(node => {
                     if (!(node instanceof HTMLElement)) return null;
                     const text = String(node.innerText || node.textContent || '').replace(/\s+/g, '').trim();
                     const marker = `${node.id || ''} ${String(node.className || '')}`;
                     const exactText = /^(登录|立即登录|扫码登录)$/.test(text);
                     const loginMarker = /login/i.test(marker);
-                    if (!exactText && !loginMarker) return null;
-                    const rect = node.getBoundingClientRect();
-                    const style = getComputedStyle(node);
+                    const authTriggerText = /^(通知|消息|我)$/.test(text);
+                    if (!exactText && !loginMarker && !authTriggerText) return null;
+
+                    // Text is often nested inside a clickable sidebar item.
+                    // Walk up only a few levels so the click target remains
+                    // specific instead of accidentally selecting the sidebar.
+                    let target = node;
+                    for (let depth = 0; depth < 4 && target.parentElement; depth++) {
+                        const style = getComputedStyle(target);
+                        if (target.matches('button, a, [role="button"], .login-btn')
+                            || typeof target.onclick === 'function' || style.cursor === 'pointer') break;
+                        target = target.parentElement;
+                    }
+                    const rect = target.getBoundingClientRect();
+                    const style = getComputedStyle(target);
                     if (rect.width < 20 || rect.height < 16 || rect.width > 600 || rect.height > 240
                         || style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || 1) < 0.05) return null;
                     const x = Math.round(rect.left + rect.width / 2);
                     const y = Math.round(rect.top + rect.height / 2);
                     if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return null;
                     const hit = document.elementFromPoint(x, y);
-                    if (!hit || (!node.contains(hit) && !hit.contains(node))) return null;
-                    const tag = node.tagName;
+                    if (!hit || (!target.contains(hit) && !hit.contains(target))) return null;
+                    const key = `${target.tagName}:${x}:${y}:${Math.round(rect.width)}:${Math.round(rect.height)}`;
+                    if (seen.has(key)) return null;
+                    seen.add(key);
+                    const tag = target.tagName;
                     let score = exactText ? 100 : 0;
                     if (tag === 'BUTTON') score += 30;
-                    else if (node.getAttribute('role') === 'button') score += 20;
+                    else if (target.getAttribute('role') === 'button') score += 20;
                     else if (tag === 'A') score += 15;
-                    if (loginMarker) score += 10;
+                    if (loginMarker) score += 60;
+                    if (authTriggerText) score += text === '通知' ? 40 : text === '消息' ? 35 : 25;
                     return {
                         text: text.slice(0, 40),
                         tag,
-                        id: String(node.id || '').slice(0, 80),
-                        class: String(node.className || '').slice(0, 160),
+                        kind: exactText || loginMarker ? 'login' : 'auth_trigger',
+                        id: String(target.id || '').slice(0, 80),
+                        class: String(target.className || '').slice(0, 160),
                         x, y,
                         width: Math.round(rect.width),
                         height: Math.round(rect.height),
