@@ -5355,6 +5355,23 @@ async function saveXhsLoginScreenshot(page) {
     return XHS_LOGIN_SCREENSHOT_FILE;
 }
 
+async function waitForXhsLoginUi(page, attempts = 8) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const ready = await page.evaluate(() => {
+            const text = String(document.body?.innerText || '').slice(0, 6000);
+            const qrNode = document.querySelector(
+                'canvas[class*="qr" i], img[src*="qr" i], img[alt*="二维码"], [class*="qrcode" i], [class*="qr-code" i], [class*="login-container"], [class*="login-modal" i]'
+            );
+            if (!qrNode) return /扫码登录|手机号登录|验证码登录/.test(text);
+            const rect = qrNode.getBoundingClientRect();
+            return rect.width > 40 && rect.height > 40;
+        }).catch(() => false);
+        if (ready) return true;
+    }
+    return false;
+}
+
 async function startXhsLoginSession() {
     return queueXhsBrowserTask(async () => {
         const page = await getXhsBrowserPage();
@@ -5423,21 +5440,20 @@ async function startXhsLoginSession() {
                 loginClick = { found: true, text: target.text, tag: target.tag, x: target.x, y: target.y, ui_ready: false };
             }
             saveXhsBrowserState({ login_candidates: loginCandidates, login_click: loginClick, login_task_error: null });
-            for (let attempt = 0; attempt < 8; attempt++) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                const loginUiReady = await page.evaluate(() => {
-                    const text = String(document.body?.innerText || '').slice(0, 4000);
-                    const qrNode = document.querySelector(
-                        'canvas[class*="qr" i], img[src*="qr" i], img[alt*="二维码"], [class*="qrcode" i], [class*="qr-code" i], [class*="login-container"], [class*="login-modal" i]'
-                    );
-                    if (!qrNode) return /扫码登录|手机号登录/.test(text);
-                    const rect = qrNode.getBoundingClientRect();
-                    return rect.width > 40 && rect.height > 40;
-                }).catch(() => false);
-                if (loginUiReady) {
-                    loginClick.ui_ready = true;
-                    break;
-                }
+            loginClick.ui_ready = await waitForXhsLoginUi(page);
+
+            // The public explore page sometimes ignores login-required sidebar
+            // clicks. Fall back to Xiaohongshu's own dedicated QR login page;
+            // it shares the same persistent browser profile and cookies.
+            if (!loginClick.ui_ready) {
+                await navigateXhsPage(page, 'https://creator.xiaohongshu.com/login', '官方扫码登录页');
+                loginClick = {
+                    found: true,
+                    text: '官方扫码登录页',
+                    tag: 'NAVIGATE',
+                    url: page.url(),
+                    ui_ready: await waitForXhsLoginUi(page, 10),
+                };
             }
         }
         const loginStatus = await inspectXhsSession(page);
