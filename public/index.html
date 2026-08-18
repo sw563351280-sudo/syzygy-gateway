@@ -8,7 +8,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=56">
+    <link rel="stylesheet" href="style.css?v=57">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body class="neu-mode">
@@ -394,40 +394,33 @@
 <div class="section" id="sec-flo">
     <div class="view-topbar" id="floTopbar">
         <button class="view-back" onclick="goView('home')">←</button>
-        <span class="view-title">月经周期历史</span>
+        <span class="view-title">周期记录</span>
     </div>
 
-    <!-- 筛选栏 -->
-    <div class="flo-filter-bar">
-        <button class="flo-filter-btn active" onclick="floSetFilter('all', this)">全部</button>
-        <button class="flo-filter-btn" onclick="floSetFilter('recent3', this)">最近3个周期</button>
-        <button class="flo-filter-btn" onclick="floSetFilter('recent6', this)">最近6个周期</button>
-    </div>
+    <main class="flo-page">
+        <section id="floSummary" class="flo-summary" aria-live="polite"></section>
 
-    <!-- 图例 -->
-    <div class="flo-legend">
-        <span class="flo-legend-dot" style="background:#F28B82"></span> 月经期
-        <span class="flo-legend-dot" style="background:#B39DDB"></span> 怀孕窗口期
-        <span class="flo-legend-dot" style="background:#1E8A7E"></span> 排卵期
-    </div>
+        <div class="flo-action-bar">
+            <button class="flo-action-btn primary" onclick="floPeriodAction('start')">记录开始</button>
+            <button class="flo-action-btn" onclick="floPeriodAction('end')">记录结束</button>
+            <button class="flo-action-btn icon-only" onclick="floShowBackfill()" aria-label="补录日期" title="补录日期">＋</button>
+        </div>
 
-    <!-- 操作按钮 -->
-    <div class="flo-action-bar">
-        <button class="flo-action-btn" onclick="floPeriodAction('start')">来了 🩸</button>
-        <button class="flo-action-btn" onclick="floPeriodAction('end')">走了 ✓</button>
-        <button class="flo-action-btn" onclick="floShowBackfill()">补录 +</button>
-    </div>
+        <div id="floBackfillRow" class="flo-backfill-row" style="display:none">
+            <label>开始<input type="date" id="floBackfillStart" class="flo-date-inp"></label>
+            <label>结束<input type="date" id="floBackfillEnd" class="flo-date-inp"></label>
+            <button class="flo-action-btn small" onclick="floDoBackfill()">保存</button>
+        </div>
 
-    <!-- 补录日期选择器 -->
-    <div id="floBackfillRow" class="flo-backfill-row" style="display:none">
-        <input type="date" id="floBackfillStart" class="flo-date-inp">
-        <span style="color:#a8b8e7">→</span>
-        <input type="date" id="floBackfillEnd" class="flo-date-inp">
-        <button class="flo-action-btn small" onclick="floDoBackfill()">确认</button>
-    </div>
-
-    <!-- 列表区域 -->
-    <div id="floList" class="flo-list"></div>
+        <section class="flo-history-section">
+            <div class="flo-history-head">
+                <div><span>记录</span><small id="floHistoryCount"></small></div>
+                <button id="floHistoryToggle" class="flo-history-toggle" onclick="floToggleHistory()" style="display:none"></button>
+            </div>
+            <div id="floList" class="flo-list"></div>
+        </section>
+        <p class="flo-disclaimer">预测只根据你自己的开始日期估算，不用于避孕或医疗判断。</p>
+    </main>
 </div>
 
 <!-- 🩺 状态视图 -->
@@ -536,7 +529,7 @@
 
 <script src="clipboard-images.js?v=1"></script>
 <script src="thinking-parser.js?v=1"></script>
-<script src="script.js?v=57"></script>
+<script src="script.js?v=58"></script>
 <script src="sms-mode.js?v=5"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>

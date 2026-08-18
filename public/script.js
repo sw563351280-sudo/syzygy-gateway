@@ -1759,8 +1759,8 @@ async function neuDeleteTodo(id) {
     } catch(e) { console.error('删除待办失败', e); }
 }
 
-// ═══ Flo 生理期详情页 ═══
-let floFilter = 'all'; // 'all' | 'recent3' | 'recent6'
+// ═══ 周期记录详情页 ═══
+let floShowAllHistory = false;
 
 async function floFetchPeriod() {
     try { const r = await fetch('/api/period'); return await r.json(); } catch(e) { return null; }
@@ -1785,153 +1785,113 @@ async function neuRenderPeriodCountdown() {
     }
 }
 
-// 排卵日 = 下一个周期开始日 - 14天
-function floCalcOvulationDay(nextStartStr) {
-    if (!nextStartStr) return null;
-    const d = new Date(nextStartStr + 'T00:00:00+08:00');
-    d.setDate(d.getDate() - 14);
-    return d;
-}
-
-function floBuildDotRow(record, nextStartStr, isCurrent) {
-    // 圆点条：本次开始 → 下次开始前1天（显示完整周期）
-    const cycleStart = new Date(record.start + 'T00:00:00+08:00');
-    const cycleEnd = nextStartStr
-        ? new Date(new Date(nextStartStr + 'T00:00:00+08:00').getTime() - 86400000)  // 下次开始前1天
-        : (isCurrent ? new Date() : new Date(record.end + 'T00:00:00+08:00'));
-
-    const periodEnd = isCurrent ? new Date() : new Date(record.end + 'T00:00:00+08:00');
-    const ovulationDay = floCalcOvulationDay(nextStartStr);
-
-    let html = '<div class="flo-dot-row">';
-    for (let d = new Date(cycleStart); d <= cycleEnd; d.setDate(d.getDate()+1)) {
-        let cls = '#D8DCE6';
-
-        // 经期（红色）
-        if (d >= cycleStart && d <= periodEnd) {
-            cls = '#F28B82';
-        }
-        // 排卵相关
-        if (d > periodEnd && ovulationDay) {
-            const od = ovulationDay;
-            const winStart = new Date(od); winStart.setDate(od.getDate() - 5);
-            const winEnd = new Date(od); winEnd.setDate(od.getDate() + 1);
-            if (d.toDateString() === od.toDateString()) cls = '#1E8A7E';
-            else if (d >= winStart && d <= winEnd) cls = '#B39DDB';
-        }
-
-        html += '<span class="flo-dot" style="background:' + cls + '"></span>';
-    }
-    html += '</div>';
-    return html;
-}
-
 function floFormatDate(yyyymmdd) {
     const d = new Date(yyyymmdd + 'T00:00:00+08:00');
     return (d.getMonth()+1) + '月' + d.getDate() + '日';
 }
 
+function floDateOffset(yyyymmdd, offset) {
+    const d = new Date(yyyymmdd + 'T00:00:00+08:00');
+    d.setDate(d.getDate() + offset);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function floDayDiff(from, to) {
+    return Math.round((new Date(to + 'T00:00:00+08:00') - new Date(from + 'T00:00:00+08:00')) / 86400000);
+}
+
+function floCycleTrack(data, insights) {
+    const prediction = insights.prediction;
+    const records = data.allRecords || [];
+    const anchor = data.current?.start || (records.length ? records[records.length - 1].start : null);
+    if (!prediction || !anchor || !insights.averageCycle) return '';
+
+    const total = insights.averageCycle;
+    const ovulation = floDateOffset(prediction.date, -14);
+    const fertileStart = floDateOffset(ovulation, -5);
+    const fertileEnd = floDateOffset(ovulation, 1);
+    const percentage = date => Math.max(0, Math.min(100, floDayDiff(anchor, date) / total * 100));
+    const periodWidth = Math.max(4, Math.min(32, (insights.averagePeriod || 5) / total * 100));
+    const fertileLeft = percentage(fertileStart);
+    const fertileWidth = Math.max(3, percentage(fertileEnd) - fertileLeft);
+    const ovulationLeft = percentage(ovulation);
+    const currentLeft = Math.max(0, Math.min(100, ((insights.cycleDay || 1) - 1) / total * 100));
+    return '<div class="flo-cycle-visual">'
+        + '<div class="flo-cycle-label"><span>本周期 · 第 ' + (insights.cycleDay || 1) + ' 天</span><span>约 ' + total + ' 天</span></div>'
+        + '<div class="flo-cycle-track">'
+        + '<i class="flo-track-period" style="width:' + periodWidth + '%"></i>'
+        + '<i class="flo-track-fertile" style="left:' + fertileLeft + '%;width:' + fertileWidth + '%"></i>'
+        + '<b class="flo-track-ovulation" style="left:' + ovulationLeft + '%"></b>'
+        + '<em class="flo-track-today" style="left:' + currentLeft + '%"></em>'
+        + '</div>'
+        + '<div class="flo-cycle-key"><span><i class="period"></i>经期</span><span><i class="fertile"></i>易孕期估算</span><span><i class="ovulation"></i>排卵估算 ' + floFormatDate(ovulation) + '</span></div>'
+        + '</div>';
+}
+
+function floSummaryMarkup(data) {
+    const insights = data.insights || {};
+    const prediction = insights.prediction || data.prediction;
+    const current = data.current;
+    let eyebrow = '周期记录';
+    let title = '从一次开始记录';
+    let detail = '完成两个周期后，才会开始给出个人化估算。';
+
+    if (data.status?.inPeriod && current?.start) {
+        eyebrow = '正在记录';
+        title = '经期第 ' + data.status.days + ' 天';
+        detail = '开始于 ' + floFormatDate(current.start) + '。结束时点“记录结束”即可。';
+    } else if (prediction) {
+        const today = new Date();
+        const todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+        const daysUntil = floDayDiff(todayStr, prediction.date);
+        eyebrow = prediction.confidence === '较稳定' ? '你的周期节律' : '周期正在学习';
+        title = daysUntil > 0 ? '约 ' + daysUntil + ' 天后' : daysUntil === 0 ? '接近估算日期' : '估算日期已过 ' + Math.abs(daysUntil) + ' 天';
+        detail = '下次经期估算：' + floFormatDate(prediction.earliest) + ' – ' + floFormatDate(prediction.latest) + '。';
+    } else if ((data.allRecords || []).length === 1) {
+        eyebrow = '再记一次就好';
+        title = '还在认识你的周期';
+        detail = '再完成一个周期，就会根据自己的数据开始估算。';
+    }
+
+    const variability = insights.variability === null || insights.variability === undefined ? '学习中' : '± ' + insights.variability + ' 天';
+    return '<div class="flo-summary-copy"><span>' + eyebrow + '</span><h2>' + title + '</h2><p>' + detail + '</p></div>'
+        + floCycleTrack(data, insights)
+        + '<div class="flo-metrics">'
+        + '<div><small>平均周期</small><strong>' + (insights.averageCycle ? insights.averageCycle + ' 天' : '—') + '</strong></div>'
+        + '<div><small>平均经期</small><strong>' + (insights.averagePeriod ? insights.averagePeriod + ' 天' : '—') + '</strong></div>'
+        + '<div><small>周期波动</small><strong>' + variability + '</strong></div>'
+        + '</div>';
+}
+
 async function floRender() {
     const data = await floFetchPeriod();
     if (!data) return;
+    const summary = document.getElementById('floSummary');
     const list = document.getElementById('floList');
-    if (!list) return;
+    if (!list || !summary) return;
+    summary.innerHTML = floSummaryMarkup(data);
 
-    const allRecords = data.allRecords || [];
-    const current = data.current;
-
-    // 筛选
-    let shown = [...allRecords];
-    if (floFilter === 'recent3') shown = shown.slice(-3);
-    if (floFilter === 'recent6') shown = shown.slice(-6);
-
-    // 合并完整时间线：shown records + current，按 start 排序
-    const timeline = [...shown];
-    if (current && current.start) timeline.push({ ...current, isCurrent: true, id: 'current' });
-    timeline.sort((a,b) => new Date(a.start) - new Date(b.start));
-
-    // 为每个条目算 nextStart（完整时间线中下一条的 start，current 没有则用预测）
-    const nextMap = {};
-    for (let i = 0; i < timeline.length; i++) {
-        if (i + 1 < timeline.length) {
-            nextMap[timeline[i].id || timeline[i].start] = timeline[i+1].start;
-        } else if (timeline[i].isCurrent) {
-            // 最后一条是 current → 用预测日
-            if (data.prediction) nextMap[timeline[i].id || timeline[i].start] = data.prediction.date;
-        }
+    const records = [...(data.allRecords || [])].reverse();
+    const historyCount = document.getElementById('floHistoryCount');
+    const toggle = document.getElementById('floHistoryToggle');
+    if (historyCount) historyCount.textContent = records.length ? records.length + ' 次' : '';
+    if (toggle) {
+        toggle.style.display = records.length > 3 ? '' : 'none';
+        toggle.textContent = floShowAllHistory ? '收起' : '查看全部';
     }
-
-    // 按年份分组
-    const groups = {};
-    for (const rec of timeline) {
-        const y = new Date(rec.start + 'T00:00:00+08:00').getFullYear();
-        if (!groups[y]) groups[y] = [];
-        groups[y].push(rec);
-    }
-
-    let html = '';
-    for (const [year, records] of Object.entries(groups).reverse()) {
-        html += '<div class="flo-year-title">' + year + '</div>';
-        for (const rec of records) {
-            const isCurrent = rec.isCurrent;
-
-            // 在 current 上方插入预测卡片
-            if (isCurrent && data.prediction) {
-                const predDate = new Date(data.prediction.date + 'T00:00:00+08:00');
-                html += '<div class="flo-cycle-card flo-predict-card">';
-                html += '<div class="flo-cycle-header">';
-                html += '<span class="flo-cycle-days" style="color:#a8b8e7;">预测周期：' + floFormatDate(data.prediction.date) + ' 开始</span>';
-                html += '<span class="flo-cycle-arrow" style="color:#a8b8e7;">›</span>';
-                html += '</div>';
-                html += '<div class="flo-date-range" style="color:#a8b8e7;">平均周期 ' + data.prediction.avg + ' 天</div>';
-                // 预测卡片的圆点：从预测日开始，显示约28天（一个标准周期）
-                const predStart = new Date(data.prediction.date + 'T00:00:00+08:00');
-                const predEnd = new Date(predStart); predEnd.setDate(predEnd.getDate() + 28);
-                const fakeRecord = { start: data.prediction.date, end: data.prediction.date };
-                html += '<div class="flo-dot-row">';
-                for (let d = new Date(predStart); d <= predEnd; d.setDate(d.getDate()+1)) {
-                    const diffFromStart = Math.round((d - predStart) / 86400000);
-                    // 前5天是经期（预测），其余用浅色点
-                    const c = diffFromStart < 5 ? '#F28B82' : '#D8DCE6';
-                    html += '<span class="flo-dot" style="background:' + c + ';opacity:0.4;"></span>';
-                }
-                html += '</div>';
-                html += '</div>';
-            }
-
-            const nextStart = nextMap[rec.id || rec.start] || null;
-            const days = isCurrent
-                ? (Math.round((new Date() - new Date(rec.start + 'T00:00:00+08:00')) / 86400000) + 1)
-                : (rec.duration || (Math.round((new Date(rec.end + 'T00:00:00+08:00') - new Date(rec.start + 'T00:00:00+08:00')) / 86400000) + 1));
-
-            // 当前经期：显示"当前周期：开始于 X月X日"；已结束：显示"X 天"
-            const titleText = isCurrent
-                ? '当前周期：开始于 ' + floFormatDate(rec.start)
-                : days + ' 天';
-            const dateRange = isCurrent
-                ? ''
-                : floFormatDate(rec.start) + ' – ' + floFormatDate(rec.end);
-
-            html += '<div class="flo-cycle-card">';
-            html += '<div class="flo-cycle-header">';
-            html += '<span class="flo-cycle-days">' + titleText + '</span>';
-            html += '<span class="flo-cycle-arrow">›</span>';
-            html += '</div>';
-            if (dateRange) html += '<div class="flo-date-range">' + dateRange + '</div>';
-            html += floBuildDotRow(rec, nextStart, isCurrent);
-            html += '</div>';
-        }
-    }
-    if (!html) html = '<div style="text-align:center;color:#a8b8e7;padding:40px;">还没有生理期记录。\n点「来了」记录第一次吧。</div>';
-    list.innerHTML = html;
+    const shown = floShowAllHistory ? records : records.slice(0, 3);
+    let html = data.current?.start
+        ? '<article class="flo-history-card current"><div><span class="flo-history-state">进行中</span><h3>' + floFormatDate(data.current.start) + ' 开始</h3><p>结束时点“记录结束”保存本次时长。</p></div><strong>现在</strong></article>'
+        : '';
+    html += shown.map(record => {
+        const duration = record.duration || floDayDiff(record.start, record.end) + 1;
+        const cycle = record.cycle ? ' · 周期 ' + record.cycle + ' 天' : '';
+        return '<article class="flo-history-card"><div><span class="flo-history-state">已记录</span><h3>' + floFormatDate(record.start) + ' – ' + floFormatDate(record.end) + '</h3><p>' + duration + ' 天' + cycle + '</p></div><strong>' + duration + '<small>天</small></strong></article>';
+    }).join('');
+    list.innerHTML = html || '<div class="flo-history-empty">还没有记录。第一次开始时，点上面的“记录开始”就好。</div>';
 }
 
-function floSetFilter(filter, btn) {
-    floFilter = filter;
-    document.querySelectorAll('.flo-filter-btn').forEach(b => b.classList.remove('active'));
-    if (btn) btn.classList.add('active');
-    floRender();
-}
+function floToggleHistory() { floShowAllHistory = !floShowAllHistory; floRender(); }
 
 async function floPeriodAction(action) {
     try {
@@ -1940,8 +1900,8 @@ async function floPeriodAction(action) {
             body: JSON.stringify({ action })
         });
         const data = await r.json();
-        floRender();
-        toast(data.message || '已记录');
+        if (data.ok) { floRender(); neuRenderPeriodCountdown(); }
+        toast(data.message || data.error || '已记录');
     } catch(e) { console.error(e); }
 }
 
@@ -1964,6 +1924,7 @@ async function floDoBackfill() {
             document.getElementById('floBackfillRow').style.display = 'none';
             s.value = ''; e.value = '';
             floRender();
+            neuRenderPeriodCountdown();
         }
         toast(data.message || data.error || '已补录');
     } catch(e) { console.error(e); }

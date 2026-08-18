@@ -2462,10 +2462,22 @@ function archiveStaleCrumbs(now = new Date()) {
 }
 
 // ==========================================
-// 🩸 生理期追踪（逻辑翻译自 astrbot_plugin_period_tracker）
+// 🩸 生理期追踪
 // ==========================================
 function parseDate(s) { return new Date(s + 'T00:00:00+08:00'); }
-function todayStr() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+function dateString(date) {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+    const value = type => parts.find(part => part.type === type)?.value;
+    return value('year') + '-' + value('month') + '-' + value('day');
+}
+function todayStr() { return dateString(new Date()); }
+function daysBetween(from, to) { return Math.round((parseDate(to) - parseDate(from)) / 86400000); }
+function mean(values) { return values.reduce((sum, value) => sum + value, 0) / values.length; }
+function median(values) {
+    const sorted = [...values].sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
 
 function calcCycleDays(records) {
     const cycles = [];
@@ -2478,46 +2490,80 @@ function calcCycleDays(records) {
     return cycles;
 }
 
-function avgCycle(records, n = 3) {
-    const cycles = calcCycleDays(records);
-    if (cycles.length === 0) return 28;
-    const recent = cycles.slice(-n);
-    return Math.round(recent.reduce((a,b) => a+b, 0) / recent.length);
+// 只用实际记录做估算：最近六个有效周期先以中位数剔除明显离群值，
+// 再给出一个日期范围。没有完整周期时宁可不预测，也不假装所有人都是 28 天。
+function buildPeriodInsights(data) {
+    const records = [...(data.records || [])]
+        .filter(record => record && record.start && !isNaN(parseDate(record.start).getTime()))
+        .sort((a, b) => parseDate(a.start) - parseDate(b.start));
+    const recentCycles = calcCycleDays(records).slice(-6);
+    const cycleMedian = recentCycles.length ? median(recentCycles) : null;
+    const allowedDrift = cycleMedian === null ? 0 : Math.max(4, Math.round(cycleMedian * 0.2));
+    const usableCycles = recentCycles.filter(days => Math.abs(days - cycleMedian) <= allowedDrift);
+    const averageCycle = usableCycles.length ? Math.round(mean(usableCycles)) : null;
+    const variability = usableCycles.length >= 2
+        ? Math.round(Math.sqrt(mean(usableCycles.map(days => Math.pow(days - mean(usableCycles), 2)))))
+        : null;
+    const periodLengths = records.slice(-6)
+        .map(record => Number(record.duration) || (record.end ? daysBetween(record.start, record.end) + 1 : 0))
+        .filter(days => days >= 1 && days <= 15);
+    const averagePeriod = periodLengths.length ? Math.round(mean(periodLengths)) : null;
+    const lastStart = data.current?.start || records.at(-1)?.start || null;
+    let prediction = null;
+
+    if (lastStart && averageCycle) {
+        const predicted = new Date(parseDate(lastStart).getTime() + averageCycle * 86400000);
+        const rangeDays = Math.max(2, Math.min(6, variability === null ? 3 : variability + 1));
+        const earliest = new Date(predicted.getTime() - rangeDays * 86400000);
+        const latest = new Date(predicted.getTime() + rangeDays * 86400000);
+        prediction = {
+            date: dateString(predicted),
+            earliest: dateString(earliest),
+            latest: dateString(latest),
+            avg: averageCycle,
+            rangeDays,
+            sampleCount: usableCycles.length,
+            confidence: usableCycles.length >= 3 && (variability === null || variability <= 3) ? '较稳定' : '仍在学习'
+        };
+    }
+
+    const today = todayStr();
+    const cycleDay = lastStart ? Math.max(1, daysBetween(lastStart, today) + 1) : null;
+    return {
+        averageCycle,
+        averagePeriod,
+        variability,
+        cycleSamples: usableCycles.length,
+        periodSamples: periodLengths.length,
+        cycleDay,
+        prediction,
+        needsMoreData: !prediction
+    };
 }
 
-function predictNext(data) {
-    const records = data.records || [];
-    const current = data.current;
-    let lastStart;
-    if (current && current.start) lastStart = current.start;
-    else if (records.length > 0) lastStart = records[records.length-1].start;
-    else return null;
-    const avg = avgCycle(records);
-    const predicted = new Date(parseDate(lastStart).getTime() + avg * 86400000);
-    return { date: predicted.getFullYear()+'-'+String(predicted.getMonth()+1).padStart(2,'0')+'-'+String(predicted.getDate()).padStart(2,'0'), avg };
-}
+function predictNext(data) { return buildPeriodInsights(data).prediction; }
 
 function periodStatusText(data) {
     const current = data.current;
     const records = data.records || [];
+    const insights = buildPeriodInsights(data);
     if (current && current.start && !current.end) {
-        const days = Math.round((new Date() - parseDate(current.start)) / 86400000) + 1;
+        const days = Math.max(1, daysBetween(current.start, todayStr()) + 1);
         let msg = `经期中，从 ${current.start} 开始，今天第 ${days} 天。`;
-        if (days >= 10) msg += '\n⚠️ 时间有点长了，注意身体。';
+        if (days >= 10) msg += '\n如有明显不适或异常出血，请及时联系医生。';
         return { inPeriod: true, text: msg, days };
     }
     let msg = '';
     if (records.length > 0) {
         const last = records[records.length-1];
-        const daysSince = Math.round((new Date() - parseDate(last.end || last.start)) / 86400000);
+        const daysSince = Math.max(0, daysBetween(last.end || last.start, todayStr()));
         msg = `不在经期。上次结束于 ${last.end || last.start}，已过 ${daysSince} 天。`;
-        const pred = predictNext(data);
+        const pred = insights.prediction;
         if (pred) {
-            const predDate = parseDate(pred.date);
-            const daysUntil = Math.round((predDate - new Date()) / 86400000);
-            if (daysUntil > 0) msg += `\n📍 预测下次：${pred.date}（还有 ${daysUntil} 天，平均周期 ${pred.avg} 天）`;
-            else if (daysUntil === 0) msg += `\n📍 预测今天会来。备好热水和退烧药。`;
-            else msg += `\n📍 预测日 ${pred.date} 已过 ${Math.abs(daysUntil)} 天。`;
+            const daysUntil = daysBetween(todayStr(), pred.date);
+            if (daysUntil > 0) msg += `\n📍 估算下次在 ${pred.earliest} 至 ${pred.latest}（约 ${daysUntil} 天后）。`;
+            else if (daysUntil === 0) msg += '\n📍 今天接近估算日期；这是记录推算，不是医疗判断。';
+            else msg += `\n📍 已超过估算日期 ${Math.abs(daysUntil)} 天；下次开始时记一下，估算会更准。`;
         }
     } else {
         msg = '还没有记录。';
@@ -9307,13 +9353,15 @@ app.delete('/api/todos/:id', (req, res) => {
 app.get('/api/period', (req, res) => {
     const data = loadPeriod();
     const status = periodStatusText(data);
+    const insights = buildPeriodInsights(data);
     const records = (data.records || []).slice(-6).reverse();
     res.json({
         current: data.current,
         records,
         allRecords: data.records || [],
         status,
-        prediction: predictNext(data)
+        prediction: insights.prediction,
+        insights
     });
 });
 
@@ -9362,7 +9410,7 @@ app.post('/api/period', (req, res) => {
         savePeriod(data);
         const pred = predictNext(data);
         let predInfo = '';
-        if (pred) predInfo = `\n预测下次：${pred.date}（平均周期 ${pred.avg} 天）`;
+        if (pred) predInfo = `\n下次估算：${pred.earliest} 至 ${pred.latest}（基于 ${pred.sampleCount} 个周期）`;
         wsBroadcast({ type: 'period_updated', status: periodStatusText(data) });
         return res.json({ ok: true, message: `记录了。${start} → ${today}，共 ${duration} 天。${predInfo}` });
     }
@@ -9374,8 +9422,8 @@ app.post('/api/period', (req, res) => {
         const endDate = parseDate(end);
         if (isNaN(startDate.getTime()) || isNaN(endDate.getTime()))
             return res.status(400).json({ error: '日期格式不对。请使用 YYYY-MM-DD 格式。' });
-        if (endDate <= startDate)
-            return res.status(400).json({ error: '结束日期必须晚于开始日期。' });
+        if (endDate < startDate)
+            return res.status(400).json({ error: '结束日期不能早于开始日期。' });
         // 重叠检测
         const records = data.records || [];
         for (const r of records) {
