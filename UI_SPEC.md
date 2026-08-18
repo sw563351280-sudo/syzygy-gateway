@@ -113,15 +113,7 @@ font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 - 当天：背景 `#D4A856`（金色），文字 `#FFFFFF`，圆形
 - 有事件的日：底部小圆点 `4px`，颜色 `#5A8FCA`
 
-### 5.3 喝水横条
-
-- 标题："Water" + 当前量/目标量（如 "3/8 cups"）
-- 进度条：凹陷槽（neu-inset），高度 `8px`，圆角 `4px`
-- 填充：渐变 `linear-gradient(90deg, #5A8FCA, #D4A856)`
-- 右侧：小水杯图标按钮，点击 +1
-- 整体 padding：`16px 20px`
-
-### 5.4 功能网格（2×4）
+### 5.3 功能网格（2×4）
 
 - Grid 布局：`grid-template-columns: repeat(4, 1fr); gap: 16px;`
 - 每格：正方形卡片，`aspect-ratio: 1`
@@ -140,7 +132,7 @@ font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 
 > 图标建议使用 Phosphor Icons（`phosphor-icons`）或 Lucide Icons，线条风格，stroke-width: 1.5
 
-### 5.5 底部导航栏
+### 5.4 底部导航栏
 
 - 形状：胶囊形，`border-radius: 30px`
 - 位置：`position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);`

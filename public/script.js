@@ -1647,8 +1647,6 @@ function egg(pos){}
 function neuInitHome() {
     neuRenderWeek();
     neuRenderTodos();
-    neuLoadWater();
-    neuUpdateWaterUI();
     neuUpdateNav();
     neuRenderPeriodCountdown();
 }
@@ -1968,32 +1966,6 @@ async function floDoBackfill() {
         }
         toast(data.message || data.error || '已补录');
     } catch(e) { console.error(e); }
-}
-
-// ═══ 喝水 ═══
-let needsWaterSync = false;
-function neuWaterKey() {
-    const d = new Date();
-    return 'syzygy_water_' + d.getFullYear() + '-' + (d.getMonth()+1) + '-' + d.getDate();
-}
-function neuLoadWater() {
-    try { return parseInt(localStorage.getItem(neuWaterKey()) || '0'); } catch(e) { return 0; }
-}
-function neuSaveWater(n) { localStorage.setItem(neuWaterKey(), String(n)); }
-function neuAddWater() {
-    let n = neuLoadWater();
-    if (n >= 8) return;
-    n++;
-    neuSaveWater(n);
-    neuUpdateWaterUI();
-    needsWaterSync = true;
-}
-function neuUpdateWaterUI() {
-    const n = neuLoadWater();
-    const cnt = document.getElementById('neuWaterCount');
-    const bar = document.getElementById('neuWaterBar');
-    if (cnt) cnt.innerText = n;
-    if (bar) bar.style.width = Math.min(n / 8 * 100, 100) + '%';
 }
 
 // ═══ 底部导航高亮 ═══
@@ -2459,13 +2431,7 @@ async function sendChat(options = {}) {
     win.appendChild(sRow); win.scrollTop = win.scrollHeight;
 
    // --- 4. 💥 组装请求参数 (带严谨 Base64 格式护盾) ---
-    // 喝水同步：水量变化后第一条消息携带 [💧 x/8]
     var actualText = val;
-    if (needsWaterSync) {
-        const waterN = neuLoadWater();
-        actualText = '[💧 ' + waterN + '/8] ' + val;
-        needsWaterSync = false;
-    }
     var userContent = fmtTsTag(curFullTime) + actualText;
     if (imgsToSend.length > 0) {
         userContent = [{ type: "text", text: (fmtTsTag(curFullTime) + actualText) || "（发送了图片）" }];

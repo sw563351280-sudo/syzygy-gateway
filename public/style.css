@@ -1829,21 +1829,6 @@ body.neu-mode .home-card { min-height: auto; }
     body.neu-mode .chat-main-header { max-width: 800px; }
 }
 
-/* ── 新拟态进度条 ── */
-body.neu-mode .neu-progress-track {
-    background: #E8EFF7;
-    box-shadow: inset 4px 4px 8px rgba(163, 177, 198, 0.5), inset -4px -4px 8px rgba(255, 255, 255, 0.7);
-    border-radius: 4px;
-    height: 8px;
-    overflow: hidden;
-}
-body.neu-mode .neu-progress-fill {
-    background: linear-gradient(90deg, #5A8FCA, #D4A856);
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.3s ease;
-}
-
 /* ── 时光信箱/胶囊 ── */
 body.neu-mode .mailbox-container { border-color: rgba(163, 177, 198, 0.4); background: #E8EFF7; box-shadow: 8px 8px 16px rgba(163, 177, 198, 0.4), -8px -8px 16px rgba(255, 255, 255, 0.6); }
 body.neu-mode .mailbox-container:hover { box-shadow: 6px 6px 12px rgba(163, 177, 198, 0.3), -6px -6px 12px rgba(255, 255, 255, 0.5); }
@@ -1977,36 +1962,6 @@ body.neu-mode .home-footer { display: none; }
 }
 .neu-week-day.today .day-dot { background: #D4A856; color: #fff; }
 .neu-week-day .day-event { width: 4px; height: 4px; background: #5A8FCA; border-radius: 50%; margin: 0 auto; }
-
-/* 喝水横条 */
-.neu-water-tracker {
-    display: flex; align-items: center; gap: 12px;
-    padding: 16px 20px; margin-bottom: 20px;
-}
-.neu-water-tracker:hover {
-    box-shadow: 6px 6px 12px rgba(163, 177, 198, 0.5), -6px -6px 12px rgba(255, 255, 255, 0.7);
-    transform: translateY(-1px);
-}
-.neu-water-label { font-size: 14px; color: #2D3748; white-space: nowrap; }
-.neu-progress-track {
-    background: #E8EFF7; flex: 1; height: 8px; border-radius: 4px; overflow: hidden;
-    box-shadow: inset 4px 4px 8px rgba(163, 177, 198, 0.5), inset -4px -4px 8px rgba(255, 255, 255, 0.7);
-}
-.neu-progress-fill {
-    background: linear-gradient(90deg, #5A8FCA, #D4A856);
-    height: 100%; border-radius: 4px; transition: width 0.3s ease;
-}
-.neu-water-btn {
-    background: #E8EFF7; border: none; font-size: 18px; cursor: pointer; flex-shrink: 0;
-    width: 36px; height: 36px; border-radius: 50%;
-    box-shadow: 4px 4px 8px rgba(163, 177, 198, 0.4), -4px -4px 8px rgba(255, 255, 255, 0.7);
-    transition: all 0.2s ease;
-    display: flex; align-items: center; justify-content: center; line-height: 1;
-}
-.neu-water-btn:hover {
-    box-shadow: 3px 3px 6px rgba(163, 177, 198, 0.3), -3px -3px 6px rgba(255, 255, 255, 0.6);
-}
-.neu-water-btn:active { box-shadow: inset 2px 2px 4px rgba(163, 177, 198, 0.3), inset -2px -2px 4px rgba(255, 255, 255, 0.5); }
 
 /* 功能网格 2×4 */
 .neu-grid {
