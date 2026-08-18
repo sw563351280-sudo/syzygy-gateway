@@ -3675,6 +3675,7 @@ function resendUserMessage(msgIndex) {
 }
 
 function regenerateAt(msgIndex) {
+    if (_isStreamingReply) { toast('请等当前回复结束后再重新生成'); return; }
     const session = getActiveSession();
     const msg = session.messages[msgIndex];
     if (!msg || msg.role !== 'assistant') return;
@@ -3688,6 +3689,8 @@ function regenerateAt(msgIndex) {
 async function regenerateSend(aiMsgIndex) {
     const session = getActiveSession();
     const aiMsg = session.messages[aiMsgIndex];
+    const sessionId = session.id;
+    const aiMsgId = aiMsg && (aiMsg._id || aiMsg.id);
     const win = document.getElementById('chatWindow');
     let userText = '';
     for (let i = aiMsgIndex - 1; i >= 0; i--) { if (session.messages[i].role === 'user') { userText = getActiveVersion(session.messages[i]).content || ''; break; } }
@@ -3699,6 +3702,9 @@ async function regenerateSend(aiMsgIndex) {
     sDiv.classList.add('msg-loading');
     const currentSup = suppliers[activeSupIndex];
     if (!currentSup) { sDiv.innerHTML = '<div class="msg-error"><div>【未配置供应商】</div></div>'; return; }
+    // 与普通发送一致：生成期间不要让同步把当前会话替换成旧快照。
+    _isStreamingReply = true;
+    let reSilenceTimer = null;
     const modelEl = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
     var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; if(typeof smsPlain==='function')c=smsPlain(c); if(typeof c==='string'&&m.role==='user')c=fmtTsTag(v.fullTime)+c; return {role:m.role,content:c}; });
@@ -3713,7 +3719,7 @@ async function regenerateSend(aiMsgIndex) {
 
         const streamToggle = document.getElementById('streamToggle');
         const isStream = streamToggle ? streamToggle.checked : true;
-        const reController=new AbortController(); var reSilenceTimer=setTimeout(()=>reController.abort(),90000); function reReset(){clearTimeout(reSilenceTimer);reSilenceTimer=setTimeout(()=>reController.abort(),90000)}
+        const reController=new AbortController(); reSilenceTimer=setTimeout(()=>reController.abort(),90000); function reReset(){clearTimeout(reSilenceTimer);reSilenceTimer=setTimeout(()=>reController.abort(),90000)}
         const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream}) });
         if (!response.ok) { clearTimeout(reSilenceTimer); const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         let fullReply='', thinkContent='';
@@ -3729,9 +3735,12 @@ async function regenerateSend(aiMsgIndex) {
         } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){const tb=document.createElement('div');tb.className='think-box';tb.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content">'+thinkContent.replace(/\n/g,'<br>')+'</div>';sDiv.appendChild(tb);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
         sDiv.classList.remove('msg-loading');
         const timeStr=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
-        ensureVersioned(aiMsg); aiMsg.versions.push({content:fullReply,thinking:thinkContent,time:timeStr,model:selectedModel,fullTime:new Date().toISOString(), toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined}); aiMsg.activeVersion=aiMsg.versions.length-1; aiMsg._zepDirty=true;
+        const liveSession = getLiveSession(sessionId) || session;
+        const liveAiMsg = aiMsgId ? liveSession.messages.find(m => (m._id || m.id) === aiMsgId) : liveSession.messages[aiMsgIndex];
+        if (!liveAiMsg) throw new Error('重新生成的目标消息已不在当前会话中');
+        ensureVersioned(liveAiMsg); liveAiMsg.versions.push({content:fullReply,thinking:thinkContent,time:timeStr,model:selectedModel,fullTime:new Date().toISOString(), toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined}); liveAiMsg.activeVersion=liveAiMsg.versions.length-1; liveAiMsg._zepDirty=true;
         saveToCloud(); renderChatMessages();
-    } catch(err) { sDiv.innerHTML='<div class="msg-error"><div>【网络崩溃】</div><div class="msg-error-detail">'+err.message+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); }
+    } catch(err) { sDiv.innerHTML='<div class="msg-error"><div>【网络崩溃】</div><div class="msg-error-detail">'+err.message+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); } finally { clearTimeout(reSilenceTimer); _isStreamingReply=false; if (_renderDeferred) { _renderDeferred=false; renderChatMessages(); } }
 }
 
 async function flushDirtyToZep(session) {
