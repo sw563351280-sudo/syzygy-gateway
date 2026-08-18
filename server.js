@@ -35,7 +35,7 @@ const {
 const { freshState, normalizeState: normalizeWakeState, advanceState: advanceWakeState, recordAgentRun: recordWakeAgentRun, millisecondsUntilCandidate } = require('./wake-activation');
 const { millisecondsUntilWakeDispatchWindow, parseProactiveMessageParts } = require('./wake-dispatch');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
-const { messageTimestampMs, selectRecentWakeHistory } = require('./wake-context');
+const { formatProactiveMessagesForContext, messageTimestampMs, selectRecentWakeHistory } = require('./wake-context');
 
 const execFileAsync = promisify(execFile);
 
@@ -6397,8 +6397,9 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             const shouldScan = shouldScanTranscript(currentUserMsgText);
             if (shouldScan) txCtx = await scanTranscriptRadar(currentUserMsgText);
             const wakeDecisionsCtx = formatWakeDecisionsForContext(loadRecentWakeDecisions(5));
+            const proactiveMessagesCtx = formatProactiveMessagesForContext(loadWebConfigConversationHistory(30), 3);
             const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
-            dynamicBlocks = cutAtSentence([moodSnapshotInst, liveCtx, memCtx, txCtx, wakeDecisionsCtx].filter(Boolean).join('\n\n'), 11000);
+            dynamicBlocks = cutAtSentence([moodSnapshotInst, liveCtx, memCtx, txCtx, wakeDecisionsCtx, proactiveMessagesCtx].filter(Boolean).join('\n\n'), 11000);
             if (dynamicBlocks.endsWith('…')) console.log('⚠️ [DynamicBlocks] truncated at sentence boundary');
             _ctxDiag.last = { at: new Date().toISOString(), scanTranscript: shouldScan, transcriptLen: txCtx.length, liveStateLen: (liveCtx||'').length, memoryLen: (memCtx||'').length, totalCtxLen: dynamicBlocks.length, userText: (currentUserMsgText||'').substring(0, 120) };
         } catch(e) { _ctxDiag.last = { at: new Date().toISOString(), error: e.message, userText: (currentUserMsgText||'').substring(0, 120) }; }
@@ -7877,6 +7878,8 @@ app.post('/api/web-chat', async (req, res) => {
 
                 const recentWakeContext = formatWakeDecisionsForContext(loadRecentWakeDecisions(5));
                 if (recentWakeContext) dynamicStatePrompt += `\n\n${recentWakeContext}`;
+                const recentProactiveContext = formatProactiveMessagesForContext(loadWebConfigConversationHistory(30), 3);
+                if (recentProactiveContext) dynamicStatePrompt += `\n\n${recentProactiveContext}`;
 
                 let vectorSearchContext = "";
                 if (text && text.length > 4) {
