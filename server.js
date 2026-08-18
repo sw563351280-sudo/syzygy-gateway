@@ -5436,6 +5436,36 @@ async function switchXhsCreatorLoginToQr(page) {
     return target;
 }
 
+async function clickXhsCreatorLoginCardQrCorner(page) {
+    const corner = await page.evaluate(() => {
+        const input = [...document.querySelectorAll('input')].find(node => {
+            const rect = node.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            return rect.width > 120 && rect.height > 20 && rect.top > 0
+                && style.display !== 'none' && style.visibility !== 'hidden';
+        });
+        if (!input) return null;
+        let card = input.parentElement;
+        while (card?.parentElement) {
+            const rect = card.getBoundingClientRect();
+            if (rect.width >= 240 && rect.width <= 520 && rect.height >= 220 && rect.height <= 650) {
+                return {
+                    x: Math.round(rect.right - 22),
+                    y: Math.round(rect.top + 22),
+                    width: Math.round(rect.width),
+                    height: Math.round(rect.height),
+                };
+            }
+            card = card.parentElement;
+        }
+        return null;
+    }).catch(() => null);
+    if (!corner) return null;
+    await page.mouse.move(corner.x, corner.y);
+    await page.mouse.click(corner.x, corner.y, { delay: 180 });
+    return corner;
+}
+
 async function startXhsLoginSession() {
     return queueXhsBrowserTask(async () => {
         const page = await getXhsBrowserPage();
@@ -5513,13 +5543,20 @@ async function startXhsLoginSession() {
                 await navigateXhsPage(page, 'https://creator.xiaohongshu.com/login', '官方扫码登录页');
                 await new Promise(resolve => setTimeout(resolve, 2500));
                 const qrSwitch = await switchXhsCreatorLoginToQr(page);
+                let qrReady = await waitForXhsLoginUi(page, 4, { requireQr: true });
+                let qrCorner = null;
+                if (!qrReady) {
+                    qrCorner = await clickXhsCreatorLoginCardQrCorner(page);
+                    qrReady = await waitForXhsLoginUi(page, 10, { requireQr: true });
+                }
                 loginClick = {
                     found: true,
                     text: '官方扫码登录页',
                     tag: 'NAVIGATE',
                     url: page.url(),
                     qr_switch: qrSwitch,
-                    ui_ready: await waitForXhsLoginUi(page, 10, { requireQr: true }),
+                    qr_corner: qrCorner,
+                    ui_ready: qrReady,
                 };
             }
         }
