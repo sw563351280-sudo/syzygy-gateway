@@ -49,7 +49,8 @@ const starState = { pendingMeteor: false, pendingNebula: false };
 // ==================== Markdown 渲染 ====================
 if (typeof marked !== 'undefined') { marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false }); }
 function stripInternalTags(text) { return (text||'').replace(/<MOOD_SNAPSHOT>[\s\S]*?<\/MOOD_SNAPSHOT>/g, '').replace(/\[\[MOOD_SNAPSHOT\]\][\s\S]*?\[\[MOOD_SNAPSHOT\]\]/g, '').replace(/<SAVE_MEMORY[\s\S]*?<\/SAVE_MEMORY>/g, '').replace(/<ADD_TODO>[\s\S]*?<\/ADD_TODO>/g, '').replace(/<DONE_TODO[^>]*\/>/g, '').trim(); }
-function renderMarkdown(text) { if (!text) return ''; text = String(text).replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '\n'); if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
+function stripDisplayTimestamp(text) { return String(text||'').replace(/^\s*(?:⟦ts:[^⟧]*⟧|\[\d{2}-\d{2}\s+\d{2}:\d{2}\])\s*/i, ''); }
+function renderMarkdown(text) { if (!text) return ''; text = stripDisplayTimestamp(text).replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '\n'); if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
 
 // ==================== 版本化消息辅助函数 ====================
 function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; if (v.toolCalls === undefined && msg.toolCalls !== undefined) v.toolCalls = msg.toolCalls; return v; } return msg; }
@@ -62,7 +63,7 @@ function fmtTsTag(iso) {
     var dd = String(d.getDate()).padStart(2, '0');
     var hh = String(d.getHours()).padStart(2, '0');
     var mi = String(d.getMinutes()).padStart(2, '0');
-    return '[' + mm + '-' + dd + ' ' + hh + ':' + mi + '] ';
+    return '⟦ts:' + mm + '-' + dd + ' ' + hh + ':' + mi + '⟧ ';
 }
 window.fmtTsTag = fmtTsTag;
 function getVersionCount(msg) { return (msg.versions && msg.versions.length) ? msg.versions.length : 1; }
@@ -2641,7 +2642,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
                                 thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
                             }
 
-                            if (fullReply) mainTextDiv.innerHTML = fullReply.replace(/\n/g, '<br>') + '<span class="typing-cursor"></span>';
+                            if (fullReply) mainTextDiv.innerHTML = stripDisplayTimestamp(fullReply).replace(/\n/g, '<br>') + '<span class="typing-cursor"></span>';
                             win.scrollTop = win.scrollHeight;
                         }
                     } catch (e) {
