@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { formatProactiveMessagesForContext, selectRecentWakeHistory } = require('../wake-context');
+const { selectRecentWakeHistory } = require('../wake-context');
 
 function message(role, content, minute) {
     return { role, content, created_at: `2026-08-18T01:${String(minute).padStart(2, '0')}:00.000Z` };
@@ -45,15 +45,4 @@ test('wake history preserves proactive provenance when the same message also exi
     const selected = selectRecentWakeHistory(zep, local, 6);
     assert.equal(selected.messages.length, 1);
     assert.equal(selected.messages[0].model, 'proactive');
-});
-
-test('normal chat context explicitly includes persisted proactive message bodies', () => {
-    const messages = [
-        message('assistant', '普通回复', 7),
-        { ...message('assistant', '我早上主动说的话', 8), model: 'proactive' },
-    ];
-    const context = formatProactiveMessagesForContext(messages, 3);
-    assert.match(context, /你最近主动发给江鱼的消息原文/);
-    assert.match(context, /我早上主动说的话/);
-    assert.doesNotMatch(context, /普通回复/);
 });

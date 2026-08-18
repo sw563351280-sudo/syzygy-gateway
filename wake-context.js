@@ -79,31 +79,7 @@ function selectRecentWakeHistory(zepMessages = [], fallbackMessages = [], limit 
     };
 }
 
-function formatProactiveMessagesForContext(messages = [], limit = 3) {
-    const safeLimit = Math.max(0, Number(limit) || 0);
-    const proactive = sortConversationMessages(messages).filter(message => {
-        const role = message?.role === 'ai' ? 'assistant' : message?.role;
-        return role === 'assistant'
-            && message?.model === 'proactive'
-            && normalizedMessageContent(message);
-    }).slice(-safeLimit);
-    if (!proactive.length) return '';
-    const lines = proactive.map(message => {
-        const timestamp = messageTimestampMs(message);
-        const timeLabel = timestamp === null ? '时间未知' : new Date(timestamp).toLocaleString('zh-CN', {
-            timeZone: 'Asia/Shanghai',
-            year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', hour12: false,
-        });
-        return `${timeLabel}：${normalizedMessageContent(message).slice(0, 800)}`;
-    });
-    return '【你最近主动发给江鱼的消息原文】\n'
-        + '以下内容是你自己已经发送过的真实消息，不是唤醒摘要；可以承接和解释，但不要假装看不到，也不要原样复读。\n'
-        + lines.join('\n');
-}
-
 module.exports = {
-    formatProactiveMessagesForContext,
     messageTimestampMs,
     selectRecentWakeHistory,
     sortConversationMessages,
