@@ -5309,20 +5309,67 @@ async function startXhsLoginSession() {
         const page = await getXhsBrowserPage();
         await navigateXhsPage(page, 'https://www.xiaohongshu.com/explore', '登录页');
         await new Promise(resolve => setTimeout(resolve, 2500));
+        let loginClick = { found: false, text: '', tag: '' };
         if (!await isXhsLoggedIn(page)) {
-            await page.evaluate(() => {
-                const button = [...document.querySelectorAll('button, a, div')]
-                    .find(node => /^(登录|立即登录)$/.test(String(node.textContent || '').trim()));
-                if (button instanceof HTMLElement) button.click();
-            }).catch(() => {});
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            loginClick = await page.evaluate(() => {
+                const selectors = [
+                    'button.login-btn',
+                    'button[class*="login"]',
+                    '[class*="login-btn"]',
+                    '[class*="loginBtn"]',
+                    'button',
+                    'a',
+                    '[role="button"]',
+                ];
+                const candidates = [];
+                const seen = new Set();
+                for (const selector of selectors) {
+                    for (const node of document.querySelectorAll(selector)) {
+                        if (!(node instanceof HTMLElement) || seen.has(node)) continue;
+                        seen.add(node);
+                        const text = String(node.innerText || node.textContent || '').replace(/\s+/g, '').trim();
+                        if (!/^(登录|立即登录|扫码登录)$/.test(text)) continue;
+                        const rect = node.getBoundingClientRect();
+                        const style = getComputedStyle(node);
+                        if (rect.width < 20 || rect.height < 16 || style.display === 'none' || style.visibility === 'hidden') continue;
+                        candidates.push({ node, text, tag: node.tagName, score: node.tagName === 'BUTTON' ? 3 : node.getAttribute('role') === 'button' ? 2 : 1 });
+                    }
+                }
+                candidates.sort((a, b) => b.score - a.score);
+                const target = candidates[0];
+                if (!target) return { found: false, text: '', tag: '' };
+                target.node.scrollIntoView({ block: 'center', inline: 'center' });
+                target.node.click();
+                return { found: true, text: target.text, tag: target.tag };
+            }).catch(() => ({ found: false, text: '', tag: '' }));
+            for (let attempt = 0; attempt < 8; attempt++) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                const loginUiReady = await page.evaluate(() => {
+                    const text = String(document.body?.innerText || '').slice(0, 4000);
+                    const qrNode = document.querySelector(
+                        'canvas[class*="qr" i], img[src*="qr" i], img[alt*="二维码"], [class*="qrcode" i], [class*="qr-code" i], [class*="login-container"], [class*="login-modal" i]'
+                    );
+                    if (!qrNode) return /扫码登录|手机号登录/.test(text);
+                    const rect = qrNode.getBoundingClientRect();
+                    return rect.width > 40 && rect.height > 40;
+                }).catch(() => false);
+                if (loginUiReady) break;
+            }
         }
         const loginStatus = await inspectXhsSession(page);
         await saveXhsLoginScreenshot(page);
+        const loginError = loginStatus === 'challenge'
+            ? '小红书要求安全验证，采集已暂停。'
+            : loginStatus === 'login_required' && !loginClick.found
+                ? '小红书首页已打开，但没有找到可见的登录按钮。'
+                : loginStatus === 'login_required'
+                    ? '已点击登录按钮；请查看最新截图并扫码。'
+                    : null;
         return saveXhsBrowserState({
             login_status: loginStatus,
             last_login_check_at: new Date().toISOString(),
-            last_error: loginStatus === 'challenge' ? '小红书要求安全验证，采集已暂停。' : null,
+            login_click: loginClick,
+            last_error: loginError,
         });
     });
 }
