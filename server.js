@@ -5077,6 +5077,7 @@ let xhsWalkTimer = null;
 let xhsBrowser = null;
 let xhsBrowserQueue = Promise.resolve();
 let xhsPuppeteer = null;
+let xhsLoginSessionTask = null;
 const xhsPreparedPages = new WeakSet();
 const XHS_DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const WAKE_ACTIVATION_FILE = path.join(DATA_DIR, 'wake_activation.json');
@@ -5315,6 +5316,44 @@ async function startXhsLoginSession() {
                 if (button instanceof HTMLElement) button.click();
             }).catch(() => {});
             await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+        const loginStatus = await inspectXhsSession(page);
+        await saveXhsLoginScreenshot(page);
+        return saveXhsBrowserState({
+            login_status: loginStatus,
+            last_login_check_at: new Date().toISOString(),
+            last_error: loginStatus === 'challenge' ? '小红书要求安全验证，采集已暂停。' : null,
+        });
+    });
+}
+
+function beginXhsLoginSession() {
+    if (xhsLoginSessionTask) return false;
+    xhsLoginSessionTask = startXhsLoginSession()
+        .catch(error => {
+            saveXhsBrowserState({
+                login_status: 'error',
+                last_error: error.message,
+                last_error_at: new Date().toISOString(),
+            });
+            console.log(`📕 [小红书首页] 登录页后台准备失败: ${error.message}`);
+        })
+        .finally(() => { xhsLoginSessionTask = null; });
+    return true;
+}
+
+async function checkXhsLoginSession() {
+    return queueXhsBrowserTask(async () => {
+        const page = await getXhsBrowserPage();
+        const currentUrl = page.url();
+        let onXhs = false;
+        try { onXhs = isAllowedXhsUrl(currentUrl); } catch (_) {}
+        if (!onXhs) {
+            return saveXhsBrowserState({
+                login_status: 'unknown',
+                last_login_check_at: new Date().toISOString(),
+                last_error: '登录页面尚未准备好，请先启动登录会话。',
+            });
         }
         const loginStatus = await inspectXhsSession(page);
         await saveXhsLoginScreenshot(page);
@@ -5996,6 +6035,7 @@ app.get('/api/xhs-walk/status', (req, res) => {
         enabled: process.env.XHS_WALK_ENABLED !== 'false',
         running: XHS_WALK_RUNNING,
         collecting: XHS_COLLECT_RUNNING,
+        login_starting: Boolean(xhsLoginSessionTask),
         chromium_ready: Boolean(resolveXhsChromeExecutable()),
         login_status: browser.login_status || 'unknown',
         login_screenshot_url: fs.existsSync(XHS_LOGIN_SCREENSHOT_FILE) ? `/api/xhs-session/screenshot?v=${Date.now()}` : null,
@@ -6015,24 +6055,28 @@ app.get('/api/xhs-walk/status', (req, res) => {
 });
 
 app.post('/api/xhs-session/start', async (req, res) => {
-    try {
-        const result = await startXhsLoginSession();
-        if (result.login_status === 'logged_in') {
-            const state = loadXhsWalkState();
-            state.next_collect_at = Date.now() + 1000;
-            saveXhsWalkState(state);
-            armXhsCollection();
-        }
-        res.json({ success: true, ...result, screenshot_url: `/api/xhs-session/screenshot?v=${Date.now()}` });
-    } catch (error) {
-        saveXhsBrowserState({ login_status: 'error', last_error: error.message, last_error_at: new Date().toISOString() });
-        res.status(500).json({ success: false, error: error.message });
-    }
+    const started = beginXhsLoginSession();
+    const browserState = loadXhsBrowserState();
+    res.status(202).json({
+        success: true,
+        started,
+        login_starting: true,
+        login_status: browserState.login_status || 'unknown',
+        screenshot_url: `/api/xhs-session/screenshot?v=${Date.now()}`,
+    });
 });
 
 app.post('/api/xhs-session/check', async (req, res) => {
     try {
-        const result = await startXhsLoginSession();
+        if (xhsLoginSessionTask) {
+            return res.status(202).json({
+                success: true,
+                login_starting: true,
+                login_status: 'starting',
+                screenshot_url: fs.existsSync(XHS_LOGIN_SCREENSHOT_FILE) ? `/api/xhs-session/screenshot?v=${Date.now()}` : null,
+            });
+        }
+        const result = await checkXhsLoginSession();
         if (result.login_status === 'logged_in') {
             const state = loadXhsWalkState();
             state.next_collect_at = Date.now() + 1000;
