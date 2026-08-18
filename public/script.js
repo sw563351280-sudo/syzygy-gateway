@@ -49,7 +49,7 @@ const starState = { pendingMeteor: false, pendingNebula: false };
 // ==================== Markdown 渲染 ====================
 if (typeof marked !== 'undefined') { marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false }); }
 function stripInternalTags(text) { return (text||'').replace(/<MOOD_SNAPSHOT>[\s\S]*?<\/MOOD_SNAPSHOT>/g, '').replace(/\[\[MOOD_SNAPSHOT\]\][\s\S]*?\[\[MOOD_SNAPSHOT\]\]/g, '').replace(/<SAVE_MEMORY[\s\S]*?<\/SAVE_MEMORY>/g, '').replace(/<ADD_TODO>[\s\S]*?<\/ADD_TODO>/g, '').replace(/<DONE_TODO[^>]*\/>/g, '').trim(); }
-function stripDisplayTimestamp(text) { return String(text||'').replace(/^\s*(?:⟦ts:[^⟧]*⟧|\[\d{2}-\d{2}\s+\d{2}:\d{2}\])\s*/i, ''); }
+function stripDisplayTimestamp(text) { return String(text||'').replace(/^\s*(?:⟦ts:[^⟧]*⟧|\[ts:\d{2}-\d{2}\s+\d{2}:\d{2}\]|\[\d{2}-\d{2}\s+\d{2}:\d{2}\])\s*/i, ''); }
 function renderMarkdown(text) { if (!text) return ''; text = stripDisplayTimestamp(text).replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '\n'); if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
 
 // ==================== 版本化消息辅助函数 ====================
@@ -155,11 +155,11 @@ function normForDedup(s) {
 // Time prefixes belong to the model prompt only. They must never become part
 // of a cross-device message identity or visible chat content.
 function stripTransportTimePrefix(content) {
-  return String(content || '').replace(/^\[\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/, '');
+  return String(content || '').replace(/^\s*(?:⟦ts:[^⟧]*⟧|\[ts:\d{2}-\d{2}\s+\d{2}:\d{2}\]|\[\d{2}-\d{2}\s+\d{2}:\d{2}\])\s*/i, '');
 }
 
 function tailHasContent(session, content, lookback) {
-  const target = normForDedup(content);
+  const target = normForDedup(stripTransportTimePrefix(content));
   if (!target) return false;
   const msgs = session.messages || [];
   for (let i = msgs.length - 1, n = 0; i >= 0 && n < (lookback || 6); i--, n++) {
@@ -167,7 +167,7 @@ function tailHasContent(session, content, lookback) {
     const v = (typeof getActiveVersion === 'function') ? getActiveVersion(m) : m;
     const cands = [v.content, m.content, (m.segments || v.segments || []).join('')];
     for (const c of cands) {
-      if (typeof c === 'string' && normForDedup(c) === target) return true;
+      if (typeof c === 'string' && normForDedup(stripTransportTimePrefix(c)) === target) return true;
     }
   }
   return false;
@@ -450,7 +450,7 @@ function normMsgText(m) {
   if (Array.isArray(c)) {
     c = c.filter(function(x) { return x && x.type === 'text'; }).map(function(x) { return x.text || ''; }).join('');
   }
-  return String(c).replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '').replace(/\|\|\|/g, '').replace(/\s+/g, '');
+  return stripTransportTimePrefix(c).replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '').replace(/\|\|\|/g, '').replace(/\s+/g, '');
 }
 
 function msgTimeMs(m) {
