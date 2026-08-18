@@ -5208,25 +5208,76 @@ function queueXhsBrowserTask(task) {
     return run;
 }
 
+function isXhsProfileLockError(error) {
+    return /SingletonLock|ProcessSingleton|profile directory/i.test(String(error?.message || ''));
+}
+
+async function recoverXhsBrowserProfileLock() {
+    // A deploy can leave Chromium detached from this Node process while it is
+    // still holding the dedicated XHS profile. Only stop processes whose
+    // command line explicitly names this profile; never touch other browsers.
+    if (process.platform !== 'win32') {
+        try {
+            const { stdout = '' } = await execFileAsync('ps', ['-eo', 'pid=,args=']);
+            const profileNeedle = `--user-data-dir=${XHS_BROWSER_PROFILE_DIR}`;
+            const stalePids = String(stdout)
+                .split(/\r?\n/)
+                .map(line => {
+                    const match = line.trim().match(/^(\d+)\s+(.*)$/);
+                    return match && match[2].includes(profileNeedle) ? Number(match[1]) : null;
+                })
+                .filter(pid => Number.isInteger(pid) && pid > 1 && pid !== process.pid);
+
+            for (const pid of stalePids) {
+                try { process.kill(pid, 'SIGTERM'); } catch (_) {}
+            }
+            if (stalePids.length) await new Promise(resolve => setTimeout(resolve, 500));
+            for (const pid of stalePids) {
+                try { process.kill(pid, 0); process.kill(pid, 'SIGKILL'); } catch (_) {}
+            }
+        } catch (error) {
+            console.log(`📕 [小红书首页] 检查残留 Chromium 失败: ${error.message}`);
+        }
+    }
+
+    for (const name of ['SingletonLock', 'SingletonCookie', 'SingletonSocket']) {
+        try { fs.unlinkSync(path.join(XHS_BROWSER_PROFILE_DIR, name)); }
+        catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+}
+
+async function launchXhsBrowser(executablePath) {
+    const options = {
+        executablePath,
+        userDataDir: XHS_BROWSER_PROFILE_DIR,
+        headless: 'new',
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-blink-features=AutomationControlled',
+            '--lang=zh-CN',
+        ],
+        defaultViewport: { width: 1280, height: 900, deviceScaleFactor: 1 },
+    };
+
+    try {
+        return await xhsPuppeteer.launch(options);
+    } catch (error) {
+        if (!isXhsProfileLockError(error)) throw error;
+        console.log('📕 [小红书首页] 检测到专用浏览器残留锁，清理后重试一次');
+        await recoverXhsBrowserProfileLock();
+        return xhsPuppeteer.launch(options);
+    }
+}
+
 async function getXhsBrowserPage() {
     if (!xhsBrowser?.connected) {
         const executablePath = resolveXhsChromeExecutable();
         if (!executablePath) throw new Error('VPS 未找到 Chromium，请先安装或设置 XHS_CHROME_PATH');
         if (!xhsPuppeteer) xhsPuppeteer = require('puppeteer-core');
         fs.mkdirSync(XHS_BROWSER_PROFILE_DIR, { recursive: true });
-        xhsBrowser = await xhsPuppeteer.launch({
-            executablePath,
-            userDataDir: XHS_BROWSER_PROFILE_DIR,
-            headless: 'new',
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-blink-features=AutomationControlled',
-                '--lang=zh-CN',
-            ],
-            defaultViewport: { width: 1280, height: 900, deviceScaleFactor: 1 },
-        });
+        xhsBrowser = await launchXhsBrowser(executablePath);
         xhsBrowser.on('disconnected', () => { xhsBrowser = null; });
     }
     const pages = await xhsBrowser.pages();
