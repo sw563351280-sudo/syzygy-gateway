@@ -2504,6 +2504,9 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
     }
     if (typeof smsPlain === 'function') safeContent = smsPlain(safeContent);
     if (typeof safeContent === 'string' && m.role === 'user') safeContent = fmtTsTag(v.fullTime) + safeContent;
+    if (typeof safeContent === 'string' && m.role === 'assistant' && v.model === 'proactive') {
+        safeContent = '【这是你之前主动发给江鱼的消息；作为既有历史理解，不要原样复述】\n' + safeContent;
+    }
     return { role: m.role, content: safeContent };
 });
 

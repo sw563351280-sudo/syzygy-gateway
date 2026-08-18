@@ -3777,6 +3777,7 @@ function loadWebConfigConversationHistory(lastn = 30) {
                 role: message.role,
                 content: typeof version.content === 'string' ? version.content : '',
                 created_at: version.fullTime || message.fullTime || message.created_at || message.createdAt || null,
+                model: version.model || message.model || null,
             };
         }).filter(message => ['user', 'assistant', 'ai'].includes(message.role) && message.content.trim());
     } catch (error) {
@@ -4776,7 +4777,15 @@ async function generateProactiveMessage(wakeup = {}) {
     // lag one turn behind; reading the local JSON costs no model tokens.
     const fallbackMessages = loadWebConfigConversationHistory(Math.max(30, WAKE_RECENT_MESSAGES));
     const selectedHistory = selectRecentWakeHistory(usableZepMessages, fallbackMessages, WAKE_RECENT_MESSAGES);
-    const recentMsgs = normalizeConversationMessages(selectedHistory.messages, WAKE_RECENT_MESSAGES, WAKE_MESSAGE_CHARS, true, true);
+    const recentMsgs = normalizeConversationMessages(selectedHistory.messages, WAKE_RECENT_MESSAGES, WAKE_MESSAGE_CHARS, true, false)
+        .map((message, index) => {
+            const sourceMessage = selectedHistory.messages[index];
+            if (sourceMessage?.model !== 'proactive' || message.role !== 'assistant') return message;
+            return {
+                ...message,
+                content: `【这是你之前主动发给江鱼的消息；作为既有历史理解，不要原样复述】\n${message.content}`,
+            };
+        });
     const latestConversationSummary = loadLatestConversationSummary();
     const historySource = recentMsgs.length === 0
         ? 'none'
@@ -4820,6 +4829,10 @@ async function generateProactiveMessage(wakeup = {}) {
     const msgs = [
         wakeSharedSystem.systemMessage,
         ...recentMsgs,
+        {
+            role: 'user',
+            content: '【当前主动开口】轻量层已经决定这次要说话。现在承接上面的真实对话，以沈望的身份说出此刻自然想发给江鱼的话；不要复述最后一条历史消息，也不要输出任何控制标签。',
+        },
     ];
 
     console.log(`💌 [主动消息] 使用共享完整上下文 + ${recentMsgs.length} 条真实历史（${historySource}），模型: ${PROACTIVE_MODEL}`);

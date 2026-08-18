@@ -38,3 +38,11 @@ test('wake history keeps a newer local turn even when Zep already returned enoug
     assert.deepEqual(selected.messages.map(item => item.content), ['zep-3', 'zep-4', 'zep-5', 'zep-6', '网页端刚说的话', '网页端刚回的话']);
     assert.equal(selected.usedFallback, true);
 });
+
+test('wake history preserves proactive provenance when the same message also exists in Zep', () => {
+    const zep = [message('assistant', '早安，鱼。', 8)];
+    const local = [{ ...message('assistant', '早安，鱼。', 8), model: 'proactive' }];
+    const selected = selectRecentWakeHistory(zep, local, 6);
+    assert.equal(selected.messages.length, 1);
+    assert.equal(selected.messages[0].model, 'proactive');
+});

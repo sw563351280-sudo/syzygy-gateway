@@ -43,7 +43,16 @@ function dedupeChronologicalMessages(entries = []) {
         if (duplicateIndex === -1) {
             kept.push(entry);
         } else if (entry.source === 'zep' && kept[duplicateIndex].source !== 'zep') {
-            kept[duplicateIndex] = entry;
+            // Zep is the canonical conversation store, but it does not retain
+            // the local `model: proactive` provenance. Preserve that marker so
+            // later turns can still recognize their own proactive messages.
+            const localModel = kept[duplicateIndex].message?.model;
+            kept[duplicateIndex] = {
+                ...entry,
+                message: localModel && !entry.message?.model
+                    ? { ...entry.message, model: localModel }
+                    : entry.message,
+            };
         }
     }
     return kept;
