@@ -7,6 +7,7 @@ const MAX_TASKS = 30;
 const MAX_EVENTS = 500;
 const MAX_PROMPT_LENGTH = 12000;
 const LOGIN_TIMEOUT_MS = 16 * 60 * 1000;
+const CHAT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const ALLOWED_DECISIONS = new Set(['accept', 'acceptForSession', 'decline', 'cancel']);
 
 function shortText(value, max = 4000) {
@@ -262,6 +263,7 @@ function createCodexBridge(options = {}) {
     function failTask(task, message) {
         if (task.status !== 'running' && task.status !== 'starting') return;
         if (task.timeout) clearTimeout(task.timeout);
+        if (task.idleTimeout) clearTimeout(task.idleTimeout);
         task.status = 'failed';
         task.error = shortText(message, 1000) || 'Codex 任务失败';
         addEvent(task, 'codex/error', { message: task.error });
@@ -272,13 +274,19 @@ function createCodexBridge(options = {}) {
     function finishTask(task, status, error = null) {
         if (task.status === 'completed' || task.status === 'failed' || task.status === 'interrupted') return;
         if (task.timeout) clearTimeout(task.timeout);
+        task.timeout = null;
         task.status = status;
         task.error = error ? shortText(error, 1000) : task.error;
         if (activeTaskId === task.id) activeTaskId = null;
         broadcastState(task);
-        setTimeout(() => {
+        if (task.idleTimeout) clearTimeout(task.idleTimeout);
+        task.idleTimeout = setTimeout(() => {
+            task.idleTimeout = null;
             try { task.proc?.kill(); } catch (_) {}
-        }, 250);
+            task.proc = null;
+            broadcastState(task);
+        }, CHAT_IDLE_TIMEOUT_MS);
+        task.idleTimeout.unref?.();
     }
 
     function handleResponse(task, message) {
@@ -328,6 +336,13 @@ function createCodexBridge(options = {}) {
             if (!task.turnId) return failTask(task, 'Codex 没有返回 turn id');
             task.status = 'running';
             addEvent(task, 'codex/started', { threadId: task.threadId, turnId: task.turnId });
+            return;
+        }
+        if (String(message.id || '').startsWith('followup-')) {
+            task.turnId = message.result?.turn?.id || null;
+            if (!task.turnId) return failTask(task, 'Codex 没有返回 follow-up turn id');
+            task.status = 'running';
+            addEvent(task, 'codex/started', { threadId: task.threadId, turnId: task.turnId, followup: true });
             return;
         }
         addEvent(task, 'codex/response', { id: message.id, result: message.result || null });
@@ -480,7 +495,11 @@ function createCodexBridge(options = {}) {
         while (order.length > MAX_TASKS) {
             const oldId = order.shift();
             const old = tasks.get(oldId);
-            if (old && old.status !== 'running' && old.status !== 'starting') tasks.delete(oldId);
+            if (old && old.status !== 'running' && old.status !== 'starting') {
+                if (old.idleTimeout) clearTimeout(old.idleTimeout);
+                try { old.proc?.kill(); } catch (_) {}
+                tasks.delete(oldId);
+            }
             else order.push(oldId);
         }
     }
@@ -510,7 +529,8 @@ function createCodexBridge(options = {}) {
             pending: new Map(),
             clients: new Set(),
             proc: null,
-            timeout: null
+            timeout: null,
+            idleTimeout: null
         };
         tasks.set(task.id, task);
         order.push(task.id);
@@ -535,7 +555,41 @@ function createCodexBridge(options = {}) {
         if (payload.type === 'steer') {
             const text = shortText(payload.text, 4000).trim();
             if (!text || !task.threadId || !task.turnId) throw new Error('当前任务还不能继续对话');
+            addEvent(task, 'codex/user-message', { text, steer: true });
             write(task, { method: 'turn/steer', id: `steer-${Date.now()}`, params: { threadId: task.threadId, expectedTurnId: task.turnId, input: [{ type: 'text', text }] } });
+            return;
+        }
+        if (payload.type === 'followup') {
+            const text = shortText(payload.text, MAX_PROMPT_LENGTH).trim();
+            if (!text) throw new Error('请输入要继续问 Codex 的内容');
+            if (!task.threadId || !task.proc || task.proc.stdin.destroyed) throw new Error('这个 Codex 对话已经休眠，请新建对话');
+            if (!['completed', 'interrupted'].includes(task.status)) throw new Error('请等当前回复结束后再继续');
+            if (activeTaskId && activeTaskId !== task.id) throw new Error('当前有另一个 Codex 对话正在运行');
+            if (task.idleTimeout) clearTimeout(task.idleTimeout);
+            task.idleTimeout = null;
+            task.status = 'starting';
+            task.error = null;
+            activeTaskId = task.id;
+            task.timeout = setTimeout(() => failTask(task, 'Codex 任务超时'), config.timeoutMs);
+            addEvent(task, 'codex/user-message', { text });
+            write(task, {
+                method: 'turn/start',
+                id: `followup-${Date.now()}`,
+                params: {
+                    threadId: task.threadId,
+                    input: [{ type: 'text', text }],
+                    cwd: task.cwd,
+                    model: task.model,
+                    effort: task.effort,
+                    approvalPolicy: task.mode === 'workspaceWrite' ? 'onRequest' : 'never',
+                    sandboxPolicy: task.mode === 'workspaceWrite'
+                        ? { type: 'workspaceWrite', writableRoots: [task.cwd], networkAccess: config.networkAccess }
+                        : { type: 'readOnly', access: { type: 'fullAccess' } },
+                    summary: 'concise',
+                    personality: 'friendly'
+                }
+            });
+            broadcastState(task);
             return;
         }
         if (payload.type === 'approval') {

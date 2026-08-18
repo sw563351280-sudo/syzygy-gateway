@@ -915,6 +915,8 @@ function devOpenConsole(tab) {
 let devCodexSocket = null;
 let devCodexTaskId = null;
 let devCodexApprovalId = null;
+let devCodexTurnActive = false;
+let devCodexAssistantBubble = null;
 let devCodexAuthRequired = false;
 let devCodexLoginTimer = null;
 let devCodexLoginSnapshot = { status: 'idle' };
@@ -1057,7 +1059,8 @@ function devOpenCodex() {
     if (!panel) return;
     panel.hidden = false;
     document.getElementById('devCodexPrompt')?.focus();
-    devCodexSetStatus('准备创建任务');
+    if (devCodexTaskId) devConnectCodex(devCodexTaskId);
+    else devLoadLatestCodexChat();
 }
 
 function devCloseCodex() {
@@ -1070,11 +1073,42 @@ function devCodexSetStatus(text) {
     if (el) el.textContent = text;
 }
 
-function devCodexWrite(text) {
-    const output = document.getElementById('devCodexOutput');
-    if (!output || !text) return;
-    output.textContent += String(text);
-    output.scrollTop = output.scrollHeight;
+function devCodexMessages() {
+    return document.getElementById('devCodexMessages');
+}
+
+function devCodexClearMessages() {
+    const list = devCodexMessages();
+    if (list) list.innerHTML = '<div class="dev-codex-empty">直接告诉 Codex 你想检查、修改或继续追问什么。</div>';
+    devCodexAssistantBubble = null;
+}
+
+function devCodexAddBubble(role, text = '') {
+    const list = devCodexMessages();
+    if (!list) return null;
+    list.querySelector('.dev-codex-empty')?.remove();
+    const bubble = document.createElement('div');
+    bubble.className = 'dev-codex-bubble ' + (role === 'user' ? 'is-user' : role === 'activity' ? 'is-activity' : 'is-assistant');
+    bubble.textContent = String(text || '');
+    list.appendChild(bubble);
+    list.scrollTop = list.scrollHeight;
+    return bubble;
+}
+
+function devCodexAppendAssistant(text) {
+    if (!text) return;
+    if (!devCodexAssistantBubble || !devCodexAssistantBubble.isConnected) devCodexAssistantBubble = devCodexAddBubble('assistant');
+    devCodexAssistantBubble.textContent += String(text);
+    const list = devCodexMessages();
+    if (list) list.scrollTop = list.scrollHeight;
+}
+
+function devCodexSetTurnActive(active) {
+    devCodexTurnActive = Boolean(active);
+    const send = document.getElementById('devCodexSendButton');
+    const interrupt = document.getElementById('devCodexInterruptButton');
+    if (send) send.textContent = active ? '补充' : '发送';
+    if (interrupt) interrupt.hidden = !active;
 }
 
 function devCodexShowApproval(event) {
@@ -1094,32 +1128,47 @@ function devCodexRenderEvent(event) {
     const params = event.params || {};
     if (method.includes('requestApproval')) {
         devCodexShowApproval(event);
-        devCodexWrite('\n[等待确认] ' + (params.reason || params.command || 'Codex 请求执行操作') + '\n');
+        devCodexAddBubble('activity', '等待确认 · ' + (params.reason || params.command || 'Codex 请求执行操作'));
         return;
     }
-    if (method === 'item/agentMessage/delta' || method === 'item/reasoning/summaryTextDelta' || method === 'item/plan/delta') {
-        devCodexWrite(params.delta || params.text || '');
+    if (method === 'codex/user-message') {
+        devCodexAssistantBubble = null;
+        devCodexAddBubble('user', params.text || '');
         return;
     }
-    if (method === 'item/commandExecution/outputDelta') {
-        devCodexWrite(params.delta || params.output || '');
+    if (method === 'codex/started') {
+        devCodexAssistantBubble = null;
+        devCodexSetTurnActive(true);
+        devCodexSetStatus('Codex 正在回复');
+        return;
+    }
+    if (method === 'item/agentMessage/delta') {
+        devCodexAppendAssistant(params.delta || params.text || '');
+        return;
+    }
+    if (method === 'item/plan/delta') {
+        devCodexSetStatus('Codex 正在整理步骤');
         return;
     }
     if (method === 'codex/stderr') {
-        devCodexWrite('\n[Codex] ' + (params.text || '') + '\n');
+        devCodexSetStatus('Codex 运行中');
         return;
     }
     if (method === 'turn/completed') {
-        devCodexWrite('\n\n[任务结束] ' + (params.turn?.status || 'completed') + '\n');
+        devCodexSetTurnActive(false);
+        devCodexSetStatus(params.turn?.status === 'failed' ? '回复失败' : '可以继续追问');
         return;
     }
     if (method === 'codex/error' || method === 'codex/protocol-error') {
-        devCodexWrite('\n[错误] ' + (params.message || 'Codex 任务失败') + '\n');
+        devCodexAddBubble('activity', '错误 · ' + (params.message || 'Codex 任务失败'));
         return;
     }
-    if (method === 'item/started' || method === 'item/completed' || method === 'turn/plan/updated' || method === 'turn/diff/updated') {
-        const item = params.item || params.turn || params.plan || params.diff;
-        if (item) devCodexWrite('\n[' + method + '] ' + JSON.stringify(item).slice(0, 1500) + '\n');
+    if (method === 'item/commandExecution/outputDelta') {
+        devCodexSetStatus('Codex 正在执行命令');
+        return;
+    }
+    if (method === 'turn/diff/updated') {
+        devCodexSetStatus('Codex 已更新代码');
     }
 }
 
@@ -1127,8 +1176,11 @@ function devCodexHandleMessage(message) {
     if (!message) return;
     if (message.type === 'codex_snapshot') {
         devCodexTaskId = message.task?.id || devCodexTaskId;
+        devCodexClearMessages();
+        if (message.task?.prompt) devCodexAddBubble('user', message.task.prompt);
         devCodexSetStatus(message.task?.status || '运行中');
         (message.events || []).forEach(devCodexRenderEvent);
+        devCodexSetTurnActive(message.task?.status === 'running' || message.task?.status === 'starting');
         return;
     }
     if (message.type === 'codex_state') {
@@ -1136,11 +1188,12 @@ function devCodexHandleMessage(message) {
         devCodexSetStatus(message.task?.status || '运行中');
         if (message.task?.status === 'completed' || message.task?.status === 'failed' || message.task?.status === 'interrupted') {
             document.getElementById('devCodexApproval')?.setAttribute('hidden', '');
+            devCodexSetTurnActive(false);
         }
         return;
     }
     if (message.type === 'codex_event') devCodexRenderEvent(message.event);
-    if (message.type === 'codex_error') devCodexWrite('\n[连接错误] ' + (message.error || 'Codex Bridge 连接失败') + '\n');
+    if (message.type === 'codex_error') devCodexAddBubble('activity', '连接错误 · ' + (message.error || 'Codex Bridge 连接失败'));
 }
 
 function devConnectCodex(taskId) {
@@ -1150,20 +1203,14 @@ function devConnectCodex(taskId) {
     devCodexSocket.onopen = () => devCodexSetStatus('Codex 连接中');
     devCodexSocket.onmessage = event => { try { devCodexHandleMessage(JSON.parse(event.data)); } catch (_) {} };
     devCodexSocket.onerror = () => devCodexSetStatus('连接失败');
-    devCodexSocket.onclose = () => { if (devCodexTaskId === taskId) devCodexSetStatus('连接已关闭'); };
+    devCodexSocket.onclose = () => { if (devCodexTaskId === taskId && devCodexTurnActive) devCodexSetStatus('连接已关闭'); };
 }
 
-async function devCreateCodexTask(event) {
-    event?.preventDefault();
-    const prompt = document.getElementById('devCodexPrompt')?.value?.trim();
+async function devCreateCodexTask(prompt) {
     if (!prompt) return;
-    const form = document.getElementById('devCodexForm');
-    const running = document.getElementById('devCodexRunning');
-    const output = document.getElementById('devCodexOutput');
-    if (form) form.hidden = true;
-    if (running) running.hidden = false;
-    if (output) output.textContent = '';
+    devCodexClearMessages();
     devCodexSetStatus('正在启动');
+    devCodexSetTurnActive(true);
     try {
         const response = await fetch('/api/codex/tasks', {
             method: 'POST',
@@ -1173,15 +1220,59 @@ async function devCreateCodexTask(event) {
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.task) throw new Error(data.error || '无法创建 Codex 任务');
         devCodexTaskId = data.task.id;
-        devCodexWrite('[任务已创建] ' + data.task.id + '\n');
         devConnectCodex(devCodexTaskId);
         devRefreshOverview();
     } catch (error) {
         devCodexSetStatus('启动失败');
-        devCodexWrite('[错误] ' + error.message + '\n');
-        if (form) form.hidden = false;
-        if (running) running.hidden = true;
+        devCodexSetTurnActive(false);
+        devCodexAddBubble('activity', '启动失败 · ' + error.message);
     }
+}
+
+async function devSendCodexMessage(event) {
+    event?.preventDefault();
+    const input = document.getElementById('devCodexPrompt');
+    const prompt = input?.value?.trim();
+    if (!prompt) return;
+    if (input) input.value = '';
+    if (!devCodexTaskId) return devCreateCodexTask(prompt);
+    if (!devCodexSocket || devCodexSocket.readyState !== WebSocket.OPEN) {
+        if (input) input.value = prompt;
+        devConnectCodex(devCodexTaskId);
+        toast('正在重新连接 Codex，请再发送一次');
+        return;
+    }
+    devCodexSocket.send(JSON.stringify({ type: devCodexTurnActive ? 'steer' : 'followup', text: prompt }));
+}
+
+async function devLoadLatestCodexChat() {
+    try {
+        const response = await fetch('/api/codex/tasks', { cache: 'no-store' });
+        const data = await response.json();
+        const latest = data.tasks?.[0];
+        if (latest) {
+            devCodexTaskId = latest.id;
+            devConnectCodex(latest.id);
+        } else {
+            devCodexClearMessages();
+            devCodexSetStatus('准备聊天');
+        }
+    } catch (_) {
+        devCodexSetStatus('无法读取最近对话');
+    }
+}
+
+function devNewCodexChat() {
+    if (devCodexTurnActive && !confirm('当前 Codex 还在回复，确定新建对话吗？')) return;
+    if (devCodexSocket) devCodexSocket.close();
+    devCodexSocket = null;
+    devCodexTaskId = null;
+    devCodexApprovalId = null;
+    devCodexSetTurnActive(false);
+    document.getElementById('devCodexApproval')?.setAttribute('hidden', '');
+    devCodexClearMessages();
+    devCodexSetStatus('新对话');
+    document.getElementById('devCodexPrompt')?.focus();
 }
 
 function devApproveCodex(decision) {
@@ -1198,44 +1289,41 @@ function devInterruptCodex() {
 
 async function devRefreshOverview() {
     const status = document.getElementById('devStatus');
+    const serverCard = document.getElementById('devServerMonitor');
+    const serverDot = document.getElementById('devServerDot');
     const server = document.getElementById('devServerStat');
     const meta = document.getElementById('devServerMeta');
     if (status) { status.dataset.state = 'loading'; status.innerHTML = '<i></i>检查中'; }
     devRefreshCodexLogin(true);
+    refreshDevicePanel();
     try {
-        const [r, codexResponse, usageResponse] = await Promise.all([
+        const [r, codexResponse, usageResponse, xhsResponse] = await Promise.all([
             fetch('/api/console/status', { cache: 'no-store' }),
             fetch('/api/codex/status', { cache: 'no-store' }),
-            fetch('/api/codex/usage', { cache: 'no-store' })
+            fetch('/api/codex/usage', { cache: 'no-store' }),
+            fetch('/api/xhs-walk/status', { cache: 'no-store' })
         ]);
         const info = await r.json();
         const codex = await codexResponse.json().catch(() => ({}));
         const usageData = await usageResponse.json().catch(() => ({}));
+        const xhs = await xhsResponse.json().catch(() => ({}));
         const ready = r.ok && info && info.ok !== false && info.configured !== false;
         if (server) server.textContent = ready ? '在线' : '未配置';
         if (meta) meta.textContent = info?.name || '控制台连接';
+        if (serverCard) serverCard.dataset.state = ready ? 'ready' : 'error';
+        if (serverDot) serverDot.dataset.state = ready ? 'ready' : 'error';
         if (status) { status.dataset.state = ready ? 'ready' : 'error'; status.innerHTML = '<i></i>' + (ready ? '系统在线' : '需要检查'); }
-        const usage = document.getElementById('devUsageStat');
-        const usageMeta = document.getElementById('devUsageMeta');
-        const trace = document.getElementById('devTraceStat');
         const loginAction = document.getElementById('devCodexLoginAction');
         const primary = usageData?.rateLimits?.rateLimits?.primary || usageData?.rateLimits?.rateLimitsByLimitId?.codex?.primary;
         const codexAuthenticated = Boolean(primary) || (usageResponse.ok && usageData?.ok !== false && !usageData?.error);
         devCodexAuthRequired = !codexAuthenticated;
         if (loginAction) loginAction.hidden = codexAuthenticated;
-        if (usage && primary && Number.isFinite(Number(primary.usedPercent))) {
-            usage.textContent = Math.round(Number(primary.usedPercent)) + '% 已使用';
-            const resetAt = Number(primary.resetsAt || 0) * 1000;
-            const mins = resetAt > Date.now() ? Math.max(1, Math.round((resetAt - Date.now()) / 60000)) : 0;
-            if (usageMeta) usageMeta.textContent = mins ? '约 ' + mins + ' 分钟后重置' : '额度窗口已重置';
-        } else if (usage) {
-            usage.textContent = usageData?.error ? '需登录' : codex.activeTaskId ? '运行中' : codex.enabled ? '已连接' : '未配置';
-            if (usageMeta) usageMeta.textContent = usageData?.error ? '请先完成 Codex 登录' : 'Codex 额度窗口';
-        }
-        if (trace) trace.textContent = String(codex.historyCount || 0) + ' 个任务';
+        devRenderXhsMonitor(xhsResponse.ok ? xhs : null);
     } catch (e) {
         if (server) server.textContent = '离线';
         if (meta) meta.textContent = '无法取得状态';
+        if (serverCard) serverCard.dataset.state = 'error';
+        if (serverDot) serverDot.dataset.state = 'error';
         if (status) { status.dataset.state = 'error'; status.innerHTML = '<i></i>连接失败'; }
     }
 }
@@ -1582,6 +1670,39 @@ function neuGetMemoryPwd() {
 function neuOpenMemoryManager() {
     const pwd = neuGetMemoryPwd();
     if (pwd) window.location.assign('/long-term.html?pwd=' + encodeURIComponent(pwd));
+}
+
+function devRenderXhsMonitor(xhs) {
+    const card = document.getElementById('devXhsMonitor');
+    const status = document.getElementById('devXhsStatus');
+    const meta = document.getElementById('devXhsMeta');
+    const dot = document.getElementById('devXhsDot');
+    if (!card || !status || !meta) return;
+    const loggedIn = xhs?.login_status === 'logged_in';
+    const working = Boolean(xhs?.collecting || xhs?.running || xhs?.login_starting);
+    card.dataset.state = loggedIn ? 'ready' : working ? 'loading' : 'error';
+    if (dot) dot.dataset.state = card.dataset.state;
+    status.textContent = working ? '运行中' : loggedIn ? '已登录' : '需要登录';
+    if (!xhs) meta.textContent = '暂时无法读取状态';
+    else if (xhs.last_error && !loggedIn) meta.textContent = xhs.last_error;
+    else if (xhs.last_collect_at) {
+        const time = new Date(xhs.last_collect_at).toLocaleString('zh-CN', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
+        meta.textContent = '上次 ' + time + ' · ' + Number(xhs.last_collect_count || 0) + ' 条';
+    } else if (xhs.next_collect_at) {
+        const time = new Date(xhs.next_collect_at).toLocaleString('zh-CN', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
+        meta.textContent = '下次采集 ' + time;
+    } else meta.textContent = '等待首次个性化采集';
+}
+
+async function devRefreshXhsMonitor() {
+    const status = document.getElementById('devXhsStatus');
+    if (status) status.textContent = '检查中';
+    try {
+        const response = await fetch('/api/xhs-walk/status', { cache: 'no-store' });
+        devRenderXhsMonitor(response.ok ? await response.json() : null);
+    } catch (_) {
+        devRenderXhsMonitor(null);
+    }
 }
 function neuOpenLongTerm() {
     const pwd = neuGetMemoryPwd();
@@ -3513,7 +3634,7 @@ async function refreshToyConnectionStatus() {
     const el = document.getElementById('toyConnectionStatus');
     if (!el) return;
     const label = el.querySelector('.chat-toy-status-label');
-    el.className = 'device-card toy-device-card is-checking';
+    el.className = 'dev-monitor-card toy-device-card is-checking';
     if (label) label.textContent = '检查中';
     try {
         const res = await fetch('/api/toy-status');
@@ -3527,11 +3648,11 @@ async function refreshToyConnectionStatus() {
             error: '读取失败',
             unknown: '状态未知'
         };
-        el.className = 'device-card toy-device-card is-' + state;
+        el.className = 'dev-monitor-card toy-device-card is-' + state;
         if (label) label.textContent = labels[state] || labels.unknown;
         el.title = data.message || labels[state] || labels.unknown;
     } catch (e) {
-        el.className = 'device-card toy-device-card is-error';
+        el.className = 'dev-monitor-card toy-device-card is-error';
         if (label) label.textContent = '读取失败';
         el.title = '无法读取连接状态';
     }

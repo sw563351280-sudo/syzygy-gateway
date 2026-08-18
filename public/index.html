@@ -185,25 +185,6 @@
             <div id="supplierList" style="margin-top:20px; display:flex; flex-direction:column; gap:10px;"></div>
         </div>
 
-        <div class="glass device-panel" id="mcp-tools-card">
-            <div class="device-panel-head">
-                <div>
-                    <p>连接与设备</p>
-                    <span>不用管工具，看看真正需要惦记的东西。</span>
-                </div>
-                <button type="button" class="device-refresh" onclick="refreshDevicePanel()">↻ 刷新</button>
-            </div>
-            <div class="device-card toy-device-card is-checking" id="toyConnectionStatus" title="正在读取连接状态">
-                <span class="device-orbit" aria-hidden="true"></span>
-                <div class="device-card-copy">
-                    <strong>啵啵贝</strong>
-                    <span class="chat-toy-status-label">检查中</span>
-                </div>
-                <span class="device-state-dot" aria-hidden="true"></span>
-            </div>
-            <div class="device-panel-foot" id="mcp-tools-list">工具已常开。这里以后只放值得你看一眼的连接。</div>
-        </div>
-
         <div class="glass device-panel wake-journal-panel" id="wakeJournalPanel">
             <div class="device-panel-head">
                 <div>
@@ -267,8 +248,8 @@
             <div class="dev-hero-copy">
                 <span class="dev-eyebrow">REMOTE WORKSPACE</span>
                 <h1>把调试带在身边</h1>
-                <p>从手机查看服务状态、追踪对话链路，并逐步接入 Codex 任务。</p>
-                <button class="dev-primary-action" onclick="devOpenCodex()"><span>✦</span> 新建 Codex Debug</button>
+                <p>从手机和 Codex 连续对话，也把真正需要留意的服务状态放在一起。</p>
+                <button class="dev-primary-action" onclick="devOpenCodex()"><span>✦</span> 打开 Codex 对话</button>
             </div>
             <div class="dev-orbit" aria-hidden="true"><span></span><b>SYZ</b></div>
         </section>
@@ -297,44 +278,31 @@
 
         <section class="dev-codex-panel" id="devCodexPanel" hidden>
             <div class="dev-codex-panel-head">
-                <div><span class="dev-eyebrow">CODEX BRIDGE</span><h2>手机端调试任务</h2></div>
-                <button class="dev-close-btn" type="button" onclick="devCloseCodex()">×</button>
+                <div><span class="dev-eyebrow">CODEX CHAT</span><h2>手机端 Codex</h2></div>
+                <div class="dev-codex-head-actions"><button class="dev-secondary-action" type="button" onclick="devNewCodexChat()">新对话</button><button class="dev-close-btn" type="button" onclick="devCloseCodex()">×</button></div>
             </div>
-            <form id="devCodexForm" class="dev-codex-form" onsubmit="devCreateCodexTask(event)">
-                <label>你想让 Codex 检查什么？<textarea id="devCodexPrompt" rows="4" maxlength="12000" placeholder="例如：检查收藏对话功能为什么会失效，只分析原因，不要修改文件。" required></textarea></label>
-                <div class="dev-codex-options">
-                    <label>权限<select id="devCodexMode"><option value="readOnly">只读诊断</option><option value="workspaceWrite">允许修改工作区</option></select></label>
-                    <label>强度<select id="devCodexEffort"><option value="low">低</option><option value="medium" selected>中</option><option value="high">高</option><option value="xhigh">极高</option></select></label>
-                </div>
-                <div class="dev-codex-form-actions"><button class="dev-primary-action" type="submit">开始 Codex Debug</button><button class="dev-secondary-action" type="button" onclick="devCloseCodex()">稍后</button></div>
-            </form>
-            <div class="dev-codex-running" id="devCodexRunning" hidden>
-                <div class="dev-codex-running-head"><span id="devCodexTaskStatus">准备中</span><button class="dev-secondary-action" type="button" onclick="devInterruptCodex()">中断任务</button></div>
-                <pre id="devCodexOutput" class="dev-codex-output" role="log" aria-live="polite"></pre>
-                <div class="dev-codex-approval" id="devCodexApproval" hidden><strong id="devCodexApprovalTitle">Codex 请求确认</strong><p id="devCodexApprovalText"></p><div><button type="button" onclick="devApproveCodex('accept')">允许本次</button><button type="button" onclick="devApproveCodex('acceptForSession')">本次会话允许</button><button type="button" onclick="devApproveCodex('decline')">拒绝</button></div></div>
-            </div>
+            <div class="dev-codex-toolbar"><label>权限<select id="devCodexMode"><option value="readOnly">只读</option><option value="workspaceWrite">可修改</option></select></label><label>思考<select id="devCodexEffort"><option value="low">低</option><option value="medium" selected>中</option><option value="high">高</option><option value="xhigh">极高</option></select></label><span id="devCodexTaskStatus">准备聊天</span></div>
+            <div id="devCodexMessages" class="dev-codex-messages" role="log" aria-live="polite"><div class="dev-codex-empty">直接告诉 Codex 你想检查、修改或继续追问什么。</div></div>
+            <div class="dev-codex-approval" id="devCodexApproval" hidden><strong id="devCodexApprovalTitle">Codex 请求确认</strong><p id="devCodexApprovalText"></p><div><button type="button" onclick="devApproveCodex('accept')">允许本次</button><button type="button" onclick="devApproveCodex('acceptForSession')">本次会话允许</button><button type="button" onclick="devApproveCodex('decline')">拒绝</button></div></div>
+            <form id="devCodexComposer" class="dev-codex-composer" onsubmit="devSendCodexMessage(event)"><textarea id="devCodexPrompt" rows="2" maxlength="12000" placeholder="给 Codex 发消息…" required></textarea><div><button id="devCodexInterruptButton" class="dev-secondary-action" type="button" onclick="devInterruptCodex()" hidden>中断</button><button id="devCodexSendButton" class="dev-primary-action" type="submit">发送</button></div></form>
         </section>
 
-        <section class="dev-stat-grid" aria-label="开发中枢状态">
-            <div class="dev-stat-card"><span class="dev-stat-label">VPS</span><strong id="devServerStat">检查中</strong><small id="devServerMeta">控制台连接</small></div>
-            <div class="dev-stat-card"><span class="dev-stat-label">TRACE</span><strong id="devTraceStat">—</strong><small>最近对话链路</small></div>
-            <div class="dev-stat-card"><span class="dev-stat-label">USAGE</span><strong id="devUsageStat">检查中</strong><small id="devUsageMeta">Codex 额度窗口</small></div>
+        <div class="dev-section-heading"><span>运行监控</span><em>LIVE STATUS</em></div>
+        <section class="dev-monitor-grid" aria-label="运行监控">
+            <article class="dev-monitor-card" id="devServerMonitor"><div class="dev-monitor-head"><span>VPS</span><i id="devServerDot"></i></div><strong id="devServerStat">检查中</strong><small id="devServerMeta">控制台连接</small></article>
+            <article class="dev-monitor-card toy-device-card is-checking" id="toyConnectionStatus" title="正在读取连接状态"><div class="dev-monitor-head"><span>啵啵贝</span><i class="device-state-dot"></i></div><strong class="chat-toy-status-label">检查中</strong><small>亲密设备连接</small></article>
+            <article class="dev-monitor-card" id="devXhsMonitor"><div class="dev-monitor-head"><span>小红书</span><i id="devXhsDot"></i></div><strong id="devXhsStatus">检查中</strong><small id="devXhsMeta">个性化首页采集</small><div class="dev-monitor-actions"><button type="button" onclick="devRefreshXhsMonitor()">刷新</button><a href="/xhs-session-import">更新登录</a></div></article>
         </section>
 
         <div class="dev-section-heading"><span>快速入口</span><em>QUICK ACCESS</em></div>
         <section class="dev-action-grid">
-            <button class="dev-action-card dev-action-cyan" onclick="devOpenCodex()"><span class="dev-action-icon">⌘</span><span><b>Codex Debug</b><small>描述问题，生成诊断任务</small></span><span class="dev-arrow">↗</span></button>
+            <button class="dev-action-card dev-action-cyan" onclick="devOpenCodex()"><span class="dev-action-icon">⌘</span><span><b>Codex 对话</b><small>连续追问、修改与确认操作</small></span><span class="dev-arrow">↗</span></button>
             <button id="devCodexLoginAction" class="dev-action-card dev-action-cyan" onclick="devOpenCodexLogin()"><span class="dev-action-icon">◎</span><span><b>Codex 登录</b><small id="devCodexLoginActionMeta">后台设备授权 · 断线不中止</small></span><span class="dev-arrow">↗</span></button>
             <button class="dev-action-card" onclick="devOpenConsole('terminal')"><span class="dev-action-icon">›_</span><span><b>远程终端</b><small>连接 VPS · 执行现有命令</small></span><span class="dev-arrow">↗</span></button>
             <button class="dev-action-card" onclick="devOpenConsole('trace')"><span class="dev-action-icon">⌁</span><span><b>对话链路</b><small>查看模型、工具与记忆阶段</small></span><span class="dev-arrow">↗</span></button>
             <button class="dev-action-card" onclick="devOpenConsole('logs')"><span class="dev-action-icon">≡</span><span><b>原始日志</b><small>筛选最近服务日志</small></span><span class="dev-arrow">↗</span></button>
         </section>
 
-        <section class="dev-coming-card">
-            <div class="dev-coming-mark">◌</div>
-            <div><b>额度与任务统计</b><p>下一步接入 Syzygy 自身 API 用量记录。ChatGPT Pro/Codex 官方额度仍以 Codex Settings → Usage 为准。</p></div>
-            <span class="dev-pill">PHASE 2</span>
-        </section>
     </main>
 </div>
 
