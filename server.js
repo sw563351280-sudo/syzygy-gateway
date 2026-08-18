@@ -5190,6 +5190,73 @@ function saveXhsBrowserState(patch = {}) {
     return next;
 }
 
+function normalizeImportedXhsSameSite(value) {
+    const normalized = String(value || '').toLowerCase();
+    if (normalized === 'strict') return 'Strict';
+    if (normalized === 'none' || normalized === 'no_restriction') return 'None';
+    return 'Lax';
+}
+
+function parseImportedXhsCookies(rawInput) {
+    const text = String(rawInput || '').trim();
+    if (!text) throw new Error('请粘贴 Cookie 请求头或 Cookie JSON');
+    if (Buffer.byteLength(text, 'utf8') > 200 * 1024) throw new Error('Cookie 内容过大');
+
+    let source = null;
+    try {
+        const parsed = JSON.parse(text);
+        source = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.cookies) ? parsed.cookies : null;
+    } catch (_) {}
+
+    if (!source) {
+        source = text.split(/;\s*/).map(part => {
+            const separator = part.indexOf('=');
+            if (separator <= 0) return null;
+            return { name: part.slice(0, separator).trim(), value: part.slice(separator + 1).trim() };
+        }).filter(Boolean);
+    }
+
+    const nowSeconds = Date.now() / 1000;
+    const deduped = new Map();
+    for (const item of source) {
+        const name = String(item?.name || '').trim();
+        const value = String(item?.value ?? '');
+        if (!/^[A-Za-z0-9_.-]{1,128}$/.test(name) || !value || value.length > 8192) continue;
+        let domain = String(item?.domain || '.xiaohongshu.com').trim().toLowerCase();
+        domain = domain.replace(/^https?:\/\//, '').split('/')[0];
+        const bareDomain = domain.replace(/^\./, '');
+        if (bareDomain !== 'xiaohongshu.com' && !bareDomain.endsWith('.xiaohongshu.com')) continue;
+        const cookie = {
+            name,
+            value,
+            domain,
+            path: String(item?.path || '/').startsWith('/') ? String(item?.path || '/') : '/',
+            secure: item?.secure !== false,
+            httpOnly: Boolean(item?.httpOnly),
+            sameSite: normalizeImportedXhsSameSite(item?.sameSite),
+        };
+        const expires = Number(item?.expirationDate ?? item?.expires);
+        if (Number.isFinite(expires) && expires > nowSeconds) cookie.expires = expires;
+        deduped.set(`${domain}|${cookie.path}|${name}`, cookie);
+    }
+
+    const cookies = [...deduped.values()];
+    if (!cookies.some(cookie => cookie.name === 'web_session')) {
+        throw new Error('没有找到 web_session；请复制已登录小红书请求中的完整 Cookie 请求头');
+    }
+    return cookies;
+}
+
+const XHS_COOKIE_IMPORT_HTML = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>导入小红书登录</title><style>
+body{margin:0;background:#eef5fb;color:#40506a;font:15px/1.65 system-ui,-apple-system,"Microsoft YaHei",sans-serif}.card{max-width:760px;margin:48px auto;padding:28px;background:#fff;border-radius:20px;box-shadow:0 12px 40px #8aa4bd2b}h1{margin:0 0 8px;color:#31445f;font-size:24px}.hint{color:#71839b}.steps{background:#f5f9fd;border-radius:14px;padding:14px 18px;margin:18px 0}textarea{box-sizing:border-box;width:100%;height:210px;padding:14px;border:1px solid #cbd9e8;border-radius:12px;resize:vertical;font:13px/1.5 ui-monospace,Consolas,monospace}button{margin-top:14px;border:0;border-radius:12px;padding:11px 20px;background:#35b8ad;color:#fff;font-weight:700;cursor:pointer}button:disabled{opacity:.55;cursor:wait}#result{white-space:pre-wrap;margin-top:14px}.warn{color:#b06a63}
+</style></head><body><main class="card"><h1>导入小红书登录</h1><div class="hint">内容只发送到你自己的 VPS，不会写入日志或在响应中回显。</div>
+<div class="steps">1. 在电脑浏览器打开已登录的 <b>xiaohongshu.com</b>。<br>2. 按 F12 → Network（网络）→ 刷新页面。<br>3. 点开第一个小红书请求，在 Request Headers（请求标头）里复制完整的 <b>Cookie</b> 值。<br>4. 粘贴到下面并导入。也支持 Cookie-Editor 导出的 JSON。</div>
+<textarea id="cookie" autocomplete="off" spellcheck="false" placeholder="web_session=...; a1=...; webId=..."></textarea>
+<div class="warn">不要把 Cookie 发到聊天里；它相当于登录凭证。</div><button id="submit">导入并验证</button><div id="result"></div>
+<script>const button=document.getElementById('submit'),result=document.getElementById('result'),input=document.getElementById('cookie');button.onclick=async()=>{button.disabled=true;result.textContent='正在写入 VPS 专用浏览器并验证…';try{const response=await fetch('/api/xhs-session/import-cookie',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cookieText:input.value})});const data=await response.json();if(!response.ok)throw new Error(data.error||'导入失败');input.value='';result.textContent=data.login_status==='logged_in'?'导入成功，VPS 已确认登录。':'Cookie 已写入，但登录验证未通过：'+data.login_status;}catch(error){result.textContent=error.message}finally{button.disabled=false}};</script></main></body></html>`;
+
 function resolveXhsChromeExecutable() {
     const candidates = [
         process.env.XHS_CHROME_PATH,
@@ -5662,6 +5729,47 @@ async function checkXhsLoginSession() {
             last_login_check_at: new Date().toISOString(),
             last_error: loginStatus === 'challenge' ? '小红书要求安全验证，采集已暂停。' : null,
         });
+    });
+}
+
+async function importXhsBrowserCookies(rawInput) {
+    const cookies = parseImportedXhsCookies(rawInput);
+    return queueXhsBrowserTask(async () => {
+        const page = await getXhsBrowserPage();
+        const existing = await page.cookies(
+            'https://www.xiaohongshu.com',
+            'https://creator.xiaohongshu.com'
+        );
+        if (existing.length) {
+            await page.deleteCookie(...existing.map(cookie => ({
+                name: cookie.name,
+                domain: cookie.domain,
+                path: cookie.path || '/',
+            })));
+        }
+        await page.setCookie(...cookies);
+        try {
+            await page.goto('https://www.xiaohongshu.com/explore', {
+                waitUntil: 'domcontentloaded',
+                timeout: 15000,
+            });
+        } catch (error) {
+            const timedOut = error?.name === 'TimeoutError'
+                || /Navigation timeout.*exceeded/i.test(String(error?.message || ''));
+            if (!timedOut) throw error;
+        }
+        await new Promise(resolve => setTimeout(resolve, 3500));
+        const loginStatus = await inspectXhsSession(page);
+        await saveXhsLoginScreenshot(page);
+        saveXhsBrowserState({
+            login_status: loginStatus,
+            login_click: null,
+            login_candidates: [],
+            login_task_error: null,
+            last_login_check_at: new Date().toISOString(),
+            last_error: loginStatus === 'logged_in' ? null : '导入的 Cookie 未通过小红书登录验证。',
+        });
+        return { loginStatus, importedCount: cookies.length };
     });
 }
 
@@ -6355,6 +6463,38 @@ app.get('/api/xhs-walk/status', (req, res) => {
         last_error: state.last_error || browser.last_error || null,
         wake: { generation: wake.generation, last_run_at: wake.last_run_at, last_wake_at: wake.last_wake_at },
     });
+});
+
+app.get('/xhs-session-import', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'");
+    res.type('html').send(XHS_COOKIE_IMPORT_HTML);
+});
+
+app.post('/api/xhs-session/import-cookie', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        if (xhsLoginSessionTask) {
+            return res.status(409).json({ success: false, error: '扫码登录任务仍在运行，请稍后再导入' });
+        }
+        const result = await importXhsBrowserCookies(req.body?.cookieText);
+        if (result.loginStatus === 'logged_in') {
+            const state = loadXhsWalkState();
+            state.next_collect_at = Date.now() + 1000;
+            saveXhsWalkState(state);
+            armXhsCollection();
+        }
+        res.json({
+            success: result.loginStatus === 'logged_in',
+            login_status: result.loginStatus,
+            imported_count: result.importedCount,
+        });
+    } catch (error) {
+        const message = /^(请粘贴|Cookie 内容|没有找到 web_session)/.test(String(error.message || ''))
+            ? error.message
+            : 'Cookie 导入失败，请确认复制的是完整请求头或有效 JSON';
+        res.status(400).json({ success: false, error: message });
+    }
 });
 
 app.post('/api/xhs-session/start', async (req, res) => {
