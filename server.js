@@ -35,6 +35,7 @@ const {
 const { freshState, normalizeState: normalizeWakeState, advanceState: advanceWakeState, recordAgentRun: recordWakeAgentRun, millisecondsUntilCandidate } = require('./wake-activation');
 const { millisecondsUntilWakeDispatchWindow, parseProactiveMessageParts } = require('./wake-dispatch');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
+const { messageTimestampMs, selectRecentWakeHistory } = require('./wake-context');
 
 const execFileAsync = promisify(execFile);
 
@@ -3727,6 +3728,7 @@ function normalizeConversationMessages(messages = [], limit = 15, maxChars = Inf
         if (!content) continue;
         if (includeTimestamp) {
             const rawTimestamp = message.created_at || message.createdAt || message.timestamp
+                || message.updated_at || message.updatedAt || message.fullTime
                 || message.metadata?.created_at || message.metadata?.timestamp || null;
             const parsedTimestamp = rawTimestamp ? new Date(rawTimestamp) : null;
             const timeLabel = parsedTimestamp && Number.isFinite(parsedTimestamp.getTime())
@@ -3760,6 +3762,46 @@ async function loadZepConversationHistory(lastn = 30) {
         console.log(`🧹 [History] Zep 最近消息读取失败: ${error.message}`);
         return { ok: false, rawMessages: [], messages: [] };
     }
+}
+
+function loadWebConfigConversationHistory(lastn = 30) {
+    try {
+        const configPath = path.join(DATA_DIR, 'web_config.json');
+        if (!fs.existsSync(configPath)) return [];
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        const main = (config.chatSessions || []).find(session => session.id === 'main');
+        if (!main?.messages?.length) return [];
+        return main.messages.slice(-Math.max(1, Number(lastn) || 30) * 2).map(message => {
+            const version = getActiveVersionForServer(message);
+            return {
+                role: message.role,
+                content: typeof version.content === 'string' ? version.content : '',
+                created_at: version.fullTime || message.fullTime || message.created_at || message.createdAt || null,
+            };
+        }).filter(message => ['user', 'assistant', 'ai'].includes(message.role) && message.content.trim());
+    } catch (error) {
+        console.log(`🧹 [History] web_config 最近消息读取失败: ${error.message}`);
+        return [];
+    }
+}
+
+function buildWakeContextAudit({ selectedMessages = [], source = 'none', zepOk = false, zepCount = 0, fallbackCount = 0, summary = '' } = {}) {
+    return {
+        source,
+        zep_ok: zepOk,
+        zep_count: zepCount,
+        fallback_count: fallbackCount,
+        injected_count: selectedMessages.length,
+        summary_preview: String(summary || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+        messages: selectedMessages.map(message => {
+            const timestamp = messageTimestampMs(message);
+            return {
+                role: message.role === 'ai' ? 'assistant' : message.role,
+                at: timestamp === null ? null : new Date(timestamp).toISOString(),
+                preview: String(message.content || '').replace(/\s+/g, ' ').trim().slice(0, 100),
+            };
+        }),
+    };
 }
 
 async function saveAssistantMessagesToZep(messages = []) {
@@ -4725,13 +4767,36 @@ async function generateProactiveMessage(wakeup = {}) {
     }
 
     const wakeHistory = await loadZepConversationHistory(Math.max(30, WAKE_RECENT_MESSAGES));
-    const recentMsgs = normalizeConversationMessages(wakeHistory.rawMessages, WAKE_RECENT_MESSAGES, WAKE_MESSAGE_CHARS, true, true);
-    if (!wakeHistory.ok) console.log('💌 [主动消息] Zep 最近历史不可用，本次不注入最近对话');
+    const usableZepMessages = wakeHistory.rawMessages.filter(message => {
+        return message && ['user', 'assistant', 'ai'].includes(message.role)
+            && typeof message.content === 'string' && message.content.trim()
+            && !message.content.includes('<gateway_volatile_context>');
+    });
+    // Always merge the persisted web chat tail. Zep can be healthy yet still
+    // lag one turn behind; reading the local JSON costs no model tokens.
+    const fallbackMessages = loadWebConfigConversationHistory(Math.max(30, WAKE_RECENT_MESSAGES));
+    const selectedHistory = selectRecentWakeHistory(usableZepMessages, fallbackMessages, WAKE_RECENT_MESSAGES);
+    const recentMsgs = normalizeConversationMessages(selectedHistory.messages, WAKE_RECENT_MESSAGES, WAKE_MESSAGE_CHARS, true, true);
+    const latestConversationSummary = loadLatestConversationSummary();
+    const historySource = recentMsgs.length === 0
+        ? 'none'
+        : selectedHistory.usedFallback
+            ? (wakeHistory.ok ? 'zep+web_config' : 'web_config')
+            : 'zep';
+    const wakeContextAudit = buildWakeContextAudit({
+        selectedMessages: selectedHistory.messages,
+        source: historySource,
+        zepOk: wakeHistory.ok,
+        zepCount: usableZepMessages.length,
+        fallbackCount: fallbackMessages.length,
+        summary: latestConversationSummary,
+    });
+    if (!wakeHistory.ok) console.log(`💌 [主动消息] Zep 最近历史不可用，已从 web_config 补到 ${recentMsgs.length} 条`);
 
     const careContext = careDue ? `${careDue.content}（只自然地问这一件，必须提到“${careDue.entity}”）` : '（无）';
     const relatedMemoryContext = formatWakeRelatedMemories(recentMsgs, careDue);
     const wakeRecallQuery = [
-        loadLatestConversationSummary(),
+        latestConversationSummary,
         careDue?.content || '',
         [...recentMsgs].reverse().find(message => message.role === 'user')?.content || '',
     ].filter(Boolean).join('\n').slice(0, 1200);
@@ -4745,18 +4810,19 @@ async function generateProactiveMessage(wakeup = {}) {
         query: wakeRecallQuery,
         envContext: buildEnvContext('【场景确认：主动唤醒】这是一次由后台自然唤醒机制提供的开口机会。'),
         relatedContext: relatedMemoryContext,
-        dynamicStatePrompt: `${formatWakeStateSlots()}\n\n【唤醒现场】\n唤醒来源：${wakeSource}\n距最后一次互动：${formatWakeInterval(nowMs - lastInteractionTime)}\n当前唯一牵挂：${careContext}`,
+        dynamicStatePrompt: `${formatWakeStateSlots()}\n\n【最近一轮对话摘要】\n${latestConversationSummary || '（暂无；以紧随 system 之后的最近真实对话为准）'}\n\n【唤醒现场】\n唤醒来源：${wakeSource}\n距最后一次互动：${formatWakeInterval(nowMs - lastInteractionTime)}\n当前唯一牵挂：${careContext}`,
         model: PROACTIVE_MODEL,
     });
     const wakeVolatileContext = buildVolatileContext(wakeSharedSystem.volatileParts);
     if (wakeVolatileContext) wakeSharedSystem.systemMessage.content += `\n\n${wakeVolatileContext}`;
     wakeSharedSystem.systemMessage.content += `\n\n${proactiveSceneInstruction}`;
+    wakeSharedSystem.systemMessage.content += `\n最近真实对话是此刻最直接的上下文，优先于召回的旧记忆和旧状态。先理解最后一轮在聊什么；可以在确实自然时换话题，但必须知道自己是在换话题，不能把旧事误认成刚刚发生。`;
     const msgs = [
         wakeSharedSystem.systemMessage,
         ...recentMsgs,
     ];
 
-    console.log(`💌 [主动消息] 使用共享完整上下文 + ${recentMsgs.length} 条真实历史，模型: ${PROACTIVE_MODEL}`);
+    console.log(`💌 [主动消息] 使用共享完整上下文 + ${recentMsgs.length} 条真实历史（${historySource}），模型: ${PROACTIVE_MODEL}`);
 
     try {
         // The light gate already decided to speak. This call only writes the
@@ -4770,7 +4836,7 @@ async function generateProactiveMessage(wakeup = {}) {
             const errText = await res.text().then(t=>t.substring(0,200));
             _proactiveLastError = `API返回${res.status}: ${errText}`;
             saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'error', source: wakeSource });
-            recordWakeAudit({ source: wakeSource, outcome: 'error', reason: '这次唤醒没有跑完，稍后会再有机会。', activationId: wakeup.activationId });
+            recordWakeAudit({ source: wakeSource, outcome: 'error', reason: '这次唤醒没有跑完，稍后会再有机会。', activationId: wakeup.activationId, context: wakeContextAudit });
             console.log(`💌 [主动消息] ${_proactiveLastError}`);
             return { error: _proactiveLastError };
         }
@@ -4794,7 +4860,7 @@ async function generateProactiveMessage(wakeup = {}) {
         const finishReason = responseDebug.finish_reason;
         if (finishReason === 'length' || finishReason === 'content_filter') {
             saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'invalid', source: wakeSource });
-            recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason: finishReason === 'length' ? '完整消息被长度上限截断，未投递。' : '完整消息被供应端过滤，未投递。', activationId: wakeup.activationId, usage, response: responseDebug });
+            recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason: finishReason === 'length' ? '完整消息被长度上限截断，未投递。' : '完整消息被供应端过滤，未投递。', activationId: wakeup.activationId, usage, response: responseDebug, context: wakeContextAudit });
             return { error: `完整消息 finish_reason=${finishReason}`, invalid: true };
         }
         const cleanedContent = cleanAssistantInternalArtifacts(processAssistantActionTags(rawContent));
@@ -4804,7 +4870,7 @@ async function generateProactiveMessage(wakeup = {}) {
                 ? '完整层仍返回了旧控制词，未把控制词投递给用户。'
                 : '完整层没有返回可投递正文。';
             saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'invalid', source: wakeSource });
-            recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason, activationId: wakeup.activationId, usage, response: responseDebug });
+            recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason, activationId: wakeup.activationId, usage, response: responseDebug, context: wakeContextAudit });
             return { error: reason, invalid: true };
         }
         const deliveredParts = [];
@@ -4822,7 +4888,7 @@ async function generateProactiveMessage(wakeup = {}) {
         }
         if (!deliveredParts.length) {
             saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'error', source: wakeSource });
-            recordWakeAudit({ source: wakeSource, outcome: 'delivery_failed', reason: deliveryFailure || '没有消息成功投递。', activationId: wakeup.activationId, usage, response: responseDebug });
+            recordWakeAudit({ source: wakeSource, outcome: 'delivery_failed', reason: deliveryFailure || '没有消息成功投递。', activationId: wakeup.activationId, usage, response: responseDebug, context: wakeContextAudit });
             return { error: deliveryFailure || '没有消息成功投递', delivery_failed: true };
         }
         const content = deliveredParts.join('\n---\n');
@@ -4831,12 +4897,12 @@ async function generateProactiveMessage(wakeup = {}) {
         saveLastProactiveSentTime();
         const outcome = deliveryFailure ? 'partial_sent' : 'sent';
         saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome, source: wakeSource });
-        recordWakeAudit({ source: wakeSource, outcome, reason: deliveryFailure || gate.reason, activationId: wakeup.activationId, usage, response: responseDebug });
+        recordWakeAudit({ source: wakeSource, outcome, reason: deliveryFailure || gate.reason, activationId: wakeup.activationId, usage, response: responseDebug, context: wakeContextAudit });
         return { sent: true, partial: Boolean(deliveryFailure), content, parts: deliveredParts };
     } catch(e) {
         saveWakeDecision({ time: now, gate: gate.decision, reason: gate.reason, outcome: 'error', source: wakeSource });
         _proactiveLastError = `异常: ${e.message}`;
-        recordWakeAudit({ source: wakeSource, outcome: 'error', reason: '这次唤醒被打断了，之后会重新安排。', activationId: wakeup.activationId });
+        recordWakeAudit({ source: wakeSource, outcome: 'error', reason: '这次唤醒被打断了，之后会重新安排。', activationId: wakeup.activationId, context: wakeContextAudit });
         console.log(`💌 [主动消息] ${_proactiveLastError}`);
         return { error: _proactiveLastError };
     }
@@ -5015,8 +5081,8 @@ function saveWakeActivationState(state) {
     catch (error) { console.log(`🌙 [唤醒] 状态保存失败: ${error.message}`); }
 }
 
-// This is deliberately an outcome journal, not a model thought log. It lets
-// the user see what happened without storing private chat context or hidden reasoning.
+// This is deliberately an outcome journal, not a model thought log. Context
+// diagnostics are short previews of the messages actually injected.
 function loadWakeAudit() {
     try {
         const saved = JSON.parse(fs.readFileSync(WAKE_AUDIT_FILE, 'utf8'));
@@ -5024,7 +5090,7 @@ function loadWakeAudit() {
     } catch (_) { return []; }
 }
 
-function recordWakeAudit({ source = 'spontaneous', outcome, reason, retryAt = null, activationId = null, usage = null, response = null }) {
+function recordWakeAudit({ source = 'spontaneous', outcome, reason, retryAt = null, activationId = null, usage = null, response = null, context = null }) {
     const entries = loadWakeAudit();
     entries.push({
         id: `wa_${crypto.randomUUID()}`,
@@ -5036,6 +5102,7 @@ function recordWakeAudit({ source = 'spontaneous', outcome, reason, retryAt = nu
         activation_id: activationId,
         usage,
         response,
+        context,
     });
     try { fs.writeFileSync(WAKE_AUDIT_FILE, JSON.stringify(entries.slice(-120), null, 2), 'utf8'); }
     catch (error) { console.log(`🌙 [唤醒] 记录保存失败: ${error.message}`); }
