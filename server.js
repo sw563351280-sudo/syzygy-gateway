@@ -5306,9 +5306,9 @@ async function navigateXhsPage(page, url, label = '页面') {
         if (!navigationTimedOut) throw error;
 
         // Xiaohongshu can keep the navigation event pending even after the
-        // application shell and feed have rendered. Stop the outstanding load
-        // and continue only when a real, usable document is already present.
-        await page.evaluate(() => window.stop()).catch(() => {});
+        // application shell has rendered. Do not call window.stop(): that can
+        // abort late JavaScript chunks and leave visible login controls inert.
+        // Continue only when a real, usable document is already present.
         const currentUrl = page.url();
         const documentState = await page.evaluate(() => ({
             hasBody: Boolean(document.body),
@@ -5621,6 +5621,13 @@ async function startXhsLoginSession() {
 
 function beginXhsLoginSession() {
     if (xhsLoginSessionTask) return false;
+    saveXhsBrowserState({
+        login_status: 'starting',
+        login_candidates: [],
+        login_click: null,
+        login_task_error: null,
+        last_error: null,
+    });
     xhsLoginSessionTask = startXhsLoginSession()
         .catch(error => {
             saveXhsBrowserState({
