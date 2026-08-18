@@ -15,7 +15,7 @@
   </style>
 </head>
 <body>
-  <header class="top"><a class="back" id="backLink" href="/" aria-label="返回">←</a><div><h1>恒星</h1><p>已经刻下来的事</p></div><nav class="layer-nav"><a id="mapLink" href="#">星图</a><a class="on" href="#">恒星</a><a id="dustLink" href="#">星尘</a><a id="cometLink" href="#">彗星</a></nav></header>
+  <header class="top"><a class="back" id="backLink" href="/" aria-label="返回">←</a><div><h1>恒星</h1><p>已经刻下来的事</p></div><nav class="layer-nav"><a class="on" href="#">恒星</a><a id="dustLink" href="#">星尘</a><a id="cometLink" href="#">彗星</a></nav></header>
   <main>
     <div class="hero"><h2>共同记忆</h2><p>不按时间淘汰。它们留在这里，等被自然想起。</p></div>
     <div class="toolbar"><input class="search" id="searchInput" placeholder="找一件已经记下的事…" oninput="filterAll()"><button class="add" onclick="openModal()">＋ 写入</button></div>
@@ -33,8 +33,7 @@
   <div class="modal-bg" id="addModal"><div class="modal"><h3>写下一件事</h3><textarea id="newContent" rows="4" placeholder="已经形成的结论…"></textarea><input id="newTags" placeholder="标签，用逗号隔开"><button class="btn-save" onclick="submitNew()">保存</button> <button class="tiny" onclick="closeModal()">取消</button></div></div><div class="toast" id="toast"></div>
   <script>
     const PWD=new URLSearchParams(location.search).get('pwd')||localStorage.getItem('memoryPwd')||'';
-    document.getElementById('backLink').href='/memory.html?pwd='+encodeURIComponent(PWD);
-    document.getElementById('mapLink').href='/memory.html?pwd='+encodeURIComponent(PWD);
+    document.getElementById('backLink').href='/?pwd='+encodeURIComponent(PWD);
     document.getElementById('dustLink').href='/stardust.html?pwd='+encodeURIComponent(PWD);
     document.getElementById('cometLink').href='/comets.html?pwd='+encodeURIComponent(PWD);
     let ALL_MEMS=[],COUNTS={},currentCat='active',currentSource='all';
