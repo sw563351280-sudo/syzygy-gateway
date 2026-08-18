@@ -5077,6 +5077,8 @@ let xhsWalkTimer = null;
 let xhsBrowser = null;
 let xhsBrowserQueue = Promise.resolve();
 let xhsPuppeteer = null;
+const xhsPreparedPages = new WeakSet();
+const XHS_DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const WAKE_ACTIVATION_FILE = path.join(DATA_DIR, 'wake_activation.json');
 const WAKE_AUDIT_FILE = path.join(DATA_DIR, 'wake_audit.json');
 let wakeTimer = null;
@@ -5215,7 +5217,13 @@ async function getXhsBrowserPage() {
             executablePath,
             userDataDir: XHS_BROWSER_PROFILE_DIR,
             headless: 'new',
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-blink-features=AutomationControlled',
+                '--lang=zh-CN',
+            ],
             defaultViewport: { width: 1280, height: 900, deviceScaleFactor: 1 },
         });
         xhsBrowser.on('disconnected', () => { xhsBrowser = null; });
@@ -5223,7 +5231,46 @@ async function getXhsBrowserPage() {
     const pages = await xhsBrowser.pages();
     const page = pages.find(candidate => !candidate.isClosed()) || await xhsBrowser.newPage();
     page.setDefaultNavigationTimeout(45000);
+    if (!xhsPreparedPages.has(page)) {
+        await page.setUserAgent(XHS_DESKTOP_UA);
+        await page.setExtraHTTPHeaders({
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.7',
+        });
+        await page.evaluateOnNewDocument(() => {
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        });
+        xhsPreparedPages.add(page);
+    }
     return page;
+}
+
+async function navigateXhsPage(page, url, label = '页面') {
+    try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        return { partial: false };
+    } catch (error) {
+        const navigationTimedOut = error?.name === 'TimeoutError'
+            || /Navigation timeout.*exceeded/i.test(String(error?.message || ''));
+        if (!navigationTimedOut) throw error;
+
+        // Xiaohongshu can keep the navigation event pending even after the
+        // application shell and feed have rendered. Stop the outstanding load
+        // and continue only when a real, usable document is already present.
+        await page.evaluate(() => window.stop()).catch(() => {});
+        const currentUrl = page.url();
+        const documentState = await page.evaluate(() => ({
+            hasBody: Boolean(document.body),
+            htmlLength: String(document.documentElement?.outerHTML || '').length,
+            textLength: String(document.body?.innerText || '').trim().length,
+        })).catch(() => ({ hasBody: false, htmlLength: 0, textLength: 0 }));
+        let currentUrlAllowed = false;
+        try { currentUrlAllowed = isAllowedXhsUrl(currentUrl); } catch (_) {}
+        const usable = currentUrlAllowed && documentState.hasBody
+            && (documentState.htmlLength >= 1000 || documentState.textLength >= 80);
+        if (!usable) throw error;
+        console.log(`📕 [小红书首页] ${label}导航事件超时，但页面已加载（html=${documentState.htmlLength}, text=${documentState.textLength}），继续处理`);
+        return { partial: true, documentState };
+    }
 }
 
 async function isXhsLoggedIn(page) {
@@ -5259,7 +5306,7 @@ async function saveXhsLoginScreenshot(page) {
 async function startXhsLoginSession() {
     return queueXhsBrowserTask(async () => {
         const page = await getXhsBrowserPage();
-        await page.goto('https://www.xiaohongshu.com/explore', { waitUntil: 'domcontentloaded' });
+        await navigateXhsPage(page, 'https://www.xiaohongshu.com/explore', '登录页');
         await new Promise(resolve => setTimeout(resolve, 2500));
         if (!await isXhsLoggedIn(page)) {
             await page.evaluate(() => {
@@ -5327,7 +5374,7 @@ async function collectPersonalizedXhsFeed(force = false) {
     try {
         return await queueXhsBrowserTask(async () => {
             const page = await getXhsBrowserPage();
-            await page.goto('https://www.xiaohongshu.com/explore', { waitUntil: 'domcontentloaded' });
+            await navigateXhsPage(page, 'https://www.xiaohongshu.com/explore', '个性化首页');
             await new Promise(resolve => setTimeout(resolve, 2500));
             const loginStatus = await inspectXhsSession(page);
             if (loginStatus !== 'logged_in') {
@@ -5371,7 +5418,7 @@ async function collectPersonalizedXhsFeed(force = false) {
 async function readXhsNoteFromLoggedInBrowser(url) {
     return queueXhsBrowserTask(async () => {
         const page = await getXhsBrowserPage();
-        await page.goto(url, { waitUntil: 'domcontentloaded' });
+        await navigateXhsPage(page, url, '笔记详情');
         await new Promise(resolve => setTimeout(resolve, 1800));
         const loginStatus = await inspectXhsSession(page);
         if (loginStatus !== 'logged_in') throw new Error(`浏览器登录状态不可用: ${loginStatus}`);
