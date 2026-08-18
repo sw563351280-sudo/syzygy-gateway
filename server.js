@@ -6481,6 +6481,8 @@ app.post('/api/xhs-session/import-cookie', async (req, res) => {
         if (result.loginStatus === 'logged_in') {
             const state = loadXhsWalkState();
             state.next_collect_at = Date.now() + 1000;
+            state.last_error = null;
+            state.last_error_at = null;
             saveXhsWalkState(state);
             armXhsCollection();
         }
@@ -6523,6 +6525,8 @@ app.post('/api/xhs-session/check', async (req, res) => {
         if (result.login_status === 'logged_in') {
             const state = loadXhsWalkState();
             state.next_collect_at = Date.now() + 1000;
+            state.last_error = null;
+            state.last_error_at = null;
             saveXhsWalkState(state);
             armXhsCollection();
         }
