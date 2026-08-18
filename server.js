@@ -5309,39 +5309,51 @@ async function startXhsLoginSession() {
         const page = await getXhsBrowserPage();
         await navigateXhsPage(page, 'https://www.xiaohongshu.com/explore', '登录页');
         await new Promise(resolve => setTimeout(resolve, 2500));
-        let loginClick = { found: false, text: '', tag: '' };
+        let loginClick = { found: false, text: '', tag: '', ui_ready: false };
+        let loginCandidates = [];
         if (!await isXhsLoggedIn(page)) {
-            loginClick = await page.evaluate(() => {
-                const selectors = [
-                    'button.login-btn',
-                    'button[class*="login"]',
-                    '[class*="login-btn"]',
-                    '[class*="loginBtn"]',
-                    'button',
-                    'a',
-                    '[role="button"]',
-                ];
-                const candidates = [];
-                const seen = new Set();
-                for (const selector of selectors) {
-                    for (const node of document.querySelectorAll(selector)) {
-                        if (!(node instanceof HTMLElement) || seen.has(node)) continue;
-                        seen.add(node);
-                        const text = String(node.innerText || node.textContent || '').replace(/\s+/g, '').trim();
-                        if (!/^(登录|立即登录|扫码登录)$/.test(text)) continue;
-                        const rect = node.getBoundingClientRect();
-                        const style = getComputedStyle(node);
-                        if (rect.width < 20 || rect.height < 16 || style.display === 'none' || style.visibility === 'hidden') continue;
-                        candidates.push({ node, text, tag: node.tagName, score: node.tagName === 'BUTTON' ? 3 : node.getAttribute('role') === 'button' ? 2 : 1 });
-                    }
-                }
-                candidates.sort((a, b) => b.score - a.score);
-                const target = candidates[0];
-                if (!target) return { found: false, text: '', tag: '' };
-                target.node.scrollIntoView({ block: 'center', inline: 'center' });
-                target.node.click();
-                return { found: true, text: target.text, tag: target.tag };
-            }).catch(() => ({ found: false, text: '', tag: '' }));
+            loginCandidates = await page.evaluate(() => {
+                return [...document.querySelectorAll('body *')].map(node => {
+                    if (!(node instanceof HTMLElement)) return null;
+                    const text = String(node.innerText || node.textContent || '').replace(/\s+/g, '').trim();
+                    const marker = `${node.id || ''} ${String(node.className || '')}`;
+                    const exactText = /^(登录|立即登录|扫码登录)$/.test(text);
+                    const loginMarker = /login/i.test(marker);
+                    if (!exactText && !loginMarker) return null;
+                    const rect = node.getBoundingClientRect();
+                    const style = getComputedStyle(node);
+                    if (rect.width < 20 || rect.height < 16 || rect.width > 600 || rect.height > 240
+                        || style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || 1) < 0.05) return null;
+                    const x = Math.round(rect.left + rect.width / 2);
+                    const y = Math.round(rect.top + rect.height / 2);
+                    if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return null;
+                    const hit = document.elementFromPoint(x, y);
+                    if (!hit || (!node.contains(hit) && !hit.contains(node))) return null;
+                    const tag = node.tagName;
+                    let score = exactText ? 100 : 0;
+                    if (tag === 'BUTTON') score += 30;
+                    else if (node.getAttribute('role') === 'button') score += 20;
+                    else if (tag === 'A') score += 15;
+                    if (loginMarker) score += 10;
+                    return {
+                        text: text.slice(0, 40),
+                        tag,
+                        id: String(node.id || '').slice(0, 80),
+                        class: String(node.className || '').slice(0, 160),
+                        x, y,
+                        width: Math.round(rect.width),
+                        height: Math.round(rect.height),
+                        score,
+                    };
+                }).filter(Boolean).sort((a, b) => b.score - a.score || (a.width * a.height) - (b.width * b.height)).slice(0, 12);
+            }).catch(() => []);
+            const target = loginCandidates[0];
+            if (target) {
+                await page.mouse.move(target.x, target.y);
+                await page.mouse.click(target.x, target.y, { delay: 120 });
+                loginClick = { found: true, text: target.text, tag: target.tag, x: target.x, y: target.y, ui_ready: false };
+            }
+            saveXhsBrowserState({ login_candidates: loginCandidates, login_click: loginClick, login_task_error: null });
             for (let attempt = 0; attempt < 8; attempt++) {
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 const loginUiReady = await page.evaluate(() => {
@@ -5353,7 +5365,10 @@ async function startXhsLoginSession() {
                     const rect = qrNode.getBoundingClientRect();
                     return rect.width > 40 && rect.height > 40;
                 }).catch(() => false);
-                if (loginUiReady) break;
+                if (loginUiReady) {
+                    loginClick.ui_ready = true;
+                    break;
+                }
             }
         }
         const loginStatus = await inspectXhsSession(page);
@@ -5362,13 +5377,17 @@ async function startXhsLoginSession() {
             ? '小红书要求安全验证，采集已暂停。'
             : loginStatus === 'login_required' && !loginClick.found
                 ? '小红书首页已打开，但没有找到可见的登录按钮。'
+                : loginStatus === 'login_required' && !loginClick.ui_ready
+                    ? '已用真实鼠标点击登录候选，但登录弹窗没有出现。'
                 : loginStatus === 'login_required'
                     ? '已点击登录按钮；请查看最新截图并扫码。'
                     : null;
         return saveXhsBrowserState({
             login_status: loginStatus,
             last_login_check_at: new Date().toISOString(),
+            login_candidates: loginCandidates,
             login_click: loginClick,
+            login_task_error: null,
             last_error: loginError,
         });
     });
@@ -5380,6 +5399,7 @@ function beginXhsLoginSession() {
         .catch(error => {
             saveXhsBrowserState({
                 login_status: 'error',
+                login_task_error: error.message,
                 last_error: error.message,
                 last_error_at: new Date().toISOString(),
             });
@@ -6085,6 +6105,9 @@ app.get('/api/xhs-walk/status', (req, res) => {
         login_starting: Boolean(xhsLoginSessionTask),
         chromium_ready: Boolean(resolveXhsChromeExecutable()),
         login_status: browser.login_status || 'unknown',
+        login_click: browser.login_click || null,
+        login_candidates: browser.login_candidates || [],
+        login_task_error: browser.login_task_error || null,
         login_screenshot_url: fs.existsSync(XHS_LOGIN_SCREENSHOT_FILE) ? `/api/xhs-session/screenshot?v=${Date.now()}` : null,
         inbox_count: inbox.items.length,
         unseen_count: inbox.items.filter(item => item.status === 'unseen').length,
