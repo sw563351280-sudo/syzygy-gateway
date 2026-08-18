@@ -1580,7 +1580,7 @@ function neuGetMemoryPwd() {
 }
 function neuOpenMemoryManager() {
     const pwd = neuGetMemoryPwd();
-    if (pwd) window.location.assign('/memory-vault.html?pwd=' + encodeURIComponent(pwd));
+    if (pwd) window.location.assign('/memory.html?pwd=' + encodeURIComponent(pwd));
 }
 function neuOpenLongTerm() {
     const pwd = neuGetMemoryPwd();
@@ -1607,7 +1607,7 @@ function openStarCrossing() {
         localStorage.setItem('memoryPwd', pwd);
     }
 
-    window.location.assign('/long-term.html?pwd=' + encodeURIComponent(pwd));
+    window.location.assign('/memory.html?pwd=' + encodeURIComponent(pwd));
 }
 async function triggerDreamFromHome() {
     const pwd = prompt('管理员密码:'); if (!pwd) return;
