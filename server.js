@@ -5360,9 +5360,9 @@ async function waitForXhsLoginUi(page, attempts = 8, { requireQr = false } = {})
         await new Promise(resolve => setTimeout(resolve, 1000));
         const ready = await page.evaluate(() => {
             const text = String(document.body?.innerText || '').slice(0, 6000);
-            const qrNodes = [...document.querySelectorAll(
-                'canvas, img[src*="qr" i], img[alt*="二维码"], [class*="qrcode" i], [class*="qr-code" i]'
-            )];
+            // A QR-themed switch can itself have a large qrcode class. Count
+            // only actual image/canvas pixels as a scannable QR code.
+            const qrNodes = [...document.querySelectorAll('canvas, img')];
             const visibleQr = qrNodes.some(node => {
                 const rect = node.getBoundingClientRect();
                 const style = getComputedStyle(node);
@@ -5466,6 +5466,25 @@ async function clickXhsCreatorLoginCardQrCorner(page) {
     return corner;
 }
 
+async function clickXhsCreatorQrDomTarget(page, corner) {
+    if (!corner) return null;
+    return page.evaluate(({ x, y }) => {
+        const hit = document.elementFromPoint(x, y);
+        if (!hit) return null;
+        const target = hit.closest(
+            'button, a, [role="button"], [class*="qrcode" i], [class*="qr-code" i], [class*="qr" i], [class*="scan" i], [class*="switch" i]'
+        ) || hit.parentElement || hit;
+        const marker = `${target.id || ''} ${String(target.className?.baseVal || target.className || '')}`;
+        target.click();
+        return {
+            hit_tag: hit.tagName,
+            hit_class: String(hit.className?.baseVal || hit.className || '').slice(0, 160),
+            target_tag: target.tagName,
+            target_marker: marker.slice(0, 160),
+        };
+    }, corner).catch(() => null);
+}
+
 async function startXhsLoginSession() {
     return queueXhsBrowserTask(async () => {
         const page = await getXhsBrowserPage();
@@ -5543,11 +5562,16 @@ async function startXhsLoginSession() {
                 await navigateXhsPage(page, 'https://creator.xiaohongshu.com/login', '官方扫码登录页');
                 await new Promise(resolve => setTimeout(resolve, 2500));
                 const qrSwitch = await switchXhsCreatorLoginToQr(page);
-                let qrReady = await waitForXhsLoginUi(page, 4, { requireQr: true });
+                let qrReady = await waitForXhsLoginUi(page, 3, { requireQr: true });
                 let qrCorner = null;
+                let qrDomTarget = null;
                 if (!qrReady) {
                     qrCorner = await clickXhsCreatorLoginCardQrCorner(page);
-                    qrReady = await waitForXhsLoginUi(page, 10, { requireQr: true });
+                    qrReady = await waitForXhsLoginUi(page, 3, { requireQr: true });
+                }
+                if (!qrReady && qrCorner) {
+                    qrDomTarget = await clickXhsCreatorQrDomTarget(page, qrCorner);
+                    qrReady = await waitForXhsLoginUi(page, 8, { requireQr: true });
                 }
                 loginClick = {
                     found: true,
@@ -5556,6 +5580,7 @@ async function startXhsLoginSession() {
                     url: page.url(),
                     qr_switch: qrSwitch,
                     qr_corner: qrCorner,
+                    qr_dom_target: qrDomTarget,
                     ui_ready: qrReady,
                 };
             }
