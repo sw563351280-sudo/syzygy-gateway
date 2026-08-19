@@ -2053,7 +2053,8 @@ body.neu-mode #sec-home .neu-together-card::before {
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background: url('assets/celestial-orbit.jpg') 116% 49% / 79% auto no-repeat;
+    /* 这张卡要整面都是星图，不留右侧贴图造成的矩形分界。 */
+    background: url('assets/celestial-orbit.jpg') center / cover no-repeat;
     mix-blend-mode: screen;
     opacity: .22;
     filter: sepia(.2) saturate(.7) hue-rotate(165deg);
@@ -2084,7 +2085,7 @@ body.neu-mode #sec-home .neu-bottom-nav {
     }
 }
 @media (max-width: 374px) {
-    body.neu-mode #sec-home .neu-together-card::before { background-size: 88% auto; opacity: .18; }
+    body.neu-mode #sec-home .neu-together-card::before { opacity: .18; }
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     body.neu-mode #sec-home .neu-card,
