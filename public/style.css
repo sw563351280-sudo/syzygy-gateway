@@ -2029,7 +2029,8 @@ body.neu-mode #sec-home::before {
     inset: 0;
     pointer-events: none;
     z-index: 0;
-    background: url('assets/celestial-hanging.jpg') center 3% / min(100vw, 530px) auto no-repeat;
+    /* cover 而非固定宽度，确保窄屏左侧、日期条与底部都仍在同一片星图里 */
+    background: url('assets/celestial-hanging.jpg') center top / cover no-repeat;
     opacity: .17;
     mix-blend-mode: screen;
     filter: sepia(.18) saturate(.72) hue-rotate(165deg);
@@ -2066,9 +2067,19 @@ body.neu-mode #sec-home .neu-bottom-nav {
     backdrop-filter: blur(16px) saturate(118%);
     -webkit-backdrop-filter: blur(16px) saturate(118%);
 }
+@media (max-width: 600px) {
+    /* iOS 上模糊层的表现不一，透明底本身也要能看见底图。 */
+    body.neu-mode #sec-home::before { background-size: cover; background-position: center top; opacity: .2; }
+    body.neu-mode #sec-home .neu-card,
+    body.neu-mode #sec-home .neu-together-card { background: rgba(237, 244, 251, .54); }
+    body.neu-mode #sec-home .neu-bottom-nav { background: rgba(235, 243, 251, .66); }
+}
 @media (max-width: 374px) {
-    body.neu-mode #sec-home::before { background-size: 480px auto; opacity: .13; }
     body.neu-mode #sec-home .neu-together-card::before { background-size: 88% auto; opacity: .18; }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    body.neu-mode #sec-home .neu-card,
+    body.neu-mode #sec-home .neu-together-card { background: rgba(237, 244, 251, .48); }
 }
 
 /* ═══ VPS 控制台 ═══ */
