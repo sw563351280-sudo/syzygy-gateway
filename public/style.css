@@ -2068,11 +2068,20 @@ body.neu-mode #sec-home .neu-bottom-nav {
     -webkit-backdrop-filter: blur(16px) saturate(118%);
 }
 @media (max-width: 600px) {
-    /* iOS 上模糊层的表现不一，透明底本身也要能看见底图。 */
+    /* 小屏不把星图磨成一片灰：让图案本身从卡片底下透出来。 */
     body.neu-mode #sec-home::before { background-size: cover; background-position: center top; opacity: .2; }
     body.neu-mode #sec-home .neu-card,
-    body.neu-mode #sec-home .neu-together-card { background: rgba(237, 244, 251, .54); }
-    body.neu-mode #sec-home .neu-bottom-nav { background: rgba(235, 243, 251, .66); }
+    body.neu-mode #sec-home .neu-together-card {
+        background: rgba(237, 244, 251, .31);
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
+    body.neu-mode #sec-home .neu-week-strip { background: rgba(237, 244, 251, .23); }
+    body.neu-mode #sec-home .neu-bottom-nav {
+        background: rgba(235, 243, 251, .48);
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
 }
 @media (max-width: 374px) {
     body.neu-mode #sec-home .neu-together-card::before { background-size: 88% auto; opacity: .18; }
