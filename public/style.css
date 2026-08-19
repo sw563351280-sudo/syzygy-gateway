@@ -2015,6 +2015,62 @@ body.neu-mode .home-footer { display: none; }
 }
 .neu-nav-item:active { transform: scale(0.92); }
 
+/* ═══ 首页 · 星尘磨砂层 ═══
+   一整片底图，而不是给每张卡各自贴图；卡片只负责把星空柔化到文字之后。 */
+body.neu-mode #sec-home {
+    position: relative;
+    isolation: isolate;
+    background: transparent;
+    min-height: 100dvh;
+}
+body.neu-mode #sec-home::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background: url('assets/celestial-hanging.jpg') center 3% / min(100vw, 530px) auto no-repeat;
+    opacity: .17;
+    mix-blend-mode: screen;
+    filter: sepia(.18) saturate(.72) hue-rotate(165deg);
+}
+body.neu-mode #sec-home .neu-home { position: relative; z-index: 1; }
+body.neu-mode #sec-home .neu-card,
+body.neu-mode #sec-home .neu-together-card {
+    background: rgba(237, 244, 251, .68);
+    border: 1px solid rgba(255, 255, 255, .62);
+    box-shadow: 8px 10px 20px rgba(118, 141, 171, .28), -7px -7px 16px rgba(255, 255, 255, .54), inset 0 1px 0 rgba(255,255,255,.42);
+    backdrop-filter: blur(13px) saturate(115%);
+    -webkit-backdrop-filter: blur(13px) saturate(115%);
+}
+body.neu-mode #sec-home .neu-card:hover,
+body.neu-mode #sec-home .neu-together-card:hover {
+    box-shadow: 6px 8px 16px rgba(118, 141, 171, .24), -5px -5px 12px rgba(255, 255, 255, .48), inset 0 1px 0 rgba(255,255,255,.46);
+}
+body.neu-mode #sec-home .neu-together-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: url('assets/celestial-orbit.jpg') 116% 49% / 79% auto no-repeat;
+    mix-blend-mode: screen;
+    opacity: .22;
+    filter: sepia(.2) saturate(.7) hue-rotate(165deg);
+}
+body.neu-mode #sec-home .neu-together-deco { opacity: 0; }
+body.neu-mode #sec-home .neu-together-left { z-index: 1; }
+body.neu-mode #sec-home .neu-bottom-nav {
+    background: rgba(235, 243, 251, .76);
+    border: 1px solid rgba(255,255,255,.55);
+    box-shadow: 8px 10px 20px rgba(118,141,171,.28), -6px -6px 14px rgba(255,255,255,.5);
+    backdrop-filter: blur(16px) saturate(118%);
+    -webkit-backdrop-filter: blur(16px) saturate(118%);
+}
+@media (max-width: 374px) {
+    body.neu-mode #sec-home::before { background-size: 480px auto; opacity: .13; }
+    body.neu-mode #sec-home .neu-together-card::before { background-size: 88% auto; opacity: .18; }
+}
+
 /* ═══ VPS 控制台 ═══ */
 #sec-console { min-height:100vh; padding-bottom:20px; background:#0d1220; }
 .console-status { margin-left:auto; font-size:12px; color:#94a3b8; }
