@@ -3390,7 +3390,7 @@ function toggleLightMode() { enforceNeuTheme(); }
 function enforceNeuTheme() {
     document.body.classList.add('neu-mode');
     const metaTheme = document.getElementById('theme-color-meta');
-    if (metaTheme) metaTheme.setAttribute('content', '#E8EFF7');
+    if (metaTheme) metaTheme.setAttribute('content', '#C9D2DC');
 }
 
 window.addEventListener('DOMContentLoaded', enforceNeuTheme);

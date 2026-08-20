@@ -3064,3 +3064,106 @@ body.neu-mode .sms-img{ box-shadow:3px 3px 8px rgba(163,177,198,.4); }
   white-space:pre-wrap;overflow-wrap:anywhere;
   max-height:220px;overflow-y:auto;
 }
+
+/* ═══ 功能页 · 同一天幕的不同星象 ═══ */
+html { background: #C9D2DC; }
+
+body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album) {
+  position: relative;
+  isolation: isolate;
+  min-height: 100dvh;
+  background: transparent !important;
+}
+body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album)::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: var(--celestial-page-art);
+  background-position: var(--celestial-page-position, center top);
+  background-size: var(--celestial-page-size, cover);
+  background-repeat: no-repeat;
+  opacity: var(--celestial-page-opacity, .075);
+  mix-blend-mode: screen;
+  filter: sepia(.15) saturate(.68) hue-rotate(165deg);
+}
+body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album) > * {
+  position: relative;
+  z-index: 1;
+}
+
+body.neu-mode #sec-chat {
+  --celestial-page-art: url('assets/celestial-chat.jpg');
+  --celestial-page-position: center;
+  --celestial-page-size: cover;
+  --celestial-page-opacity: .065;
+}
+body.neu-mode #sec-favorites {
+  --celestial-page-art: url('assets/celestial-favorites.jpg');
+  --celestial-page-position: center top;
+  --celestial-page-size: cover;
+  --celestial-page-opacity: .08;
+}
+body.neu-mode :is(#sec-flo, #sec-calendar, #sec-state) {
+  --celestial-page-art: url('assets/celestial-cycle.jpg');
+  --celestial-page-position: center;
+  --celestial-page-size: cover;
+  --celestial-page-opacity: .09;
+}
+body.neu-mode #sec-album {
+  --celestial-page-art: url('assets/celestial-album.jpg');
+  --celestial-page-position: center top;
+  --celestial-page-size: cover;
+  --celestial-page-opacity: .085;
+}
+body.neu-mode #sec-data {
+  --celestial-page-art: url('assets/celestial-data.jpg');
+  --celestial-page-position: center;
+  --celestial-page-size: cover;
+  --celestial-page-opacity: .07;
+}
+
+/* 顶栏和内容保持可读，但让各自的星象能从空隙与卡片下轻轻透出来。 */
+body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album) .view-topbar {
+  background: rgba(232, 239, 247, .74) !important;
+}
+body.neu-mode #sec-chat.active { background: transparent !important; }
+body.neu-mode #sec-chat .chat-main-header { background: rgba(232, 239, 247, .52); }
+body.neu-mode #sec-chat .chat-bottom-bar { background: rgba(232, 239, 247, .78) !important; }
+body.neu-mode #sec-favorites .fav-filter-panel { background: rgba(237, 244, 251, .62); }
+body.neu-mode #sec-favorites .fav-card {
+  background: rgba(239, 245, 251, .7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+body.neu-mode #sec-data > .glass:not(.device-panel),
+body.neu-mode #sec-data .device-panel { background: rgba(237, 244, 251, .72) !important; }
+body.neu-mode #sec-flo .flo-summary,
+body.neu-mode #sec-flo .flo-history-card,
+body.neu-mode #sec-calendar .cal-inline-card,
+body.neu-mode #sec-state .neu-card { background: rgba(240, 246, 252, .68); }
+
+/* PWA 状态栏使用透明叠加后，首页内容仍从安全区下方开始。 */
+@supports (padding-top: env(safe-area-inset-top)) {
+  body.neu-mode #sec-home {
+    padding-top: calc(20px + env(safe-area-inset-top, 0px));
+  }
+}
+
+@media (max-width: 600px) {
+  body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album)::before {
+    opacity: calc(var(--celestial-page-opacity, .075) + .035);
+  }
+  body.neu-mode #sec-favorites .fav-card,
+  body.neu-mode #sec-data > .glass:not(.device-panel),
+  body.neu-mode #sec-data .device-panel,
+  body.neu-mode #sec-flo .flo-summary,
+  body.neu-mode #sec-flo .flo-history-card,
+  body.neu-mode #sec-calendar .cal-inline-card,
+  body.neu-mode #sec-state .neu-card {
+    background: rgba(237, 244, 251, .58) !important;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
