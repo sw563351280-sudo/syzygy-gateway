@@ -3151,6 +3151,99 @@ body.neu-mode #sec-state .neu-card { background: rgba(240, 246, 252, .68); }
   }
 }
 
+/* ═══ 全站卡片 · 统一半透明阅读材质 ═══ */
+body.neu-mode {
+  --celestial-card: rgba(237, 244, 251, .56);
+  --celestial-reader: rgba(237, 244, 251, .62);
+  --celestial-soft: rgba(241, 247, 252, .46);
+}
+
+body.neu-mode :is(#sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state) :is(
+  .fav-filter-panel,
+  .fav-card,
+  .glass,
+  .device-panel,
+  .device-card,
+  .wake-journal-entry,
+  .flo-summary,
+  .flo-history-card,
+  .cal-inline-card,
+  .cal-snapshot-item,
+  .neu-card
+) {
+  background: var(--celestial-card) !important;
+  backdrop-filter: blur(4px) saturate(106%);
+  -webkit-backdrop-filter: blur(4px) saturate(106%);
+}
+body.neu-mode #sec-data > .glass:not(.device-panel),
+body.neu-mode #sec-data .device-panel {
+  background: var(--celestial-card) !important;
+}
+
+body.neu-mode #sec-data > .glass:not(.device-panel) div[style*="background"],
+body.neu-mode :is(.chat-image-preview, .think-box, .fav-think-box, .md-content pre, .mailbox-container, .capsule-result) {
+  background: var(--celestial-soft) !important;
+}
+
+body.neu-mode :is(.msg.user, .msg.sys, .sms-bubble.user, .sms-bubble.sys) {
+  background: var(--celestial-card) !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+body.neu-mode .msg.user { background: rgba(244, 248, 252, .5) !important; }
+body.neu-mode .msg.sys { background: rgba(235, 243, 251, .54) !important; }
+
+body.neu-mode :is(.chat-index-panel, .physio-panel) {
+  background: var(--celestial-reader) !important;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+/* 收藏详情和弹窗也是阅读区域，不再用一整块不透明浅蓝盖住天幕。 */
+body.neu-mode #favDetail {
+  background: var(--celestial-reader) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+body.neu-mode #favDetail .view-topbar { background: rgba(232, 239, 247, .68) !important; }
+body.neu-mode :is(.cal-detail-overlay, .album-detail-overlay) {
+  background: rgba(101, 118, 140, .18);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+body.neu-mode :is(.cal-detail-card, .album-detail-card) {
+  background: var(--celestial-reader) !important;
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+@media (max-width: 600px) {
+  body.neu-mode {
+    --celestial-card: rgba(237, 244, 251, .42);
+    --celestial-reader: rgba(237, 244, 251, .5);
+    --celestial-soft: rgba(241, 247, 252, .34);
+  }
+  body.neu-mode :is(#sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state) :is(
+    .fav-filter-panel,
+    .fav-card,
+    .glass,
+    .device-panel,
+    .device-card,
+    .wake-journal-entry,
+    .flo-summary,
+    .flo-history-card,
+    .cal-inline-card,
+    .cal-snapshot-item,
+    .neu-card
+  ),
+  body.neu-mode :is(.chat-index-panel, .physio-panel, .cal-detail-card, .album-detail-card) {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  body.neu-mode .msg.user { background: rgba(244, 248, 252, .36) !important; }
+  body.neu-mode .msg.sys { background: rgba(235, 243, 251, .4) !important; }
+}
+
 @media (max-width: 600px) {
   body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album)::before {
     opacity: calc(var(--celestial-page-opacity, .075) + .035);
@@ -3162,7 +3255,7 @@ body.neu-mode #sec-state .neu-card { background: rgba(240, 246, 252, .68); }
   body.neu-mode #sec-flo .flo-history-card,
   body.neu-mode #sec-calendar .cal-inline-card,
   body.neu-mode #sec-state .neu-card {
-    background: rgba(237, 244, 251, .58) !important;
+    background: var(--celestial-card) !important;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
