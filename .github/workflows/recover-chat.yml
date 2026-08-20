@@ -1,0 +1,39 @@
+name: Recover interrupted chat report
+
+on:
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+        env:
+          SSH_KEY: ${{ secrets.CONTABO_SSH_KEY }}
+
+      - name: Read latest transcript and chat tails
+        shell: bash
+        run: |
+          scp -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key \
+            scripts/recover_interrupted_chat_report.js root@46.250.248.31:/tmp/recover_interrupted_chat_report.js
+          ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key root@46.250.248.31 \
+            'node /tmp/recover_interrupted_chat_report.js /opt/syzygy/data /tmp/interrupted-chat-report.json && rm -f /tmp/recover_interrupted_chat_report.js'
+          scp -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key \
+            root@46.250.248.31:/tmp/interrupted-chat-report.json ./interrupted-chat-report.json
+          ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key root@46.250.248.31 \
+            'rm -f /tmp/interrupted-chat-report.json'
+
+      - name: Upload private recovery report
+        uses: actions/upload-artifact@v4
+        with:
+          name: interrupted-chat-report
+          path: interrupted-chat-report.json
+          retention-days: 1
+          if-no-files-found: error
