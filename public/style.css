@@ -2966,7 +2966,8 @@ body.neu-mode #sec-chat {
   --celestial-page-art: url('assets/celestial-chat.jpg');
   --celestial-page-position: center;
   --celestial-page-size: cover;
-  --celestial-page-opacity: .072;
+  /* 与首页天幕保持同一档对比度；手机端会在下方规则中再补少量亮度。 */
+  --celestial-page-opacity: .17;
 }
 body.neu-mode #sec-favorites {
   --celestial-page-art: url('assets/celestial-favorites.jpg');
