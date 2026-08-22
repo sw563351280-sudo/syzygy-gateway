@@ -3,8 +3,8 @@
   "short_name": "溯星",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#C9D2DC",
-  "theme_color": "#C9D2DC",
+  "background_color": "#C4CED9",
+  "theme_color": "#C4CED9",
   "description": "沈望的专属通讯终端",
   "icons": [
     {

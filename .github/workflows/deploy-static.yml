@@ -22,6 +22,6 @@ jobs:
         shell: bash
         run: |
           scp -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key \
-            public/style.css public/index.html public/script.js root@46.250.248.31:/opt/syzygy/public/
+            public/style.css public/index.html public/script.js public/manifest.json root@46.250.248.31:/opt/syzygy/public/
           ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key root@46.250.248.31 \
-            "rm -f /opt/syzygy/public/sms-mode.js && test -s /opt/syzygy/public/index.html && test -s /opt/syzygy/public/style.css && test -s /opt/syzygy/public/script.js"
+            "rm -f /opt/syzygy/public/sms-mode.js && test -s /opt/syzygy/public/index.html && test -s /opt/syzygy/public/style.css && test -s /opt/syzygy/public/script.js && test -s /opt/syzygy/public/manifest.json"

@@ -2935,13 +2935,13 @@ body.neu-mode #sec-console{
 }
 
 /* ═══ 功能页 · 同一天幕的不同星象 ═══ */
-html { background: #C9D2DC; }
+html { background: #C4CED9; }
 
 body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album) {
   position: relative;
   isolation: isolate;
   min-height: 100dvh;
-  background: transparent !important;
+  background: #C4CED9 !important;
 }
 body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album)::before {
   content: '';
@@ -2966,7 +2966,7 @@ body.neu-mode #sec-chat {
   --celestial-page-art: url('assets/celestial-chat.jpg');
   --celestial-page-position: center;
   --celestial-page-size: cover;
-  --celestial-page-opacity: .065;
+  --celestial-page-opacity: .072;
 }
 body.neu-mode #sec-favorites {
   --celestial-page-art: url('assets/celestial-favorites.jpg');
@@ -2997,7 +2997,7 @@ body.neu-mode #sec-data {
 body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album) .view-topbar {
   background: rgba(232, 239, 247, .74) !important;
 }
-body.neu-mode #sec-chat.active { background: transparent !important; }
+body.neu-mode #sec-chat.active { background: #C4CED9 !important; }
 body.neu-mode #sec-chat .chat-main-header { background: rgba(232, 239, 247, .52); }
 body.neu-mode #sec-chat .chat-bottom-bar { background: rgba(232, 239, 247, .78) !important; }
 body.neu-mode #sec-favorites .fav-filter-panel { background: rgba(237, 244, 251, .62); }
@@ -3132,7 +3132,7 @@ body.neu-mode :is(.cal-detail-card, .album-detail-card) {
 
 /* 顶部三段统一：PWA 状态栏、功能顶栏和页面底幕共用同一块灰蓝天空。 */
 body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album) .view-topbar {
-  background: #C9D2DC !important;
+  background: #C4CED9 !important;
   border-bottom-color: rgba(255, 255, 255, .2);
   box-shadow: none;
   backdrop-filter: none;
