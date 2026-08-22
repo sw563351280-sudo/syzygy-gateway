@@ -3345,3 +3345,76 @@ body.neu-mode #sec-dev .dev-topbar { background: rgba(237, 244, 251, .68); }
 @media (max-width: 600px) {
   body.neu-mode #sec-dev::before { opacity: .205; }
 }
+
+/* 开发中枢：降低“网页横幅”感，统一为首页的轻玻璃与思源黑体层级。 */
+body.neu-mode #sec-dev .dev-shell {
+  font-family: 'Noto Sans SC', 'Source Han Sans SC', 'PingFang SC', sans-serif;
+  font-synthesis: none;
+}
+body.neu-mode #sec-dev .dev-hero {
+  min-height: 192px;
+  padding: 28px 30px;
+  border-color: rgba(255, 255, 255, .7);
+  border-radius: 26px;
+  background: linear-gradient(125deg, rgba(239, 247, 250, .7), rgba(231, 239, 247, .55)) !important;
+  box-shadow: 0 18px 42px rgba(76, 96, 119, .16), inset 0 1px rgba(255, 255, 255, .82);
+  backdrop-filter: blur(20px) saturate(108%);
+  -webkit-backdrop-filter: blur(20px) saturate(108%);
+}
+body.neu-mode #sec-dev .dev-eyebrow {
+  color: #6f879f;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: .18em;
+}
+body.neu-mode #sec-dev .dev-hero h1 {
+  margin: 14px 0 7px;
+  color: #2d4057;
+  font-family: 'Noto Sans SC', 'Source Han Sans SC', 'PingFang SC', sans-serif;
+  font-size: clamp(1.8rem, 4.4vw, 2.35rem);
+  font-weight: 500;
+  letter-spacing: -.045em;
+  line-height: 1.22;
+}
+body.neu-mode #sec-dev .dev-hero p {
+  margin-bottom: 20px;
+  color: #73869d;
+  font-size: .8rem;
+  line-height: 1.7;
+}
+body.neu-mode #sec-dev .dev-primary-action {
+  border-color: rgba(70, 176, 167, .28);
+  border-radius: 13px;
+  padding: 10px 14px;
+  background: rgba(223, 245, 244, .66);
+  color: #397f7b;
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: 0 8px 18px rgba(79, 112, 132, .1), inset 0 1px rgba(255, 255, 255, .72);
+}
+body.neu-mode #sec-dev .dev-orbit { opacity: .55; }
+body.neu-mode #sec-dev .dev-section-heading {
+  color: #60758d;
+  font-size: .82rem;
+  font-weight: 500;
+}
+body.neu-mode #sec-dev .dev-section-heading em { color: #7f91a6; }
+body.neu-mode #sec-dev :is(.dev-monitor-card, .dev-action-card) {
+  border-color: rgba(255, 255, 255, .58);
+  background: rgba(239, 245, 250, .52);
+  box-shadow: 0 10px 26px rgba(76, 96, 119, .1), inset 0 1px rgba(255, 255, 255, .68);
+  backdrop-filter: blur(15px) saturate(106%);
+  -webkit-backdrop-filter: blur(15px) saturate(106%);
+}
+body.neu-mode #sec-dev .dev-monitor-card strong,
+body.neu-mode #sec-dev .dev-action-card b {
+  color: #344a62;
+  font-weight: 500;
+  letter-spacing: -.015em;
+}
+body.neu-mode #sec-dev :is(.dev-monitor-card small, .dev-action-card small) { color: #7a8da3; }
+@media (max-width: 600px) {
+  body.neu-mode #sec-dev .dev-hero { min-height: 188px; padding: 24px 20px; }
+  body.neu-mode #sec-dev .dev-hero h1 { font-size: 1.72rem; }
+}
