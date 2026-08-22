@@ -11,7 +11,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=75">
+    <link rel="stylesheet" href="style.css?v=76">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body class="neu-mode">
@@ -256,13 +256,11 @@
 </div>
 
 <div class="section" id="sec-dev">
-    <div class="view-topbar dev-topbar">
-        <button class="view-back" onclick="goView('home')">←</button>
-        <div class="dev-title-block">
-            <span class="view-title">开发中枢</span>
-            <span class="dev-subtitle">Syzygy · mobile workspace</span>
-        </div>
-        <span id="devStatus" class="dev-status" data-state="loading"><i></i>检查中</span>
+    <div class="page-floating-topbar" id="devTopbar">
+        <button class="page-home-pill" onclick="goView('home')" aria-label="返回首页">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+            <span>开发中枢</span>
+        </button>
     </div>
     <main class="dev-shell">
         <section class="dev-hero">
