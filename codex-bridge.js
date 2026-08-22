@@ -289,6 +289,10 @@ function createCodexBridge(options = {}) {
         task.idleTimeout.unref?.();
     }
 
+    function threadSandboxMode(mode) {
+        return mode === 'workspaceWrite' ? 'workspace-write' : 'read-only';
+    }
+
     function handleResponse(task, message) {
         if (message.error) {
             failTask(task, message.error.message || 'Codex RPC 请求失败');
@@ -303,7 +307,9 @@ function createCodexBridge(options = {}) {
                     model: task.model,
                     cwd: task.cwd,
                     approvalPolicy: task.mode === 'workspaceWrite' ? 'onRequest' : 'never',
-                    sandbox: task.mode === 'workspaceWrite' ? 'workspaceWrite' : 'readOnly',
+                    // thread/start uses the SandboxMode wire enum, whose values are kebab-case.
+                    // turn/start below uses the structured SandboxPolicy enum and remains camelCase.
+                    sandbox: threadSandboxMode(task.mode),
                     serviceName: 'syzygy-mobile-debug'
                 }
             });

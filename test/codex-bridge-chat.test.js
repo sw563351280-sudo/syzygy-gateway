@@ -56,6 +56,10 @@ test('completed Codex task stays alive and starts a follow-up turn on the same t
     const task = bridge.taskById(started.id);
 
     await waitFor(() => task.status === 'running' && task.turnId === 'turn-1');
+    const threadStart = child.writes.find(message => message.method === 'thread/start');
+    const firstTurn = child.writes.find(message => message.method === 'turn/start' && message.id === 3);
+    assert.equal(threadStart.params.sandbox, 'read-only');
+    assert.equal(firstTurn.params.sandboxPolicy.type, 'readOnly');
     child.stdout.write(JSON.stringify({ method: 'turn/completed', params: { turn: { id: 'turn-1', status: 'completed' } } }) + '\n');
     await waitFor(() => task.status === 'completed');
     assert.equal(child.killed, false);
@@ -73,5 +77,22 @@ test('completed Codex task stays alive and starts a follow-up turn on the same t
 
     child.stdout.write(JSON.stringify({ method: 'turn/completed', params: { turn: { id: 'turn-2', status: 'completed' } } }) + '\n');
     await waitFor(() => task.status === 'completed');
+    child.kill();
+});
+
+test('workspace-write mode uses the correct thread wire enum and structured turn policy', async () => {
+    const child = createFakeChatProcess();
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
+    const started = bridge.startTask({ prompt: '修复这个问题', mode: 'workspaceWrite', effort: 'high' });
+    const task = bridge.taskById(started.id);
+
+    await waitFor(() => task.status === 'running' && task.turnId === 'turn-1');
+    const threadStart = child.writes.find(message => message.method === 'thread/start');
+    const firstTurn = child.writes.find(message => message.method === 'turn/start' && message.id === 3);
+    assert.equal(threadStart.params.sandbox, 'workspace-write');
+    assert.equal(threadStart.params.approvalPolicy, 'onRequest');
+    assert.equal(firstTurn.params.sandboxPolicy.type, 'workspaceWrite');
+    assert.deepEqual(firstTurn.params.sandboxPolicy.writableRoots, [process.cwd()]);
+
     child.kill();
 });
