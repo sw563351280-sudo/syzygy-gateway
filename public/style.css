@@ -3183,9 +3183,10 @@ body.neu-mode #sec-chat > .chat-floating-topbar {
   gap: 9px;
   padding: 0 16px 0 12px;
   border-radius: 22px;
-  font: inherit;
+  font-family: 'Noto Sans SC', 'Source Han Sans SC', 'PingFang SC', sans-serif;
   font-size: .9rem;
-  font-weight: 600;
+  font-weight: 500;
+  font-synthesis: none;
   letter-spacing: -.01em;
   white-space: nowrap;
   overflow: hidden;
