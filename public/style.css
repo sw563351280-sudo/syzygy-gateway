@@ -3176,25 +3176,37 @@ body.neu-mode #sec-chat > .chat-floating-topbar {
 }
 #sec-chat .chat-home-pill {
   min-width: 0;
-  height: 48px;
-  max-width: calc(100% - 116px);
+  height: 44px;
+  max-width: calc(100% - 108px);
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  padding: 0 17px 0 13px;
-  border-radius: 24px;
+  padding: 0 16px 0 12px;
+  border-radius: 22px;
   font: inherit;
-  font-size: .95rem;
-  font-weight: 650;
+  font-size: .9rem;
+  font-weight: 600;
+  letter-spacing: -.01em;
   white-space: nowrap;
   overflow: hidden;
   cursor: pointer;
 }
 #sec-chat .chat-home-pill-arrow {
   color: #5A8FCA;
-  font-size: 1.5rem;
-  font-weight: 400;
-  line-height: 1;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+}
+#sec-chat .chat-home-pill-arrow svg,
+#sec-chat .chat-floating-actions svg {
+  width: 100%;
+  height: 100%;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 #sec-chat #chatViewTitle {
   overflow: hidden;
@@ -3208,14 +3220,14 @@ body.neu-mode #sec-chat > .chat-floating-topbar {
 #sec-chat .chat-floating-actions > button {
   display: grid !important;
   place-items: center;
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   border-radius: 50%;
   font-family: inherit;
-  font-size: 1.2rem;
   cursor: pointer;
 }
+#sec-chat .chat-floating-actions svg { width: 20px; height: 20px; }
 #sec-chat .chat-floating-actions > button:active,
 #sec-chat .chat-home-pill:active {
   transform: scale(.96);
@@ -3227,7 +3239,7 @@ body.neu-mode #sec-chat > .chat-floating-topbar {
 
 @media (max-width: 430px) {
   #sec-chat .chat-floating-topbar { padding-inline: 12px; gap: 8px; }
-  #sec-chat .chat-home-pill { max-width: calc(100% - 106px); height: 46px; padding-inline: 12px 15px; }
+  #sec-chat .chat-home-pill { max-width: calc(100% - 100px); height: 44px; padding-inline: 11px 14px; }
   #sec-chat .chat-floating-actions { gap: 8px; }
-  #sec-chat .chat-floating-actions > button { width: 46px; height: 46px; }
+  #sec-chat .chat-floating-actions > button { width: 44px; height: 44px; }
 }

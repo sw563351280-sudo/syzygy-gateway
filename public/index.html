@@ -11,7 +11,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=71">
+    <link rel="stylesheet" href="style.css?v=72">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body class="neu-mode">
@@ -112,12 +112,18 @@
 <div class="section" id="sec-chat">
 <div class="chat-floating-topbar" id="chatTopbar">
     <button class="chat-home-pill" onclick="goView('home')" aria-label="返回首页">
-        <span class="chat-home-pill-arrow">←</span>
+        <span class="chat-home-pill-arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6"/></svg>
+        </span>
         <span id="chatViewTitle">通讯 · 主频道</span>
     </button>
     <div class="chat-floating-actions">
-        <button class="chat-rename-topbar-btn" onclick="renameChatWindow()" title="重命名频道" aria-label="重命名频道">✎</button>
-        <button class="chat-index-topbar-btn" onclick="togglePhysioPanel()" title="身体状态" aria-label="身体状态">♡</button>
+        <button class="chat-rename-topbar-btn" onclick="renameChatWindow()" title="重命名频道" aria-label="重命名频道">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20l4.2-1 10.9-10.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/><path d="m14.8 6.4 2.8 2.8"/></svg>
+        </button>
+        <button class="chat-index-topbar-btn" onclick="togglePhysioPanel()" title="身体状态" aria-label="身体状态">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z"/></svg>
+        </button>
     </div>
 </div>
         <div class="chat-layout">
