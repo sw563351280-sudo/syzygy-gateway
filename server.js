@@ -36,6 +36,7 @@ const { freshState, normalizeState: normalizeWakeState, advanceState: advanceWak
 const { millisecondsUntilWakeDispatchWindow, parseProactiveMessageParts } = require('./wake-dispatch');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
 const { messageTimestampMs, selectRecentWakeHistory } = require('./wake-context');
+const { hasProjectFileIntent, keepRequestedReadTools } = require('./tool-policy');
 
 const execFileAsync = promisify(execFile);
 
@@ -3938,7 +3939,7 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
     const textLower = (userText || '').toLowerCase();
     // "查一下"、"看一下" 这类日常说法不能当成代码请求；否则模型会
     // 带着一整套文件工具去翻源码，既慢又容易答偏。
-    const hasCodeKW = /文件|代码|源码|server|prompt|json|接口|报错|日志|目录|路径|仓库|git|github|修复|修改|写入|替换|编辑/.test(textLower);
+    const hasCodeKW = hasProjectFileIntent(textLower);
 
     // 文件工具只在明确的开发/文件请求里可见，普通聊天不再暴露它们。
     const MCP_READ_ONLY = new Set(['read_file', 'read_text_file', 'list_directory', 'search_files', 'get_file_info', 'list_allowed_directories']);
@@ -7109,13 +7110,13 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         console.log(`🔧 [工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
         console.log(`🔧 [MCP] TOOLS_ENABLED.mcp=${TOOLS_ENABLED.mcp}, mcp工具数=${mcpTools.length}, 筛选后MCP=${filteredTools.filter(t=>t._mcp).map(t=>t.function?.name||t.name).join(',') || '(无)'}`);
         _mcpDiag.last = { at: new Date().toISOString(), mcpEnabled: TOOLS_ENABLED.mcp, totalTools: enabledTools.length, filteredTools: filteredTools.length, mcpFilteredIn: filteredTools.filter(t=>t._mcp).map(t=>t.function?.name||t.name), userText: (currentUserMsgText||'').substring(0, 100) };
-        // 只有轻量+MCP只读工具 → 日常聊天保留工具但跳过工具循环
+        // 只有轻量+MCP只读工具时，保留本轮明确需要的内置工具与 MCP 只读工具。
+        // 旧逻辑只保留 _mcp，误删了 search_transcript、exec、read_diary 等内置能力。
         const LIGHT_OR_MCP_READ = new Set([...LIGHT_TOOLS, ...['read_file','read_text_file','list_directory','search_files','get_file_info','list_allowed_directories', ...TOY_TOOLS]]);
         const needsToolLoop = filteredTools.some(t => !LIGHT_OR_MCP_READ.has(t.function?.name));
         if (!needsToolLoop && !forceToolChoice) {
-            console.log(`🔧 [工具] 日常聊天，保留MCP只读工具供按需调用`);
-            // 只保留 MCP 只读工具，去掉轻量工具（不需要工具循环）
-            filteredTools = filteredTools.filter(t => t._mcp);
+            filteredTools = keepRequestedReadTools(filteredTools, currentUserMsgText);
+            console.log(`🔧 [工具] 只读按需保留: ${filteredTools.map(t => t.function?.name || t.name).join(',') || '(无)'}`);
         }
         let maxToolRounds = 5, toolRound = 0, lastToolSig = '', fileModified = false;
         const isStreamMode = body.stream === true;
