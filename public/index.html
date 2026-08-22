@@ -11,7 +11,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=64">
+    <link rel="stylesheet" href="style.css?v=65">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body class="neu-mode">
@@ -110,7 +110,16 @@
 </div>
 
 <div class="section" id="sec-chat">
-<div class="view-topbar" id="chatTopbar"><button class="view-back" onclick="goView('home')">←</button><span class="view-title" id="chatViewTitle">通讯 · 主频道</span><span style="flex:1"></span><button class="chat-rename-topbar-btn" onclick="renameChatWindow()" title="重命名频道">✎</button><button class="chat-index-topbar-btn" onclick="togglePhysioPanel()" title="身体状态">♡</button><button class="chat-sms-topbar-btn" onclick="smsToggleMode()" id="smsModeBtn" title="切换长/短对话" aria-pressed="false">短</button></div>
+<div class="chat-floating-topbar" id="chatTopbar">
+    <button class="chat-home-pill" onclick="goView('home')" aria-label="返回首页">
+        <span class="chat-home-pill-arrow">←</span>
+        <span id="chatViewTitle">通讯 · 主频道</span>
+    </button>
+    <div class="chat-floating-actions">
+        <button class="chat-rename-topbar-btn" onclick="renameChatWindow()" title="重命名频道" aria-label="重命名频道">✎</button>
+        <button class="chat-index-topbar-btn" onclick="togglePhysioPanel()" title="身体状态" aria-label="身体状态">♡</button>
+    </div>
+</div>
         <div class="chat-layout">
             <div class="chat-main">
                <div class="chat-main-header" id="chatMainHeader">
@@ -160,10 +169,6 @@
         <div class="resonance-core" id="resonanceCore"><div class="core-pulse"></div></div>
         <textarea id="chatInput" rows="1" placeholder="发消息给沈望…" aria-description="可直接粘贴剪贴板中的截图"></textarea>
         <button class="chat-send-btn" id="chatSendBtn" onclick="sendChat()">发送 ✦</button>
-        <button class="chat-send-btn sms-fire-btn" id="smsFireBtn" onclick="smsFire()"
-                style="display:none" aria-label="让他回复">
-          让他回 <span id="smsQueueCount">0</span>
-        </button>
     </div>
 </div>
 
@@ -500,8 +505,7 @@
 
 <script src="clipboard-images.js?v=1"></script>
 <script src="thinking-parser.js?v=1"></script>
-<script src="script.js?v=59"></script>
-<script src="sms-mode.js?v=5"></script>
+<script src="script.js?v=60"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>
         <div id="menuModel" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🤖 模型: -</div>

@@ -2934,137 +2934,6 @@ body.neu-mode #sec-console{
   border:1px solid var(--con-border);
 }
 
-/* ═══ 短对话模式 ═══ */
-.chat-sms-topbar-btn{
-  width:30px;height:30px;border-radius:8px;
-  border:1px solid rgba(201,169,97,.15);
-  background:rgba(201,169,97,.05);
-  color:var(--dim);font-size:.85em;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;
-  flex-shrink:0;transition:all .2s;font-family:inherit;
-}
-.chat-sms-topbar-btn:hover{border-color:rgba(201,169,97,.35);color:var(--gold)}
-.chat-sms-topbar-btn.sms-active{
-  background:rgba(201,169,97,.18);border-color:var(--gold);color:var(--gold);font-weight:600;
-}
-.chat-sms-topbar-btn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
-
-/* 碎条气泡：贴紧、去掉大圆角的孤立感 */
-.sms-row{margin-bottom:3px!important}
-.sms-row+.sms-row .sms-bubble.sys{border-top-left-radius:14px}
-.sms-bubble{
-  max-width:72%!important;
-  padding:9px 14px!important;
-  line-height:1.6!important;
-  white-space:pre-wrap;
-  overflow-wrap:anywhere;
-}
-.sms-bubble.sys{border-radius:14px 14px 14px 4px}
-.sms-bubble.user{border-radius:14px 14px 4px 14px}
-.sms-pending{opacity:.55;font-style:italic}
-.sms-think-row{margin-bottom:6px}
-
-/* 正在输入 */
-.sms-typing-row{display:flex;align-items:center;gap:8px;padding:0 20px;margin-bottom:6px}
-.sms-typing{
-  display:inline-flex;align-items:center;gap:5px;
-  padding:9px 14px;border-radius:14px 14px 14px 4px;
-  background:rgba(255,255,255,.04);
-  border:1px solid rgba(255,255,255,.06);
-}
-.sms-typing-label{font-size:.7rem;color:var(--dim);margin-left:4px;letter-spacing:1px}
-.sms-dot{
-  width:5px;height:5px;border-radius:50%;
-  background:var(--dim);opacity:.4;
-  animation:smsBlink 1.3s ease-in-out infinite;
-}
-.sms-dot:nth-child(2){animation-delay:.18s}
-.sms-dot:nth-child(3){animation-delay:.36s}
-@keyframes smsBlink{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:.9;transform:translateY(-2px)}}
-.sms-skip{
-  border:1px solid rgba(201,169,97,.25);background:transparent;
-  color:var(--dim);font-size:.7rem;font-family:inherit;
-  padding:4px 10px;border-radius:12px;cursor:pointer;
-}
-.sms-skip:hover{border-color:var(--gold);color:var(--gold)}
-
-/* 让他回 */
-.sms-fire-btn #smsQueueCount{
-  display:inline-block;min-width:16px;padding:0 4px;margin-left:4px;
-  border-radius:8px;background:var(--gold);color:var(--ink);
-  font-size:.75em;font-weight:700;
-}
-.sms-fire-btn:disabled{opacity:.4;cursor:default}
-
-@media(prefers-reduced-motion:reduce){.sms-dot{animation:none;opacity:.6}}
-
-/* ── 白天 ── */
-
-/* ── 新拟态 ── */
-body.neu-mode .sms-typing{
-  background:#E8EFF7;border:none;
-  box-shadow:inset 3px 3px 6px rgba(163,177,198,.3),inset -3px -3px 6px rgba(255,255,255,.6);
-}
-body.neu-mode .chat-sms-topbar-btn{
-  background:#E8EFF7;border:none;color:#718096;
-  box-shadow:3px 3px 6px rgba(163,177,198,.3),-3px -3px 6px rgba(255,255,255,.5);
-}
-body.neu-mode .chat-sms-topbar-btn.sms-active{
-  color:#5A8FCA;
-  box-shadow:inset 2px 2px 4px rgba(163,177,198,.35),inset -2px -2px 4px rgba(255,255,255,.6);
-}
-body.neu-mode .sms-dot{background:#718096}
-body.neu-mode .sms-fire-btn #smsQueueCount{background:#5A8FCA;color:#fff}
-body.neu-mode .sms-skip{border-color:rgba(90,143,202,.3);color:#718096}
-
-/* ── 暗金 ── */
-
-/* ── SMS 思考链：一朵云 ── */
-.sms-think-row{ font-size:.78em; }
-
-/* ── 时间分隔线 ── */
-.sms-time-divider{
-  display:flex; align-items:center; gap:10px;
-  margin:14px 20px 10px;
-  font-size:.66rem; color:var(--dim); letter-spacing:1px;
-}
-.sms-time-divider::before,
-.sms-time-divider::after{
-  content:''; flex:1; height:1px;
-  background:linear-gradient(90deg,transparent,currentColor,transparent);
-  opacity:.18;
-}
-
-/* ── SMS 图片 ── */
-.sms-img-wrap{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px; }
-.sms-img{
-  max-width:130px; max-height:130px;
-  border-radius:10px; object-fit:cover;
-  box-shadow:0 2px 8px rgba(0,0,0,.22);
-}
-.sms-bubble .sms-text{ display:block; }
-body.neu-mode .sms-img{ box-shadow:3px 3px 8px rgba(163,177,198,.4); }
-
-/* ── SMS 思考链：一朵云，无框 ── */
-.sms-think-row{margin-bottom:4px;padding:0 20px}
-.sms-think{display:flex;flex-direction:column;align-items:flex-start;gap:3px}
-.sms-think-toggle{
-  background:none;border:none;padding:0 2px;margin:0;
-  font-size:.95rem;line-height:1;color:var(--dim);
-  opacity:.3;cursor:pointer;transition:opacity .2s;
-}
-.sms-think-toggle:hover,
-.sms-think-toggle.sms-think-open{opacity:.7}
-.sms-think-toggle:focus-visible{
-  outline:1px solid var(--gold);outline-offset:3px;border-radius:4px;opacity:.7;
-}
-.sms-think-body{
-  max-width:72%;padding:0 0 2px 2px;
-  font-size:.72rem;line-height:1.65;color:var(--dim);opacity:.65;
-  white-space:pre-wrap;overflow-wrap:anywhere;
-  max-height:220px;overflow-y:auto;
-}
-
 /* ═══ 功能页 · 同一天幕的不同星象 ═══ */
 html { background: #C9D2DC; }
 
@@ -3185,7 +3054,7 @@ body.neu-mode :is(.chat-image-preview, .think-box, .fav-think-box, .md-content p
   background: var(--celestial-soft) !important;
 }
 
-body.neu-mode :is(.msg.user, .msg.sys, .sms-bubble.user, .sms-bubble.sys) {
+body.neu-mode :is(.msg.user, .msg.sys) {
   background: var(--celestial-card) !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -3268,4 +3137,87 @@ body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar,
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+/* 通讯页改为 iOS 式悬浮控件：背景从安全区一路贯穿，不再保留整条导航栏。 */
+#sec-chat .chat-floating-topbar {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: 50%;
+  width: min(100%, 820px);
+  transform: translateX(-50%);
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  pointer-events: none;
+}
+#sec-chat .chat-home-pill,
+#sec-chat .chat-floating-actions > button {
+  pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, .5);
+  background: rgba(232, 239, 247, .68);
+  color: #536985;
+  box-shadow: 0 8px 22px rgba(91, 111, 136, .16), inset 0 1px rgba(255, 255, 255, .72);
+  backdrop-filter: blur(18px) saturate(118%);
+  -webkit-backdrop-filter: blur(18px) saturate(118%);
+}
+#sec-chat .chat-home-pill {
+  min-width: 0;
+  height: 48px;
+  max-width: calc(100% - 116px);
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 17px 0 13px;
+  border-radius: 24px;
+  font: inherit;
+  font-size: .95rem;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+#sec-chat .chat-home-pill-arrow {
+  color: #5A8FCA;
+  font-size: 1.5rem;
+  font-weight: 400;
+  line-height: 1;
+}
+#sec-chat #chatViewTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#sec-chat .chat-floating-actions {
+  display: flex;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+#sec-chat .chat-floating-actions > button {
+  display: grid !important;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border-radius: 50%;
+  font-family: inherit;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+#sec-chat .chat-floating-actions > button:active,
+#sec-chat .chat-home-pill:active {
+  transform: scale(.96);
+  background: rgba(224, 234, 244, .82);
+}
+#sec-chat .chat-window {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 80px) !important;
+}
+
+@media (max-width: 430px) {
+  #sec-chat .chat-floating-topbar { padding-inline: 12px; gap: 8px; }
+  #sec-chat .chat-home-pill { max-width: calc(100% - 106px); height: 46px; padding-inline: 12px 15px; }
+  #sec-chat .chat-floating-actions { gap: 8px; }
+  #sec-chat .chat-floating-actions > button { width: 46px; height: 46px; }
 }

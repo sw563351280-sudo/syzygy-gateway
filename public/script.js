@@ -50,7 +50,23 @@ const starState = { pendingMeteor: false, pendingNebula: false };
 if (typeof marked !== 'undefined') { marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false }); }
 function stripInternalTags(text) { return (text||'').replace(/<MOOD_SNAPSHOT>[\s\S]*?<\/MOOD_SNAPSHOT>/g, '').replace(/\[\[MOOD_SNAPSHOT\]\][\s\S]*?\[\[MOOD_SNAPSHOT\]\]/g, '').replace(/<SAVE_MEMORY[\s\S]*?<\/SAVE_MEMORY>/g, '').replace(/<ADD_TODO>[\s\S]*?<\/ADD_TODO>/g, '').replace(/<DONE_TODO[^>]*\/>/g, '').trim(); }
 function stripDisplayTimestamp(text) { return String(text||'').replace(/^\s*(?:⟦ts:[^⟧]*⟧|\[ts:\d{2}-\d{2}\s+\d{2}:\d{2}\]|\[\d{2}-\d{2}\s+\d{2}:\d{2}\])\s*/i, ''); }
-function renderMarkdown(text) { if (!text) return ''; text = stripDisplayTimestamp(text).replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '\n'); if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
+const LEGACY_SHORT_MESSAGE_SEP_RE = /[\u001f\u2063]/g;
+function legacyMessagePlain(content) {
+    if (Array.isArray(content)) {
+        return content.filter(x => x && x.type === 'text').map(x => legacyMessagePlain(x.text || '')).join(' ');
+    }
+    return String(content || '').replace(LEGACY_SHORT_MESSAGE_SEP_RE, '\n');
+}
+function hasLegacyShortMessageSeparator(content) {
+    return typeof content === 'string' && /[\u001f\u2063]/.test(content);
+}
+function msgContentOf(msg) {
+    if (!msg) return '';
+    const version = getActiveVersion(msg);
+    const content = version && version.content !== undefined ? version.content : msg.content;
+    return typeof content === 'string' ? content : '';
+}
+function renderMarkdown(text) { if (!text) return ''; text = legacyMessagePlain(stripDisplayTimestamp(text)); if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
 
 // ==================== 版本化消息辅助函数 ====================
 function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; if (v.toolCalls === undefined && msg.toolCalls !== undefined) v.toolCalls = msg.toolCalls; return v; } return msg; }
@@ -68,7 +84,25 @@ function fmtTsTag(iso) {
 window.fmtTsTag = fmtTsTag;
 function getVersionCount(msg) { return (msg.versions && msg.versions.length) ? msg.versions.length : 1; }
 function getActiveVersionIndex(msg) { if (msg.versions && msg.versions.length > 0) return msg.activeVersion || 0; return 0; }
-function ensureVersioned(msg) { if (msg.versions) return; if (msg.mode === 'sms') return; const { role, ...rest } = msg; msg.versions = [rest]; msg.activeVersion = 0; delete msg.content; delete msg.thinking; delete msg.time; delete msg.model; delete msg.fullTime; delete msg.image; }
+function ensureVersioned(msg) {
+    if (msg.versions) return;
+    const { role, mode, segments, segTimes, segImages, ...rest } = msg;
+    if (mode === 'sms' || segments || hasLegacyShortMessageSeparator(rest.content)) {
+        rest.content = legacyMessagePlain(rest.content || (Array.isArray(segments) ? segments.join('\n') : ''));
+    }
+    msg.versions = [rest];
+    msg.activeVersion = 0;
+    delete msg.content;
+    delete msg.thinking;
+    delete msg.time;
+    delete msg.model;
+    delete msg.fullTime;
+    delete msg.image;
+    delete msg.mode;
+    delete msg.segments;
+    delete msg.segTimes;
+    delete msg.segImages;
+}
 
 function drawMeteor(ctx, w, h) {
     const sx = Math.random() * w * 0.7 + w * 0.15, sy = Math.random() * h * 0.3;
@@ -149,7 +183,7 @@ function onProactiveClick() { dismissProactive(); goView('chat'); if (activeChat
 function dismissProactive() { const inner = document.getElementById('proactiveNotifInner'); if (inner) inner.style.top = '-120px'; setTimeout(() => { const n = document.getElementById('proactiveNotif'); if (n) n.remove(); }, 500); }
 /* 归一化去重：去掉 ||| 和所有空白，让 "a|||b" 和 "a\nb" 得到同一个串 */
 function normForDedup(s) {
-  return String(s || '').replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '').replace(/\|\|\|/g, '').replace(/\s+/g, '');
+  return legacyMessagePlain(s).replace(/\|\|\|/g, '').replace(/\s+/g, '');
 }
 
 // Time prefixes belong to the model prompt only. They must never become part
@@ -192,7 +226,7 @@ function handleCrossPlatformMessage(msg) {
     // preview races the source device and turns one turn into two cloud copies.
     setTimeout(() => resyncAndMerge('ws-message'), 1500);
     if (activeChatId === 'main') renderChatMessages();
-    const preview = (typeof smsPlain === 'function' ? smsPlain(msg.assistant?.content || '') : (msg.assistant?.content || '')).substring(0, 30);
+    const preview = legacyMessagePlain(msg.assistant?.content || '').substring(0, 30);
     if (preview) toast('⊹ 沈望在别处说了："' + preview + (preview.length >= 30 ? '…' : '') + '"');
 }
 function handleDreamDone(msg) { toast('🌙 沈望做了个梦：' + (msg.summary || '整理完成')); }
@@ -353,12 +387,6 @@ function stripImagesForCloudSync(sessions) {
     return sessions.map(session => ({
         ...session,
         messages: (session.messages || []).map(msg => {
-            // SMS 扁平消息：不经过 versions 映射，但剥掉图片字段
-            if (msg.mode === 'sms') {
-              const c = { ...msg };
-              delete c.image; delete c.images; delete c.segImages;
-              return c;
-            }
             return {
             ...msg,
             versions: (msg.versions || []).map(v => {
@@ -438,7 +466,7 @@ function msgKey(m) {
 
 function simpleContentHash(c) {
     if (typeof c !== 'string') c = JSON.stringify(c || '');
-    c = c.replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '');
+    c = legacyMessagePlain(c).replace(/\n/g, '');
     var h = 0, i; for (i = 0; i < c.length; i++) { h = ((h << 5) - h + c.charCodeAt(i)) | 0; }
     return Math.abs(h).toString(36).substring(0, 8);
 }
@@ -450,7 +478,7 @@ function normMsgText(m) {
   if (Array.isArray(c)) {
     c = c.filter(function(x) { return x && x.type === 'text'; }).map(function(x) { return x.text || ''; }).join('');
   }
-  return stripTransportTimePrefix(c).replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '').replace(/\|\|\|/g, '').replace(/\s+/g, '');
+  return legacyMessagePlain(stripTransportTimePrefix(c)).replace(/\|\|\|/g, '').replace(/\s+/g, '');
 }
 
 function msgTimeMs(m) {
@@ -496,13 +524,13 @@ function dropServerEchoes(msgs) {
   });
 }
 
-/* 消息信息量评分：SMS 结构完整的那份优先 */
-function smsRichness(m) {
+/* 消息信息量评分：兼容旧版碎条消息，迁移时优先保留信息更完整的一份。 */
+function messageRichness(m) {
   if (!m) return -1;
   const v = (typeof getActiveVersion === 'function' ? getActiveVersion(m) : {}) || {};
   let n = 0;
   const c = (typeof msgContentOf === 'function') ? msgContentOf(m) : '';
-  if (typeof smsHasSep === 'function' && smsHasSep(c)) n += 8;
+  if (hasLegacyShortMessageSeparator(c)) n += 8;
   if (m.mode === 'sms' || v.mode === 'sms') n += 4;
   if ((m.segments || v.segments || []).length) n += 4;
   if ((m.segTimes || v.segTimes || []).length) n += 1;
@@ -530,7 +558,7 @@ function mergeMessageLists(serverMsgs, localMsgs) {
         if (seen.has(k)) {
             const i = seen.get(k);
             const cur = out[i];
-            const rm = smsRichness(m), rc = smsRichness(cur);
+            const rm = messageRichness(m), rc = messageRichness(cur);
             if (rm > rc || (rm === rc && getVersionCount(m) > getVersionCount(cur))) {
               out[i] = m;
             }
@@ -543,8 +571,8 @@ function mergeMessageLists(serverMsgs, localMsgs) {
             const incomingId = String(m._id || m.id || '');
             const currentCanonical = currentId && !currentId.startsWith('cp_') && !current._crossPlatform;
             const incomingCanonical = incomingId && !incomingId.startsWith('cp_') && !m._crossPlatform;
-            const currentScore = smsRichness(current) + getVersionCount(current);
-            const incomingScore = smsRichness(m) + getVersionCount(m);
+            const currentScore = messageRichness(current) + getVersionCount(current);
+            const incomingScore = messageRichness(m) + getVersionCount(m);
             if ((!currentCanonical && incomingCanonical) || incomingScore > currentScore) out[duplicateIndex] = m;
             seen.set(k, duplicateIndex);
             return;
@@ -2284,16 +2312,6 @@ function renderChatMessages(){
     msgs.forEach((m, subIndex) => {
         const index = session.messages.length - msgs.length + subIndex;
 
-        // 短对话消息：碎条铺开，不走下面的单气泡渲染
-        const rawContent = (typeof msgContentOf === 'function') ? msgContentOf(m) : '';
-        const isSms = (typeof smsHasSep === 'function' && smsHasSep(rawContent))
-                      || m.mode === 'sms'
-                      || (getActiveVersion(m) || {}).mode === 'sms';
-        if (isSms && typeof smsRenderHistoryMessage === 'function') {
-            smsRenderHistoryMessage(m);
-            return;
-        }
-
         const v = getActiveVersion(m);
         const vCount = getVersionCount(m);
         const vIdx = getActiveVersionIndex(m);
@@ -2323,7 +2341,7 @@ function renderChatMessages(){
         // 渲染工具调用记录（整组折叠）
         if (v.toolCalls && v.toolCalls.length > 0) htmlContent += renderToolCallGroupHTML(v.toolCalls, false);
         if (m.role === 'user') {
-            htmlContent += '<div>' + String(displayContent || '').replace(typeof SMS_SEP_RE !== 'undefined' ? SMS_SEP_RE : /[⁣]/g, '\n').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
+            htmlContent += '<div>' + legacyMessagePlain(displayContent || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
             const xhsUrl = findXhsLink(displayContent);
             if (xhsUrl) htmlContent += '<div class="xhs-card" data-xhs-url="' + encodeURIComponent(xhsUrl) + '">正在读取小红书笔记…</div>';
             const githubUrl = findGitHubLink(displayContent);
@@ -2551,7 +2569,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
     if (typeof safeContent === 'string' && safeContent.includes('data:image')) {
         safeContent = '（发送了图片）';
     }
-    if (typeof smsPlain === 'function') safeContent = smsPlain(safeContent);
+    safeContent = legacyMessagePlain(safeContent);
     if (typeof safeContent === 'string') safeContent = fmtTsTag(v.fullTime) + safeContent;
     return { role: m.role, content: safeContent };
 });
@@ -3789,7 +3807,7 @@ async function regenerateSend(aiMsgIndex) {
     let reSilenceTimer = null;
     const modelEl = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
-    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; if(typeof smsPlain==='function')c=smsPlain(c); if(typeof c==='string'&&m.role==='user')c=fmtTsTag(v.fullTime)+c; return {role:m.role,content:c}; });
+    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; c=legacyMessagePlain(c); if(typeof c==='string'&&m.role==='user')c=fmtTsTag(v.fullTime)+c; return {role:m.role,content:c}; });
     if (historyMsgs.length > 50) historyMsgs = historyMsgs.slice(-50);
     try {
         let apiUrl = '/v1/chat/completions';
@@ -3833,9 +3851,9 @@ async function flushDirtyToZep(session) {
         const v = getActiveVersion(msg);
         let userContent = '';
         for (let j = i - 1; j >= 0; j--) { if (session.messages[j].role === 'user') { userContent = getActiveVersion(session.messages[j]).content || ''; if (Array.isArray(userContent)) userContent = userContent.filter(c => c.type === 'text').map(c => c.text).join(' ') || '（发送了图片）'; break; } }
-        if (typeof smsPlain === 'function') { userContent = smsPlain(userContent); }
+        userContent = legacyMessagePlain(userContent);
         let aiContent = v.content || '';
-        if (typeof smsPlain === 'function') aiContent = smsPlain(aiContent);
+        aiContent = legacyMessagePlain(aiContent);
         try {
             await fetch('/api/flush-zep', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userContent:userContent,aiContent:aiContent}) });
             console.log('✅ [延迟Zep] 已冲刷第'+i+'条消息');
@@ -3938,9 +3956,9 @@ window.addEventListener('beforeunload', function() {
                 break;
             }
         }
-        if (typeof smsPlain === 'function') { userContent = smsPlain(userContent); }
+        userContent = legacyMessagePlain(userContent);
         let _aiBeacon = v.content || '';
-        if (typeof smsPlain === 'function') _aiBeacon = smsPlain(_aiBeacon);
+        _aiBeacon = legacyMessagePlain(_aiBeacon);
         navigator.sendBeacon('/api/flush-zep', JSON.stringify({ userContent, aiContent: _aiBeacon }));
         delete msg._zepDirty;
     }
@@ -3983,8 +4001,8 @@ function openFavDialog(index) {
         }
     }
     let aiContent = typeof aiV.content === 'string' ? aiV.content : '';
-    if (typeof smsPlain === 'function') { userContent = smsPlain(userContent); }
-    if (typeof smsPlain === 'function') aiContent = smsPlain(aiContent);
+    userContent = legacyMessagePlain(userContent);
+    aiContent = legacyMessagePlain(aiContent);
     document.getElementById('favPreview').innerHTML = '<div style="margin-bottom:8px;color:var(--dim);font-size:0.8em;">👤 江鱼：</div><div style="margin-bottom:12px;padding:8px 12px;background:rgba(79,195,247,0.06);border-left:2px solid #4fc3f7;border-radius:4px;">' + (userContent || '(空)').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div><div style="margin-bottom:8px;color:var(--dim);font-size:0.8em;">🤖 沈望：</div><div style="padding:8px 12px;background:rgba(201,169,97,0.06);border-left:2px solid var(--gold);border-radius:4px;">' + (aiContent || '(空)').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
     document.getElementById('favTags').value = '';
     document.getElementById('favNote').value = '';
@@ -4019,8 +4037,8 @@ async function confirmFavorite() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 messages: [
-                    { role: 'user', content: (typeof smsPlain === 'function' ? smsPlain(userContent) : userContent) || '（发送了图片）' },
-                    { role: 'assistant', content: (typeof smsPlain === 'function' ? smsPlain(aiV.content || '') : (aiV.content || '')), thinking: aiV.thinking || '' }
+                    { role: 'user', content: legacyMessagePlain(userContent) || '（发送了图片）' },
+                    { role: 'assistant', content: legacyMessagePlain(aiV.content || ''), thinking: aiV.thinking || '' }
                 ],
                 note, tags
             })
@@ -4131,8 +4149,8 @@ function renderFavList(items) {
     groups.forEach(group => {
         html += '<section class="fav-date-group"><header class="fav-date-heading"><span>' + group.label + '</span><small>' + group.items.length + ' 条</small></header><div class="fav-card-stack">';
         group.items.forEach(f => {
-        const userC = (typeof smsPlain === 'function' ? smsPlain(f.messages[0]?.content || '') : (f.messages[0]?.content || ''));
-        const aiC = (typeof smsPlain === 'function' ? smsPlain(f.messages[1]?.content || '') : (f.messages[1]?.content || ''));
+        const userC = legacyMessagePlain(f.messages[0]?.content || '');
+        const aiC = legacyMessagePlain(f.messages[1]?.content || '');
         const preview = aiC || userC || '（空白收藏）';
         const shownTags = (f.tags || []).slice(0, 2).map(t => '<span>' + escapeHtml(t) + '</span>').join('');
         const extraTagCount = Math.max(0, (f.tags || []).length - 2);
@@ -4155,8 +4173,8 @@ function viewFavDetail(favId) {
     const f = _favCache.find(item => item && item.id === favId);
     if (!f) return;
     const dt = new Date(f.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-    const userC = (typeof smsPlain === 'function' ? smsPlain(f.messages[0]?.content || '') : (f.messages[0]?.content || ''));
-    const aiC = (typeof smsPlain === 'function' ? smsPlain(f.messages[1]?.content || '') : (f.messages[1]?.content || ''));
+    const userC = legacyMessagePlain(f.messages[0]?.content || '');
+    const aiC = legacyMessagePlain(f.messages[1]?.content || '');
     const aiThinking = f.messages[1]?.thinking || '';
     const tagsHtml = (f.tags || []).map(t => '<span class="fav-detail-tag">' + escapeHtml(t) + '</span>').join('');
     const detail = document.getElementById('favDetail');
