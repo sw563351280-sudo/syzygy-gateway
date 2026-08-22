@@ -2941,7 +2941,8 @@ body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar,
   position: relative;
   isolation: isolate;
   min-height: 100dvh;
-  background: #E8EFF7 !important;
+  /* 页面本体必须透明，统一底色由 body 提供，星图层才能铺在内容下方。 */
+  background: transparent !important;
 }
 body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album)::before {
   content: '';
@@ -2973,32 +2974,32 @@ body.neu-mode #sec-favorites {
   --celestial-page-art: url('assets/celestial-favorites.jpg');
   --celestial-page-position: center top;
   --celestial-page-size: cover;
-  --celestial-page-opacity: .08;
+  --celestial-page-opacity: .17;
 }
 body.neu-mode :is(#sec-flo, #sec-calendar, #sec-state) {
   --celestial-page-art: url('assets/celestial-cycle.jpg');
   --celestial-page-position: center;
   --celestial-page-size: cover;
-  --celestial-page-opacity: .09;
+  --celestial-page-opacity: .17;
 }
 body.neu-mode #sec-album {
   --celestial-page-art: url('assets/celestial-album.jpg');
   --celestial-page-position: center top;
   --celestial-page-size: cover;
-  --celestial-page-opacity: .085;
+  --celestial-page-opacity: .17;
 }
 body.neu-mode #sec-data {
   --celestial-page-art: url('assets/celestial-data.jpg');
   --celestial-page-position: center;
   --celestial-page-size: cover;
-  --celestial-page-opacity: .07;
+  --celestial-page-opacity: .17;
 }
 
 /* 顶栏和内容保持可读，但让各自的星象能从空隙与卡片下轻轻透出来。 */
 body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album) .view-topbar {
   background: rgba(232, 239, 247, .74) !important;
 }
-body.neu-mode #sec-chat.active { background: #E8EFF7 !important; }
+body.neu-mode #sec-chat.active { background: transparent !important; }
 body.neu-mode #sec-chat .chat-main-header { background: rgba(232, 239, 247, .52); }
 body.neu-mode #sec-chat .chat-bottom-bar { background: rgba(232, 239, 247, .78) !important; }
 body.neu-mode #sec-favorites .fav-filter-panel { background: rgba(237, 244, 251, .62); }
@@ -3134,7 +3135,7 @@ body.neu-mode :is(.cal-detail-card, .album-detail-card) {
 
 /* 顶部三段统一：PWA 状态栏、功能顶栏和页面底幕共用同一块灰蓝天空。 */
 body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album) .view-topbar {
-  background: #E8EFF7 !important;
+  background: rgba(237, 244, 251, .68) !important;
   border-bottom-color: rgba(255, 255, 255, .2);
   box-shadow: none;
   backdrop-filter: none;
