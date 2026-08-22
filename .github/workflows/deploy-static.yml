@@ -1,0 +1,27 @@
+name: Deploy static frontend without restart
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy-static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+        env:
+          SSH_KEY: ${{ secrets.CONTABO_SSH_KEY }}
+
+      - name: Sync frontend files without restarting the service
+        shell: bash
+        run: |
+          scp -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key \
+            public/style.css public/index.html root@46.250.248.31:/opt/syzygy/public/
+          ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key root@46.250.248.31 \
+            "test -s /opt/syzygy/public/index.html && test -s /opt/syzygy/public/style.css"
