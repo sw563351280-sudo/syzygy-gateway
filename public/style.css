@@ -3244,3 +3244,104 @@ body.neu-mode #sec-chat > .chat-floating-topbar {
   #sec-chat .chat-floating-actions { gap: 8px; }
   #sec-chat .chat-floating-actions > button { width: 44px; height: 44px; }
 }
+
+/* 中枢 / 收藏夹 / Flo：与通讯页共用 iOS 式悬浮标题控件。 */
+body.neu-mode :is(#sec-data, #sec-favorites, #sec-flo) {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 72px) !important;
+}
+.page-floating-topbar {
+  position: fixed !important;
+  top: calc(env(safe-area-inset-top, 0px) + 12px);
+  left: 50%;
+  z-index: 120 !important;
+  width: min(100%, 820px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 16px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+body.neu-mode :is(#sec-data, #sec-favorites, #sec-flo) > .page-floating-topbar {
+  position: fixed !important;
+  z-index: 120 !important;
+}
+.page-home-pill,
+.page-floating-actions > button {
+  pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, .5);
+  background: rgba(232, 239, 247, .68);
+  color: #536985;
+  box-shadow: 0 8px 22px rgba(91, 111, 136, .16), inset 0 1px rgba(255, 255, 255, .72);
+  backdrop-filter: blur(18px) saturate(118%);
+  -webkit-backdrop-filter: blur(18px) saturate(118%);
+}
+.page-home-pill {
+  min-width: 0;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 16px 0 12px;
+  border-radius: 22px;
+  font-family: 'Noto Sans SC', 'Source Han Sans SC', 'PingFang SC', sans-serif;
+  font-size: .9rem;
+  font-weight: 500;
+  font-synthesis: none;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.page-home-pill svg,
+.page-floating-actions svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.page-floating-actions { display: flex; gap: 8px; }
+.page-floating-actions > button {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.page-home-pill:active,
+.page-floating-actions > button:active {
+  transform: scale(.96);
+  background: rgba(224, 234, 244, .82);
+}
+@media (max-width: 430px) {
+  .page-floating-topbar { padding-inline: 12px; }
+  .page-home-pill { padding-inline: 11px 14px; }
+}
+
+/* 开发中枢补入独立星图；工具卡片仍保留原本的工作台层次。 */
+body.neu-mode #sec-dev {
+  position: relative;
+  isolation: isolate;
+  min-height: 100dvh;
+  background: transparent !important;
+}
+body.neu-mode #sec-dev::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: url('assets/celestial-data.jpg') center / cover no-repeat;
+  opacity: .17;
+  mix-blend-mode: screen;
+  filter: sepia(.15) saturate(.68) hue-rotate(165deg);
+}
+body.neu-mode #sec-dev > * { position: relative; z-index: 1; }
+body.neu-mode #sec-dev .dev-topbar { background: rgba(237, 244, 251, .68); }
+@media (max-width: 600px) {
+  body.neu-mode #sec-dev::before { opacity: .205; }
+}

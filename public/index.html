@@ -11,7 +11,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=73">
+    <link rel="stylesheet" href="style.css?v=74">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body class="neu-mode">
@@ -182,9 +182,11 @@
         </div></div>
 
     <div class="section" id="sec-data">
-        <div class="view-topbar" id="dataTopbar">
-            <button class="view-back" onclick="goView('home')">←</button>
-            <span class="view-title">中枢</span>
+        <div class="page-floating-topbar" id="dataTopbar">
+            <button class="page-home-pill" onclick="goView('home')" aria-label="返回首页">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+                <span>中枢</span>
+            </button>
         </div>
         <div style="text-align:center;color:var(--dim);font-size:0.78em;font-style:italic;padding:10px 0 0;">供应商调控 · 数据维护 · 灵魂移植</div>
 
@@ -229,11 +231,16 @@
 
 
 <div class="section" id="sec-favorites">
-    <div class="view-topbar">
-        <button class="view-back" onclick="goView('home')">←</button>
-        <span class="view-title">⭐ 收藏夹</span>
-        <span style="flex:1"></span>
-        <button class="chat-rename-topbar-btn" onclick="loadAndRenderFavorites()" title="刷新">↻</button>
+    <div class="page-floating-topbar">
+        <button class="page-home-pill" onclick="goView('home')" aria-label="返回首页">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+            <span>收藏夹</span>
+        </button>
+        <div class="page-floating-actions">
+            <button onclick="loadAndRenderFavorites()" title="刷新收藏" aria-label="刷新收藏">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66"/><path d="M20 4v7h-7"/></svg>
+            </button>
+        </div>
     </div>
     <div class="fav-page">
         <div class="fav-filter-panel">
@@ -374,9 +381,11 @@
 </div>
 
 <div class="section" id="sec-flo">
-    <div class="view-topbar" id="floTopbar">
-        <button class="view-back" onclick="goView('home')">←</button>
-        <span class="view-title">周期记录</span>
+    <div class="page-floating-topbar" id="floTopbar">
+        <button class="page-home-pill" onclick="goView('home')" aria-label="返回首页">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+            <span>周期记录</span>
+        </button>
     </div>
 
     <main class="flo-page">
