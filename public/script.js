@@ -3408,7 +3408,7 @@ function toggleLightMode() { enforceNeuTheme(); }
 function enforceNeuTheme() {
     document.body.classList.add('neu-mode');
     const metaTheme = document.getElementById('theme-color-meta');
-    if (metaTheme) metaTheme.setAttribute('content', '#C4CED9');
+    if (metaTheme) metaTheme.setAttribute('content', '#E8EFF7');
 }
 
 window.addEventListener('DOMContentLoaded', enforceNeuTheme);
