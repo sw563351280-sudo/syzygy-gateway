@@ -3159,6 +3159,7 @@ body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar,
    这里必须保持真正的悬浮层，避免重新占据旧导航栏的高度。 */
 body.neu-mode #sec-chat > .chat-floating-topbar {
   position: absolute !important;
+  z-index: 120 !important;
 }
 #sec-chat .chat-home-pill,
 #sec-chat .chat-floating-actions > button {
