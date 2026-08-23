@@ -163,7 +163,7 @@ function handleProactiveMessage(msg) {
             mainSession.messages.push({ _id: msg.id || ('proactive_' + (msg.fullTime || Date.now())), role: 'assistant', versions: [{ content: msg.content, fullTime: msg.fullTime || new Date().toISOString(), time: msg.time || '', model: 'proactive' }], activeVersion: 0 });
             // The server has already persisted this message. Do not immediately
             // write the whole local snapshot back and race with that update.
-            if (activeChatId === 'main') renderChatMessages();
+            if (activeChatId === 'main') renderChatMessages({ forceBottom: true });
         }
     }
     showProactiveNotification(msg.content);
@@ -2226,7 +2226,7 @@ function getActiveSession(){
 }
 
 function switchChatWindow(id){
-    activeChatId = id; saveToCloud(); renderChatSidebar(); renderChatMessages();
+    activeChatId = id; saveToCloud(); renderChatSidebar(); renderChatMessages({ forceBottom: true });
     const titleEl = document.getElementById('chatWinTitle');
     if(titleEl) titleEl.innerText = '⊹ ' + getActiveSession().name;
     const topTitleEl = document.getElementById('chatViewTitle');
@@ -2347,10 +2347,12 @@ async function hydrateGitHubCard(el, url) {
     }
 }
 
-function renderChatMessages(){
+function renderChatMessages(options = {}){
     if (_isStreamingReply) { _renderDeferred = true; return; }
     const win = document.getElementById('chatWindow');
     if(!win) return;
+    const shouldStickToBottom = Boolean(options.forceBottom) || isChatNearBottom(win);
+    const scrollAnchor = shouldStickToBottom ? null : captureChatScrollAnchor(win);
     win.innerHTML = '';
     const session = getActiveSession();
     if(!session || !session.messages) return;
@@ -2433,7 +2435,8 @@ function renderChatMessages(){
     });
     win.querySelectorAll('.xhs-card[data-xhs-url]').forEach(el => hydrateXhsCard(el, decodeURIComponent(el.dataset.xhsUrl)));
     win.querySelectorAll('.github-card[data-github-url]').forEach(el => hydrateGitHubCard(el, decodeURIComponent(el.dataset.githubUrl)));
-    forceScrollToChatBottom();
+    if (shouldStickToBottom) forceScrollToChatBottom();
+    else restoreChatScrollAnchor(win, scrollAnchor);
 }
 
 function newChatWindow(){
@@ -2753,7 +2756,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
                             toolCallRecords.push({ name: parsed.name, arguments: parsed.arguments || {}, result: parsed.result || '', elapsed: parsed.elapsed || 0 });
                             toolGroupEl.style.display = 'block';
                             updateToolGroupDOM(toolGroupEl, toolCallRecords, true);
-                            win.scrollTop = win.scrollHeight;
+                            scrollChatToBottomIfNear(win);
                             continue;
                         }
 
@@ -2765,7 +2768,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
                             reasoningContent += delta.reasoning_content;
                             thinkBox.style.display = 'block'; // 显示思考框
                             thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
-                            win.scrollTop = win.scrollHeight;
+                            scrollChatToBottomIfNear(win);
                         }
 
                         // 2. 处理正文内容 (content) — 用累计全文解析，避免 chunk 边界截断标签
@@ -2791,7 +2794,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
                             }
 
                             if (fullReply) mainTextDiv.innerHTML = stripDisplayTimestamp(fullReply).replace(/\n/g, '<br>') + '<span class="typing-cursor"></span>';
-                            win.scrollTop = win.scrollHeight;
+                            scrollChatToBottomIfNear(win);
                         }
                     } catch (e) {
                         // 解析出错跳过
@@ -3572,19 +3575,77 @@ document.addEventListener('click', function(e) {
 });
 
 // ==========================================
-// 🚀 终极聊天区置底魔法 (专治切页面不滚动)
+// 💬 聊天滚动策略：底部跟随，向上阅读时保持当前位置
 // ==========================================
+const CHAT_BOTTOM_THRESHOLD_PX = 120;
+let _chatScrollGestureVersion = 0;
+
+function isChatNearBottom(win, threshold = CHAT_BOTTOM_THRESHOLD_PX) {
+    if (!win) return true;
+    return win.scrollHeight - win.clientHeight - win.scrollTop <= threshold;
+}
+
+function ensureChatScrollGestureTracking(win) {
+    if (!win || win.dataset.scrollGestureTracking === 'true') return;
+    win.dataset.scrollGestureTracking = 'true';
+    const markGesture = () => { _chatScrollGestureVersion += 1; };
+    win.addEventListener('wheel', markGesture, { passive: true });
+    win.addEventListener('touchmove', markGesture, { passive: true });
+    win.addEventListener('pointerdown', markGesture, { passive: true });
+}
+
+function captureChatScrollAnchor(win) {
+    if (!win) return null;
+    const winRect = win.getBoundingClientRect();
+    const rows = win.querySelectorAll('.msg-row[data-msg-index]');
+    for (const row of rows) {
+        const rect = row.getBoundingClientRect();
+        if (rect.bottom > winRect.top + 1) {
+            return {
+                index: row.dataset.msgIndex,
+                offset: rect.top - winRect.top,
+                scrollTop: win.scrollTop
+            };
+        }
+    }
+    return { index: null, offset: 0, scrollTop: win.scrollTop };
+}
+
+function restoreChatScrollAnchor(win, anchor) {
+    if (!win || !anchor) return;
+    if (anchor.index !== null) {
+        const row = win.querySelector('.msg-row[data-msg-index="' + anchor.index + '"]');
+        if (row) {
+            const winTop = win.getBoundingClientRect().top;
+            const currentOffset = row.getBoundingClientRect().top - winTop;
+            win.scrollTop += currentOffset - anchor.offset;
+            return;
+        }
+    }
+    win.scrollTop = anchor.scrollTop;
+}
+
+function scrollChatToBottomIfNear(win) {
+    if (!win || !isChatNearBottom(win)) return false;
+    win.scrollTop = win.scrollHeight;
+    return true;
+}
+
 function forceScrollToChatBottom() {
     const win = document.getElementById('chatWindow');
     if (!win) return;
-    
-    // 第一重保险：切页面的瞬间（50ms）拉到底
+    ensureChatScrollGestureTracking(win);
+    const gestureVersion = _chatScrollGestureVersion;
+    win.scrollTop = win.scrollHeight;
+
+    // 布局和图片稳定后补齐；用户一旦开始向上翻，后续补滚立即取消。
     setTimeout(() => {
+        if (gestureVersion !== _chatScrollGestureVersion) return;
         win.scrollTop = win.scrollHeight;
     }, 50);
-    
-    // 第二重保险：等 CSS 动画和图片彻底渲染完（350ms）再踩一脚
+
     setTimeout(() => {
+        if (gestureVersion !== _chatScrollGestureVersion) return;
         win.scrollTop = win.scrollHeight;
     }, 350);
 }
@@ -3877,7 +3938,7 @@ async function regenerateSend(aiMsgIndex) {
             sDiv.innerHTML=''; const thinkBox=document.createElement('div'); thinkBox.className='think-box'; thinkBox.style.display='none'; thinkBox.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content"></div>'; const thinkTextDiv=thinkBox.querySelector('.think-content'); sDiv.appendChild(thinkBox);
             const mainTextDiv=document.createElement('div'); mainTextDiv.classList.add('md-content'); sDiv.appendChild(mainTextDiv);
             const toolGroupEl=document.createElement('div'); toolGroupEl.className='tool-call-group-wrap'; toolGroupEl.style.display='none'; sDiv.appendChild(toolGroupEl);
-            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); if(p.type==='tool_call'){toolCallRecords.push({name:p.name,arguments:p.arguments||{},result:p.result||'',elapsed:p.elapsed||0}); toolGroupEl.style.display='block'; updateToolGroupDOM(toolGroupEl,toolCallRecords,true); win.scrollTop=win.scrollHeight;continue;} const d=p.choices[0].delta; if(d.reasoning_content){reasoningAcc+=d.reasoning_content; thinkBox.style.display='block';} if(d.content){rawAcc+=d.content; const parsed=extractThinkingFromContent(rawAcc); fullReply=parsed.visibleContent; const combinedThink=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n'); if(combinedThink){thinkContent=combinedThink; thinkBox.style.display='block'; thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');} mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';} win.scrollTop=win.scrollHeight;}catch(e){}}}
+            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); if(p.type==='tool_call'){toolCallRecords.push({name:p.name,arguments:p.arguments||{},result:p.result||'',elapsed:p.elapsed||0}); toolGroupEl.style.display='block'; updateToolGroupDOM(toolGroupEl,toolCallRecords,true); scrollChatToBottomIfNear(win);continue;} const d=p.choices[0].delta; if(d.reasoning_content){reasoningAcc+=d.reasoning_content; thinkBox.style.display='block';} if(d.content){rawAcc+=d.content; const parsed=extractThinkingFromContent(rawAcc); fullReply=parsed.visibleContent; const combinedThink=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n'); if(combinedThink){thinkContent=combinedThink; thinkBox.style.display='block'; thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');} mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';} scrollChatToBottomIfNear(win);}catch(e){}}}
             mainTextDiv.innerHTML=renderMarkdown(fullReply);
             if(toolCallRecords.length>0)updateToolGroupDOM(toolGroupEl,toolCallRecords,false);
         } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){const tb=document.createElement('div');tb.className='think-box';tb.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content">'+thinkContent.replace(/\n/g,'<br>')+'</div>';sDiv.appendChild(tb);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
