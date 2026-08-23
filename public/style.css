@@ -2180,6 +2180,17 @@ body.neu-mode #sec-console { background:#101827; }
 .dev-codex-bubble.is-user { align-self:flex-end; border-bottom-right-radius:5px; background:#d7eeee; color:#285b59; }
 .dev-codex-bubble.is-assistant { align-self:flex-start; border-bottom-left-radius:5px; background:rgba(255,255,255,.88); box-shadow:0 5px 14px rgba(76,104,128,.08); }
 .dev-codex-bubble.is-activity { align-self:center; max-width:94%; padding:5px 9px; background:transparent; color:#8290a2; font-size:10px; text-align:center; }
+.dev-codex-activity-stream { align-self:flex-start; width:min(94%,420px); border:1px solid rgba(79,101,122,.12); border-radius:12px; background:rgba(255,255,255,.52); color:#75869a; font-size:10px; overflow:hidden; }
+.dev-codex-activity-stream summary { min-height:34px; box-sizing:border-box; display:flex; align-items:center; gap:7px; padding:8px 10px; cursor:pointer; list-style:none; }
+.dev-codex-activity-stream summary::-webkit-details-marker { display:none; }
+.dev-codex-activity-stream summary i { width:7px; height:7px; flex:0 0 7px; border-radius:50%; background:#63d6c5; box-shadow:0 0 0 3px rgba(99,214,197,.12); }
+.dev-codex-activity-stream.is-running summary i { animation:dev-codex-pulse 1.35s ease-in-out infinite; }
+.dev-codex-activity-label { overflow:hidden; flex:1; text-overflow:ellipsis; white-space:nowrap; }
+.dev-codex-activity-stream summary b { color:#9aa8b7; font:500 9px ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:.05em; }
+.dev-codex-activity-entries { display:flex; flex-direction:column; gap:5px; padding:0 10px 10px 24px; border-top:1px solid rgba(79,101,122,.08); }
+.dev-codex-activity-entries div { position:relative; line-height:1.45; }
+.dev-codex-activity-entries div::before { position:absolute; left:-12px; color:#63bfb1; content:'·'; }
+@keyframes dev-codex-pulse { 50% { opacity:.35; transform:scale(.72); } }
 .dev-codex-composer { display:flex; align-items:flex-end; gap:9px; margin-top:10px; }
 .dev-codex-composer textarea { flex:1; min-height:46px; max-height:140px; box-sizing:border-box; resize:vertical; border:1px solid rgba(79,101,122,.16); border-radius:13px; padding:11px 12px; background:rgba(255,255,255,.82); color:#26364b; font:12px/1.5 inherit; outline:none; }
 .dev-codex-composer textarea:focus { border-color:rgba(39,128,123,.45); box-shadow:0 0 0 3px rgba(99,214,197,.1); }

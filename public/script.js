@@ -945,6 +945,8 @@ let devCodexTaskId = null;
 let devCodexApprovalId = null;
 let devCodexTurnActive = false;
 let devCodexAssistantBubble = null;
+let devCodexActivityStream = null;
+let devCodexOptimisticMessage = null;
 let devCodexAuthRequired = false;
 let devCodexLoginTimer = null;
 let devCodexLoginSnapshot = { status: 'idle' };
@@ -1123,6 +1125,8 @@ function devCodexClearMessages() {
     const list = devCodexMessages();
     if (list) list.innerHTML = '<div class="dev-codex-empty">直接告诉 Codex 你想检查、修改或继续追问什么。</div>';
     devCodexAssistantBubble = null;
+    devCodexActivityStream = null;
+    devCodexOptimisticMessage = null;
 }
 
 function devCodexAddBubble(role, text = '') {
@@ -1139,10 +1143,66 @@ function devCodexAddBubble(role, text = '') {
 
 function devCodexAppendAssistant(text) {
     if (!text) return;
+    devCodexCollapseActivity('已开始回复');
     if (!devCodexAssistantBubble || !devCodexAssistantBubble.isConnected) devCodexAssistantBubble = devCodexAddBubble('assistant');
     devCodexAssistantBubble.textContent += String(text);
     const list = devCodexMessages();
     if (list) list.scrollTop = list.scrollHeight;
+}
+
+function devCodexStartActivity(label = '正在准备 Codex') {
+    if (devCodexActivityStream?.isConnected) {
+        devCodexSetActivityLabel(label);
+        return devCodexActivityStream;
+    }
+    const list = devCodexMessages();
+    if (!list) return null;
+    list.querySelector('.dev-codex-empty')?.remove();
+    const stream = document.createElement('details');
+    stream.className = 'dev-codex-activity-stream is-running';
+    stream.open = true;
+    stream.innerHTML = '<summary><i></i><span class="dev-codex-activity-label"></span><b>过程</b></summary><div class="dev-codex-activity-entries"></div>';
+    list.appendChild(stream);
+    devCodexActivityStream = stream;
+    devCodexSetActivityLabel(label);
+    devCodexAddActivity(label, 'starting');
+    list.scrollTop = list.scrollHeight;
+    return stream;
+}
+
+function devCodexSetActivityLabel(label) {
+    const labelNode = devCodexActivityStream?.querySelector('.dev-codex-activity-label');
+    if (labelNode) labelNode.textContent = String(label || 'Codex 正在工作');
+}
+
+function devCodexAddActivity(text, key = '') {
+    const stream = devCodexStartActivity('Codex 正在工作');
+    const entries = stream?.querySelector('.dev-codex-activity-entries');
+    if (!entries || !text) return;
+    const entryKey = String(key || '');
+    let entry = entryKey ? Array.from(entries.children).find(node => node.dataset.activityKey === entryKey) : null;
+    if (!entry) {
+        entry = document.createElement('div');
+        if (entryKey) entry.dataset.activityKey = entryKey;
+        entries.appendChild(entry);
+    }
+    entry.textContent = String(text);
+    devCodexSetActivityLabel(text);
+    const list = devCodexMessages();
+    if (list && stream.open) list.scrollTop = list.scrollHeight;
+}
+
+function devCodexCollapseActivity(label) {
+    if (!devCodexActivityStream?.isConnected) return;
+    devCodexSetActivityLabel(label);
+    devCodexActivityStream.open = false;
+}
+
+function devCodexFinishActivity(label = '本轮已完成') {
+    if (!devCodexActivityStream?.isConnected) return;
+    devCodexSetActivityLabel(label);
+    devCodexActivityStream.classList.remove('is-running');
+    devCodexActivityStream.open = false;
 }
 
 function devCodexSetTurnActive(active) {
@@ -1175,13 +1235,24 @@ function devCodexRenderEvent(event) {
     }
     if (method === 'codex/user-message') {
         devCodexAssistantBubble = null;
-        devCodexAddBubble('user', params.text || '');
+        const text = params.text || '';
+        const isOptimisticEcho = devCodexOptimisticMessage === text;
+        devCodexOptimisticMessage = null;
+        if (!isOptimisticEcho) devCodexAddBubble('user', text);
+        devCodexStartActivity('正在把补充交给 Codex');
+        return;
+    }
+    if (method === 'codex/queued') {
+        devCodexStartActivity('正在启动 Codex');
+        devCodexAddActivity('正在启动 Codex', 'starting');
         return;
     }
     if (method === 'codex/started') {
         devCodexAssistantBubble = null;
         devCodexSetTurnActive(true);
         devCodexSetStatus('Codex 正在回复');
+        devCodexStartActivity('正在理解你的需求');
+        devCodexAddActivity('已连接，正在理解你的需求', 'started');
         return;
     }
     if (method === 'item/agentMessage/delta') {
@@ -1190,6 +1261,7 @@ function devCodexRenderEvent(event) {
     }
     if (method === 'item/plan/delta') {
         devCodexSetStatus('Codex 正在整理步骤');
+        devCodexAddActivity('正在整理执行步骤', 'plan');
         return;
     }
     if (method === 'codex/stderr') {
@@ -1199,18 +1271,31 @@ function devCodexRenderEvent(event) {
     if (method === 'turn/completed') {
         devCodexSetTurnActive(false);
         devCodexSetStatus(params.turn?.status === 'failed' ? '回复失败' : '可以继续追问');
+        devCodexFinishActivity(params.turn?.status === 'failed' ? '本轮执行失败' : '本轮已完成');
         return;
     }
     if (method === 'codex/error' || method === 'codex/protocol-error') {
         devCodexAddBubble('activity', '错误 · ' + (params.message || 'Codex 任务失败'));
         return;
     }
-    if (method === 'item/commandExecution/outputDelta') {
+    if (method.startsWith('item/commandExecution')) {
         devCodexSetStatus('Codex 正在执行命令');
+        const command = Array.isArray(params.command) ? params.command.join(' ') : params.command;
+        const detail = command ? `正在执行 · ${String(command).replace(/\s+/g, ' ').slice(0, 80)}` : '正在执行命令';
+        devCodexAddActivity(detail, params.itemId || params.id || 'command');
         return;
     }
     if (method === 'turn/diff/updated') {
         devCodexSetStatus('Codex 已更新代码');
+        devCodexAddActivity('已修改工作区文件', 'diff');
+        return;
+    }
+    if (method.startsWith('item/fileChange')) {
+        devCodexAddActivity('正在修改工作区文件', params.itemId || 'file-change');
+        return;
+    }
+    if (method.startsWith('item/reasoning')) {
+        devCodexAddActivity('正在分析工作区与上下文', 'reasoning');
     }
 }
 
@@ -1251,6 +1336,9 @@ function devConnectCodex(taskId) {
 async function devCreateCodexTask(prompt) {
     if (!prompt) return;
     devCodexClearMessages();
+    devCodexAddBubble('user', prompt);
+    devCodexOptimisticMessage = prompt;
+    devCodexStartActivity('正在创建 Codex 任务');
     devCodexSetStatus('正在启动');
     devCodexSetTurnActive(true);
     try {
@@ -1284,6 +1372,14 @@ async function devSendCodexMessage(event) {
         toast('正在重新连接 Codex，请再发送一次');
         return;
     }
+    devCodexAddBubble('user', prompt);
+    devCodexAssistantBubble = null;
+    devCodexOptimisticMessage = prompt;
+    devCodexFinishActivity('已收到补充，正在调整');
+    devCodexActivityStream = null;
+    devCodexStartActivity(devCodexTurnActive ? '正在交给 Codex 补充处理' : '正在继续这段对话');
+    devCodexSetTurnActive(true);
+    devCodexSetStatus('正在发送');
     devCodexSocket.send(JSON.stringify({ type: devCodexTurnActive ? 'steer' : 'followup', text: prompt }));
 }
 
