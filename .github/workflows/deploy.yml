@@ -66,13 +66,14 @@ jobs:
               npm install -g @openai/codex || echo "WARNING: Codex CLI install failed; Codex Bridge remains unavailable"
             fi
 
-            # 恢复沈望的本地修改（跳过 server.js / model_prompts.json — 由 patch 保证最新）
+            # 恢复沈望的本地修改。核心服务和前端入口必须以 Git 版本为准，
+            # 否则 VPS 上的旧工作副本会在部署后覆盖刚发布的页面。
             if [ -d /tmp/syzygy_backup ]; then
               find /tmp/syzygy_backup -type f | while read f; do
                 rel=$(echo "$f" | sed "s|^/tmp/syzygy_backup/||")
                 case "$rel" in
-                  server.js|model_prompts.json)
-                    echo "  ⏭️ 跳过: $rel (由 patch_inject.js 保证)" ;;
+                  server.js|model_prompts.json|public/index.html|public/style.css|public/script.js|public/manifest.json)
+                    echo "  ⏭️ 跳过: $rel (以仓库发布版本为准)" ;;
                   *)
                     cp "$f" "/opt/syzygy/$rel"
                     echo "  ✅ 恢复: $rel" ;;
