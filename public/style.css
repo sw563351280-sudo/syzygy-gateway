@@ -3482,3 +3482,34 @@ body.neu-mode #sec-dev .dev-arrow { font-size: 14px; }
   body.neu-mode #sec-dev .dev-monitor-card { min-height: 80px; padding: 11px 12px; }
   body.neu-mode #sec-dev .dev-action-card { min-height: 68px; }
 }
+
+/* 开发中枢重排：状态优先，入口收敛，任务可直接恢复。 */
+body.neu-mode #sec-dev::before { opacity: .045; }
+body.neu-mode #sec-dev .dev-shell { max-width: 720px; padding: 8px 16px 96px; }
+body.neu-mode #sec-dev .dev-section-heading { gap: 9px; margin: 18px 4px 9px; }
+body.neu-mode #sec-dev .dev-section-heading:first-of-type { margin-top: 4px; }
+body.neu-mode #sec-dev .dev-section-heading span,
+body.neu-mode #sec-dev .dev-section-heading em { flex: 0 0 auto; }
+body.neu-mode #sec-dev .dev-section-heading::after { content: ''; order: 2; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(102, 128, 151, .4), transparent); }
+body.neu-mode #sec-dev .dev-section-heading em { order: 3; }
+body.neu-mode #sec-dev .dev-monitor-grid { margin-bottom: 0; gap: 8px; }
+body.neu-mode #sec-dev .dev-monitor-card { min-height: 92px; padding: 13px 14px; border-radius: 15px; }
+body.neu-mode #sec-dev .dev-monitor-card small { min-height: 0; }
+body.neu-mode #sec-dev .dev-action-grid { gap: 8px; }
+body.neu-mode #sec-dev .dev-action-card { min-height: 78px; padding: 13px 14px; border-radius: 15px; }
+.dev-recent-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 84px; box-sizing: border-box; padding: 14px 16px; border: 1px solid rgba(255, 255, 255, .58); border-radius: 15px; background: rgba(239, 245, 250, .52); box-shadow: 0 10px 26px rgba(76, 96, 119, .1), inset 0 1px rgba(255,255,255,.68); backdrop-filter: blur(15px) saturate(106%); -webkit-backdrop-filter: blur(15px) saturate(106%); }
+.dev-recent-task-copy { min-width: 0; }
+.dev-recent-task-copy strong { display: block; overflow: hidden; color: #344a62; font-size: .82rem; font-weight: 500; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.dev-recent-task-copy time { display: block; margin-top: 5px; color: #7a8da3; font: 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.dev-recent-task-actions { display: flex; flex: 0 0 auto; gap: 7px; }
+.dev-recent-task-actions button { border: 1px solid rgba(79, 112, 132, .18); border-radius: 9px; padding: 7px 10px; background: rgba(255,255,255,.5); color: #5e738a; font: 500 11px/1 inherit; cursor: pointer; }
+.dev-recent-task-actions button:first-child { border-color: rgba(70,176,167,.28); background: rgba(223,245,244,.58); color: #397f7b; }
+.dev-recent-task-actions button:disabled { cursor: default; opacity: .5; }
+@media (max-width: 600px) {
+  body.neu-mode #sec-dev .dev-shell { padding: 4px 12px 88px; }
+  body.neu-mode #sec-dev .dev-monitor-card { min-height: 86px; padding: 12px 11px; }
+  body.neu-mode #sec-dev .dev-monitor-head { font-size: 8px; }
+  body.neu-mode #sec-dev .dev-monitor-card strong { font-size: .82rem; }
+  body.neu-mode #sec-dev .dev-monitor-card small { font-size: 9px; }
+  .dev-recent-card { min-height: 80px; padding: 13px; }
+}

@@ -263,16 +263,6 @@
         </button>
     </div>
     <main class="dev-shell">
-        <section class="dev-hero">
-            <div class="dev-hero-copy">
-                <span class="dev-eyebrow">REMOTE WORKSPACE</span>
-                <h1>把调试带在身边</h1>
-                <p>从手机和 Codex 连续对话，也把真正需要留意的服务状态放在一起。</p>
-                <button class="dev-primary-action" onclick="devOpenCodex()"><span>✦</span> 打开 Codex 对话</button>
-            </div>
-            <div class="dev-orbit" aria-hidden="true"><span></span><b>SYZ</b></div>
-        </section>
-
         <section class="dev-codex-panel dev-login-panel" id="devCodexLoginPanel" hidden>
             <div class="dev-codex-panel-head">
                 <div><span class="dev-eyebrow">CODEX ACCOUNT</span><h2>连接 ChatGPT Pro</h2></div>
@@ -310,16 +300,19 @@
         <section class="dev-monitor-grid" aria-label="运行监控">
             <article class="dev-monitor-card" id="devServerMonitor"><div class="dev-monitor-head"><span>VPS</span><i id="devServerDot"></i></div><strong id="devServerStat">检查中</strong><small id="devServerMeta">控制台连接</small></article>
             <article class="dev-monitor-card toy-device-card is-checking" id="toyConnectionStatus" title="正在读取连接状态"><div class="dev-monitor-head"><span>啵啵贝</span><i class="device-state-dot"></i></div><strong class="chat-toy-status-label">检查中</strong><small>亲密设备连接</small></article>
-            <article class="dev-monitor-card" id="devXhsMonitor"><div class="dev-monitor-head"><span>小红书</span><i id="devXhsDot"></i></div><strong id="devXhsStatus">检查中</strong><small id="devXhsMeta">个性化首页采集</small><div class="dev-monitor-actions"><button type="button" onclick="devRefreshXhsMonitor()">刷新</button><a href="/xhs-session-import">更新登录</a></div></article>
+            <article class="dev-monitor-card" id="devXhsMonitor"><div class="dev-monitor-head"><span>小红书</span><i id="devXhsDot"></i></div><strong id="devXhsStatus">检查中</strong><small id="devXhsMeta">个性化首页采集</small></article>
         </section>
 
         <div class="dev-section-heading"><span>快速入口</span><em>QUICK ACCESS</em></div>
         <section class="dev-action-grid">
-            <button class="dev-action-card dev-action-cyan" onclick="devOpenCodex()"><span class="dev-action-icon">⌘</span><span><b>Codex 对话</b><small>连续追问、修改与确认操作</small></span><span class="dev-arrow">↗</span></button>
-            <button id="devCodexLoginAction" class="dev-action-card dev-action-cyan" onclick="devOpenCodexLogin()"><span class="dev-action-icon">◎</span><span><b>Codex 登录</b><small id="devCodexLoginActionMeta">后台设备授权 · 断线不中止</small></span><span class="dev-arrow">↗</span></button>
-            <button class="dev-action-card" onclick="devOpenConsole('terminal')"><span class="dev-action-icon">›_</span><span><b>远程终端</b><small>连接 VPS · 执行现有命令</small></span><span class="dev-arrow">↗</span></button>
-            <button class="dev-action-card" onclick="devOpenConsole('trace')"><span class="dev-action-icon">⌁</span><span><b>对话链路</b><small>查看模型、工具与记忆阶段</small></span><span class="dev-arrow">↗</span></button>
-            <button class="dev-action-card" onclick="devOpenConsole('logs')"><span class="dev-action-icon">≡</span><span><b>原始日志</b><small>筛选最近服务日志</small></span><span class="dev-arrow">↗</span></button>
+            <button class="dev-action-card dev-action-cyan" onclick="devOpenCodex()"><span class="dev-action-icon">✦</span><span><b>Codex 对话</b><small>连续追问 · 修改</small></span><span class="dev-arrow">↗</span></button>
+            <button class="dev-action-card" onclick="devOpenConsole('terminal')"><span class="dev-action-icon">▣</span><span><b>系统面板</b><small>终端 · 链路 · 日志</small></span><span class="dev-arrow">↗</span></button>
+        </section>
+
+        <div class="dev-section-heading dev-recent-heading"><span>最近任务</span><em>RECENT</em></div>
+        <section class="dev-recent-card" id="devRecentTaskCard" aria-live="polite">
+            <div class="dev-recent-task-copy"><strong id="devRecentTaskTitle">正在读取最近任务…</strong><time id="devRecentTaskTime"></time></div>
+            <div class="dev-recent-task-actions"><button id="devResumeTaskButton" type="button" onclick="devResumeRecentTask()" disabled>继续</button><button type="button" onclick="devStartFreshCodexChat()">新会话</button></div>
         </section>
 
     </main>

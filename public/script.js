@@ -1091,6 +1091,20 @@ function devOpenCodex() {
     else devLoadLatestCodexChat();
 }
 
+function devStartFreshCodexChat() {
+    if (devCodexAuthRequired) return devOpenCodex();
+    if (!devNewCodexChat()) return;
+    devOpenCodex();
+}
+
+function devResumeRecentTask() {
+    const button = document.getElementById('devResumeTaskButton');
+    const taskId = button?.dataset.taskId;
+    if (!taskId) return devStartFreshCodexChat();
+    devCodexTaskId = taskId;
+    devOpenCodex();
+}
+
 function devCloseCodex() {
     const panel = document.getElementById('devCodexPanel');
     if (panel) panel.hidden = true;
@@ -1291,7 +1305,7 @@ async function devLoadLatestCodexChat() {
 }
 
 function devNewCodexChat() {
-    if (devCodexTurnActive && !confirm('当前 Codex 还在回复，确定新建对话吗？')) return;
+    if (devCodexTurnActive && !confirm('当前 Codex 还在回复，确定新建对话吗？')) return false;
     if (devCodexSocket) devCodexSocket.close();
     devCodexSocket = null;
     devCodexTaskId = null;
@@ -1301,6 +1315,36 @@ function devNewCodexChat() {
     devCodexClearMessages();
     devCodexSetStatus('新对话');
     document.getElementById('devCodexPrompt')?.focus();
+    return true;
+}
+
+function devFormatTaskTime(value) {
+    const date = new Date(value || 0);
+    if (Number.isNaN(date.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('zh-CN', {
+        timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
+    }).formatToParts(date);
+    const values = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+    return `${values.month}/${values.day} ${values.hour}:${values.minute}`;
+}
+
+function devRenderRecentTask(tasks = []) {
+    const title = document.getElementById('devRecentTaskTitle');
+    const time = document.getElementById('devRecentTaskTime');
+    const resume = document.getElementById('devResumeTaskButton');
+    if (!title || !time || !resume) return;
+    const task = Array.isArray(tasks) ? tasks[0] : null;
+    if (!task) {
+        title.textContent = '还没有可恢复的 Codex 任务';
+        time.textContent = '从一段新对话开始';
+        resume.disabled = true;
+        delete resume.dataset.taskId;
+        return;
+    }
+    title.textContent = `“${String(task.prompt || '未命名任务').replace(/\s+/g, ' ').trim()}”`;
+    time.textContent = devFormatTaskTime(task.updatedAt || task.createdAt);
+    resume.disabled = false;
+    resume.dataset.taskId = task.id;
 }
 
 function devApproveCodex(decision) {
@@ -1325,16 +1369,18 @@ async function devRefreshOverview() {
     devRefreshCodexLogin(true);
     refreshDevicePanel();
     try {
-        const [r, codexResponse, usageResponse, xhsResponse] = await Promise.all([
+        const [r, codexResponse, usageResponse, xhsResponse, tasksResponse] = await Promise.all([
             fetch('/api/console/status', { cache: 'no-store' }),
             fetch('/api/codex/status', { cache: 'no-store' }),
             fetch('/api/codex/usage', { cache: 'no-store' }),
-            fetch('/api/xhs-walk/status', { cache: 'no-store' })
+            fetch('/api/xhs-walk/status', { cache: 'no-store' }),
+            fetch('/api/codex/tasks', { cache: 'no-store' })
         ]);
         const info = await r.json();
         const codex = await codexResponse.json().catch(() => ({}));
         const usageData = await usageResponse.json().catch(() => ({}));
         const xhs = await xhsResponse.json().catch(() => ({}));
+        const tasksData = await tasksResponse.json().catch(() => ({}));
         const ready = r.ok && info && info.ok !== false && info.configured !== false;
         if (server) server.textContent = ready ? '在线' : '未配置';
         if (meta) meta.textContent = info?.name || '控制台连接';
@@ -1347,12 +1393,14 @@ async function devRefreshOverview() {
         devCodexAuthRequired = !codexAuthenticated;
         if (loginAction) loginAction.hidden = codexAuthenticated;
         devRenderXhsMonitor(xhsResponse.ok ? xhs : null);
+        devRenderRecentTask(tasksResponse.ok ? tasksData.tasks : []);
     } catch (e) {
         if (server) server.textContent = '离线';
         if (meta) meta.textContent = '无法取得状态';
         if (serverCard) serverCard.dataset.state = 'error';
         if (serverDot) serverDot.dataset.state = 'error';
         if (status) { status.dataset.state = 'error'; status.innerHTML = '<i></i>连接失败'; }
+        devRenderRecentTask([]);
     }
 }
 
