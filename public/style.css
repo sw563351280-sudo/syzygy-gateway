@@ -3524,3 +3524,96 @@ body.neu-mode #sec-dev .dev-action-card { min-height: 78px; padding: 13px 14px; 
   body.neu-mode #sec-dev .dev-monitor-card small { font-size: 9px; }
   .dev-recent-card { min-height: 80px; padding: 13px; }
 }
+
+/* 中枢供应商配置：低频设置默认折叠，展开后保持紧凑。 */
+body.neu-mode #sec-data > .data-config-panel {
+  padding: 0 !important;
+  overflow: hidden;
+}
+.data-config-summary {
+  min-height: 54px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+.data-config-summary::-webkit-details-marker { display: none; }
+.data-config-summary:focus { outline: none; }
+.data-config-summary:focus-visible { box-shadow: inset 0 0 0 2px rgba(90, 143, 202, .22); }
+.data-config-summary > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.data-config-summary b { color: #526b87; font-size: .84rem; font-weight: 500; letter-spacing: .01em; }
+.data-config-summary small { color: #8a9bb0; font-size: .66rem; }
+.data-config-summary i {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-right: 1.5px solid #7188a3;
+  border-bottom: 1.5px solid #7188a3;
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform .2s ease;
+}
+.data-config-panel[open] .data-config-summary { border-bottom: 1px solid rgba(255, 255, 255, .46); }
+.data-config-panel[open] .data-config-summary i { transform: rotate(225deg) translate(-1px, -1px); }
+.data-config-body { padding: 14px 16px 16px; }
+.supplier-add-form {
+  display: grid;
+  grid-template-columns: minmax(0, .75fr) minmax(0, 1.25fr);
+  gap: 8px;
+}
+.supplier-add-form > * { min-width: 0; box-sizing: border-box; }
+.supplier-add-form > button { min-height: 38px; }
+#supplierList {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 13px;
+}
+#supplierList > .supplier-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  min-height: 52px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+#supplierList > .supplier-card > div:first-child { min-width: 0; }
+body.neu-mode #sec-data .sup-name {
+  overflow: hidden;
+  font-size: .8rem;
+  font-weight: 500;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body.neu-mode #sec-data .sup-url {
+  overflow: hidden;
+  margin-top: 3px;
+  font-size: .66rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+body.neu-mode #sec-data :is(.sup-edit-btn, .sup-del-btn) {
+  min-height: 28px;
+  margin: 0;
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: .66rem;
+  letter-spacing: 0;
+}
+#supplierList > .supplier-edit-row {
+  margin-bottom: 0 !important;
+  padding: 10px !important;
+  border-radius: 12px !important;
+}
+@media (max-width: 520px) {
+  .supplier-add-form { grid-template-columns: 1fr; }
+}
