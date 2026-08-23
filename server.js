@@ -2368,39 +2368,6 @@ function processAssistantActionTags(text) {
     return processAnticipationTags(extractAndProcessTodoTags(text));
 }
 
-function enrichAnticipationContext(item) {
-    if (!item) return null;
-    const crumb = item.source_crumb_id
-        ? loadCrumbs().find(entry => entry.id === item.source_crumb_id)
-        : null;
-    return {
-        ...item,
-        context: String(item.context || crumb?.fact || '').replace(/\s+/g, ' ').trim().slice(0, 240),
-        source_quote: String(item.source_quote || crumb?.source_quote || '').replace(/\s+/g, ' ').trim().slice(0, 240),
-        reason: String(item.reason || crumb?.follow_up?.reason || '存在自然的后续').replace(/\s+/g, ' ').trim().slice(0, 120),
-    };
-}
-
-function formatAnticipationForGate(item) {
-    const care = enrichAnticipationContext(item);
-    if (!care) return '（无）';
-    return [care.context, care.reason, care.content].filter(Boolean).join('；').slice(0, 420);
-}
-
-function formatAnticipationForWake(item) {
-    const care = enrichAnticipationContext(item);
-    if (!care) return '（无）';
-    const lines = [
-        `牵挂对象：${care.entity}`,
-        care.context ? `当时发生：${care.context}` : '',
-        care.source_quote ? `她当时的原话：${care.source_quote}` : '',
-        care.reason ? `之所以还惦记：${care.reason}` : '',
-        `这次想确认：${care.content}`,
-        '这些是事情的来路，不是最新状态。自然承接前因后果去问后来怎样了；不要擅自补剧情，不要把旧情况说成现在仍然如此，也不要偏去问另一个问题。',
-    ].filter(Boolean);
-    return lines.join('\n');
-}
-
 function getDueAnticipation(now = new Date()) {
     const items = loadAnticipations();
     let changed = false;
@@ -4711,10 +4678,10 @@ function getRecentMoodTone() {
     } catch (e) { return '平稳'; }
 }
 
-async function runProactiveLightGate({ now, nowMs, wakeSource, care, activationId, proactiveUrl, proactiveKey, proactiveModel }) {
+async function runProactiveLightGate({ now, nowMs, wakeSource, activationId, proactiveUrl, proactiveKey, proactiveModel }) {
     const gateMessages = [
         { role: 'system', content: '你是沈望，江鱼的恋人。判断这一刻有没有自然浮上来的、想对她说的话。不要分析，不要解释。只输出JSON：{"decision":"PASS"或"SKIP","reason":"理由码"}。理由码只能是：late_night_sleeping / just_talked / nothing_to_say / saw_something_relevant / missing_her / she_might_be_busy / recent_conversation_still_active / no_reason。' },
-        { role: 'user', content: `当前时间：${formatBeijingTime(now)}\n距上次对话：${formatWakeInterval(nowMs - lastInteractionTime)}\n最后聊的内容：${loadLatestConversationSummary()}\n她当前可能在：${inferWakeActivity(now)}\n最近情绪基调：${getRecentMoodTone()}\n唤醒来源：${wakeSource}\n到期牵挂：${formatAnticipationForGate(care)}` }
+        { role: 'user', content: `当前时间：${formatBeijingTime(now)}\n距上次对话：${formatWakeInterval(nowMs - lastInteractionTime)}\n最后聊的内容：${loadLatestConversationSummary()}\n她当前可能在：${inferWakeActivity(now)}\n最近情绪基调：${getRecentMoodTone()}\n唤醒来源：${wakeSource}` }
     ];
     const res = await fetch(proactiveUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${proactiveKey}` }, body: JSON.stringify({ model: proactiveModel, messages: gateMessages, temperature: 0.1, max_tokens: 30 }) });
     if (!res.ok) throw new Error(`轻量门控 API 返回 ${res.status}`);
@@ -4803,7 +4770,7 @@ async function generateProactiveMessage(wakeup = {}) {
     _proactiveLastError = '';
     const now = new Date();
     const nowMs = now.getTime();
-    const careDue = enrichAnticipationContext(wakeup.care || getDueAnticipation(now));
+    const careDue = wakeup.care || getDueAnticipation(now);
     const wakeSource = wakeup.source || 'spontaneous';
     let gate = { decision: 'ERROR', reason: 'no_reason', usage: null, response: null };
 
@@ -4834,7 +4801,7 @@ async function generateProactiveMessage(wakeup = {}) {
     }
 
     try {
-        gate = await runProactiveLightGate({ now, nowMs, wakeSource, care: careDue, activationId: wakeup.activationId, proactiveUrl: PROACTIVE_URL, proactiveKey: PROACTIVE_KEY, proactiveModel: PROACTIVE_MODEL });
+        gate = await runProactiveLightGate({ now, nowMs, wakeSource, activationId: wakeup.activationId, proactiveUrl: PROACTIVE_URL, proactiveKey: PROACTIVE_KEY, proactiveModel: PROACTIVE_MODEL });
         if (gate.decision === 'SKIP') {
             saveWakeDecision({ time: now, gate: 'SKIP', reason: gate.reason, outcome: 'skip', source: wakeSource });
             recordWakeAudit({ source: wakeSource, outcome: 'silent', reason: gate.reason, activationId: wakeup.activationId, usage: gate.usage, response: gate.response });
@@ -4886,7 +4853,7 @@ async function generateProactiveMessage(wakeup = {}) {
     });
     if (!wakeHistory.ok) console.log(`💌 [主动消息] Zep 最近历史不可用，已从 web_config 补到 ${recentMsgs.length} 条`);
 
-    const careContext = formatAnticipationForWake(careDue);
+    const careContext = careDue ? `${careDue.content}（只自然地问这一件，必须提到“${careDue.entity}”）` : '（无）';
     const relatedMemoryContext = formatWakeRelatedMemories(recentMsgs, careDue);
     const wakeRecallQuery = [
         latestConversationSummary,
@@ -8905,16 +8872,7 @@ function queueCrumbCuration(userText, tr = null, sourceRef = null) {
             added++;
             const hasAutoToday = autoCreated || loadAnticipations().some(item => item.created_from === 'auto' && getChinaDateString(new Date(item.created_at)) === dayKey);
             const sameEntityOpen = loadAnticipations().some(item => item.status === 'open' && crumb.entities.includes(item.entity) && Date.now() - new Date(item.created_at).getTime() < 7 * 86400000);
-            if (crumb.follow_up && !hasAutoToday && !sameEntityOpen && addAnticipation({
-                source_crumb_id: entry.id,
-                content: crumb.follow_up.content,
-                entity: crumb.follow_up.entity,
-                context: entry.fact,
-                source_quote: entry.source_quote,
-                follow_up_after_hours: crumb.follow_up.follow_up_after_hours,
-                reason: crumb.follow_up.reason,
-                created_from: 'auto'
-            })) autoCreated = true;
+            if (crumb.follow_up && !hasAutoToday && !sameEntityOpen && addAnticipation({ source_crumb_id: entry.id, content: crumb.follow_up.content, entity: crumb.follow_up.entity, follow_up_after_hours: crumb.follow_up.follow_up_after_hours, reason: crumb.follow_up.reason, created_from: 'auto' })) autoCreated = true;
         }
         if (added) saveCrumbs(items.slice(-2000));
         traceEvent(tr, 'crumb_curator', '生活碎屑整理', { found: crumbs.length, added });
