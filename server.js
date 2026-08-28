@@ -32,8 +32,16 @@ const {
     scheduleNextWalk,
     takeUnseenFeedCandidates,
 } = require('./xhs-walk');
-const { freshState, normalizeState: normalizeWakeState, advanceState: advanceWakeState, recordAgentRun: recordWakeAgentRun, millisecondsUntilCandidate } = require('./wake-activation');
 const { millisecondsUntilWakeDispatchWindow, parseProactiveMessageParts } = require('./wake-dispatch');
+const {
+    calculateSleepProbability,
+    extractNextWakeTag,
+    freshState: freshAdaptiveWakeState,
+    invalidateForUserMessage,
+    markDelivered: markAdaptiveWakeDelivered,
+    normalizeState: normalizeAdaptiveWakeState,
+    schedulePlan: scheduleAdaptivePlan,
+} = require('./adaptive-wake');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
 const { messageTimestampMs, selectRecentWakeHistory } = require('./wake-context');
 const { hasProjectFileIntent, keepRequestedReadTools } = require('./tool-policy');
@@ -4506,6 +4514,10 @@ const WAKE_RECENT_MESSAGES = 6;
 const WAKE_MESSAGE_CHARS = Infinity;
 const XHS_WALK_MESSAGE_CHARS = 240;
 const WAKE_ACTIVE_GRACE_MS = 15 * 60 * 1000;
+const NEXT_WAKE_OUTPUT_INSTRUCTION = `【下一次自适应唤醒】
+每次回复正文结束后，必须输出一个不会展示给江鱼的调度标签：
+<NEXT_WAKE>{"after_minutes":60,"urgency":"low","reason":"简短判断依据"}</NEXT_WAKE>
+after_minutes 是你希望多久后重新获得一次主动开口机会；urgency 只能是 low、medium、high、critical。普通情况不得低于15分钟。只有江鱼明确表达自杀、想死或迫近的人身危险时才可使用 critical；不要因为普通难过、争吵或暂时不回复而使用 critical。reason 仅供调试，保持简短。标签必须放在所有可见正文之后，不要解释标签。`;
 const WAKE_SUMMARY_FILE = path.join(DATA_DIR, 'latest_conversation_summary.json');
 const WAKE_LAST_SENT_FILE = path.join(DATA_DIR, 'latest_proactive_sent.json');
 const WAKE_DECISIONS_FILE = path.join(DATA_DIR, 'wake_decisions.json');
@@ -4638,7 +4650,7 @@ function loadRecentWakeDecisions(limit = 10) {
                 gate: outcomeMap[entry.outcome].gate,
                 reason: 'no_reason',
                 outcome: outcomeMap[entry.outcome].outcome,
-                source: entry.source || 'spontaneous'
+                source: entry.source || 'adaptive'
             }));
     } catch (e) { return []; }
 }
@@ -4680,10 +4692,10 @@ function getRecentMoodTone() {
 
 async function runProactiveLightGate({ now, nowMs, wakeSource, activationId, proactiveUrl, proactiveKey, proactiveModel }) {
     const gateMessages = [
-        { role: 'system', content: '你是沈望，江鱼的恋人。判断这一刻有没有自然浮上来的、想对她说的话。不要分析，不要解释。只输出JSON：{"decision":"PASS"或"SKIP","reason":"理由码"}。理由码只能是：late_night_sleeping / just_talked / nothing_to_say / saw_something_relevant / missing_her / she_might_be_busy / recent_conversation_still_active / no_reason。' },
-        { role: 'user', content: `当前时间：${formatBeijingTime(now)}\n距上次对话：${formatWakeInterval(nowMs - lastInteractionTime)}\n最后聊的内容：${loadLatestConversationSummary()}\n她当前可能在：${inferWakeActivity(now)}\n最近情绪基调：${getRecentMoodTone()}\n唤醒来源：${wakeSource}` }
+        { role: 'system', content: '你是沈望，江鱼的恋人。判断这一刻有没有自然浮上来的、想对她说的话。不要分析，不要解释。只输出JSON：{"decision":"PASS"或"SKIP","reason":"理由码","recheck_after_minutes":90}。即使SKIP也要给出15到720分钟的下一次检查建议。理由码只能是：late_night_sleeping / just_talked / nothing_to_say / saw_something_relevant / missing_her / she_might_be_busy / recent_conversation_still_active / no_reason。' },
+        { role: 'user', content: `当前时间：${formatBeijingTime(now)}\n距上次对话：${formatWakeInterval(nowMs - lastInteractionTime)}\n最后聊的内容：${loadLatestConversationSummary()}\n她当前可能在：${inferWakeActivity(now)}\n最近情绪基调：${getRecentMoodTone()}\n唤醒来源：${wakeSource}\nwake_context：${JSON.stringify(buildAdaptiveWakeContext(now, wakeSource === 'manual' ? 'manual' : 'scheduled'))}` }
     ];
-    const res = await fetch(proactiveUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${proactiveKey}` }, body: JSON.stringify({ model: proactiveModel, messages: gateMessages, temperature: 0.1, max_tokens: 30 }) });
+    const res = await fetch(proactiveUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${proactiveKey}` }, body: JSON.stringify({ model: proactiveModel, messages: gateMessages, temperature: 0.1, max_tokens: 80 }) });
     if (!res.ok) throw new Error(`轻量门控 API 返回 ${res.status}`);
     const data = await res.json();
     const msg = data.choices?.[0]?.message;
@@ -4693,15 +4705,17 @@ async function runProactiveLightGate({ now, nowMs, wakeSource, activationId, pro
     const usage = normalizeWakeUsage(data?.usage);
     let decision = 'SKIP';
     let reason = 'parse_failed';
+    let recheckAfterMinutes = 60;
     try {
         const parsed = JSON.parse(rawContent.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim());
         if (parsed.decision === 'PASS' || parsed.decision === 'SKIP') decision = parsed.decision;
         reason = String(parsed.reason || 'no_reason').trim();
         if (!ALLOWED_WAKE_REASONS.has(reason)) reason = 'no_reason';
+        recheckAfterMinutes = Math.max(15, Math.min(720, Number(parsed.recheck_after_minutes) || 60));
     } catch (e) {
         // 格式不对时只允许保守地 SKIP，不从自然语言里猜 PASS。
     }
-    return { decision, reason, usage, response, invalid: reason === 'parse_failed' };
+    return { decision, reason, recheck_after_minutes: recheckAfterMinutes, usage, response, invalid: reason === 'parse_failed' };
 }
 
 function formatWakeInterval(elapsedMs) {
@@ -4771,7 +4785,11 @@ async function generateProactiveMessage(wakeup = {}) {
     const now = new Date();
     const nowMs = now.getTime();
     const careDue = wakeup.care || getDueAnticipation(now);
-    const wakeSource = wakeup.source || 'spontaneous';
+    const wakeSource = wakeup.source || 'adaptive';
+    const isCriticalAdaptiveWake = wakeSource === 'adaptive' && wakeup.urgency === 'critical';
+    const deliveryStateAtStart = loadAdaptiveWakeState(now);
+    const deliveryExpectedGeneration = wakeup.expectedGeneration ?? deliveryStateAtStart.wake_generation;
+    const deliveryExpectedUserMessageId = wakeup.expectedUserMessageId || deliveryStateAtStart.source_user_message_id;
     let gate = { decision: 'ERROR', reason: 'no_reason', usage: null, response: null };
 
     // Wake runs keep one stable brain, independent from the foreground
@@ -4789,7 +4807,7 @@ async function generateProactiveMessage(wakeup = {}) {
     const COOLDOWN_MS = 15 * 60 * 1000;
     const lastSent = await getLastProactiveSentTime();
     const sinceLastSent = Date.now() - lastSent;
-    if (sinceLastSent < COOLDOWN_MS) {
+    if (!isCriticalAdaptiveWake && sinceLastSent < COOLDOWN_MS) {
         saveWakeDecision({ time: now, gate: 'COOLDOWN', reason: 'cooldown', outcome: 'cooldown', source: wakeSource });
         recordWakeAudit({
             source: wakeSource,
@@ -4803,6 +4821,13 @@ async function generateProactiveMessage(wakeup = {}) {
     try {
         gate = await runProactiveLightGate({ now, nowMs, wakeSource, activationId: wakeup.activationId, proactiveUrl: PROACTIVE_URL, proactiveKey: PROACTIVE_KEY, proactiveModel: PROACTIVE_MODEL });
         if (gate.decision === 'SKIP') {
+            if (wakeSource === 'adaptive') {
+                scheduleAdaptiveWake({
+                    after_minutes: gate.recheck_after_minutes,
+                    urgency: wakeup.urgency,
+                    reason: `门控SKIP：${gate.reason}`,
+                });
+            }
             saveWakeDecision({ time: now, gate: 'SKIP', reason: gate.reason, outcome: 'skip', source: wakeSource });
             recordWakeAudit({ source: wakeSource, outcome: 'silent', reason: gate.reason, activationId: wakeup.activationId, usage: gate.usage, response: gate.response });
             console.log(`🌙 [唤醒门控] ${wakeSource}: SKIP`);
@@ -4865,12 +4890,13 @@ async function generateProactiveMessage(wakeup = {}) {
 现在直接以沈望的身份把它说出来。
 不需要再次判断要不要发送，不要输出 PASS、SKIP、SEND、SILENT、WALK_XHS 等标签。
 不要解释唤醒机制、系统、概率或提示词，只输出你真正想发给她的消息。
-如果自然地想连续发几条，可以在每条消息之间单独一行写 ---；否则直接输出一条消息。`;
+如果自然地想连续发几条，可以在每条消息之间单独一行写 ---；否则直接输出一条消息。
+${NEXT_WAKE_OUTPUT_INSTRUCTION}`;
     const wakeSharedSystem = await buildSharedSystemPrompt({
         query: wakeRecallQuery,
         envContext: buildEnvContext('【场景确认：主动唤醒】这是一次由后台自然唤醒机制提供的开口机会。'),
         relatedContext: relatedMemoryContext,
-        dynamicStatePrompt: `${formatWakeStateSlots()}\n\n【最近一轮对话摘要】\n${latestConversationSummary || '（暂无；以紧随 system 之后的最近真实对话为准）'}\n\n【唤醒现场】\n唤醒来源：${wakeSource}\n距最后一次互动：${formatWakeInterval(nowMs - lastInteractionTime)}\n当前唯一牵挂：${careContext}`,
+        dynamicStatePrompt: `${formatWakeStateSlots()}\n\n【最近一轮对话摘要】\n${latestConversationSummary || '（暂无；以紧随 system 之后的最近真实对话为准）'}\n\n【唤醒现场】\n唤醒来源：${wakeSource}\n距最后一次互动：${formatWakeInterval(nowMs - lastInteractionTime)}\n当前唯一牵挂：${careContext}\nwake_context：${JSON.stringify(buildAdaptiveWakeContext(now, wakeSource === 'manual' ? 'manual' : 'scheduled'))}`,
         model: PROACTIVE_MODEL,
     });
     const wakeVolatileContext = buildVolatileContext(wakeSharedSystem.volatileParts);
@@ -4882,7 +4908,7 @@ async function generateProactiveMessage(wakeup = {}) {
         ...recentMsgs,
         {
             role: 'user',
-            content: '【当前主动开口】轻量层已经决定这次要说话。现在承接上面的真实对话，以沈望的身份说出此刻自然想发给江鱼的话；不要复述最后一条历史消息，也不要输出任何控制标签。',
+            content: '【当前主动开口】轻量层已经决定这次要说话。现在承接上面的真实对话，以沈望的身份说出此刻自然想发给江鱼的话；不要复述最后一条历史消息。正文后必须输出 NEXT_WAKE 标签，标签不会展示给江鱼。',
         },
     ];
 
@@ -4927,7 +4953,8 @@ async function generateProactiveMessage(wakeup = {}) {
             recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason: finishReason === 'length' ? '完整消息被长度上限截断，未投递。' : '完整消息被供应端过滤，未投递。', activationId: wakeup.activationId, usage, response: responseDebug, context: wakeContextAudit });
             return { error: `完整消息 finish_reason=${finishReason}`, invalid: true };
         }
-        const cleanedContent = cleanAssistantInternalArtifacts(processAssistantActionTags(rawContent));
+        const wakeTag = extractNextWakeTag(rawContent);
+        const cleanedContent = cleanAssistantInternalArtifacts(processAssistantActionTags(wakeTag.cleanText));
         const parsed = parseProactiveMessageParts(cleanedContent);
         if (parsed.type !== 'messages') {
             const reason = parsed.type === 'legacy_control_token'
@@ -4941,6 +4968,14 @@ async function generateProactiveMessage(wakeup = {}) {
         let deliveryFailure = null;
         for (let index = 0; index < parsed.parts.length; index++) {
             if (index > 0) await new Promise(resolve => setTimeout(resolve, 800 + Math.floor(Math.random() * 701)));
+            if (!adaptiveGenerationIsCurrent(deliveryExpectedGeneration, deliveryExpectedUserMessageId)) {
+                if (deliveredParts.length) {
+                    deliveryFailure = '生成期间用户回复或计划已更新，剩余分段已取消。';
+                    break;
+                }
+                recordWakeAudit({ source: wakeSource, outcome: 'stale_discarded', reason: '生成期间用户回复或计划已更新，本次消息作废。', activationId: wakeup.activationId });
+                return { silent: true, stale: true };
+            }
             const part = parsed.parts[index];
             console.log(`💌 [主动消息 ${index + 1}/${parsed.parts.length}] ${part}`);
             const delivery = deliverProactiveMessage(part);
@@ -4959,6 +4994,13 @@ async function generateProactiveMessage(wakeup = {}) {
         if (careDue && content.includes(careDue.entity)) markAnticipationAsked(careDue.id, now);
         await saveAssistantMessagesToZep(deliveredParts);
         saveLastProactiveSentTime();
+        if (adaptiveGenerationIsCurrent(deliveryExpectedGeneration, deliveryExpectedUserMessageId)) {
+            const adaptiveAfterDelivery = markAdaptiveWakeDelivered(loadAdaptiveWakeState(), new Date());
+            saveAdaptiveWakeState(adaptiveAfterDelivery);
+            scheduleAdaptiveWake(wakeTag.plan, {
+                fallbackReason: wakeTag.plan ? '主动消息给出下一次唤醒计划' : '主动消息未附带NEXT_WAKE，使用默认间隔',
+            });
+        }
         const outcome = deliveryFailure ? 'partial_sent' : 'sent';
         saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome, source: wakeSource });
         recordWakeAudit({ source: wakeSource, outcome, reason: deliveryFailure || gate.reason, activationId: wakeup.activationId, usage, response: responseDebug, context: wakeContextAudit });
@@ -5036,43 +5078,56 @@ function dedupePersistedDuplicateMessages() {
     }
 }
 
-async function runWakeOpportunity({ source = 'spontaneous', care = null, manual = false } = {}) {
+async function runWakeOpportunity({ source = 'adaptive', care = null, manual = false, expectedGeneration = null, expectedUserMessageId = null, urgency = 'low' } = {}) {
     if (wakeRunning) return { skipped: 'running' };
     const now = new Date();
-    let state = loadWakeActivationState(now);
-    if (source === 'spontaneous') {
-        const advanced = advanceWakeState(state, now);
-        state = advanced.state;
-        saveWakeActivationState(state);
-        if (!manual && !advanced.triggered) { armSpontaneousWake(state, now); return { skipped: 'not_due' }; }
+    if (source === 'adaptive') {
+        const state = loadAdaptiveWakeState(now);
+        const expected = expectedGeneration ?? state.wake_generation;
+        if (!adaptiveGenerationIsCurrent(expected, expectedUserMessageId)) return { skipped: 'stale_generation' };
+        if (!manual && (!state.due_at || new Date(state.due_at).getTime() > now.getTime() + 1000)) {
+            armAdaptiveWake(state, now);
+            return { skipped: 'not_due' };
+        }
+        expectedGeneration = expected;
+        expectedUserMessageId = expectedUserMessageId || state.source_user_message_id;
+        urgency = state.urgency;
+        saveAdaptiveWakeState({ ...state, status: 'running', due_at: null, updated_at: now.toISOString() });
     }
     const quietDelay = millisecondsUntilWakeDispatchWindow(now);
     if (!manual && quietDelay !== null) {
         const until = new Date(now.getTime() + quietDelay);
         if (source === 'anticipation' && care) deferAnticipationUntil(care.id, until);
+        if (source === 'adaptive') deferAdaptiveWakeUntil(until, expectedGeneration, '处于夜间静默时段，延后到可投递时间');
         recordWakeAudit({ source, outcome: 'deferred_quiet', reason: '夜里不打扰，留到早上再说。', retryAt: until.toISOString() });
         console.log(`🌙 [唤醒] 北京时间深夜，跳过${source}派发，约 ${Math.ceil(quietDelay / 60000)} 分钟后再检查`);
-        armWakeDispatchRetry({ source, care, delay: quietDelay });
+        if (source !== 'adaptive') armWakeDispatchRetry({ source, care, delay: quietDelay });
         return { skipped: 'quiet_hours', retry_at: until.toISOString() };
     }
-    if (!manual && now.getTime() - lastInteractionTime < WAKE_ACTIVE_GRACE_MS) {
+    const bypassConversationGrace = source === 'adaptive' && urgency === 'critical';
+    if (!manual && !bypassConversationGrace && now.getTime() - lastInteractionTime < WAKE_ACTIVE_GRACE_MS) {
         const retryAt = new Date(lastInteractionTime + WAKE_ACTIVE_GRACE_MS);
         if (source === 'anticipation' && care) deferAnticipationUntil(care.id, retryAt);
+        if (source === 'adaptive') deferAdaptiveWakeUntil(retryAt, expectedGeneration, '对话仍活跃，延后到活跃保护结束');
         recordWakeAudit({ source, outcome: 'deferred_active', reason: '你们刚在说话，他不挤进来。', retryAt: retryAt.toISOString() });
         console.log(`🌙 [唤醒] 对话仍活跃，跳过${source}派发，不调用模型`);
-        armWakeDispatchRetry({ source, care, delay: Math.max(1000, retryAt.getTime() - now.getTime()) });
+        if (source !== 'adaptive') armWakeDispatchRetry({ source, care, delay: Math.max(1000, retryAt.getTime() - now.getTime()) });
         return { skipped: 'active_conversation', retry_at: retryAt.toISOString() };
     }
     wakeRunning = true;
     const activationId = `wk_${crypto.randomUUID()}`;
     try {
-        state.last_wake_at = now.toISOString();
-        saveWakeActivationState(state);
-        const result = await generateProactiveMessage({ source, care, activationId });
+        const result = await generateProactiveMessage({ source, care, activationId, expectedGeneration, expectedUserMessageId, urgency });
         if (source === 'anticipation' && care && !result?.sent) deferAnticipationWake(care.id, new Date());
         return { activationId, source, ...(result || { silent: true }) };
     } finally {
         wakeRunning = false;
+        if (source === 'adaptive') {
+            const current = loadAdaptiveWakeState();
+            if (current.wake_generation === expectedGeneration && !current.due_at && current.status !== 'stopped') {
+                scheduleAdaptiveWake(null, { fallbackReason: '本次唤醒未产生新计划，使用默认间隔' });
+            }
+        }
         finishWakeRun(new Date());
     }
 }
@@ -5131,21 +5186,146 @@ let xhsPuppeteer = null;
 let xhsLoginSessionTask = null;
 const xhsPreparedPages = new WeakSet();
 const XHS_DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-const WAKE_ACTIVATION_FILE = path.join(DATA_DIR, 'wake_activation.json');
+const ADAPTIVE_WAKE_FILE = path.join(DATA_DIR, 'adaptive_wake.json');
 const WAKE_AUDIT_FILE = path.join(DATA_DIR, 'wake_audit.json');
-let wakeTimer = null;
-let wakeTimerGeneration = 0;
+let adaptiveWakeTimer = null;
+let wakeDispatchRetryTimer = null;
+let wakeDispatchRetryGeneration = 0;
 let wakeRunning = false;
 let anticipationWakeTimer = null;
 
-function loadWakeActivationState(now = new Date()) {
-    try { return normalizeWakeState(JSON.parse(fs.readFileSync(WAKE_ACTIVATION_FILE, 'utf8')), now); }
-    catch (_) { return freshState(now); }
+function loadAdaptiveWakeState(now = new Date()) {
+    try { return normalizeAdaptiveWakeState(JSON.parse(fs.readFileSync(ADAPTIVE_WAKE_FILE, 'utf8')), now); }
+    catch (_) { return freshAdaptiveWakeState(now); }
 }
 
-function saveWakeActivationState(state) {
-    try { fs.writeFileSync(WAKE_ACTIVATION_FILE, JSON.stringify(state, null, 2), 'utf8'); }
-    catch (error) { console.log(`🌙 [唤醒] 状态保存失败: ${error.message}`); }
+function saveAdaptiveWakeState(state) {
+    try { fs.writeFileSync(ADAPTIVE_WAKE_FILE, JSON.stringify(normalizeAdaptiveWakeState(state), null, 2), 'utf8'); }
+    catch (error) { console.log(`🌙 [自适应唤醒] 状态保存失败: ${error.message}`); }
+}
+
+function clearAdaptiveWakeTimer() {
+    if (adaptiveWakeTimer) clearTimeout(adaptiveWakeTimer);
+    adaptiveWakeTimer = null;
+}
+
+function inferAdaptiveMoodSeverity(text) {
+    const value = String(text || '');
+    if (/想死|自杀|不想活|活不下去|结束生命/.test(value)) return 'critical';
+    if (/崩溃|绝望|撑不住|特别难受|一直哭|很痛苦/.test(value)) return 'high';
+    if (/难过|焦虑|害怕|担心|低落|不开心|烦躁/.test(value)) return 'medium';
+    return 'low';
+}
+
+function invalidateAdaptiveWakeForUserMessage({ sourceUserMessageId, userText, now = new Date() }) {
+    clearAdaptiveWakeTimer();
+    const current = loadAdaptiveWakeState(now);
+    const next = invalidateForUserMessage(current, {
+        now,
+        sourceUserMessageId,
+        lastMoodSeverity: inferAdaptiveMoodSeverity(userText),
+        lastTopic: String(userText || '').slice(0, 180),
+    });
+    saveAdaptiveWakeState(next);
+    return next;
+}
+
+function cancelAdaptiveWake(reason = '手动取消唤醒', now = new Date()) {
+    clearAdaptiveWakeTimer();
+    const current = loadAdaptiveWakeState(now);
+    const next = {
+        ...current,
+        wake_generation: current.wake_generation + 1,
+        status: 'idle',
+        due_at: null,
+        after_minutes: null,
+        reason: String(reason || '手动取消唤醒').slice(0, 240),
+        updated_at: now.toISOString(),
+    };
+    saveAdaptiveWakeState(next);
+    return next;
+}
+
+function scheduleAdaptiveWake(rawPlan, options = {}) {
+    const now = options.now || new Date();
+    const current = loadAdaptiveWakeState(now);
+    let next = scheduleAdaptivePlan(current, rawPlan, {
+        now,
+        sourceUserMessageId: options.sourceUserMessageId,
+        lastMoodSeverity: options.lastMoodSeverity || current.last_mood_severity,
+        lastTopic: options.lastTopic || current.last_topic,
+        fallbackReason: options.fallbackReason,
+    });
+    if (options.assistantReplied) next = { ...next, last_my_msg_time: now.toISOString() };
+    saveAdaptiveWakeState(next);
+    armAdaptiveWake(next, now);
+    return next;
+}
+
+function deferAdaptiveWakeUntil(dueAt, expectedGeneration = null, reason = '系统规则要求稍后再检查') {
+    const now = new Date();
+    const current = loadAdaptiveWakeState(now);
+    if (expectedGeneration != null && current.wake_generation !== expectedGeneration) return current;
+    const target = new Date(dueAt);
+    if (!Number.isFinite(target.getTime())) return current;
+    const next = {
+        ...current,
+        wake_generation: current.wake_generation + 1,
+        status: 'scheduled',
+        due_at: target.toISOString(),
+        after_minutes: Math.max(1, Math.ceil((target.getTime() - now.getTime()) / 60000)),
+        reason,
+        updated_at: now.toISOString(),
+    };
+    saveAdaptiveWakeState(next);
+    armAdaptiveWake(next, now);
+    return next;
+}
+
+function consumeAssistantWakePlan(content, options = {}) {
+    const parsed = extractNextWakeTag(content);
+    const current = loadAdaptiveWakeState();
+    if (options.sourceUserMessageId && current.source_user_message_id !== options.sourceUserMessageId) {
+        traceEvent(options.tr, 'adaptive_wake', '旧回复计划已丢弃', {
+            expected_source_user_message_id: options.sourceUserMessageId,
+            current_source_user_message_id: current.source_user_message_id,
+        });
+        return parsed.cleanText;
+    }
+    const next = scheduleAdaptiveWake(parsed.plan, {
+        sourceUserMessageId: options.sourceUserMessageId,
+        lastMoodSeverity: options.lastMoodSeverity,
+        lastTopic: options.lastTopic,
+        fallbackReason: parsed.plan ? '模型给出下一次唤醒计划' : '回复未附带NEXT_WAKE，使用默认间隔',
+        assistantReplied: true,
+    });
+    traceEvent(options.tr, 'adaptive_wake', parsed.plan ? 'NEXT_WAKE 已安排' : 'NEXT_WAKE fallback', {
+        due_at: next.due_at,
+        after_minutes: next.after_minutes,
+        urgency: next.urgency,
+        status: next.status,
+    });
+    return parsed.cleanText;
+}
+
+function buildAdaptiveWakeContext(now = new Date(), trigger = 'scheduled') {
+    const state = loadAdaptiveWakeState(now);
+    return {
+        trigger,
+        unanswered_count: state.unanswered_count,
+        last_user_msg_time: state.last_user_msg_time,
+        last_my_msg_time: state.last_my_msg_time,
+        last_mood_severity: state.last_mood_severity,
+        last_topic: state.last_topic,
+        sleep_probability: calculateSleepProbability(state.last_user_msg_time, now),
+        urgency: state.urgency,
+    };
+}
+
+function adaptiveGenerationIsCurrent(expectedGeneration, expectedUserMessageId = null) {
+    const current = loadAdaptiveWakeState();
+    return current.wake_generation === expectedGeneration
+        && (!expectedUserMessageId || current.source_user_message_id === expectedUserMessageId);
 }
 
 // This is deliberately an outcome journal, not a model thought log. Context
@@ -5157,7 +5337,7 @@ function loadWakeAudit() {
     } catch (_) { return []; }
 }
 
-function recordWakeAudit({ source = 'spontaneous', outcome, reason, retryAt = null, activationId = null, usage = null, response = null, context = null }) {
+function recordWakeAudit({ source = 'adaptive', outcome, reason, retryAt = null, activationId = null, usage = null, response = null, context = null }) {
     const entries = loadWakeAudit();
     entries.push({
         id: `wa_${crypto.randomUUID()}`,
@@ -5176,29 +5356,49 @@ function recordWakeAudit({ source = 'spontaneous', outcome, reason, retryAt = nu
 }
 
 function finishWakeRun(now = new Date()) {
-    const state = recordWakeAgentRun(loadWakeActivationState(now), now);
-    saveWakeActivationState(state);
-    armSpontaneousWake(state, now);
+    armAdaptiveWake(null, now);
     armAnticipationWake(now);
 }
 
-function armSpontaneousWake(existingState = null, now = new Date()) {
-    const state = existingState || loadWakeActivationState(now);
-    const delay = Math.min(millisecondsUntilCandidate(state, now), 12 * 60 * 60 * 1000);
-    if (wakeTimer) clearTimeout(wakeTimer);
-    const generation = ++wakeTimerGeneration;
-    wakeTimer = setTimeout(() => {
-        if (generation !== wakeTimerGeneration) return;
-        runWakeOpportunity({ source: 'spontaneous' }).catch(error => console.log(`🌙 [唤醒] 自发运行失败: ${error.message}`));
+function armAdaptiveWake(existingState = null, now = new Date()) {
+    clearAdaptiveWakeTimer();
+    const state = normalizeAdaptiveWakeState(existingState || loadAdaptiveWakeState(now), now);
+    if (!state.due_at || !['scheduled', 'cooldown_probe'].includes(state.status)) return;
+    const dueMs = new Date(state.due_at).getTime();
+    if (!Number.isFinite(dueMs)) return;
+    const delay = Math.max(1000, Math.min(dueMs - now.getTime(), 12 * 60 * 60 * 1000));
+    const expectedGeneration = state.wake_generation;
+    const expectedUserMessageId = state.source_user_message_id;
+    adaptiveWakeTimer = setTimeout(() => {
+        const current = loadAdaptiveWakeState();
+        if (current.wake_generation !== expectedGeneration || !current.due_at) return;
+        if (new Date(current.due_at).getTime() > Date.now() + 1000) {
+            armAdaptiveWake(current, new Date());
+            return;
+        }
+        runWakeOpportunity({
+            source: 'adaptive',
+            expectedGeneration,
+            expectedUserMessageId,
+            urgency: current.urgency,
+        }).catch(error => console.log(`🌙 [自适应唤醒] 运行失败: ${error.message}`));
     }, delay);
-    console.log(`🌙 [唤醒] 已安排下一次自然检查，约 ${Math.round(delay / 60000)} 分钟后`);
+    console.log(`🌙 [自适应唤醒] 已安排，约 ${Math.ceil(delay / 60000)} 分钟后，urgency=${state.urgency}`);
+}
+
+function restoreAdaptiveWake(now = new Date()) {
+    if (!fs.existsSync(ADAPTIVE_WAKE_FILE)) {
+        scheduleAdaptiveWake(null, { now, fallbackReason: '自适应唤醒首次启用，使用默认间隔' });
+        return;
+    }
+    armAdaptiveWake(loadAdaptiveWakeState(now), now);
 }
 
 function armWakeDispatchRetry({ source, care = null, delay }) {
-    if (wakeTimer) clearTimeout(wakeTimer);
-    const generation = ++wakeTimerGeneration;
-    wakeTimer = setTimeout(() => {
-        if (generation !== wakeTimerGeneration) return;
+    if (wakeDispatchRetryTimer) clearTimeout(wakeDispatchRetryTimer);
+    const generation = ++wakeDispatchRetryGeneration;
+    wakeDispatchRetryTimer = setTimeout(() => {
+        if (generation !== wakeDispatchRetryGeneration) return;
         runWakeOpportunity({ source, care }).catch(error => console.log(`🌙 [唤醒] 延后派发失败: ${error.message}`));
     }, Math.max(1000, Number(delay) || 1000));
     console.log(`🌙 [唤醒] 已延后${source}派发，约 ${Math.ceil(delay / 60000)} 分钟后重试`);
@@ -6489,7 +6689,7 @@ app.get('/api/xhs-walk/status', (req, res) => {
     const state = loadXhsWalkState();
     const inbox = loadXhsFeedInbox();
     const browser = loadXhsBrowserState();
-    const wake = loadWakeActivationState();
+    const wake = loadAdaptiveWakeState();
     res.json({
         enabled: process.env.XHS_WALK_ENABLED !== 'false',
         running: XHS_WALK_RUNNING,
@@ -6512,7 +6712,7 @@ app.get('/api/xhs-walk/status', (req, res) => {
         last_scan_at: state.last_scan_at || null,
         last_shared_at: state.last_shared_at || null,
         last_error: state.last_error || browser.last_error || null,
-        wake: { generation: wake.generation, last_run_at: wake.last_run_at, last_wake_at: wake.last_wake_at },
+        wake: { generation: wake.wake_generation, status: wake.status, due_at: wake.due_at, urgency: wake.urgency },
     });
 });
 
@@ -6606,15 +6806,30 @@ app.post('/api/xhs-walk/try', async (req, res) => {
 });
 
 app.get('/api/wake/status', (req, res) => {
-    const now = new Date(); const advanced = advanceWakeState(loadWakeActivationState(now), now);
-    saveWakeActivationState(advanced.state);
+    const now = new Date(); const state = loadAdaptiveWakeState(now);
     const recent = loadWakeAudit().slice(-30).reverse();
-    res.json({ enabled: true, running: wakeRunning, generation: advanced.state.generation, lambda_per_hour: advanced.lambda_per_hour, next_candidate_at: new Date(now.getTime() + millisecondsUntilCandidate(advanced.state, now)).toISOString(), last_run_at: advanced.state.last_run_at, last_wake_at: advanced.state.last_wake_at, recent });
+    res.json({
+        enabled: true,
+        mode: 'adaptive-v2',
+        running: wakeRunning,
+        generation: state.wake_generation,
+        status: state.status,
+        next_candidate_at: state.due_at,
+        urgency: state.urgency,
+        unanswered_count: state.unanswered_count,
+        reason: state.reason,
+        recent,
+    });
 });
 
 app.post('/api/wake/try', async (req, res) => {
     const result = await runWakeOpportunity({ source: 'manual', manual: true });
     res.json({ success: !result.error, ...result });
+});
+
+app.post('/api/wake/cancel', (req, res) => {
+    const state = cancelAdaptiveWake(req.body?.reason || '手动取消唤醒');
+    res.json({ success: true, generation: state.wake_generation, status: state.status });
 });
 
 app.get('/api/xhs-media', async (req, res) => {
@@ -6724,6 +6939,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         const noMemory = req.headers['x-no-memory'] === 'true';
         const sourceTabId = req.headers['x-tab-id'] || null;
         const sourceMessageId = req.headers['x-message-id'] || null;
+        let adaptiveUserMessageId = sourceMessageId;
         const incomingMessages = Array.isArray(body.messages) ? body.messages : [];
         const isOpenClawRequest = incomingMessages.some(msg => contentHasOpenClawInternalContext(msg?.content));
 
@@ -6763,6 +6979,11 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         }
 
         _tr.meta.userPreview = (currentUserMsgText || '').substring(0, 80);
+        if (currentUserMsgText) {
+            adaptiveUserMessageId = sourceMessageId || `msg_${crypto.randomUUID()}`;
+            invalidateAdaptiveWakeForUserMessage({ sourceUserMessageId: adaptiveUserMessageId, userText: currentUserMsgText });
+            traceEvent(_tr, 'adaptive_wake', '用户消息使旧计划作废', { source_user_message_id: adaptiveUserMessageId });
+        }
         const currentMessageSource = currentUserMsgText ? { quote: currentUserMsgText, at: new Date().toISOString(), message_id: sourceMessageId, tab_id: sourceTabId } : null;
         traceEvent(_tr, 'start', '请求进入', { msgCount: cleanMessages.length });
 
@@ -6972,6 +7193,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             });
         }
         const { systemMessage: systemMsg, stableSystemBlock, volatileParts, modelPromptConfig: mpConfig, modelPromptText } = sharedSystem;
+        systemMsg.content += `\n\n${NEXT_WAKE_OUTPUT_INSTRUCTION}`;
         const isClaudeModel = (body.model || '').toLowerCase().includes('claude');
 
         // === 2. 收集全部动态内容 → 合并进最后一条 user message ===
@@ -7213,7 +7435,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             if (isStreamMode) {
                 // 先剥离 MOOD_SNAPSHOT 标签再发送前端
                 moodLog('[MOOD DEBUG] tool-path stream before strip has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
-                const visibleContent = cleanAssistantInternalArtifacts(finalContent, _tr);
+                const visibleContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr);
                 if (finalThink) {
                     res.write(`data: ${JSON.stringify({ id: 'think', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { reasoning_content: finalThink }, finish_reason: null }] })}\n\n`);
                 }
@@ -7236,7 +7458,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             } else {
                 if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
                 if (finalThink) toolData.choices[0].message.reasoning_content = finalThink;
-                const moodCleaned = cleanAssistantInternalArtifacts(finalContent, _tr);
+                const moodCleaned = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr);
                 toolData.choices[0].message.content = moodCleaned;
                 moodLog('[MOOD DEBUG] tool-path non-stream finalContent has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
                 if (!noMemory) {
@@ -7306,7 +7528,14 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     if (!line.startsWith('data: ')) { res.write(line + '\n'); continue; }
                     const dataStr = line.substring(6).trim();
                     if (dataStr === '[DONE]') {
-                        if (contentBuffer) res.write(buildSSEChunk(contentBuffer, lastChunkTemplate) || '');
+                        // Never flush a partial internal tag at stream end. The
+                        // complete response is parsed below and the plan is
+                        // persisted there, while the tag remains invisible.
+                        if (contentBuffer
+                            && !/<(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|STATE_UPDATE|ANTICIPATION|NEXT_WAKE)/i.test(contentBuffer)
+                            && !/<[A-Z_]*$/i.test(contentBuffer)) {
+                            res.write(buildSSEChunk(contentBuffer, lastChunkTemplate) || '');
+                        }
                         res.write('data: [DONE]\n\n'); continue;
                     }
                     let parsed; try { parsed = JSON.parse(dataStr); } catch(e) { res.write(line + '\n'); continue; }
@@ -7321,7 +7550,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     const piece = delta.content; contentBuffer += piece; fullAiResponse += piece;
 
                     if (!isBuffering) {
-                        const TAG_OPEN = /<(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|STATE_UPDATE|ANTICIPATION)/;
+                        const TAG_OPEN = /<(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|STATE_UPDATE|ANTICIPATION|NEXT_WAKE)/;
                         const saveIdx = contentBuffer.search(TAG_OPEN);
                         if (saveIdx === -1) {
                             const ltIdx = contentBuffer.lastIndexOf('<');
@@ -7348,11 +7577,12 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                         const close2 = contentBuffer.indexOf('</MOOD_SNAPSHOT>');
                         const close3 = contentBuffer.indexOf('</STATE_UPDATE>');
                         const close4 = contentBuffer.indexOf('</ANTICIPATION>');
-                        const close5 = contentBuffer.indexOf('/>');
-                        const closes = [close0, close1, close2, close3, close4, close5].filter(i => i !== -1);
+                        const close5 = contentBuffer.indexOf('</NEXT_WAKE>');
+                        const close6 = contentBuffer.indexOf('/>');
+                        const closes = [close0, close1, close2, close3, close4, close5, close6].filter(i => i !== -1);
                         if (closes.length > 0) {
                             const closeIdx = Math.min(...closes);
-                            const foundTag = closeIdx === close0 ? '</SAVE_MEMORY>' : closeIdx === close1 ? '</ADD_TODO>' : closeIdx === close2 ? '</MOOD_SNAPSHOT>' : closeIdx === close3 ? '</STATE_UPDATE>' : closeIdx === close4 ? '</ANTICIPATION>' : '/>';
+                            const foundTag = closeIdx === close0 ? '</SAVE_MEMORY>' : closeIdx === close1 ? '</ADD_TODO>' : closeIdx === close2 ? '</MOOD_SNAPSHOT>' : closeIdx === close3 ? '</STATE_UPDATE>' : closeIdx === close4 ? '</ANTICIPATION>' : closeIdx === close5 ? '</NEXT_WAKE>' : '/>';
                             contentBuffer = contentBuffer.substring(closeIdx + foundTag.length);
                             isBuffering = false;
                             if (contentBuffer) { const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate); if (chunk) res.write(chunk); contentBuffer = ''; }
@@ -7387,7 +7617,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
                     moodLog('[MOOD DEBUG] before mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     const beforeMood = streamCleanText;
-                    streamCleanText = cleanAssistantInternalArtifacts(streamCleanText, _tr);
+                    streamCleanText = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(streamCleanText, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr);
                     moodLog('[MOOD DEBUG] after mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     moodLog('[MOOD DEBUG] mood handler text changed:', beforeMood !== streamCleanText);
                     if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr); tryAutoDream(currentUserMsgText); queueDailyStateCuration(currentUserMsgText, streamCleanText, _tr); queueCrumbCuration(currentUserMsgText, _tr, currentMessageSource); resolveAnticipationsFromUserText(currentUserMsgText); }
@@ -7419,7 +7649,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 // 非流式：先处理 MOOD_SNAPSHOT，再保存
                 moodLog('[MOOD DEBUG] non-stream content has tag before: ' + String(finalContent || '').includes('<MOOD_SNAPSHOT>'));
                 if (finalContent) {
-                    finalContent = cleanAssistantInternalArtifacts(finalContent, _tr);
+                    finalContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr);
                     moodLog('[MOOD DEBUG] non-stream after mood handler has tag: ' + finalContent.includes('<MOOD_SNAPSHOT>'));
                 }
                 if (data.choices?.[0]?.message) data.choices[0].message.content = finalContent;
@@ -8386,6 +8616,8 @@ app.post('/api/web-chat', async (req, res) => {
     console.log('🧪 [CacheDebug] ENTER web-chat handler');
     const { text, image, images, model, baseUrl, apiKey } = req.body;
     if (!text && !image && !(images && images.length > 0)) return res.status(400).json({ error: "信息不全" });
+    const adaptiveUserMessageId = `msg_${crypto.randomUUID()}`;
+    invalidateAdaptiveWakeForUserMessage({ sourceUserMessageId: adaptiveUserMessageId, userText: text || '（发送了图片）' });
 
     const reply = await new Promise((resolve) => {
         messageQueue.push(async () => {
@@ -8530,6 +8762,7 @@ app.post('/api/web-chat', async (req, res) => {
                     tr: null,
                 });
                 const { systemMessage: webSystemMsg, stableSystemBlock: webStableBlock, volatileParts, modelPromptConfig: webMpConfig, modelPromptText: webModelPromptText } = webSharedSystem;
+                webSystemMsg.content += `\n\n${NEXT_WAKE_OUTPUT_INSTRUCTION}`;
                 const webIsClaude = (webModelName || model || '').toLowerCase().includes('claude');
 
                 const volatilePartsArr2 = [...volatileParts];
@@ -8648,7 +8881,7 @@ app.post('/api/web-chat', async (req, res) => {
                     const { cleanText, memories } = extractSaveMemoryTag(cleanAiContent);
                     for (const mem of memories) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
                     const todoClean = processAssistantActionTags(memories.length > 0 ? cleanText : cleanAiContent);
-                    const finalReply = cleanAssistantInternalArtifacts(todoClean);
+                    const finalReply = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(todoClean, { sourceUserMessageId: adaptiveUserMessageId, lastTopic: text }));
                     await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
                     saveLatestConversationSummary(text, finalReply);
                     tryAutoDream(text);
@@ -8700,7 +8933,7 @@ app.post('/api/web-chat', async (req, res) => {
                 for (const mem of memories) {
                     queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
                 }
-                aiReply = cleanAssistantInternalArtifacts(processAssistantActionTags(memories.length > 0 ? cleanText : aiReply));
+                aiReply = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(processAssistantActionTags(memories.length > 0 ? cleanText : aiReply), { sourceUserMessageId: adaptiveUserMessageId, lastTopic: text }));
 
                 await saveToZepWithCounter(text || '（发送了一张图片）', aiReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
                 saveLatestConversationSummary(text, aiReply);
@@ -8890,7 +9123,8 @@ function queueCrumbCuration(userText, tr = null, sourceRef = null) {
 }
 
 function cleanAssistantInternalArtifacts(content, tr = null) {
-    return stripLeakedStateUpdates(handleMoodSnapshotsFromAssistantContent(content || '', tr));
+    const withoutWakeTag = extractNextWakeTag(content || '').cleanText;
+    return stripLeakedStateUpdates(handleMoodSnapshotsFromAssistantContent(withoutWakeTag, tr));
 }
 
 function queueDailyStateCuration(userText, assistantText, tr = null) {
@@ -10013,7 +10247,7 @@ server.listen(PORT, () => {
     }, 10000);
 
     setInterval(cleanAndArchiveMemories, 6 * 60 * 60 * 1000);
-    armSpontaneousWake();
+    restoreAdaptiveWake();
     armAnticipationWake();
     armXhsCollection();
     armXhsWalk();
