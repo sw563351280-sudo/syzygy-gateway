@@ -56,8 +56,16 @@ function buildCrumbMessages(userText) {
 }
 
 async function extractCrumbs(options) {
-    const { fetchImpl, apiKey, endpoint, model, userText, timeoutMs = 20000 } = options || {};
-    if (!apiKey || !fetchImpl || !shouldConsiderCrumbs(userText)) return [];
+    const { fetchImpl, apiKey, endpoint, model, userText, timeoutMs = 20000, onDiagnostic } = options || {};
+    const report = detail => { try { if (typeof onDiagnostic === 'function') onDiagnostic(detail); } catch (_) {} };
+    if (!apiKey || !fetchImpl) {
+        report({ outcome: 'skipped', reason: !apiKey ? 'missing_api_key' : 'missing_fetch' });
+        return [];
+    }
+    if (!shouldConsiderCrumbs(userText)) {
+        report({ outcome: 'skipped', reason: 'not_life_detail' });
+        return [];
+    }
     const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs);
     const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${String(apiKey).replace(/^Bearer\s+/i, '')}` };
     const request = body => fetchImpl(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
@@ -66,7 +74,31 @@ async function extractCrumbs(options) {
         let response = await request(body);
         if (!response.ok && (response.status === 400 || response.status === 422)) { delete body.response_format; response = await request(body); }
         if (!response.ok) throw new Error(`crumb curator API ${response.status}`);
-        return normalizeCrumbs(findJson((await response.json())?.choices?.[0]?.message?.content || ''), userText);
+        const payload = await response.json();
+        const message = payload?.choices?.[0]?.message || {};
+        // Some compatible gateways put JSON in reasoning_content, text, or
+        // output_text instead of message.content. Try each without ever
+        // logging the private model response itself.
+        const candidates = [
+            ['content', message.content],
+            ['reasoning_content', message.reasoning_content],
+            ['choice_text', payload?.choices?.[0]?.text],
+            ['output_text', payload?.output_text]
+        ].filter(([, value]) => typeof value === 'string' && value.trim());
+        let parsed = null; let field = 'none';
+        for (const [name, value] of candidates) {
+            parsed = findJson(value);
+            if (parsed) { field = name; break; }
+        }
+        const crumbs = normalizeCrumbs(parsed, userText);
+        report({
+            outcome: crumbs.length ? 'found' : 'empty',
+            reason: crumbs.length ? null : (candidates.length ? 'no_valid_crumb_json' : 'empty_model_response'),
+            field,
+            candidateFields: candidates.map(([name]) => name),
+            count: crumbs.length
+        });
+        return crumbs;
     } finally { clearTimeout(timer); }
 }
 

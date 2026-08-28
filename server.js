@@ -8857,11 +8857,21 @@ function isRecentCrumbDuplicate(existing, crumb, now) {
 
 function queueCrumbCuration(userText, tr = null, sourceRef = null) {
     const curatorKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
-    if (!curatorKey || String(userText || '').trim().length < 4) return;
+    if (!curatorKey || String(userText || '').trim().length < 4) {
+        traceEvent(tr, 'crumb_curator', '生活碎屑跳过', { reason: !curatorKey ? 'missing_api_key' : 'message_too_short' });
+        return;
+    }
     _crumbCuratorQueue = _crumbCuratorQueue.catch(() => {}).then(async () => {
         const now = new Date(); const dayKey = getChinaDateString(now);
         const existingItems = loadCrumbs();
-        const crumbs = await extractCrumbs({ fetchImpl: fetch, apiKey: curatorKey, endpoint: process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions', model: process.env.CRUMB_CURATOR_MODEL || 'gemini-3-flash-preview', userText });
+        const crumbs = await extractCrumbs({
+            fetchImpl: fetch,
+            apiKey: curatorKey,
+            endpoint: process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions',
+            model: process.env.CRUMB_CURATOR_MODEL || 'gemini-3-flash-preview',
+            userText,
+            onDiagnostic: detail => traceEvent(tr, 'crumb_curator', '生活碎屑模型结果', detail)
+        });
         if (!crumbs.length) return;
         const items = existingItems; let autoCreated = false; let added = 0;
         for (const crumb of crumbs) {

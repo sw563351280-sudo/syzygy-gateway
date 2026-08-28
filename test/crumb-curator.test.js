@@ -37,3 +37,30 @@ test('crumb curator keeps one detail per message and skips product chatter befor
     assert.deepEqual(result, []);
     assert.equal(called, false);
 });
+
+test('crumb curator accepts JSON returned through reasoning_content and reports its source', async () => {
+    let diagnostic;
+    const crumbs = await extractCrumbs({
+        fetchImpl: async () => ({ ok: true, json: async () => ({
+            choices: [{ message: { reasoning_content: '{"crumbs":[{"fact":"我记着她今天买了草莓","source_quote":"今天买了草莓","entities":["草莓","今天"],"tags":["日常"]}]}' } }]
+        }) }),
+        apiKey: 'secret', endpoint: 'https://example.test/v1/chat/completions', model: 'test',
+        userText: '今天买了草莓，晚上准备做蛋糕。',
+        onDiagnostic: value => { diagnostic = value; }
+    });
+    assert.equal(crumbs.length, 1);
+    assert.equal(diagnostic.outcome, 'found');
+    assert.equal(diagnostic.field, 'reasoning_content');
+});
+
+test('crumb curator reports an empty model response instead of silently hiding it', async () => {
+    let diagnostic;
+    const crumbs = await extractCrumbs({
+        fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: {} }] }) }),
+        apiKey: 'secret', endpoint: 'https://example.test/v1/chat/completions', model: 'test',
+        userText: '今天买了草莓，晚上准备做蛋糕。',
+        onDiagnostic: value => { diagnostic = value; }
+    });
+    assert.deepEqual(crumbs, []);
+    assert.deepEqual(diagnostic, { outcome: 'empty', reason: 'empty_model_response', field: 'none', candidateFields: [], count: 0 });
+});
