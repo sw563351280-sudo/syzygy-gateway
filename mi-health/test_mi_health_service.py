@@ -23,7 +23,7 @@ class MiHealthServiceTest(unittest.TestCase):
         self.assertEqual(result, {"score": 90})
 
     def test_api_base_is_limited_to_known_xiaomi_endpoints(self):
-        self.assertEqual(validate_api_base("https://ru.hlth.io.mi.com/"), "https://ru.hlth.io.mi.com")
+        self.assertEqual(validate_api_base("https://sg.hlth.io.mi.com/"), "https://sg.hlth.io.mi.com")
         with self.assertRaises(ConfigError):
             validate_api_base("https://example.com")
 

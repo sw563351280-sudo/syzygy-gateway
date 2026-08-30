@@ -10,7 +10,7 @@ class CheckAccessTest(unittest.TestCase):
             uid("invalid")
 
     def test_api_base_requires_known_xiaomi_endpoint(self):
-        self.assertEqual(api_base("https://ru.hlth.io.mi.com/"), "https://ru.hlth.io.mi.com")
+        self.assertEqual(api_base("https://sg.hlth.io.mi.com/"), "https://sg.hlth.io.mi.com")
         with self.assertRaises(Exception):
             api_base("https://example.com")
 

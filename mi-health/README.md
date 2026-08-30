@@ -23,8 +23,8 @@ MI_HEALTH_RELATIVE_UID=你的大号亲友UID
 MI_HEALTH_SERVICE_TOKEN=替换为至少32位随机字符串
 MI_HEALTH_BIND_HOST=127.0.0.1
 MI_HEALTH_PORT=8091
-# Default is https://hlth.io.mi.com. If the VPS cannot reach it but can reach
-# the alternate endpoint, set: MI_HEALTH_API_BASE=https://ru.hlth.io.mi.com
+# Default is https://hlth.io.mi.com. Set the endpoint matching your account
+# data center when needed, for example: MI_HEALTH_API_BASE=https://sg.hlth.io.mi.com
 ```
 
 登录时，用运行服务的同一用户执行以下命令；先在 App 中完成“小号为大号亲友”并明确授权睡眠、心率、步数。二维码与 token 都是敏感凭证。
@@ -39,7 +39,7 @@ set +a
 若要先检查 VPS 能否读取数据（不输出健康详情），可执行：
 
 ```bash
-/opt/syzygy/mi-health/.venv/bin/python /opt/syzygy/mi-health/check_access.py --uid 你的小米UID --api-base https://ru.hlth.io.mi.com
+/opt/syzygy/mi-health/.venv/bin/python /opt/syzygy/mi-health/check_access.py --uid 你的小米UID --api-base https://sg.hlth.io.mi.com
 ```
 
 安装 systemd 单元后启动：

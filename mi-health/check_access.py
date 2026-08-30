@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 from zoneinfo import ZoneInfo
 
-ALLOWED_API_BASES = {"https://hlth.io.mi.com", "https://ru.hlth.io.mi.com"}
+ALLOWED_API_BASES = {"https://hlth.io.mi.com", "https://ru.hlth.io.mi.com", "https://sg.hlth.io.mi.com"}
 
 
 def uid(value: str) -> int:

@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 ALLOWED_TYPES = {"all", "sleep", "heart_rate", "steps"}
-ALLOWED_API_BASES = {"https://hlth.io.mi.com", "https://ru.hlth.io.mi.com"}
+ALLOWED_API_BASES = {"https://hlth.io.mi.com", "https://ru.hlth.io.mi.com", "https://sg.hlth.io.mi.com"}
 SENSITIVE_KEYS = {"token", "cookie", "cookies", "password", "user_id", "uid", "relative_uid", "raw_response"}
 
 
