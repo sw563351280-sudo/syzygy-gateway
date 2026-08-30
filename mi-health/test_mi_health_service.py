@@ -1,4 +1,5 @@
 import dataclasses
+import datetime as dt
 import unittest
 
 from mi_health_service import to_safe_json, validate_date
@@ -13,7 +14,7 @@ class Sample:
 
 class MiHealthServiceTest(unittest.TestCase):
     def test_validate_date_rejects_invalid_calendar_day(self):
-        self.assertEqual(validate_date("2026-08-30"), "2026-08-30")
+        self.assertEqual(validate_date("2026-08-30"), dt.date(2026, 8, 30))
         with self.assertRaises(ValueError):
             validate_date("2026-02-30")
 

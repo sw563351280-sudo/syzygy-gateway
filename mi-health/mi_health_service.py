@@ -56,9 +56,9 @@ def assert_ready(config: dict[str, Any]) -> None:
         raise ConfigError("Xiaomi token file must not be accessible by group or others")
 
 
-def validate_date(value: str) -> str:
+def validate_date(value: str) -> dt.date:
     try:
-        return dt.date.fromisoformat(value).isoformat()
+        return dt.date.fromisoformat(value)
     except (TypeError, ValueError) as error:
         raise ValueError("date must be YYYY-MM-DD") from error
 
@@ -82,7 +82,7 @@ def to_safe_json(value: Any) -> Any:
     return str(value)
 
 
-async def query_health(config: dict[str, Any], date: str, requested_type: str) -> dict[str, Any]:
+async def query_health(config: dict[str, Any], date: dt.date, requested_type: str) -> dict[str, Any]:
     try:
         from mi_fitness import MiHealthClient
     except ImportError as error:
@@ -150,7 +150,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             if requested_type not in ALLOWED_TYPES:
                 raise ValueError("invalid type")
             data = asyncio.run(query_health(config, date, requested_type))
-            self.send_json(HTTPStatus.OK, {"ok": True, "date": date, "data": data})
+            self.send_json(HTTPStatus.OK, {"ok": True, "date": date.isoformat(), "data": data})
         except ValueError as error:
             self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(error)})
         except Exception as error:
