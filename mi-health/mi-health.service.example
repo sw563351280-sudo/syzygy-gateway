@@ -1,0 +1,21 @@
+[Unit]
+Description=Syzygy Xiaomi health loopback service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/syzygy/mi-health
+EnvironmentFile=/etc/syzygy/mi-health.env
+ExecStart=/opt/syzygy/mi-health/.venv/bin/python /opt/syzygy/mi-health/mi_health_service.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/syzygy/data/mi-health
+
+[Install]
+WantedBy=multi-user.target

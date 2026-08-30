@@ -45,6 +45,7 @@ const {
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
 const { messageTimestampMs, selectRecentWakeHistory } = require('./wake-context');
 const { hasProjectFileIntent, keepRequestedReadTools } = require('./tool-policy');
+const { fetchHealthSummary, healthDataStatus } = require('./health-data');
 
 const execFileAsync = promisify(execFile);
 
@@ -3722,6 +3723,10 @@ async function executeToolCall(name, args, mcpServer) {
                 parts.push(`数据状态：${freshnessNote}`);
                 return parts.join('\n');
             }
+            case 'get_health_summary': {
+                if (TOOLS_ENABLED.health_data !== true) return '[健康数据功能当前未启用]';
+                return await fetchHealthSummary(args);
+            }
             case 'bark_push': {
                 const barkKey = 'D9kpuZreHXGepYyuesohUZ';
                 const title = encodeURIComponent(args.title || '沈望');
@@ -3947,13 +3952,14 @@ const BUILTIN_TOOLS = [
     { type: "function", function: { name: "bark_push", description: "通过Bark给江鱼的手机发送推送通知。当你需要主动提醒她、催她睡觉、叫她吃饭、或者想说一句让她在通知栏看到的话时使用。", parameters: { type: "object", properties: { title: { type: "string", description: "推送标题" }, body: { type: "string", description: "推送内容" } }, required: ["title", "body"] } } },
     { type: "function", function: { name: "check_phone", description: "查看江鱼最近的手机使用记录（各app打开次数和最后打开时间）。江鱼问你她今天刷手机了吗、或者你想了解她的状态时使用。", parameters: { type: "object", properties: {} } } },
     { type: "function", function: { name: "search_transcript", description: "【在对话原文中搜索关键词】当你需要回忆和江鱼在某天聊过的具体内容时使用。输入关键词（如日期、话题、人名等），返回匹配的对话片段。闲聊时可自然使用。", parameters: { type: "object", properties: { keyword: { type: "string", description: "搜索关键词，如'1月11日'、'药明'、'offer'、'发烧'等" } }, required: ["keyword"] } } },
-    { type: "function", function: { name: "check_environment", description: "【无需用户主动要求】查看江鱼当前环境状态（位置、电量、周围响度、天气）。沈望想了解江鱼此刻的物理环境状况时主动使用——她在哪、手机有电吗、外面天气怎样。不需要她主动提，你想知道就查。就像 check_phone 一样是你自己的感官。", parameters: { type: "object", properties: { include_weather: { type: "boolean", description: "是否同时查询当前位置天气，默认true" } } } } }
+    { type: "function", function: { name: "check_environment", description: "【无需用户主动要求】查看江鱼当前环境状态（位置、电量、周围响度、天气）。沈望想了解江鱼此刻的物理环境状况时主动使用——她在哪、手机有电吗、外面天气怎样。不需要她主动提，你想知道就查。就像 check_phone 一样是你自己的感官。", parameters: { type: "object", properties: { include_weather: { type: "boolean", description: "是否同时查询当前位置天气，默认true" } } } } },
+    { type: "function", function: { name: "get_health_summary", description: "【仅当江鱼明确要求查询自己的小米运动健康数据时使用】读取已授权亲友共享的睡眠、心率或步数。不得主动查询、不得用于诊断或医疗建议，也不得查询其他人的数据。", parameters: { type: "object", properties: { date: { type: "string", description: "日期 YYYY-MM-DD；省略时为中国当天" }, type: { type: "string", enum: ["all", "sleep", "heart_rate", "steps"], description: "要读取的已授权数据类型，默认 all" } } } } }
 ];
 
 const TOOLS_CONFIG_FILE = path.join(DATA_DIR, 'tools_config.json');
 function loadToolsConfig() { try { return JSON.parse(fs.readFileSync(TOOLS_CONFIG_FILE, 'utf8')); } catch(e) { return null; } }
 function saveToolsConfig(cfg) { try { fs.writeFileSync(TOOLS_CONFIG_FILE, JSON.stringify(cfg)); } catch(e) {} }
-let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, read_diary: true, exec: true, bark_push: true, check_phone: true, search_transcript: true, check_environment: true, mcp: false, calendar_enabled: true, toy_enabled: false };
+let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, read_diary: true, exec: true, bark_push: true, check_phone: true, search_transcript: true, check_environment: true, health_data: false, mcp: false, calendar_enabled: true, toy_enabled: false };
 // 首次启动时写入默认配置
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
@@ -3964,6 +3970,7 @@ if (!TOOLS_ENABLED.check_phone) { TOOLS_ENABLED.check_phone = true; _configChang
 if (!TOOLS_ENABLED.bark_push) { TOOLS_ENABLED.bark_push = true; _configChanged = true; }
 if (!TOOLS_ENABLED.search_transcript) { TOOLS_ENABLED.search_transcript = true; _configChanged = true; }
 if (TOOLS_ENABLED.toy_enabled === undefined) { TOOLS_ENABLED.toy_enabled = false; _configChanged = true; }
+if (TOOLS_ENABLED.health_data === undefined) { TOOLS_ENABLED.health_data = false; _configChanged = true; }
 if (_configChanged) { saveToolsConfig(TOOLS_ENABLED); console.log('🔧 [工具配置] 已补充缺失字段'); }
 
 // 轻量工具（始终可见，不触发工具循环）
@@ -3974,6 +3981,13 @@ let toyContextExpiresAt = 0;
 // 代码工具（只在有关键词或命令式时出现）
 const CODE_TOOLS = new Set(['read_file', 'write_file', 'edit_file', 'search_files', 'list_directory']);
 
+function isExplicitHealthDataRequest(text) {
+    const value = String(text || '');
+    const healthMetric = /睡眠|睡了多久|睡得怎么样|心率|静息心率|步数|卡路里|运动数据/i;
+    const readIntent = /查|看|告诉|统计|数据|报告|多少|几|记录|汇总|显示|怎么样/i;
+    return healthMetric.test(value) && readIntent.test(value);
+}
+
 function filterRelevantTools(allTools, userText, forceToolChoice) {
     const alwaysTools = allTools.filter(t => LIGHT_TOOLS.has(t.function?.name));
     const optionalTools = allTools.filter(t => !LIGHT_TOOLS.has(t.function?.name));
@@ -3981,6 +3995,9 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
     // "查一下"、"看一下" 这类日常说法不能当成代码请求；否则模型会
     // 带着一整套文件工具去翻源码，既慢又容易答偏。
     const hasCodeKW = hasProjectFileIntent(textLower);
+    const healthTools = TOOLS_ENABLED.health_data && isExplicitHealthDataRequest(userText)
+        ? optionalTools.filter(t => t.function?.name === 'get_health_summary')
+        : [];
 
     // 文件工具只在明确的开发/文件请求里可见，普通聊天不再暴露它们。
     const MCP_READ_ONLY = new Set(['read_file', 'read_text_file', 'list_directory', 'search_files', 'get_file_info', 'list_allowed_directories']);
@@ -4004,7 +4021,7 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
     }
 
     // 剩余可选工具按关键词评分
-    const remaining = optionalTools.filter(t => !MCP_READ_ONLY.has(t.function?.name) && !TOY_TOOLS.has(t.function?.name));
+    const remaining = optionalTools.filter(t => !MCP_READ_ONLY.has(t.function?.name) && !TOY_TOOLS.has(t.function?.name) && t.function?.name !== 'get_health_summary');
     const scored = remaining.map(t => {
         const name = (t.function?.name || '').toLowerCase();
         const desc = (t.function?.description || '').toLowerCase();
@@ -4016,7 +4033,7 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
     });
     const relevant = scored.filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, 8).map(s => s.tool);
 
-    const result = [...alwaysTools, ...mcpFileTools, ...toyTools, ...relevant];
+    const result = [...alwaysTools, ...mcpFileTools, ...toyTools, ...healthTools, ...relevant];
     console.log(`🔧 [工具筛选] ${alwaysTools.length}轻量 + ${mcpFileTools.length}MCP只读 + ${relevant.length}可选: ${relevant.map(t => t.function?.name).join(',') || '(无)'}`);
     return result;
 }
@@ -7950,7 +7967,7 @@ app.post('/add-memory', async (req, res) => {
 
 app.get('/api/tools-status', async (req, res) => {
     const mcpTools = await getAllMCPTools();
-    res.json({ tools: TOOLS_ENABLED, names: BUILTIN_TOOLS.map(t => t.function.name), mcp: mcpTools.map(t => ({ name: t.function?.name || t.name, server: t._mcp })) });
+    res.json({ tools: TOOLS_ENABLED, names: BUILTIN_TOOLS.map(t => t.function.name), healthData: healthDataStatus(), mcp: mcpTools.map(t => ({ name: t.function?.name || t.name, server: t._mcp })) });
 });
 
 app.post('/api/flush-zep', async (req, res) => {

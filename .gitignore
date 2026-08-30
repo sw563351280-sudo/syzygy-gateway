@@ -13,6 +13,12 @@ pub
 model_prompts_new.json
 .sensor_token
 
+# Xiaomi health integration: account tokens and local systemd environment files
+data/mi-health/
+mi-health/.venv/
+mi-health/__pycache__/
+mi-health/*.pyc
+
 # Python 虚拟环境
 .venv/
 __pycache__/
