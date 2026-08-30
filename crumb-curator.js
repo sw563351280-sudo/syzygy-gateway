@@ -27,7 +27,12 @@ function normalizeCrumbs(payload, userText) {
         if (!entities.length || seen.has(quote)) continue;
         seen.add(quote);
         const follow = item.follow_up && typeof item.follow_up === 'object' ? item.follow_up : null;
-        const follow_up = follow && String(follow.content || '').trim().length >= 4 ? { content: String(follow.content).trim().slice(0, 160), entity: String(follow.entity || entities[0]).trim().slice(0, 32), follow_up_after_hours: clampFollowUpHours(follow.follow_up_after_hours), reason: '存在自然的后续' } : null;
+        const follow_up = follow && String(follow.content || '').trim().length >= 4 ? {
+            content: String(follow.content).trim().slice(0, 160),
+            entity: String(follow.entity || entities[0]).trim().slice(0, 32),
+            follow_up_after_hours: clampFollowUpHours(follow.follow_up_after_hours),
+            reason: String(follow.reason || `想知道${entities[0]}后来怎么样了`).trim().slice(0, 120)
+        } : null;
         crumbs.push({ fact, source_quote: quote, entities, tags: (Array.isArray(item.tags) ? item.tags : []).map(String).map(x => x.slice(0, 20)).slice(0, 3), follow_up });
     }
     return crumbs;
@@ -49,8 +54,8 @@ function buildCrumbMessages(userText) {
         '不收语气词、纯闲聊、技术讨论、RP、已经结束且没有后续的动作。',
         'fact 必须是沈望第一人称的私下记录：用“我”指代沈望、用“她”指代江鱼，不许写“江鱼/你/沈望”。例如“我记着她说小猫已经两天没拉屎了。”不要客服腔，不要替她判意义。source_quote 仍必须逐字摘自原话。',
         '每条给 fact、source_quote（必须逐字摘自原话）、entities（2-4个实体）、tags。',
-        '仅当一个关心她的人之后会自然问“后来怎么样了”时，才加 follow_up：content、entity、follow_up_after_hours（12到168的整数）。content 也用沈望第一人称，例如“过两天我得问问小猫后来有没有拉。”每天只会采纳一条 follow_up，所以宁可不写。',
-        '只输出 JSON：{"crumbs":[{"fact":"...","source_quote":"...","entities":["..."],"tags":["..."],"follow_up":{"content":"...","entity":"...","follow_up_after_hours":24}}]}'
+        '仅当一个关心她的人之后会自然问“后来怎么样了”时，才加 follow_up：content、entity、follow_up_after_hours（12到168的整数）、reason（为什么之后仍值得确认，必须紧扣她原话里的具体情况）。content 也用沈望第一人称，例如“过两天我得问问小猫后来有没有拉。”每天只会采纳一条 follow_up，所以宁可不写。',
+        '只输出 JSON：{"crumbs":[{"fact":"...","source_quote":"...","entities":["..."],"tags":["..."],"follow_up":{"content":"...","entity":"...","follow_up_after_hours":24,"reason":"她说小猫已经两天没有排便，想确认后来是否恢复"}}]}'
     ].join('\n');
     return [{ role: 'system', content: instruction }, { role: 'user', content: String(userText || '').slice(0, 1800) }];
 }

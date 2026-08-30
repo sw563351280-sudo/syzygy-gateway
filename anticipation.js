@@ -40,7 +40,14 @@ function extractAnticipationTags(text, now = new Date()) {
         const attrs = {};
         String(attributes).replace(/([a-z_]+)=["']([^"']+)["']/gi, (_, key, value) => { attrs[key.toLowerCase()] = value.trim(); return ''; });
         const question = String(content || '').trim().slice(0, 160); const entity = String(attrs.entity || '').trim().slice(0, 32);
-        if (question.length >= 4 && entity) items.push({ content: question, entity, due_at: parseDue(attrs.due || attrs.after, now).toISOString(), created_from: 'shen_manual' });
+        if (question.length >= 4 && entity) items.push({
+            content: question,
+            entity,
+            context: String(attrs.context || '').trim().slice(0, 240),
+            reason: String(attrs.reason || '').trim().slice(0, 120),
+            due_at: parseDue(attrs.due || attrs.after, now).toISOString(),
+            created_from: 'shen_manual'
+        });
         return '';
     }).trim();
     return { cleanText, items: items.slice(0, 2) };
@@ -53,6 +60,22 @@ function isDue(item, now = new Date()) {
 }
 function makeAnticipation(input, now = new Date()) {
     const due = input.due_at ? nextCareWindow(input.due_at) : dueFromHours(now, input.follow_up_after_hours);
-    return { id: input.id || `ant_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, source_crumb_id: input.source_crumb_id || null, content: String(input.content || '').trim().slice(0, 160), entity: String(input.entity || '').trim().slice(0, 32), reason: String(input.reason || '存在自然的后续').slice(0, 80), due_at: due.toISOString(), status: 'open', attempts: 0, max_attempts: MAX_ATTEMPTS, created_from: input.created_from || 'auto', created_at: new Date(now).toISOString(), last_asked_at: null, expires_at: new Date(due.getTime() + 7 * 86400000).toISOString() };
+    return {
+        id: input.id || `ant_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+        source_crumb_id: input.source_crumb_id || null,
+        content: String(input.content || '').trim().slice(0, 160),
+        entity: String(input.entity || '').trim().slice(0, 32),
+        context: String(input.context || '').trim().slice(0, 240),
+        source_quote: String(input.source_quote || '').trim().slice(0, 240),
+        reason: String(input.reason || '存在自然的后续').trim().slice(0, 120),
+        due_at: due.toISOString(),
+        status: 'open',
+        attempts: 0,
+        max_attempts: MAX_ATTEMPTS,
+        created_from: input.created_from || 'auto',
+        created_at: new Date(now).toISOString(),
+        last_asked_at: null,
+        expires_at: new Date(due.getTime() + 7 * 86400000).toISOString()
+    };
 }
 module.exports = { clampFollowUpHours, dueFromHours, extractAnticipationTags, isDue, makeAnticipation, nextCareWindow, parseDue };
