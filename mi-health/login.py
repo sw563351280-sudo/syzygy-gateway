@@ -8,7 +8,13 @@ from pathlib import Path
 
 
 async def main() -> None:
+    # mi-fitness uses loguru and its debug/info logs can contain account IDs
+    # or credential fragments during QR login.  This helper must not echo them
+    # into a terminal transcript.
+    from loguru import logger
     from mi_fitness import XiaomiAuth
+
+    logger.disable("mi_fitness")
 
     target = Path(os.environ.get("MI_HEALTH_TOKEN_FILE", "/opt/syzygy/data/mi-health/token.json"))
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
