@@ -16,6 +16,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 ALLOWED_TYPES = {"all", "sleep", "heart_rate", "steps"}
+ALLOWED_API_BASES = {"https://hlth.io.mi.com", "https://ru.hlth.io.mi.com"}
 SENSITIVE_KEYS = {"token", "cookie", "cookies", "password", "user_id", "uid", "relative_uid", "raw_response"}
 
 
@@ -27,6 +28,13 @@ def env_flag(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() == "true"
 
 
+def validate_api_base(value: str) -> str:
+    normalized = value.strip().rstrip("/")
+    if normalized not in ALLOWED_API_BASES:
+        raise ConfigError("MI_HEALTH_API_BASE is not an allowed Xiaomi health endpoint")
+    return normalized
+
+
 def get_config() -> dict[str, Any]:
     token_file = Path(os.environ.get("MI_HEALTH_TOKEN_FILE", "/opt/syzygy/data/mi-health/token.json"))
     config = {
@@ -36,6 +44,7 @@ def get_config() -> dict[str, Any]:
         "service_token": os.environ.get("MI_HEALTH_SERVICE_TOKEN", ""),
         "host": os.environ.get("MI_HEALTH_BIND_HOST", "127.0.0.1"),
         "port": int(os.environ.get("MI_HEALTH_PORT", "8091")),
+        "api_base": validate_api_base(os.environ.get("MI_HEALTH_API_BASE", "https://hlth.io.mi.com")),
     }
     if config["host"] not in {"127.0.0.1", "::1", "localhost"}:
         raise ConfigError("MI_HEALTH_BIND_HOST must be loopback only")
@@ -88,7 +97,7 @@ async def query_health(config: dict[str, Any], date: dt.date, requested_type: st
     except ImportError as error:
         raise RuntimeError("mi-fitness is not installed") from error
 
-    async with MiHealthClient.from_token(str(config["token_file"])) as client:
+    async with MiHealthClient.from_token(str(config["token_file"]), base_url=config["api_base"]) as client:
         uid = config["relative_uid"]
         operations = {
             "sleep": client.get_sleep(uid, date),

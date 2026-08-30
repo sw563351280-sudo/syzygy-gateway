@@ -2,7 +2,7 @@ import dataclasses
 import datetime as dt
 import unittest
 
-from mi_health_service import to_safe_json, validate_date
+from mi_health_service import ConfigError, to_safe_json, validate_api_base, validate_date
 
 
 @dataclasses.dataclass
@@ -21,6 +21,11 @@ class MiHealthServiceTest(unittest.TestCase):
     def test_safe_json_removes_identity_and_credentials(self):
         result = to_safe_json(Sample(score=90, uid="account-id", token="secret"))
         self.assertEqual(result, {"score": 90})
+
+    def test_api_base_is_limited_to_known_xiaomi_endpoints(self):
+        self.assertEqual(validate_api_base("https://ru.hlth.io.mi.com/"), "https://ru.hlth.io.mi.com")
+        with self.assertRaises(ConfigError):
+            validate_api_base("https://example.com")
 
 
 if __name__ == "__main__":
