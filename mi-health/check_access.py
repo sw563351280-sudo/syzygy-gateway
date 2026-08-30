@@ -25,6 +25,16 @@ def api_base(value: str) -> str:
     return normalized
 
 
+def safe_error_label(error: Exception) -> str:
+    """Expose only numeric protocol metadata, never response bodies or credentials."""
+    parts = [f"CHECK_FAILED {type(error).__name__}"]
+    for attribute in ("code", "status_code"):
+        value = getattr(error, attribute, None)
+        if isinstance(value, (int, float)):
+            parts.append(f"{attribute}={value}")
+    return " ".join(parts)
+
+
 async def check_access(user_id: int, token_file: Path, base_url: str) -> None:
     from loguru import logger
     from mi_fitness import MiHealthClient
@@ -53,7 +63,7 @@ def main() -> int:
         print("CHECK_TIMEOUT")
         return 2
     except Exception as error:
-        print(f"CHECK_FAILED {type(error).__name__}")
+        print(safe_error_label(error))
         return 1
     return 0
 

@@ -1,6 +1,6 @@
 import unittest
 
-from check_access import api_base, uid
+from check_access import api_base, safe_error_label, uid
 
 
 class CheckAccessTest(unittest.TestCase):
@@ -13,6 +13,12 @@ class CheckAccessTest(unittest.TestCase):
         self.assertEqual(api_base("https://ru.hlth.io.mi.com/"), "https://ru.hlth.io.mi.com")
         with self.assertRaises(Exception):
             api_base("https://example.com")
+
+    def test_error_label_omits_exception_message(self):
+        error = RuntimeError("credential=do-not-display")
+        error.code = -4002001
+        error.status_code = 200
+        self.assertEqual(safe_error_label(error), "CHECK_FAILED RuntimeError code=-4002001 status_code=200")
 
 
 if __name__ == "__main__":
