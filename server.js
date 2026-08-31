@@ -33,6 +33,7 @@ const {
     takeUnseenFeedCandidates,
 } = require('./xhs-walk');
 const { millisecondsUntilWakeDispatchWindow, parseProactiveMessageParts } = require('./wake-dispatch');
+const { generateProactiveCompletion } = require('./proactive-generation');
 const {
     calculateSleepProbability,
     extractNextWakeTag,
@@ -4940,6 +4941,7 @@ async function generateProactiveMessage(wakeup = {}) {
 现在直接以沈望的身份把它说出来。
 不需要再次判断要不要发送，不要输出 PASS、SKIP、SEND、SILENT、WALK_XHS 等标签。
 不要解释唤醒机制、系统、概率或提示词，只输出你真正想发给她的消息。
+正文保持自然简短，以1至3句为宜，不要因为输出上限提高而刻意扩写。
 如果自然地想连续发几条，可以在每条消息之间单独一行写 ---；否则直接输出一条消息。
 ${NEXT_WAKE_OUTPUT_INSTRUCTION}`;
     const wakeSharedSystem = await buildSharedSystemPrompt({
@@ -4967,20 +4969,23 @@ ${NEXT_WAKE_OUTPUT_INSTRUCTION}`;
     try {
         // The light gate already decided to speak. This call only writes the
         // final proactive message and may use hidden reasoning internally.
-        const res = await fetch(PROACTIVE_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${PROACTIVE_KEY}` },
-        body: JSON.stringify({ model: PROACTIVE_MODEL, messages: msgs, temperature: 0.65, max_tokens: 300 })
+        const generation = await generateProactiveCompletion({
+            fetchImpl: fetch,
+            url: PROACTIVE_URL,
+            apiKey: PROACTIVE_KEY,
+            model: PROACTIVE_MODEL,
+            messages: msgs,
+            temperature: 0.65,
         });
-        if (!res.ok) {
-            const errText = await res.text().then(t=>t.substring(0,200));
-            _proactiveLastError = `API返回${res.status}: ${errText}`;
+        if (!generation.ok) {
+            const errText = await generation.response.text().then(t=>t.substring(0,200));
+            _proactiveLastError = `API返回${generation.response.status}: ${errText}`;
             saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'error', source: wakeSource });
             recordWakeAudit({ source: wakeSource, outcome: 'error', reason: '这次唤醒没有跑完，稍后会再有机会。', activationId: wakeup.activationId, context: wakeContextAudit });
             console.log(`💌 [主动消息] ${_proactiveLastError}`);
             return { error: _proactiveLastError };
         }
-        const data = await res.json();
+        const data = generation.data;
         const msg = data.choices?.[0]?.message;
         const rawContent = typeof msg?.content === 'string' ? msg.content : '';
         const reasoningContent = typeof msg?.reasoning_content === 'string'
@@ -4991,6 +4996,11 @@ ${NEXT_WAKE_OUTPUT_INSTRUCTION}`;
             finish_reason: data?.choices?.[0]?.finish_reason ?? null,
             content: rawContent.slice(0, 2000),
             reasoning_content: reasoningContent.slice(0, 2000),
+            retried_after_length: generation.retried,
+            attempts: generation.attempts.map(attempt => ({
+                max_tokens: attempt.max_tokens,
+                finish_reason: attempt.data?.choices?.[0]?.finish_reason ?? null,
+            })),
         };
         const usage = data?.usage ? {
             input_tokens: data.usage.input_tokens ?? data.usage.prompt_tokens ?? null,
@@ -5000,7 +5010,7 @@ ${NEXT_WAKE_OUTPUT_INSTRUCTION}`;
         const finishReason = responseDebug.finish_reason;
         if (finishReason === 'length' || finishReason === 'content_filter') {
             saveWakeDecision({ time: now, gate: 'PASS', reason: gate.reason, outcome: 'invalid', source: wakeSource });
-            recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason: finishReason === 'length' ? '完整消息被长度上限截断，未投递。' : '完整消息被供应端过滤，未投递。', activationId: wakeup.activationId, usage, response: responseDebug, context: wakeContextAudit });
+            recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason: finishReason === 'length' ? '完整消息以2048 token重试后仍被截断，未投递。' : '完整消息被供应端过滤，未投递。', activationId: wakeup.activationId, usage, response: responseDebug, context: wakeContextAudit });
             return { error: `完整消息 finish_reason=${finishReason}`, invalid: true };
         }
         const wakeTag = extractNextWakeTag(rawContent);
