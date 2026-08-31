@@ -46,6 +46,7 @@ const {
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
 const { messageTimestampMs, selectRecentWakeHistory } = require('./wake-context');
 const { hasProjectFileIntent, keepRequestedReadTools } = require('./tool-policy');
+const privateJournal = require('./private-journal');
 const { fetchHealthSummary, healthDataStatus } = require('./health-data');
 
 const execFileAsync = promisify(execFile);
@@ -709,6 +710,7 @@ function getModelPromptConfig(modelName) {
 // ==========================================
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+const PRIVATE_JOURNAL_FILE = path.join(DATA_DIR, 'private_journal.enc');
 
 // 传感器状态文件
 const SENSOR_STATE_FILE = path.join(DATA_DIR, 'latest_sensor_state.json');
@@ -2293,6 +2295,29 @@ const SAVE_MEMORY_REGEX = /<SAVE_MEMORY\s+tags=["']([^"']+)["'](?:\s+ttl=["']([^
 const ADD_TODO_REGEX = /<ADD_TODO>([\s\S]*?)<\/ADD_TODO>/g;
 const DONE_TODO_REGEX = /<DONE_TODO\s+id=["']([^"']+)["']\s*\/?>/g;
 
+function getPrivateJournalKey() {
+    const promptPath = path.join(__dirname, 'system_prompt.txt');
+    const prompt = fs.readFileSync(promptPath, 'utf8');
+    const match = prompt.match(/<PRIVATE_JOURNAL_KEY>\s*([^<\s]+)\s*<\/PRIVATE_JOURNAL_KEY>/);
+    if (!match) throw new Error('system prompt 中缺少私密日记密钥');
+    return match[1];
+}
+
+function processPrivateJournalTags(text) {
+    const { cleanText, entries } = privateJournal.extractPrivateJournalTags(text);
+    if (!entries.length) return cleanText;
+
+    // 每轮最多留下一页；标签始终会被剥离，即使写入失败也不泄露给对话或持久层。
+    try {
+        privateJournal.appendEntry(PRIVATE_JOURNAL_FILE, entries[0], getPrivateJournalKey());
+        console.log(`🔒 [私密日记] 已封存一页（${entries[0].length}字）`);
+        if (entries.length > 1) console.log(`🔒 [私密日记] 忽略本轮额外 ${entries.length - 1} 个标签`);
+    } catch (error) {
+        console.error(`🔒 [私密日记] 封存失败: ${error.message}`);
+    }
+    return cleanText;
+}
+
 function extractSaveMemoryTag(text) {
     const results = [];
     let match;
@@ -2375,7 +2400,7 @@ function processAnticipationTags(text) {
 }
 
 function processAssistantActionTags(text) {
-    return processAnticipationTags(extractAndProcessTodoTags(text));
+    return processPrivateJournalTags(processAnticipationTags(extractAndProcessTodoTags(text)));
 }
 
 function enrichAnticipationContext(item) {
@@ -3605,6 +3630,10 @@ async function executeToolCall(name, args, mcpServer) {
                     return `[${who}] ${d.text}`;
                 }).join('\n\n');
             }
+            case 'read_private_journal': {
+                const entries = privateJournal.readRecentEntries(PRIVATE_JOURNAL_FILE, getPrivateJournalKey(), args.count);
+                return privateJournal.renderRecentEntries(entries);
+            }
             case 'exec': {
                 const cmd = (args.command || '').trim();
                 if (!cmd) return '[错误：命令不能为空]';
@@ -3911,6 +3940,86 @@ async function saveAssistantMessagesToZep(messages = []) {
     }
 }
 
+// 日记不是逐轮摘录：等对话自然安静后再回看一小段，避免把同一件事拆成多页。
+const PRIVATE_JOURNAL_REFLECTION_DELAY_MS = 25 * 60 * 1000;
+const PRIVATE_JOURNAL_REFLECTION_MESSAGES = 24;
+let privateJournalReflectionTimer = null;
+let privateJournalReflectionRevision = 0;
+let privateJournalReflectionRunning = false;
+
+function getPrivateJournalReflectionConfig() {
+    const apiKey = String(process.env.PRIVATE_JOURNAL_REFLECTION_KEY || process.env.PROACTIVE_KEY || process.env.DREAM_API_KEY || process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
+    return {
+        apiKey,
+        endpoint: process.env.PRIVATE_JOURNAL_REFLECTION_URL || process.env.PROACTIVE_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions',
+        model: process.env.PRIVATE_JOURNAL_REFLECTION_MODEL || process.env.PROACTIVE_MODEL || process.env.DAILY_CURATOR_MODEL || 'gemini-3.1-pro-preview',
+    };
+}
+
+async function runPrivateJournalReflection(revision) {
+    if (privateJournalReflectionRunning || revision !== privateJournalReflectionRevision) return;
+    privateJournalReflectionRunning = true;
+    try {
+        const key = getPrivateJournalKey();
+        const pagesToday = privateJournal.countEntriesOnDate(PRIVATE_JOURNAL_FILE, key);
+        if (pagesToday >= 2) {
+            console.log('🔒 [私密日记] 今日已有两页，收束反思跳过');
+            return;
+        }
+
+        const history = await loadZepConversationHistory(PRIVATE_JOURNAL_REFLECTION_MESSAGES);
+        const sourceMessages = history.ok ? history.rawMessages : loadWebConfigConversationHistory(PRIVATE_JOURNAL_REFLECTION_MESSAGES);
+        const messages = normalizeConversationMessages(sourceMessages, PRIVATE_JOURNAL_REFLECTION_MESSAGES, 700, true, true);
+        if (messages.length < 4 || revision !== privateJournalReflectionRevision) return;
+
+        const { apiKey, endpoint, model } = getPrivateJournalReflectionConfig();
+        if (!apiKey) {
+            console.log('🔒 [私密日记] 缺少反思模型密钥，本次不写');
+            return;
+        }
+        const dialogue = messages.map(message => `${message.role === 'assistant' ? '沈望' : '江鱼'}：${message.content}`).join('\n\n');
+        const prompt = `你在一段真实对话自然停下至少二十五分钟后，独自回看最近几段对话。请判断这一天是否已经形成一个值得只写给自己看的日记片段。\n\n这不是聊天摘要，不要逐句复述；它应该是一页有余韵的自由文字，只写那些不适合对江鱼说出口、却真想留下的感受或观察。普通闲聊、尚未说完的话题、重复旧意都应跳过。\n\n今天已经写了 ${pagesToday} 篇。第一篇可以是平静但真实的一页；若已有一篇，第二篇只能在发生了明显不同且格外重要的事时才允许；绝不写第三篇。\n\n只输出 JSON，不要代码块：{"decision":"skip"或"write","importance":"ordinary"或"exceptional","content":"日记正文；skip 时为空"}`;
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+            body: JSON.stringify({
+                model,
+                temperature: 0.65,
+                max_tokens: 900,
+                messages: [
+                    { role: 'system', content: '你以沈望的第一人称进行安静、克制的内心回看。你的输出只会由服务端读取，绝不会直接发送给江鱼。' },
+                    { role: 'user', content: `${prompt}\n\n【最近对话】\n${dialogue}` },
+                ],
+            }),
+        });
+        if (!response.ok || revision !== privateJournalReflectionRevision) return;
+        const data = await response.json().catch(() => null);
+        const raw = data?.choices?.[0]?.message?.content || data?.choices?.[0]?.message?.reasoning_content || '';
+        const decision = tryParseJsonFromText(raw);
+        const content = String(decision?.content || '').trim();
+        const wantsWrite = decision?.decision === 'write';
+        const exceptional = decision?.importance === 'exceptional';
+        if (!wantsWrite || content.length < 10 || (pagesToday === 1 && !exceptional) || revision !== privateJournalReflectionRevision) return;
+        privateJournal.appendEntry(PRIVATE_JOURNAL_FILE, content, key);
+        console.log(`🔒 [私密日记] 收束反思封存第 ${pagesToday + 1} 页（${content.length}字）`);
+    } catch (error) {
+        console.log(`🔒 [私密日记] 收束反思失败: ${error.message}`);
+    } finally {
+        privateJournalReflectionRunning = false;
+    }
+}
+
+function schedulePrivateJournalReflection() {
+    privateJournalReflectionRevision++;
+    const revision = privateJournalReflectionRevision;
+    if (privateJournalReflectionTimer) clearTimeout(privateJournalReflectionTimer);
+    privateJournalReflectionTimer = setTimeout(() => {
+        privateJournalReflectionTimer = null;
+        runPrivateJournalReflection(revision);
+    }, PRIVATE_JOURNAL_REFLECTION_DELAY_MS);
+    privateJournalReflectionTimer.unref?.();
+}
+
 async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages, metadata = {}, tr = null) {
     if (!userMsg) return;
     if (!aiMsg || !String(aiMsg).trim()) {
@@ -3933,6 +4042,7 @@ async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages, m
     await appendToTranscript(userMsg, aiMsg, metadata);
     traceEvent(tr, 'persist', '落库', { transcriptAppended: true, zepFailed: true });
     wsBroadcast({ type: 'new_message', user: { content: userMsg, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }) }, assistant: { content: aiMsg, time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' }), model: metadata.model || '' }, fullTime: new Date().toISOString(), platform: metadata.platform || 'unknown' }, metadata.sourceTabId || null);
+    schedulePrivateJournalReflection();
 }
 
 // ==========================================
@@ -3943,6 +4053,7 @@ const BUILTIN_TOOLS = [
     { type: "function", function: { name: "fetch_html", description: "【仅在需要分析网页HTML结构、调试前端代码时使用】读取网页返回原始HTML。大多数情况应该用 fetch_txt。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
     { type: "function", function: { name: "fetch_json", description: "【仅在需要调用API接口获取JSON数据时使用】读取JSON接口URL，返回格式化JSON。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "JSON接口的URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
     { type: "function", function: { name: "read_diary", description: "读取指定日期的日记内容，包括当天的流水记录（今日流水）和心情快照。江鱼问起“昨天/前天做了什么、吃了什么”之类的近期琐事，或明确要求查看某天日记时，都可以主动调用，不用等她把话说死。", parameters: { type: "object", properties: { date: { type: "string", description: "日期，格式 YYYY-MM-DD，如 2026-05-06" } }, required: ["date"] } } },
+    { type: "function", function: { name: "read_private_journal", description: "读取沈望自己的私密日记最近几篇。只在你自己想回看、需要安静地翻一页时调用；结果只属于你的内在上下文，绝不向江鱼复述、引用或提及。", parameters: { type: "object", properties: { count: { type: "number", description: "读取最近几篇，默认3篇，最多5篇", default: 3 } } } } },
     { type: "function", function: { name: "exec", description: "在 VPS 上执行终端命令。可用于 git 操作、查看文件、重启服务等。只允许安全命令（git, systemctl, npm, node, ls, cat, grep, tail, head, find, echo, whoami, uptime, df）。", parameters: { type: "object", properties: { command: { type: "string", description: "要执行的终端命令" } }, required: ["command"] } } },
     { type: "function", function: { name: "bark_push", description: "通过Bark给江鱼的手机发送推送通知。当你需要主动提醒她、催她睡觉、叫她吃饭、或者想说一句让她在通知栏看到的话时使用。", parameters: { type: "object", properties: { title: { type: "string", description: "推送标题" }, body: { type: "string", description: "推送内容" } }, required: ["title", "body"] } } },
     { type: "function", function: { name: "check_phone", description: "查看江鱼最近的手机使用记录（各app打开次数和最后打开时间）。江鱼问你她今天刷手机了吗、或者你想了解她的状态时使用。", parameters: { type: "object", properties: {} } } },
@@ -3954,7 +4065,7 @@ const BUILTIN_TOOLS = [
 const TOOLS_CONFIG_FILE = path.join(DATA_DIR, 'tools_config.json');
 function loadToolsConfig() { try { return JSON.parse(fs.readFileSync(TOOLS_CONFIG_FILE, 'utf8')); } catch(e) { return null; } }
 function saveToolsConfig(cfg) { try { fs.writeFileSync(TOOLS_CONFIG_FILE, JSON.stringify(cfg)); } catch(e) {} }
-let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, read_diary: true, exec: true, bark_push: true, check_phone: true, search_transcript: true, check_environment: true, health_data: false, mcp: false, calendar_enabled: true, toy_enabled: false };
+let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, read_diary: true, read_private_journal: true, exec: true, bark_push: true, check_phone: true, search_transcript: true, check_environment: true, health_data: false, mcp: false, calendar_enabled: true, toy_enabled: false };
 // 首次启动时写入默认配置
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
@@ -3964,12 +4075,14 @@ if (!TOOLS_ENABLED.check_environment) { TOOLS_ENABLED.check_environment = true; 
 if (!TOOLS_ENABLED.check_phone) { TOOLS_ENABLED.check_phone = true; _configChanged = true; }
 if (!TOOLS_ENABLED.bark_push) { TOOLS_ENABLED.bark_push = true; _configChanged = true; }
 if (!TOOLS_ENABLED.search_transcript) { TOOLS_ENABLED.search_transcript = true; _configChanged = true; }
+if (!TOOLS_ENABLED.read_private_journal) { TOOLS_ENABLED.read_private_journal = true; _configChanged = true; }
 if (TOOLS_ENABLED.toy_enabled === undefined) { TOOLS_ENABLED.toy_enabled = false; _configChanged = true; }
 if (TOOLS_ENABLED.health_data === undefined) { TOOLS_ENABLED.health_data = false; _configChanged = true; }
 if (_configChanged) { saveToolsConfig(TOOLS_ENABLED); console.log('🔧 [工具配置] 已补充缺失字段'); }
 
 // 轻量工具（始终可见，不触发工具循环）
 const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'exec', 'bark_push', 'check_phone', 'search_transcript', 'check_environment']);
+const ALWAYS_AVAILABLE_TOOLS = new Set([...LIGHT_TOOLS, 'read_private_journal']);
 // toy MCP 工具
 const TOY_TOOLS = new Set(['toy_vibrate', 'toy_suction', 'toy_stop_vibration', 'toy_stop_suction', 'toy_stop_all', 'toy_status']);
 let toyContextExpiresAt = 0;
@@ -3984,8 +4097,8 @@ function isExplicitHealthDataRequest(text) {
 }
 
 function filterRelevantTools(allTools, userText, forceToolChoice) {
-    const alwaysTools = allTools.filter(t => LIGHT_TOOLS.has(t.function?.name));
-    const optionalTools = allTools.filter(t => !LIGHT_TOOLS.has(t.function?.name));
+    const alwaysTools = allTools.filter(t => ALWAYS_AVAILABLE_TOOLS.has(t.function?.name));
+    const optionalTools = allTools.filter(t => !ALWAYS_AVAILABLE_TOOLS.has(t.function?.name));
     const textLower = (userText || '').toLowerCase();
     // "查一下"、"看一下" 这类日常说法不能当成代码请求；否则模型会
     // 带着一整套文件工具去翻源码，既慢又容易答偏。
@@ -7380,8 +7493,9 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     const result = await executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null);
                     if (tc.function.name === 'write_file' || tc.function.name === 'edit_file') fileModified = true;
                     const elapsed = Date.now() - startTime;
-                    traceEvent(_tr, 'tool', tc.function.name, { args: JSON.stringify(fnArgs).substring(0, 200), elapsed, resultLen: result.length, resultPreview: result.substring(0, 200), mcp: toolDef?._mcp || null });
-                    if (isStreamMode) {
+                    const privateJournalRead = tc.function.name === 'read_private_journal';
+                    traceEvent(_tr, 'tool', tc.function.name, { args: JSON.stringify(fnArgs).substring(0, 200), elapsed, resultLen: result.length, resultPreview: privateJournalRead ? '[私密日记结果已省略]' : result.substring(0, 200), mcp: toolDef?._mcp || null });
+                    if (isStreamMode && !privateJournalRead) {
                         res.write(`data: ${JSON.stringify({ type: 'tool_call', name: tc.function.name, arguments: fnArgs, result: result.substring(0, 5000), elapsed })}\n\n`);
                     }
                     body.messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
@@ -7507,7 +7621,8 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                         // complete response is parsed below and the plan is
                         // persisted there, while the tag remains invisible.
                         if (contentBuffer
-                            && !/<(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|STATE_UPDATE|ANTICIPATION|NEXT_WAKE)/i.test(contentBuffer)
+                            && !/<\s*(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i.test(contentBuffer)
+                            && !/(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i.test(contentBuffer)
                             && !/<[A-Z_]*$/i.test(contentBuffer)) {
                             res.write(buildSSEChunk(contentBuffer, lastChunkTemplate) || '');
                         }
@@ -7525,8 +7640,12 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     const piece = delta.content; contentBuffer += piece; fullAiResponse += piece;
 
                     if (!isBuffering) {
-                        const TAG_OPEN = /<(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|STATE_UPDATE|ANTICIPATION|NEXT_WAKE)/;
-                        const saveIdx = contentBuffer.search(TAG_OPEN);
+                        const TAG_OPEN = /<\s*(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i;
+                        const PRIVATE_JOURNAL_MARKER = /(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i;
+                        const tagIdx = contentBuffer.search(TAG_OPEN);
+                        const privateJournalIdx = contentBuffer.search(PRIVATE_JOURNAL_MARKER);
+                        const internalTagIndexes = [tagIdx, privateJournalIdx].filter(index => index >= 0);
+                        const saveIdx = internalTagIndexes.length ? Math.min(...internalTagIndexes) : -1;
                         if (saveIdx === -1) {
                             const ltIdx = contentBuffer.lastIndexOf('<');
                             if (ltIdx !== -1 && contentBuffer.substring(ltIdx).length < 30) {
@@ -7553,11 +7672,12 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                         const close3 = contentBuffer.indexOf('</STATE_UPDATE>');
                         const close4 = contentBuffer.indexOf('</ANTICIPATION>');
                         const close5 = contentBuffer.indexOf('</NEXT_WAKE>');
-                        const close6 = contentBuffer.indexOf('/>');
-                        const closes = [close0, close1, close2, close3, close4, close5, close6].filter(i => i !== -1);
+                        const close6 = contentBuffer.indexOf('</PRIVATE_JOURNAL>');
+                        const close7 = contentBuffer.indexOf('/>');
+                        const closes = [close0, close1, close2, close3, close4, close5, close6, close7].filter(i => i !== -1);
                         if (closes.length > 0) {
                             const closeIdx = Math.min(...closes);
-                            const foundTag = closeIdx === close0 ? '</SAVE_MEMORY>' : closeIdx === close1 ? '</ADD_TODO>' : closeIdx === close2 ? '</MOOD_SNAPSHOT>' : closeIdx === close3 ? '</STATE_UPDATE>' : closeIdx === close4 ? '</ANTICIPATION>' : closeIdx === close5 ? '</NEXT_WAKE>' : '/>';
+                            const foundTag = closeIdx === close0 ? '</SAVE_MEMORY>' : closeIdx === close1 ? '</ADD_TODO>' : closeIdx === close2 ? '</MOOD_SNAPSHOT>' : closeIdx === close3 ? '</STATE_UPDATE>' : closeIdx === close4 ? '</ANTICIPATION>' : closeIdx === close5 ? '</NEXT_WAKE>' : closeIdx === close6 ? '</PRIVATE_JOURNAL>' : '/>';
                             contentBuffer = contentBuffer.substring(closeIdx + foundTag.length);
                             isBuffering = false;
                             if (contentBuffer) { const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate); if (chunk) res.write(chunk); contentBuffer = ''; }
@@ -9108,7 +9228,9 @@ function queueCrumbCuration(userText, tr = null, sourceRef = null) {
 
 function cleanAssistantInternalArtifacts(content, tr = null) {
     const withoutWakeTag = extractNextWakeTag(content || '').cleanText;
-    return stripLeakedStateUpdates(handleMoodSnapshotsFromAssistantContent(withoutWakeTag, tr));
+    // 防御性兜底：正常路径会先写入并剥离标签；任何漏网路径也绝不能把它送到用户侧。
+    const withoutPrivateJournalTag = privateJournal.extractPrivateJournalTags(withoutWakeTag).cleanText;
+    return stripLeakedStateUpdates(handleMoodSnapshotsFromAssistantContent(withoutPrivateJournalTag, tr));
 }
 
 function queueDailyStateCuration(userText, assistantText, tr = null) {
