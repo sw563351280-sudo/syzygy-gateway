@@ -2,6 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const {
     INITIAL_MAX_TOKENS,
     RETRY_MAX_TOKENS,
@@ -71,4 +73,11 @@ test('proactive generation never retries more than once', async () => {
 
     assert.equal(calls, 2);
     assert.equal(result.data.choices[0].finish_reason, 'length');
+});
+
+test('a due proactive wake goes directly to full generation without a light gate', () => {
+    const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+    assert.doesNotMatch(serverSource, /runProactiveLightGate|唤醒门控|门控SKIP/);
+    assert.match(serverSource, /const wakeReason = 'scheduled_wake'/);
+    assert.match(serverSource, /自适应唤醒计划已经到点/);
 });
