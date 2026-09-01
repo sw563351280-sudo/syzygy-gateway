@@ -5129,7 +5129,7 @@ ${NEXT_WAKE_OUTPUT_INSTRUCTION}`;
         const finishReason = responseDebug.finish_reason;
         if (finishReason === 'length' || finishReason === 'content_filter') {
             saveWakeDecision({ time: now, gate: 'DIRECT', reason: wakeReason, outcome: 'invalid', source: wakeSource });
-            recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason: finishReason === 'length' ? '完整消息以2048 token重试后仍被截断，未投递。' : '完整消息被供应端过滤，未投递。', activationId: wakeup.activationId, usage, response: responseDebug, context: wakeContextAudit });
+            recordWakeAudit({ source: wakeSource, outcome: 'invalid', reason: finishReason === 'length' ? '单次2048 token 生成仍被截断，为避免重复计费不再重发，未投递。' : '完整消息被供应端过滤，未投递。', activationId: wakeup.activationId, usage, response: responseDebug, context: wakeContextAudit });
             return { error: `完整消息 finish_reason=${finishReason}`, invalid: true };
         }
         const wakeTag = extractNextWakeTag(rawContent);
