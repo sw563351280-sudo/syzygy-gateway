@@ -711,6 +711,7 @@ function getModelPromptConfig(modelName) {
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const PRIVATE_JOURNAL_FILE = path.join(DATA_DIR, 'private_journal.enc');
+const PRIVATE_JOURNAL_KEY_FILE = path.join(DATA_DIR, '.private_journal_key');
 const LEDGER_FILE = path.join(DATA_DIR, 'ledger_transactions.json');
 
 // 共同账本：金额统一按“分”保存，避免浮点数误差；账本独立于聊天记忆。
@@ -2352,11 +2353,7 @@ const ADD_TODO_REGEX = /<ADD_TODO>([\s\S]*?)<\/ADD_TODO>/g;
 const DONE_TODO_REGEX = /<DONE_TODO\s+id=["']([^"']+)["']\s*\/?>/g;
 
 function getPrivateJournalKey() {
-    const promptPath = path.join(__dirname, 'system_prompt.txt');
-    const prompt = fs.readFileSync(promptPath, 'utf8');
-    const match = prompt.match(/<PRIVATE_JOURNAL_KEY>\s*([^<\s]+)\s*<\/PRIVATE_JOURNAL_KEY>/);
-    if (!match) throw new Error('system prompt 中缺少私密日记密钥');
-    return match[1];
+    return privateJournal.readOrCreateKey(PRIVATE_JOURNAL_KEY_FILE, PRIVATE_JOURNAL_FILE);
 }
 
 function processPrivateJournalTags(text) {

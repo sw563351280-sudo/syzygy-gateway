@@ -8,6 +8,33 @@ const PRIVATE_JOURNAL_MARKER_REGEX = /(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i;
 const MAX_READ_COUNT = 5;
 const MAX_TOOL_RESULT_CHARS = 12000;
 
+function readOrCreateKey(keyFilePath, journalFilePath) {
+    try {
+        const existing = fs.readFileSync(keyFilePath, 'utf8').trim();
+        if (!existing) throw new Error('私密日记密钥文件为空');
+        try { fs.chmodSync(keyFilePath, 0o600); } catch (_) {}
+        return existing;
+    } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+    }
+
+    if (journalFilePath && fs.existsSync(journalFilePath) && fs.statSync(journalFilePath).size > 0) {
+        throw new Error('私密日记已有内容但密钥文件不存在，已拒绝生成新密钥');
+    }
+
+    fs.mkdirSync(require('path').dirname(keyFilePath), { recursive: true });
+    const generated = crypto.randomBytes(32).toString('hex');
+    try {
+        fs.writeFileSync(keyFilePath, `${generated}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    } catch (error) {
+        // Another request may have created the key between our read and write.
+        if (error.code === 'EEXIST') return readOrCreateKey(keyFilePath, journalFilePath);
+        throw error;
+    }
+    try { fs.chmodSync(keyFilePath, 0o600); } catch (_) {}
+    return generated;
+}
+
 function deriveKey(passphrase) {
     if (typeof passphrase !== 'string' || !passphrase.trim()) {
         throw new Error('私密日记密钥不可用');
@@ -130,6 +157,7 @@ module.exports = {
     encrypt,
     extractPrivateJournalTags,
     formatJournalTimestamp,
+    readOrCreateKey,
     readRecentEntries,
     renderRecentEntries,
 };

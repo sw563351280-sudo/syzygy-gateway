@@ -34,3 +34,34 @@ test('private journal encrypts raw text, strips tags, and reads recent pages', (
         fs.rmSync(root, { recursive: true, force: true });
     }
 });
+
+test('private journal key is generated once outside the prompt', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'syzygy-private-journal-key-'));
+    const keyFile = path.join(root, '.private_journal_key');
+    const journalFile = path.join(root, 'private_journal.enc');
+    try {
+        const first = journal.readOrCreateKey(keyFile, journalFile);
+        const second = journal.readOrCreateKey(keyFile, journalFile);
+        assert.match(first, /^[a-f0-9]{64}$/);
+        assert.equal(second, first);
+        assert.equal(fs.readFileSync(keyFile, 'utf8').trim(), first);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('private journal refuses to replace a missing key for existing pages', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'syzygy-private-journal-missing-key-'));
+    const keyFile = path.join(root, '.private_journal_key');
+    const journalFile = path.join(root, 'private_journal.enc');
+    try {
+        fs.writeFileSync(journalFile, 'existing encrypted page\n');
+        assert.throws(
+            () => journal.readOrCreateKey(keyFile, journalFile),
+            /已有内容但密钥文件不存在/
+        );
+        assert.equal(fs.existsSync(keyFile), false);
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});
