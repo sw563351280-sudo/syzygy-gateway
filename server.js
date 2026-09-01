@@ -4172,7 +4172,7 @@ if (TOOLS_ENABLED.health_data === undefined) { TOOLS_ENABLED.health_data = false
 if (_configChanged) { saveToolsConfig(TOOLS_ENABLED); console.log('🔧 [工具配置] 已补充缺失字段'); }
 
 // 轻量工具（始终可见，不触发工具循环）
-const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'exec', 'bark_push', 'check_phone', 'search_transcript', 'check_environment']);
+const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'exec', 'bark_push', 'check_phone', 'check_ledger', 'query_ledger', 'search_transcript', 'check_environment']);
 const ALWAYS_AVAILABLE_TOOLS = new Set([...LIGHT_TOOLS, 'read_private_journal']);
 // toy MCP 工具
 const TOY_TOOLS = new Set(['toy_vibrate', 'toy_suction', 'toy_stop_vibration', 'toy_stop_suction', 'toy_stop_all', 'toy_status']);
@@ -7503,8 +7503,10 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         }
         let filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
         if (isOpenClawRequest && !forceToolChoice) {
-            filteredTools = [];
-            console.log(`📱 [OpenClawTools] 普通微信聊天不发送工具定义`);
+            // 微信聊天仍保持精简，但不能清空被明确请求或感知规则触发的
+            // 只读工具；否则账本、手机等日常感官永远无法被调用。
+            filteredTools = keepRequestedReadTools(filteredTools, currentUserMsgText);
+            console.log(`📱 [OpenClawTools] 按需保留只读工具: ${filteredTools.map(t => t.function?.name || t.name).join(',') || '(无)'}`);
         }
         if (xhsShareUrl) {
             // Xiaohongshu is read by buildXhsVisionContext above. Never let the
