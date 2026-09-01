@@ -7544,7 +7544,9 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             toolBody.stream = false;
             toolBody.tools = filteredTools.map(t => { const { _mcp, ...clean } = t; return clean; });
             const isGeminiModel = (body.model || '').toLowerCase().includes('gemini');
-            if (forceToolChoice && toolRound === 1) {
+            // toolRound 在发送首轮请求前仍为 0；此前判断 === 1 导致
+            // 所有“首轮强制工具”实际上都退化成 auto。
+            if (forceToolChoice && toolRound === 0) {
                 toolBody.tool_choice = isGeminiModel ? "required" : forceToolChoice;
                 console.log(`🎯 [工具强制] 第一轮 → ${isGeminiModel ? 'required(强制调工具)' : forceToolChoice.function.name}`);
             } else if (isGeminiModel) { delete toolBody.tool_choice; }
