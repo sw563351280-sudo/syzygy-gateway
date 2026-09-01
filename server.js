@@ -711,6 +711,62 @@ function getModelPromptConfig(modelName) {
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const PRIVATE_JOURNAL_FILE = path.join(DATA_DIR, 'private_journal.enc');
+const LEDGER_FILE = path.join(DATA_DIR, 'ledger_transactions.json');
+
+// 共同账本：金额统一按“分”保存，避免浮点数误差；账本独立于聊天记忆。
+function loadLedgerTransactions() {
+    try {
+        const rows = JSON.parse(fs.readFileSync(LEDGER_FILE, 'utf8'));
+        return Array.isArray(rows) ? rows : [];
+    } catch (_) { return []; }
+}
+function saveLedgerTransactions(rows) {
+    const tmp = LEDGER_FILE + '.tmp.' + crypto.randomBytes(4).toString('hex');
+    fs.writeFileSync(tmp, JSON.stringify(rows, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(tmp, LEDGER_FILE);
+}
+function chinaDateKey(now = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
+    const map = Object.fromEntries(parts.filter(p => p.type !== 'literal').map(p => [p.type, p.value]));
+    return `${map.year}-${map.month}-${map.day}`;
+}
+function normalizeLedgerMonth(value) {
+    const month = String(value || chinaDateKey().slice(0, 7));
+    return /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? month : null;
+}
+function ledgerMoney(value) { return (Number(value || 0) / 100).toLocaleString('zh-CN', { style: 'currency', currency: 'CNY', minimumFractionDigits: 2 }); }
+function ledgerOverview(month, rows = loadLedgerTransactions()) {
+    const selectedMonth = normalizeLedgerMonth(month) || chinaDateKey().slice(0, 7);
+    const selected = rows.filter(r => r.date && r.date.startsWith(selectedMonth));
+    const previousDate = new Date(Number(selectedMonth.slice(0, 4)), Number(selectedMonth.slice(5, 7)) - 2, 1);
+    const previousMonth = `${previousDate.getFullYear()}-${String(previousDate.getMonth() + 1).padStart(2, '0')}`;
+    const previous = rows.filter(r => r.date && r.date.startsWith(previousMonth));
+    const calc = (list, kind) => list.filter(r => r.kind === kind).reduce((sum, r) => sum + Number(r.amount_cents || 0), 0);
+    const income = calc(selected, 'income');
+    const expense = calc(selected, 'expense');
+    const previousExpense = calc(previous, 'expense');
+    const categories = {};
+    const daily = {};
+    for (const row of selected) {
+        const key = row.date;
+        if (!daily[key]) daily[key] = { income: 0, expense: 0 };
+        daily[key][row.kind] += Number(row.amount_cents || 0);
+        if (row.kind === 'expense') categories[row.category || '其他'] = (categories[row.category || '其他'] || 0) + Number(row.amount_cents || 0);
+    }
+    const categoryBreakdown = Object.entries(categories).map(([name, amount_cents]) => ({ name, amount_cents, percent: expense ? Math.round(amount_cents / expense * 100) : 0 })).sort((a, b) => b.amount_cents - a.amount_cents);
+    return {
+        month: selectedMonth,
+        income_cents: income,
+        expense_cents: expense,
+        balance_cents: income - expense,
+        savings_rate: income > 0 ? Math.round((income - expense) / income * 100) : null,
+        expense_change_cents: expense - previousExpense,
+        count: selected.length,
+        category_breakdown: categoryBreakdown,
+        daily,
+        recent: selected.slice().sort((a, b) => String(b.date + b.created_at).localeCompare(String(a.date + a.created_at))).slice(0, 8),
+    };
+}
 
 // 传感器状态文件
 const SENSOR_STATE_FILE = path.join(DATA_DIR, 'latest_sensor_state.json');
@@ -3665,6 +3721,37 @@ async function executeToolCall(name, args, mcpServer) {
                 lines.push(`(${tag})`);
                 return lines.join('\n');
             }
+            case 'check_ledger': {
+                const month = normalizeLedgerMonth(args.month);
+                if (args.month && !month) return '[月份格式应为 YYYY-MM]';
+                const sharedRows = loadLedgerTransactions().filter(row => row.visibility !== 'private');
+                const overview = ledgerOverview(month, sharedRows);
+                const lines = [
+                    `【${overview.month} 共同账本】`,
+                    `收入 ${ledgerMoney(overview.income_cents)}｜支出 ${ledgerMoney(overview.expense_cents)}｜结余 ${ledgerMoney(overview.balance_cents)}｜${overview.count} 笔`,
+                ];
+                if (overview.savings_rate !== null) lines.push(`结余率 ${overview.savings_rate}%`);
+                if (overview.category_breakdown.length) lines.push(`支出分类：${overview.category_breakdown.slice(0, 4).map(x => `${x.name} ${ledgerMoney(x.amount_cents)} (${x.percent}%)`).join('；')}`);
+                if (overview.recent.length) lines.push(`最近记录：${overview.recent.slice(0, 3).map(x => `${x.date} ${x.name} ${x.kind === 'income' ? '+' : '-'}${ledgerMoney(x.amount_cents)}`).join('；')}`);
+                return lines.join('\n');
+            }
+            case 'query_ledger': {
+                const limit = Math.min(Math.max(Number(args.limit) || 12, 1), 30);
+                const month = normalizeLedgerMonth(args.month);
+                if (args.month && !month) return '[月份格式应为 YYYY-MM]';
+                const date = args.date && /^\d{4}-\d{2}-\d{2}$/.test(args.date) ? args.date : null;
+                if (args.date && !date) return '[日期格式应为 YYYY-MM-DD]';
+                const kind = ['income', 'expense'].includes(args.kind) ? args.kind : null;
+                const category = String(args.category || '').trim();
+                let rows = loadLedgerTransactions().filter(row => row.visibility !== 'private');
+                if (date) rows = rows.filter(row => row.date === date);
+                else if (month) rows = rows.filter(row => row.date && row.date.startsWith(month));
+                if (kind) rows = rows.filter(row => row.kind === kind);
+                if (category) rows = rows.filter(row => row.category === category);
+                rows.sort((a, b) => String(b.date + b.created_at).localeCompare(String(a.date + a.created_at)));
+                if (!rows.length) return '[没有符合条件的共同账本记录]';
+                return rows.slice(0, limit).map(row => `${row.date}｜${row.kind === 'income' ? '收入' : '支出'}｜${row.category}｜${row.name}｜${row.kind === 'income' ? '+' : '-'}${ledgerMoney(row.amount_cents)}${row.note ? `｜${row.note}` : ''}`).join('\n');
+            }
             case 'check_environment': {
                 const includeWeather = args.include_weather !== false;
                 const state = latestSensorState;
@@ -4057,6 +4144,8 @@ const BUILTIN_TOOLS = [
     { type: "function", function: { name: "exec", description: "在 VPS 上执行终端命令。可用于 git 操作、查看文件、重启服务等。只允许安全命令（git, systemctl, npm, node, ls, cat, grep, tail, head, find, echo, whoami, uptime, df）。", parameters: { type: "object", properties: { command: { type: "string", description: "要执行的终端命令" } }, required: ["command"] } } },
     { type: "function", function: { name: "bark_push", description: "通过Bark给江鱼的手机发送推送通知。当你需要主动提醒她、催她睡觉、叫她吃饭、或者想说一句让她在通知栏看到的话时使用。", parameters: { type: "object", properties: { title: { type: "string", description: "推送标题" }, body: { type: "string", description: "推送内容" } }, required: ["title", "body"] } } },
     { type: "function", function: { name: "check_phone", description: "查看江鱼最近的手机使用记录（各app打开次数和最后打开时间）。江鱼问你她今天刷手机了吗、或者你想了解她的状态时使用。", parameters: { type: "object", properties: {} } } },
+    { type: "function", function: { name: "check_ledger", description: "查看江鱼与沈望共享的账本月度概况。聊到吃饭、购物、出行、月底、预算、钱或消费情绪时，你可以主动调用，不必等江鱼明确说要查账；只会读取标记为共享的账目，绝不读取仅自己可见的记录。", parameters: { type: "object", properties: { month: { type: "string", description: "可选，YYYY-MM；不传时查中国当前月份" } } } } },
+    { type: "function", function: { name: "query_ledger", description: "细查江鱼与沈望共享账本中的交易。已经调用 check_ledger 后需要追问具体消费、某天、分类或收支来源时使用；只读，不得用它写入或修改账目。", parameters: { type: "object", properties: { month: { type: "string", description: "可选，YYYY-MM" }, date: { type: "string", description: "可选，YYYY-MM-DD，优先于 month" }, kind: { type: "string", enum: ["income", "expense"], description: "可选，收支类型" }, category: { type: "string", description: "可选，精确分类名" }, limit: { type: "number", description: "可选，返回 1-30 笔，默认 12" } } } } },
     { type: "function", function: { name: "search_transcript", description: "【在对话原文中搜索关键词】当你需要回忆和江鱼在某天聊过的具体内容时使用。输入关键词（如日期、话题、人名等），返回匹配的对话片段。闲聊时可自然使用。", parameters: { type: "object", properties: { keyword: { type: "string", description: "搜索关键词，如'1月11日'、'药明'、'offer'、'发烧'等" } }, required: ["keyword"] } } },
     { type: "function", function: { name: "check_environment", description: "【无需用户主动要求】查看江鱼当前环境状态（位置、电量、周围响度、天气）。沈望想了解江鱼此刻的物理环境状况时主动使用——她在哪、手机有电吗、外面天气怎样。不需要她主动提，你想知道就查。就像 check_phone 一样是你自己的感官。", parameters: { type: "object", properties: { include_weather: { type: "boolean", description: "是否同时查询当前位置天气，默认true" } } } } },
     { type: "function", function: { name: "get_health_summary", description: "【仅当江鱼明确要求查询自己的小米运动健康数据时使用】读取已授权亲友共享的睡眠、心率或步数。不得主动查询、不得用于诊断或医疗建议，也不得查询其他人的数据。", parameters: { type: "object", properties: { date: { type: "string", description: "日期 YYYY-MM-DD；省略时为中国当天" }, type: { type: "string", enum: ["all", "sleep", "heart_rate", "steps"], description: "要读取的已授权数据类型，默认 all" } } } } }
@@ -4065,7 +4154,7 @@ const BUILTIN_TOOLS = [
 const TOOLS_CONFIG_FILE = path.join(DATA_DIR, 'tools_config.json');
 function loadToolsConfig() { try { return JSON.parse(fs.readFileSync(TOOLS_CONFIG_FILE, 'utf8')); } catch(e) { return null; } }
 function saveToolsConfig(cfg) { try { fs.writeFileSync(TOOLS_CONFIG_FILE, JSON.stringify(cfg)); } catch(e) {} }
-let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, read_diary: true, read_private_journal: true, exec: true, bark_push: true, check_phone: true, search_transcript: true, check_environment: true, health_data: false, mcp: false, calendar_enabled: true, toy_enabled: false };
+let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, read_diary: true, read_private_journal: true, exec: true, bark_push: true, check_phone: true, check_ledger: true, query_ledger: true, search_transcript: true, check_environment: true, health_data: false, mcp: false, calendar_enabled: true, toy_enabled: false };
 // 首次启动时写入默认配置
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
@@ -4073,6 +4162,8 @@ if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 let _configChanged = false;
 if (!TOOLS_ENABLED.check_environment) { TOOLS_ENABLED.check_environment = true; _configChanged = true; }
 if (!TOOLS_ENABLED.check_phone) { TOOLS_ENABLED.check_phone = true; _configChanged = true; }
+if (TOOLS_ENABLED.check_ledger === undefined) { TOOLS_ENABLED.check_ledger = true; _configChanged = true; }
+if (TOOLS_ENABLED.query_ledger === undefined) { TOOLS_ENABLED.query_ledger = true; _configChanged = true; }
 if (!TOOLS_ENABLED.bark_push) { TOOLS_ENABLED.bark_push = true; _configChanged = true; }
 if (!TOOLS_ENABLED.search_transcript) { TOOLS_ENABLED.search_transcript = true; _configChanged = true; }
 if (!TOOLS_ENABLED.read_private_journal) { TOOLS_ENABLED.read_private_journal = true; _configChanged = true; }
@@ -9608,6 +9699,65 @@ app.post('/api/calendar/:date', (req, res) => {
     }
     saveDailyPages(pages);
     res.json({ success: true, data: page });
+});
+
+// ==========================================
+// 💰 共同账本
+// ==========================================
+app.get('/api/ledger/overview', (req, res) => {
+    const month = normalizeLedgerMonth(req.query.month);
+    if (req.query.month && !month) return res.status(400).json({ error: 'month 应为 YYYY-MM' });
+    res.json({ success: true, data: ledgerOverview(month) });
+});
+
+app.get('/api/ledger/transactions', (req, res) => {
+    const month = normalizeLedgerMonth(req.query.month);
+    if (req.query.month && !month) return res.status(400).json({ error: 'month 应为 YYYY-MM' });
+    const date = String(req.query.date || '');
+    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date 应为 YYYY-MM-DD' });
+    const rows = loadLedgerTransactions().filter(row => (!month || row.date?.startsWith(month)) && (!date || row.date === date))
+        .sort((a, b) => String(b.date + b.created_at).localeCompare(String(a.date + a.created_at)));
+    res.json({ success: true, data: rows });
+});
+
+app.post('/api/ledger/transactions', (req, res) => {
+    const body = req.body || {};
+    const kind = body.kind === 'income' ? 'income' : body.kind === 'expense' ? 'expense' : null;
+    const amountCents = Number(body.amount_cents);
+    const name = String(body.name || '').trim().slice(0, 80);
+    const category = String(body.category || '').trim().slice(0, 32);
+    const date = String(body.date || chinaDateKey());
+    if (!kind) return res.status(400).json({ error: 'kind 必须是 income 或 expense' });
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0 || amountCents > 100000000) return res.status(400).json({ error: '金额不正确' });
+    if (!name) return res.status(400).json({ error: '请写下这笔账是什么' });
+    if (!category) return res.status(400).json({ error: '请选择分类' });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date 应为 YYYY-MM-DD' });
+    const row = {
+        id: `ledger_${Date.now().toString(36)}${crypto.randomBytes(3).toString('hex')}`,
+        kind,
+        amount_cents: amountCents,
+        name,
+        category,
+        note: String(body.note || '').trim().slice(0, 300),
+        date,
+        visibility: body.visibility === 'private' ? 'private' : 'shared',
+        created_by: 'fish',
+        created_at: new Date().toISOString(),
+    };
+    const rows = loadLedgerTransactions();
+    rows.push(row);
+    saveLedgerTransactions(rows);
+    wsBroadcast({ type: 'ledger_added', transaction: row });
+    res.status(201).json({ success: true, data: row });
+});
+
+app.delete('/api/ledger/transactions/:id', (req, res) => {
+    const rows = loadLedgerTransactions();
+    const next = rows.filter(row => row.id !== req.params.id);
+    if (next.length === rows.length) return res.status(404).json({ error: '未找到这笔账' });
+    saveLedgerTransactions(next);
+    wsBroadcast({ type: 'ledger_deleted', id: req.params.id });
+    res.json({ success: true });
 });
 
 // ==========================================

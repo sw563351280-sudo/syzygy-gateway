@@ -89,6 +89,10 @@
                 <svg width="24" height="24" viewBox="0 0 64 64" fill="none" stroke="#D4A856" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M32 58 C32 58 30 48 24 40C18 32 10 28 10 20C10 12 16 6 24 6C32 6 32 14 32 14C32 14 32 6 40 6C48 6 54 12 54 20C54 28 46 32 40 40C34 48 32 58 32 58Z"/><path d="M32 14L32 58"/></svg>
                 <span>Flo</span>
             </div>
+            <div class="neu-card neu-grid-card" onclick="goView('ledger')">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h4"/><path d="M5 3v18"/></svg>
+                <span>账本</span>
+            </div>
         </div>
 
         <div class="neu-bottom-nav">
@@ -418,6 +422,67 @@
             <button class="cal-save-btn" onclick="stateSnapshot()" style="width:100%">写入快照</button>
         </div>
     </div>
+</div>
+
+<!-- 💰 共同账本 -->
+<div class="section" id="sec-ledger">
+    <div class="view-topbar ledger-topbar">
+        <button class="view-back" onclick="goView('home')">←</button>
+        <span class="view-title">共同账本</span>
+        <span class="ledger-shared-badge">✦ 沈望可看</span>
+    </div>
+    <main class="ledger-page">
+        <div class="ledger-month-switcher">
+            <button onclick="ledgerPrevMonth()" aria-label="上个月">‹</button>
+            <strong id="ledgerMonthTitle">本月账本</strong>
+            <button onclick="ledgerNextMonth()" aria-label="下个月">›</button>
+        </div>
+        <section class="ledger-card ledger-balance-card">
+            <div class="ledger-balance-head"><span>本月结余</span><em id="ledgerSavingsRate">开始记账吧</em></div>
+            <div id="ledgerBalance" class="ledger-balance-money">¥0.00</div>
+            <div class="ledger-in-out">
+                <div><span class="ledger-income-dot"></span><small>收入</small><strong id="ledgerIncome">+¥0.00</strong></div>
+                <div><span class="ledger-expense-dot"></span><small>支出</small><strong id="ledgerExpense">-¥0.00</strong></div>
+            </div>
+        </section>
+        <section class="ledger-card ledger-calendar-card">
+            <div class="ledger-section-head"><strong>按日查看</strong><span>点日期看明细</span></div>
+            <div class="ledger-weekdays"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+            <div class="ledger-calendar" id="ledgerCalendar"></div>
+            <div id="ledgerDayDetail" class="ledger-day-detail">点一个日期，看看那天的收支。</div>
+        </section>
+        <section class="ledger-card ledger-category-card">
+            <div class="ledger-section-head"><strong>支出分类</strong><span id="ledgerCategoryNote">本月</span></div>
+            <div class="ledger-category-body">
+                <div id="ledgerDonut" class="ledger-donut"><span>总支出</span><strong id="ledgerDonutTotal">¥0</strong></div>
+                <div id="ledgerCategoryList" class="ledger-category-list"><span class="ledger-empty">还没有支出记录</span></div>
+            </div>
+        </section>
+        <section class="ledger-card ledger-summary-card">
+            <div class="ledger-section-head"><strong>沈望的本月小结</strong><span>共同账本</span></div>
+            <p id="ledgerMonthlySummary">从第一笔开始，我会陪你把每一笔都放在恰当的位置。</p>
+        </section>
+        <section class="ledger-card ledger-recent-card">
+            <div class="ledger-section-head"><strong>最近记录</strong><button onclick="ledgerShowAll()">查看全部 ›</button></div>
+            <div id="ledgerRecentList" class="ledger-recent-list"><span class="ledger-empty">还没有记录，先记一笔吧。</span></div>
+        </section>
+    </main>
+    <button class="ledger-add-button" onclick="ledgerOpenComposer()" aria-label="记一笔">＋</button>
+</div>
+
+<div id="ledgerComposer" class="ledger-composer-overlay" hidden onclick="if(event.target===this) ledgerCloseComposer()">
+    <form class="ledger-composer" onsubmit="ledgerSave(event)">
+        <button type="button" class="ledger-composer-close" onclick="ledgerCloseComposer()">×</button>
+        <div class="ledger-composer-handle"></div>
+        <h2>记一笔</h2>
+        <div class="ledger-kind-toggle"><button type="button" data-kind="expense" onclick="ledgerSetKind('expense')">支出</button><button type="button" data-kind="income" onclick="ledgerSetKind('income')">收入</button></div>
+        <label class="ledger-amount-field"><span>¥</span><input id="ledgerAmountInput" type="number" inputmode="decimal" min="0.01" step="0.01" placeholder="0.00" required></label>
+        <div id="ledgerCategoryPicker" class="ledger-category-picker"></div>
+        <input id="ledgerNameInput" class="ledger-input" maxlength="80" placeholder="这笔是什么？例如：晚餐 · 日式拉面" required>
+        <div class="ledger-composer-row"><input id="ledgerDateInput" class="ledger-input" type="date" required><label class="ledger-private-toggle"><input id="ledgerPrivateInput" type="checkbox"> 仅自己可见</label></div>
+        <input id="ledgerNoteInput" class="ledger-input" maxlength="300" placeholder="添加备注…（可选）">
+        <button class="ledger-save-button" type="submit">确认记账</button>
+    </form>
 </div>
 
 <!-- 🗓️ 日历视图 -->

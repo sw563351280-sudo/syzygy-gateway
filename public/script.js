@@ -915,11 +915,11 @@ function toast(msg){
 
 function goView(viewId) {
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', dev:'sec-dev', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state' };
+    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', dev:'sec-dev', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state', ledger:'sec-ledger' };
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
-    const VIEWS = ['home','chat','data','favorites','dev','console','flo','calendar','album','state'];
+    const VIEWS = ['home','chat','data','favorites','dev','console','flo','calendar','album','state','ledger'];
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);
     if (viewId === 'chat') { setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300); fetchPulseStatus(); }
@@ -929,6 +929,7 @@ function goView(viewId) {
     if (viewId === 'console') { const tab = localStorage.getItem('syzygy_console_tab') || 'logs'; switchConsoleTab(tab); if (tab === 'terminal') consoleOpen(); }
     if (viewId === 'flo') floRender();
     if (viewId === 'calendar') calRender();
+    if (viewId === 'ledger') ledgerRender();
     if (viewId === 'album') { albumInitMonthFilter(); albumLoad(); }
     if (viewId === 'state') stateRender();
     if (document.body.classList.contains('neu-mode')) neuUpdateNav();
@@ -4354,6 +4355,179 @@ async function deleteFavorite(id) {
         if (d.success) { toast('已删除'); loadAndRenderFavorites(); }
         else { toast('删除失败'); }
     } catch(e) { toast('网络错误'); }
+}
+
+// ═══ 共同账本 ═══
+let ledgerYear = new Date().getFullYear();
+let ledgerMonth = new Date().getMonth() + 1;
+let ledgerSelectedDate = null;
+let ledgerKind = 'expense';
+let ledgerCategory = '餐饮';
+let ledgerOverviewData = null;
+const LEDGER_CATEGORIES = {
+    expense: [['餐饮','🍜'], ['交通','🚇'], ['购物','🛍️'], ['娱乐','🎬'], ['居住','🏠'], ['学习','📚'], ['医疗','💊'], ['其他','✨']],
+    income: [['工资','💼'], ['兼职','🧩'], ['礼物','🎁'], ['退款','↩️'], ['理财','🌱'], ['其他','✨']],
+};
+const LEDGER_CATEGORY_COLORS = ['#D4A856','#A8C8DA','#B9DEC7','#DAB9C8','#C9C1E3','#F3C884','#9AB9A8','#B7C2D0'];
+
+function ledgerMonthKey() { return ledgerYear + '-' + String(ledgerMonth).padStart(2, '0'); }
+function ledgerDateKey(date = new Date()) { return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0'); }
+function ledgerMoney(cents, compact = false) {
+    const amount = Number(cents || 0) / 100;
+    return '¥' + amount.toLocaleString('zh-CN', { minimumFractionDigits: compact ? 0 : 2, maximumFractionDigits: compact ? 0 : 2 });
+}
+function ledgerPrevMonth() { ledgerMonth--; if (ledgerMonth < 1) { ledgerMonth = 12; ledgerYear--; } ledgerSelectedDate = null; ledgerRender(); }
+function ledgerNextMonth() { ledgerMonth++; if (ledgerMonth > 12) { ledgerMonth = 1; ledgerYear++; } ledgerSelectedDate = null; ledgerRender(); }
+
+async function ledgerRender() {
+    try {
+        const response = await fetch('/api/ledger/overview?month=' + encodeURIComponent(ledgerMonthKey()), { cache: 'no-store' });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error || '账本加载失败');
+        ledgerOverviewData = result.data;
+        const d = result.data;
+        document.getElementById('ledgerMonthTitle').textContent = ledgerYear + '年' + ledgerMonth + '月';
+        document.getElementById('ledgerBalance').textContent = ledgerMoney(d.balance_cents);
+        document.getElementById('ledgerIncome').textContent = '+' + ledgerMoney(d.income_cents);
+        document.getElementById('ledgerExpense').textContent = '-' + ledgerMoney(d.expense_cents);
+        document.getElementById('ledgerSavingsRate').textContent = d.savings_rate === null ? '开始记账吧' : '结余率 ' + d.savings_rate + '%';
+        ledgerRenderCalendar(d.daily || {});
+        ledgerRenderCategories(d);
+        ledgerRenderSummary(d);
+        ledgerRenderRecent(d.recent || []);
+        if (ledgerSelectedDate) ledgerLoadDay(ledgerSelectedDate, true);
+    } catch (error) {
+        console.error('账本加载失败', error);
+        const box = document.getElementById('ledgerRecentList');
+        if (box) box.innerHTML = '<span class="ledger-empty">账本加载失败，请稍后再试。</span>';
+    }
+}
+
+function ledgerRenderCalendar(daily) {
+    const grid = document.getElementById('ledgerCalendar');
+    if (!grid) return;
+    const first = new Date(ledgerYear, ledgerMonth - 1, 1);
+    const days = new Date(ledgerYear, ledgerMonth, 0).getDate();
+    const leading = (first.getDay() + 6) % 7;
+    const today = ledgerDateKey();
+    let html = '';
+    for (let i = 0; i < leading; i++) html += '<span class="ledger-cal-empty"></span>';
+    for (let day = 1; day <= days; day++) {
+        const key = ledgerMonthKey() + '-' + String(day).padStart(2, '0');
+        const item = daily[key] || { income: 0, expense: 0 };
+        const selected = key === ledgerSelectedDate ? ' selected' : '';
+        const current = key === today ? ' today' : '';
+        const hasData = item.income || item.expense ? ' has-data' : '';
+        html += '<button type="button" class="ledger-cal-day' + selected + current + hasData + '" onclick="ledgerLoadDay(\'' + key + '\')"><b>' + day + '</b>';
+        if (item.income) html += '<small class="in">+' + ledgerMoney(item.income, true).replace('¥','') + '</small>';
+        if (item.expense) html += '<small class="out">-' + ledgerMoney(item.expense, true).replace('¥','') + '</small>';
+        html += '</button>';
+    }
+    grid.innerHTML = html;
+}
+
+function ledgerRenderCategories(data) {
+    const categories = data.category_breakdown || [];
+    const list = document.getElementById('ledgerCategoryList');
+    const donut = document.getElementById('ledgerDonut');
+    document.getElementById('ledgerDonutTotal').textContent = ledgerMoney(data.expense_cents, true);
+    document.getElementById('ledgerCategoryNote').textContent = categories.length ? data.count + ' 笔记录' : '本月';
+    if (!categories.length) {
+        donut.style.background = 'conic-gradient(#D5DFE9 0deg 360deg)';
+        list.innerHTML = '<span class="ledger-empty">还没有支出记录</span>';
+        return;
+    }
+    let offset = 0;
+    const segments = categories.map((category, index) => {
+        const start = offset; offset += category.percent;
+        return LEDGER_CATEGORY_COLORS[index % LEDGER_CATEGORY_COLORS.length] + ' ' + start + '% ' + offset + '%';
+    });
+    donut.style.background = 'conic-gradient(' + segments.join(',') + ')';
+    list.innerHTML = categories.slice(0, 6).map((category, index) => '<div><i style="background:' + LEDGER_CATEGORY_COLORS[index % LEDGER_CATEGORY_COLORS.length] + '"></i><span>' + escapeHtml(category.name) + '</span><em>' + category.percent + '%</em></div>').join('');
+}
+
+function ledgerRenderSummary(data) {
+    const box = document.getElementById('ledgerMonthlySummary');
+    if (!box) return;
+    if (!data.count) { box.textContent = '从第一笔开始，我会陪你把每一笔都放在恰当的位置。'; return; }
+    const category = data.category_breakdown && data.category_breakdown[0];
+    const change = data.expense_change_cents || 0;
+    const changeText = change === 0 ? '和上个月一样安静' : (change > 0 ? '比上个月多了 ' : '比上个月少了 ') + ledgerMoney(Math.abs(change));
+    box.textContent = '这个月记下了 ' + data.count + ' 笔。' + (category ? category.name + '最多，占支出 ' + category.percent + '%；' : '') + changeText + '。';
+}
+
+function ledgerRenderRecent(rows) {
+    const list = document.getElementById('ledgerRecentList');
+    if (!list) return;
+    if (!rows.length) { list.innerHTML = '<span class="ledger-empty">还没有记录，先记一笔吧。</span>'; return; }
+    const iconFor = (category) => {
+        const found = Object.values(LEDGER_CATEGORIES).flat().find(row => row[0] === category);
+        return found ? found[1] : '✨';
+    };
+    list.innerHTML = rows.map(row => '<div class="ledger-record"><span class="ledger-record-icon">' + iconFor(row.category) + '</span><div><strong>' + escapeHtml(row.name) + '</strong><small>' + row.date.slice(5).replace('-', '月') + '日 · ' + escapeHtml(row.category) + (row.visibility === 'private' ? ' · 仅自己' : '') + '</small></div><em class="' + row.kind + '">' + (row.kind === 'income' ? '+' : '-') + ledgerMoney(row.amount_cents) + '</em></div>').join('');
+}
+
+async function ledgerLoadDay(date, quiet) {
+    ledgerSelectedDate = date;
+    if (!quiet && ledgerOverviewData) ledgerRenderCalendar(ledgerOverviewData.daily || {});
+    const detail = document.getElementById('ledgerDayDetail');
+    detail.textContent = '正在读取 ' + date.slice(5).replace('-', '月') + '日…';
+    try {
+        const response = await fetch('/api/ledger/transactions?date=' + encodeURIComponent(date), { cache: 'no-store' });
+        const result = await response.json();
+        const rows = result.data || [];
+        if (!rows.length) { detail.innerHTML = '<span>' + date.slice(5).replace('-', '月') + '日还没有账目。</span>'; return; }
+        const income = rows.filter(r => r.kind === 'income').reduce((sum, r) => sum + r.amount_cents, 0);
+        const expense = rows.filter(r => r.kind === 'expense').reduce((sum, r) => sum + r.amount_cents, 0);
+        detail.innerHTML = '<div class="ledger-day-head"><strong>' + date.slice(5).replace('-', '月') + '日</strong><span>收入 +' + ledgerMoney(income) + ' · 支出 -' + ledgerMoney(expense) + '</span></div>' + rows.map(row => '<div class="ledger-day-row"><span>' + escapeHtml(row.category) + ' · ' + escapeHtml(row.name) + '</span><em class="' + row.kind + '">' + (row.kind === 'income' ? '+' : '-') + ledgerMoney(row.amount_cents) + '</em></div>').join('');
+    } catch (_) { detail.textContent = '这一天暂时无法读取。'; }
+}
+
+async function ledgerShowAll() {
+    try {
+        const response = await fetch('/api/ledger/transactions?month=' + encodeURIComponent(ledgerMonthKey()), { cache: 'no-store' });
+        const result = await response.json();
+        ledgerRenderRecent(result.data || []);
+    } catch (_) { toast('暂时无法读取全部记录'); }
+}
+
+function ledgerOpenComposer() {
+    const overlay = document.getElementById('ledgerComposer');
+    document.getElementById('ledgerAmountInput').value = '';
+    document.getElementById('ledgerNameInput').value = '';
+    document.getElementById('ledgerNoteInput').value = '';
+    document.getElementById('ledgerPrivateInput').checked = false;
+    document.getElementById('ledgerDateInput').value = ledgerSelectedDate || ledgerDateKey();
+    ledgerSetKind('expense');
+    overlay.hidden = false;
+    setTimeout(() => document.getElementById('ledgerAmountInput').focus(), 30);
+}
+function ledgerCloseComposer() { document.getElementById('ledgerComposer').hidden = true; }
+function ledgerSetKind(kind) {
+    ledgerKind = kind;
+    ledgerCategory = LEDGER_CATEGORIES[kind][0][0];
+    document.querySelectorAll('.ledger-kind-toggle button').forEach(button => button.classList.toggle('active', button.dataset.kind === kind));
+    const picker = document.getElementById('ledgerCategoryPicker');
+    picker.innerHTML = LEDGER_CATEGORIES[kind].map(row => '<button type="button" class="' + (row[0] === ledgerCategory ? 'active' : '') + '" onclick="ledgerChooseCategory(\'' + row[0] + '\')"><span>' + row[1] + '</span>' + row[0] + '</button>').join('');
+    document.querySelector('.ledger-save-button').textContent = kind === 'income' ? '确认入账' : '确认记账';
+}
+function ledgerChooseCategory(category) {
+    ledgerCategory = category;
+    document.querySelectorAll('.ledger-category-picker button').forEach(button => button.classList.toggle('active', button.textContent.trim().endsWith(category)));
+}
+async function ledgerSave(event) {
+    event.preventDefault();
+    const amountCents = Math.round(Number(document.getElementById('ledgerAmountInput').value) * 100);
+    const body = { kind: ledgerKind, amount_cents: amountCents, category: ledgerCategory, name: document.getElementById('ledgerNameInput').value, date: document.getElementById('ledgerDateInput').value, note: document.getElementById('ledgerNoteInput').value, visibility: document.getElementById('ledgerPrivateInput').checked ? 'private' : 'shared' };
+    try {
+        const response = await fetch('/api/ledger/transactions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error || '保存失败');
+        ledgerCloseComposer();
+        ledgerSelectedDate = body.date;
+        toast(body.kind === 'income' ? '已确认入账' : '已记进账本');
+        await ledgerRender();
+    } catch (error) { toast(error.message || '记账失败'); }
 }
 
 // ═══ 日历视图 ═══
