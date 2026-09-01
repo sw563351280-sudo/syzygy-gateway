@@ -7348,7 +7348,8 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 2. 不要否认江鱼痛苦的真实性。
 3. 不要替江鱼判断她"真正想要什么"。
 4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。
-5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。`;
+5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。
+6. 提到账本、小金库、记账、收入、支出、结余或具体消费时，只要本轮提供了 check_ledger，就先调用它取得实时数据再回答；需要明细时再调用 query_ledger。`;
         const openClawChatStyle = isOpenClawRequest ? `
 
 【微信日常聊天模式】
@@ -7493,6 +7494,11 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         if (currentUserMsgText) {
             const hasUrl = /(https?:\/\/[^\s]+)/i.test(currentUserMsgText);
             if (hasUrl && !xhsShareUrl && !githubContext) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
+            const hasLedgerIntent = /账本|小金库|记账|收支|收入|支出|结余|预算|月末|月底|消费|外卖|点餐|吃饭|购物|打车|车费|旅行|旅游|房租|工资|钱不够|乱花钱|check_ledger|query_ledger/i.test(currentUserMsgText);
+            if (hasLedgerIntent) {
+                forceToolChoice = { type: "function", function: { name: "check_ledger" } };
+                console.log('🎯 [工具强制] 账本语境 → 强制 check_ledger');
+            }
             const isToyStatusIntent = TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false
                 && /啵啵|玩具|toy|vibrat/i.test(currentUserMsgText)
                 && /状态|连接|在线|在吗|在不在|有没有|查|看|读|检查|连上/i.test(currentUserMsgText);
@@ -9010,6 +9016,8 @@ app.post('/api/web-chat', async (req, res) => {
                 if (text) {
                     const hasUrl = /(https?:\/\/[^\s]+)/i.test(text);
                     if (hasUrl && !webXhsShareUrl && !webGitHubContext) webForceToolChoice = { type: "function", function: { name: "fetch_txt" } };
+                    const hasLedgerIntent = /账本|小金库|记账|收支|收入|支出|结余|预算|月末|月底|消费|外卖|点餐|吃饭|购物|打车|车费|旅行|旅游|房租|工资|钱不够|乱花钱|check_ledger|query_ledger/i.test(text);
+                    if (hasLedgerIntent) webForceToolChoice = { type: "function", function: { name: "check_ledger" } };
                 }
                 let filteredTools = filterRelevantTools(enabledTools, text, webForceToolChoice);
                 if (webXhsShareUrl) {
