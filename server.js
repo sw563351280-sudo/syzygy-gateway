@@ -713,6 +713,7 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const PRIVATE_JOURNAL_FILE = path.join(DATA_DIR, 'private_journal.enc');
 const PRIVATE_JOURNAL_KEY_FILE = path.join(DATA_DIR, '.private_journal_key');
 const LEDGER_FILE = path.join(DATA_DIR, 'ledger_transactions.json');
+const { hasLedgerContextIntent, renderLedgerRealtimeContext } = require('./ledger-context');
 
 // 共同账本：金额统一按“分”保存，避免浮点数误差；账本独立于聊天记忆。
 function loadLedgerTransactions() {
@@ -767,6 +768,13 @@ function ledgerOverview(month, rows = loadLedgerTransactions()) {
         daily,
         recent: selected.slice().sort((a, b) => String(b.date + b.created_at).localeCompare(String(a.date + a.created_at))).slice(0, 8),
     };
+}
+
+function buildLedgerRealtimeContext(userText) {
+    if (!hasLedgerContextIntent(userText)) return '';
+    const monthMatch = String(userText || '').match(/\b(20\d{2}-(?:0[1-9]|1[0-2]))\b/);
+    const sharedRows = loadLedgerTransactions().filter(row => row.visibility !== 'private');
+    return `\n\n${renderLedgerRealtimeContext(ledgerOverview(monthMatch?.[1], sharedRows))}`;
 }
 
 // 传感器状态文件
@@ -7334,7 +7342,8 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             }
         }
 
-        const envContext = buildEnvContext(`【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n【🚨 信息真实性铁律】：查看网页或 API 数据时，必须基于服务端实际读取的内容回答；GitHub 链接会由服务端自动读取并注入上下文。严禁假装已经看过；读取失败时直接说“我没能读到”，不要编造。\n【记忆刻录机制】：用<SAVE_MEMORY tags="...">记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊。一次最多一个标签，内容≥10字。详见System Prompt第九项。`);
+        const ledgerRealtimeContext = buildLedgerRealtimeContext(currentUserMsgText);
+        const envContext = buildEnvContext(`【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n【🚨 信息真实性铁律】：查看网页或 API 数据时，必须基于服务端实际读取的内容回答；GitHub 链接会由服务端自动读取并注入上下文。严禁假装已经看过；读取失败时直接说“我没能读到”，不要编造。\n【记忆刻录机制】：用<SAVE_MEMORY tags="...">记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊。一次最多一个标签，内容≥10字。详见System Prompt第九项。${ledgerRealtimeContext}`);
 
         const newMessages = [...cleanMessages];
 
@@ -7346,7 +7355,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 3. 不要替江鱼判断她"真正想要什么"。
 4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。
 5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。
-6. 提到账本、小金库、记账、收入、支出、结余或具体消费时，只要本轮提供了 check_ledger，就先调用它取得实时数据再回答；需要明细时再调用 query_ledger。`;
+6. 若上下文含有【共同账本实时数据】，直接依据其中的实时金额和记录回答，不讨论工具列表，也不让江鱼等待或重复测试。`;
         const openClawChatStyle = isOpenClawRequest ? `
 
 【微信日常聊天模式】
@@ -7491,7 +7500,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         if (currentUserMsgText) {
             const hasUrl = /(https?:\/\/[^\s]+)/i.test(currentUserMsgText);
             if (hasUrl && !xhsShareUrl && !githubContext) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
-            const hasLedgerIntent = /账本|小金库|记账|收支|收入|支出|结余|预算|月末|月底|消费|外卖|点餐|吃饭|购物|打车|车费|旅行|旅游|房租|工资|钱不够|乱花钱|check_ledger|query_ledger/i.test(currentUserMsgText);
+            const hasLedgerIntent = hasLedgerContextIntent(currentUserMsgText);
             if (hasLedgerIntent) {
                 forceToolChoice = { type: "function", function: { name: "check_ledger" } };
                 console.log('🎯 [工具强制] 账本语境 → 强制 check_ledger');
@@ -8916,7 +8925,8 @@ app.post('/api/web-chat', async (req, res) => {
                 }
             } catch(e) { console.log("Zep记忆提取跳过"); }
 
-            const envContext = buildEnvContext(`【场景确认：溯星小屋私密网页端】\n这里是你的领地，请结合江鱼的专属System Prompt 进行回复。\n如果江鱼发了图片，请仔细观察并给出带有情绪的评价。\n【🚨 工具使用铁律】：当你调用了read_webpage看到页面后，如果需要操作（点击、填写等），必须立刻调用interact_webpage执行！严禁只用文字描述"我点击了"而不实际调用工具！\n【🚨 记忆刻录机制】：用<SAVE_MEMORY>标签记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊和重复话题。一次回复最多一个标签，内容≥10字+清晰标签。详见System Prompt第九项。`);
+            const ledgerRealtimeContext = buildLedgerRealtimeContext(text);
+            const envContext = buildEnvContext(`【场景确认：溯星小屋私密网页端】\n这里是你的领地，请结合江鱼的专属System Prompt 进行回复。\n如果江鱼发了图片，请仔细观察并给出带有情绪的评价。\n【🚨 工具使用铁律】：当你调用了read_webpage看到页面后，如果需要操作（点击、填写等），必须立刻调用interact_webpage执行！严禁只用文字描述"我点击了"而不实际调用工具！\n【🚨 记忆刻录机制】：用<SAVE_MEMORY>标签记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊和重复话题。一次回复最多一个标签，内容≥10字+清晰标签。详见System Prompt第九项。${ledgerRealtimeContext}`);
 
 
             if (text) updateRpTracker(text, 'main');
@@ -8944,7 +8954,8 @@ app.post('/api/web-chat', async (req, res) => {
 2. 不要否认江鱼痛苦的真实性。
 3. 不要替江鱼判断她"真正想要什么"。
 4. 江鱼提出问题时，必须先给判断、解法或下一步，再给情绪支撑。
-5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。`;
+5. 全文检查：是否存在用"她"指代江鱼的情况。如有，必须改为"你"。
+6. 若上下文含有【共同账本实时数据】，直接依据其中的实时金额和记录回答，不讨论工具列表，也不让江鱼等待或重复测试。`;
                 const webSharedSystem = await buildSharedSystemPrompt({
                     query: text || '发了一张图片',
                     envContext,
@@ -9015,7 +9026,7 @@ app.post('/api/web-chat', async (req, res) => {
                 if (text) {
                     const hasUrl = /(https?:\/\/[^\s]+)/i.test(text);
                     if (hasUrl && !webXhsShareUrl && !webGitHubContext) webForceToolChoice = { type: "function", function: { name: "fetch_txt" } };
-                    const hasLedgerIntent = /账本|小金库|记账|收支|收入|支出|结余|预算|月末|月底|消费|外卖|点餐|吃饭|购物|打车|车费|旅行|旅游|房租|工资|钱不够|乱花钱|check_ledger|query_ledger/i.test(text);
+                    const hasLedgerIntent = hasLedgerContextIntent(text);
                     if (hasLedgerIntent) webForceToolChoice = { type: "function", function: { name: "check_ledger" } };
                 }
                 let filteredTools = filterRelevantTools(enabledTools, text, webForceToolChoice);
