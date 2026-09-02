@@ -7500,11 +7500,6 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         if (currentUserMsgText) {
             const hasUrl = /(https?:\/\/[^\s]+)/i.test(currentUserMsgText);
             if (hasUrl && !xhsShareUrl && !githubContext) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
-            const hasLedgerIntent = hasLedgerContextIntent(currentUserMsgText);
-            if (hasLedgerIntent) {
-                forceToolChoice = { type: "function", function: { name: "check_ledger" } };
-                console.log('🎯 [工具强制] 账本语境 → 强制 check_ledger');
-            }
             const isToyStatusIntent = TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false
                 && /啵啵|玩具|toy|vibrat/i.test(currentUserMsgText)
                 && /状态|连接|在线|在吗|在不在|有没有|查|看|读|检查|连上/i.test(currentUserMsgText);
@@ -7536,6 +7531,10 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         if (!needsToolLoop && !forceToolChoice) {
             filteredTools = keepRequestedReadTools(filteredTools, currentUserMsgText);
             console.log(`🔧 [工具] 只读按需保留: ${filteredTools.map(t => t.function?.name || t.name).join(',') || '(无)'}`);
+        }
+        if (ledgerRealtimeContext) {
+            filteredTools = filteredTools.filter(t => !['check_ledger', 'query_ledger'].includes(t.function?.name || t.name));
+            console.log('📒 [账本] 已注入实时数据，跳过账本 function calling');
         }
         let maxToolRounds = 5, toolRound = 0, lastToolSig = '', fileModified = false;
         const isStreamMode = body.stream === true;
@@ -9026,10 +9025,13 @@ app.post('/api/web-chat', async (req, res) => {
                 if (text) {
                     const hasUrl = /(https?:\/\/[^\s]+)/i.test(text);
                     if (hasUrl && !webXhsShareUrl && !webGitHubContext) webForceToolChoice = { type: "function", function: { name: "fetch_txt" } };
-                    const hasLedgerIntent = hasLedgerContextIntent(text);
-                    if (hasLedgerIntent) webForceToolChoice = { type: "function", function: { name: "check_ledger" } };
                 }
                 let filteredTools = filterRelevantTools(enabledTools, text, webForceToolChoice);
+                if (ledgerRealtimeContext) {
+                    filteredTools = keepRequestedReadTools(filteredTools, text)
+                        .filter(t => !['check_ledger', 'query_ledger'].includes(t.function?.name || t.name));
+                    console.log('📒 [web-chat账本] 已注入实时数据，跳过账本 function calling');
+                }
                 if (webXhsShareUrl) {
                     filteredTools = filteredTools.filter(t => !['fetch_txt', 'fetch_html', 'fetch_json'].includes(t.function?.name));
                 }
