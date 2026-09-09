@@ -4122,6 +4122,7 @@ let _favTargetMsgIdx = 0;
 let _favCache = [];
 let _favActiveTag = null;
 let _favTagsExpanded = false;
+let _favDetailTrigger = null;
 
 async function loadFavCache() {
     const r = await fetch('/api/favorites', { cache: 'no-store' });
@@ -4325,6 +4326,7 @@ function renderFavList(items) {
 function viewFavDetail(favId) {
     const f = _favCache.find(item => item && item.id === favId);
     if (!f) return;
+    _favDetailTrigger = document.querySelector('.fav-card[data-fav-id="' + String(favId).replace(/"/g, '\\"') + '"]');
     const dt = new Date(f.timestamp).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
     const userC = legacyMessagePlain(f.messages[0]?.content || '');
     const aiC = legacyMessagePlain(f.messages[1]?.content || '');
@@ -4333,15 +4335,32 @@ function viewFavDetail(favId) {
     const detail = document.getElementById('favDetail');
     const body = document.getElementById('favDetailBody');
     body.innerHTML =
-        '<div class="fav-detail-meta">🕒 ' + dt + (tagsHtml ? ' &nbsp;' + tagsHtml : '') + '</div>'
-        + '<div class="fav-detail-role">👤 江鱼</div>'
-        + '<div class="fav-detail-text">' + escapeHtml(userC) + '</div>'
-        + (aiThinking ? '<div class="fav-think-box"><div class="fav-think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">🧠 深度思考过程 ▾</div><div class="fav-think-content" style="display:none">' + escapeHtml(aiThinking).replace(/\n/g,'<br>') + '</div></div>' : '')
-        + '<div class="fav-detail-role">🤖 沈望</div>'
-        + '<div class="fav-detail-text">' + escapeHtml(aiC) + '</div>'
-        + (f.note ? '<div class="fav-detail-note">📝 ' + escapeHtml(f.note) + '</div>' : '');
+        '<article class="fav-detail-sheet">'
+        + '<div class="fav-detail-meta"><time>' + dt + '</time>' + (tagsHtml ? '<div class="fav-detail-tags">' + tagsHtml + '</div>' : '') + '</div>'
+        + '<section class="fav-detail-turn fav-detail-turn-user"><div class="fav-detail-role"><i></i>江鱼</div><div class="fav-detail-text">' + escapeHtml(userC) + '</div></section>'
+        + (aiThinking ? '<div class="fav-think-box"><div class="fav-think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">深度思考过程 ▾</div><div class="fav-think-content" style="display:none">' + escapeHtml(aiThinking).replace(/\n/g,'<br>') + '</div></div>' : '')
+        + '<section class="fav-detail-turn fav-detail-turn-ai"><div class="fav-detail-role"><i></i>沈望</div><div class="fav-detail-text">' + escapeHtml(aiC) + '</div></section>'
+        + (f.note ? '<div class="fav-detail-note">备注 · ' + escapeHtml(f.note) + '</div>' : '')
+        + '</article>';
     detail.style.display = 'flex';
+    body.scrollTop = 0;
+    detail.querySelector('.view-back')?.focus();
 }
+
+function closeFavDetail() {
+    const detail = document.getElementById('favDetail');
+    if (!detail || detail.style.display === 'none') return;
+    detail.style.display = 'none';
+    _favDetailTrigger?.focus();
+    _favDetailTrigger = null;
+}
+
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && document.getElementById('favDetail')?.style.display !== 'none') {
+        event.preventDefault();
+        closeFavDetail();
+    }
+});
 
 function escapeHtml(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');

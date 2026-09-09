@@ -11,7 +11,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=79">
+    <link rel="stylesheet" href="style.css?v=80">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body class="neu-mode">
@@ -611,9 +611,9 @@
     </div>
 </div>
 
-<div id="favDetail" style="display:none;">
+<div id="favDetail" style="display:none;" role="dialog" aria-modal="true" aria-label="收藏详情">
     <div class="view-topbar" style="flex-shrink:0;">
-        <button class="view-back" onclick="document.getElementById('favDetail').style.display='none'">←</button>
+        <button class="view-back" onclick="closeFavDetail()" aria-label="返回收藏列表">←</button>
         <span class="view-title">收藏详情</span>
         <span style="flex:1"></span>
     </div>
