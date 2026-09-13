@@ -42,7 +42,7 @@ function parseJsonObject(raw) {
 }
 
 // The conversation model supplies the tag; this module only validates that it
-// is grounded in the current user message before the server stores anything.
+// is grounded in the permitted user-message source before the server stores anything.
 function extractDialogueCrumbTags(content, userText) {
     if (!content || typeof content !== 'string') return { cleanContent: content, crumbs: [], tagCount: 0, rawTagCount: 0, invalidTagCount: 0 };
     const payloads = []; let rawTagCount = 0; let invalidTagCount = 0;
@@ -54,8 +54,11 @@ function extractDialogueCrumbTags(content, userText) {
         return '';
     }).trim();
     // One independent detail is the hard per-response limit. normalizeCrumbs
-    // also verifies source_quote against userText and constrains every field.
-    const crumbs = normalizeCrumbs({ crumbs: payloads.slice(0, 1) }, userText);
+    // also verifies source_quote against the permitted user source and constrains every field.
+    const sourceText = Array.isArray(userText)
+        ? userText.map(item => String(item || '').trim()).filter(Boolean).join('\n')
+        : userText;
+    const crumbs = normalizeCrumbs({ crumbs: payloads.slice(0, 1) }, sourceText);
     return { cleanContent, crumbs, tagCount: payloads.length, rawTagCount, invalidTagCount };
 }
 

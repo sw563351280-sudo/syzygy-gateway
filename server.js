@@ -7169,6 +7169,17 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             traceEvent(_tr, 'adaptive_wake', '用户消息使旧计划作废', { source_user_message_id: adaptiveUserMessageId });
         }
         const currentMessageSource = currentUserMsgText ? { quote: currentUserMsgText, at: new Date().toISOString(), message_id: sourceMessageId, tab_id: sourceTabId } : null;
+        const crumbRetryRequested = /(?:生活碎屑|记忆碎屑|碎屑|星尘|写进(?:生活)?(?:碎屑|记忆)|再(?:重新)?写(?:一次)?|再记(?:一次)?|没写进)/i.test(currentUserMsgText || '');
+        const crumbSourceTexts = crumbRetryRequested
+            ? cleanMessages.filter(message => message?.role === 'user').map(message => stripTransportTimePrefix(extractText(message.content))).filter(Boolean).slice(-8)
+            : [currentUserMsgText];
+        const crumbWriteContext = noMemory || !currentUserMsgText ? null : {
+            userText: currentUserMsgText,
+            sourceRef: currentMessageSource,
+            sourceTexts: crumbSourceTexts,
+            retry: crumbRetryRequested
+        };
+        if (crumbRetryRequested) traceEvent(_tr, 'dialogue_crumb', '允许近期原话补写', { source_count: crumbSourceTexts.length });
         traceEvent(_tr, 'start', '请求进入', { msgCount: cleanMessages.length });
 
        if (currentUserMsgText) updateRpTracker(currentUserMsgText, 'main');
@@ -7395,7 +7406,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             if (shouldScan) txCtx = await scanTranscriptRadar(currentUserMsgText);
             const wakeDecisionsCtx = formatWakeDecisionsForContext(loadRecentWakeDecisions(5));
             const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
-            const dialogueCrumbInst = '【生活碎屑输出规则·每轮主动检查】\n像 MOOD_SNAPSHOT 一样，回复前主动检查江鱼这一轮是否说出了以后可能想找回的具体生活事实；有就悄悄输出至多一个隐藏标签，没有就不要为了完成任务硬写。格式：<CRUMB>{"fact":"我记着她说……","source_quote":"她这一轮逐字原话","entities":["对象"],"tags":["短标签"]}</CRUMB>。标签体必须是一个单行、严格合法的 JSON 对象：字段名和字符串均使用英文双引号，内容里的双引号必须写成 \\"，不使用代码块或额外解释。source_quote 必须逐字来自这一轮；技术讨论、寒暄、纯情绪、重复近况和拿不准的情况不输出。';
+            const dialogueCrumbInst = '【生活碎屑输出规则·每轮主动检查】\n像 MOOD_SNAPSHOT 一样，回复前主动检查江鱼这一轮是否说出了以后可能想找回的具体生活事实；有就悄悄输出至多一个隐藏标签，没有就不要为了完成任务硬写。格式：<CRUMB>{"fact":"我记着她说……","source_quote":"她这一轮逐字原话","entities":["对象"],"tags":["短标签"]}</CRUMB>。标签体必须是一个单行、严格合法的 JSON 对象：字段名和字符串均使用英文双引号，内容里的双引号必须写成 \\"，不使用代码块或额外解释。通常 source_quote 必须逐字来自这一轮；但当她明确说“再写一次”“写进生活碎屑”或“没写进去”时，可以引用近期对话里相关的用户原话，绝不能引用助手杜撰的内容。技术讨论、寒暄、纯情绪、重复近况和拿不准的情况不输出。';
             dynamicBlocks = cutAtSentence([moodSnapshotInst, dialogueCrumbInst, liveCtx, memCtx, txCtx, wakeDecisionsCtx].filter(Boolean).join('\n\n'), 11000);
             if (dynamicBlocks.endsWith('…')) console.log('⚠️ [DynamicBlocks] truncated at sentence boundary');
             _ctxDiag.last = { at: new Date().toISOString(), scanTranscript: shouldScan, transcriptLen: txCtx.length, liveStateLen: (liveCtx||'').length, memoryLen: (memCtx||'').length, totalCtxLen: dynamicBlocks.length, userText: (currentUserMsgText||'').substring(0, 120) };
@@ -7631,7 +7642,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             if (isStreamMode) {
                 // 先剥离 MOOD_SNAPSHOT 标签再发送前端
                 moodLog('[MOOD DEBUG] tool-path stream before strip has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
-                const visibleContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr);
+                const visibleContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
                 if (finalThink) {
                     res.write(`data: ${JSON.stringify({ id: 'think', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { reasoning_content: finalThink }, finish_reason: null }] })}\n\n`);
                 }
@@ -7654,7 +7665,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             } else {
                 if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
                 if (finalThink) toolData.choices[0].message.reasoning_content = finalThink;
-                const moodCleaned = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, noMemory ? null : { userText: currentUserMsgText, sourceRef: currentMessageSource });
+                const moodCleaned = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
                 toolData.choices[0].message.content = moodCleaned;
                 moodLog('[MOOD DEBUG] tool-path non-stream finalContent has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
                 if (!noMemory) {
@@ -7820,7 +7831,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
                     moodLog('[MOOD DEBUG] before mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     const beforeMood = streamCleanText;
-                    streamCleanText = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(streamCleanText, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, noMemory ? null : { userText: currentUserMsgText, sourceRef: currentMessageSource });
+                    streamCleanText = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(streamCleanText, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
                     moodLog('[MOOD DEBUG] after mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     moodLog('[MOOD DEBUG] mood handler text changed:', beforeMood !== streamCleanText);
                     if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr); tryAutoDream(currentUserMsgText); queueDailyStateCuration(currentUserMsgText, streamCleanText, _tr); resolveAnticipationsFromUserText(currentUserMsgText); }
@@ -7852,7 +7863,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 // 非流式：先处理 MOOD_SNAPSHOT，再保存
                 moodLog('[MOOD DEBUG] non-stream content has tag before: ' + String(finalContent || '').includes('<MOOD_SNAPSHOT>'));
                 if (finalContent) {
-                    finalContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, noMemory ? null : { userText: currentUserMsgText, sourceRef: currentMessageSource });
+                    finalContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
                     moodLog('[MOOD DEBUG] non-stream after mood handler has tag: ' + finalContent.includes('<MOOD_SNAPSHOT>'));
                 }
                 if (data.choices?.[0]?.message) data.choices[0].message.content = finalContent;
@@ -9327,8 +9338,9 @@ function persistDialogueCrumbs(crumbs, tr = null, sourceRef = null) {
 }
 
 function handleDialogueCrumbsFromAssistantContent(content, crumbContext = null, tr = null) {
-    const { cleanContent, crumbs, tagCount, rawTagCount, invalidTagCount } = extractDialogueCrumbTags(content, crumbContext?.userText || '');
-    traceEvent(tr, 'dialogue_crumb', '对话碎屑标签', { raw: rawTagCount, parsed: tagCount, invalid_json: invalidTagCount, valid: crumbs.length });
+    const sourceText = crumbContext?.sourceTexts || crumbContext?.userText || '';
+    const { cleanContent, crumbs, tagCount, rawTagCount, invalidTagCount } = extractDialogueCrumbTags(content, sourceText);
+    traceEvent(tr, 'dialogue_crumb', '对话碎屑标签', { raw: rawTagCount, parsed: tagCount, invalid_json: invalidTagCount, valid: crumbs.length, source_scope: crumbContext?.retry ? 'recent_user_messages' : 'current_user_message' });
     if (crumbs.length && crumbContext?.userText) persistDialogueCrumbs(crumbs, tr, crumbContext.sourceRef || null);
     return cleanContent;
 }

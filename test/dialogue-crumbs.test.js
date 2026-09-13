@@ -30,6 +30,15 @@ test('dialogue crumbs tolerate braces and literal line breaks inside model strin
     assert.equal(result.crumbs.length, 1);
 });
 
+test('an explicit retry can ground a crumb in a recent earlier user turn', () => {
+    const result = extractDialogueCrumbTags(
+        '<CRUMB>{"fact":"我记着她说小猫终于肯吃饭了。","source_quote":"小猫终于肯吃饭了","entities":["小猫"],"tags":["进展"]}</CRUMB>',
+        ['还没有……再重新写一次？', '那只小猫终于肯吃饭了。']
+    );
+    assert.equal(result.crumbs.length, 1);
+    assert.equal(result.crumbs[0].source_quote, '小猫终于肯吃饭了');
+});
+
 test('invalid dialogue crumb JSON is hidden but is reported for diagnosis', () => {
     const result = extractDialogueCrumbTags('<CRUMB>{"fact":"漏了结尾}</CRUMB>', '漏了结尾');
     assert.equal(result.cleanContent, '');
