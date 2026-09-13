@@ -48,7 +48,7 @@ const starState = { pendingMeteor: false, pendingNebula: false };
 
 // ==================== Markdown 渲染 ====================
 if (typeof marked !== 'undefined') { marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false }); }
-function stripInternalTags(text) { return (text||'').replace(/<MOOD_SNAPSHOT>[\s\S]*?<\/MOOD_SNAPSHOT>/g, '').replace(/\[\[MOOD_SNAPSHOT\]\][\s\S]*?\[\[MOOD_SNAPSHOT\]\]/g, '').replace(/<SAVE_MEMORY[\s\S]*?<\/SAVE_MEMORY>/g, '').replace(/<ADD_TODO>[\s\S]*?<\/ADD_TODO>/g, '').replace(/<DONE_TODO[^>]*\/>/g, '').trim(); }
+function stripInternalTags(text) { return (text||'').replace(/<MOOD_SNAPSHOT>[\s\S]*?<\/MOOD_SNAPSHOT>/g, '').replace(/\[\[MOOD_SNAPSHOT\]\][\s\S]*?\[\[MOOD_SNAPSHOT\]\]/g, '').replace(/<CRUMB>[\s\S]*?<\/CRUMB>/gi, '').replace(/<SAVE_MEMORY[\s\S]*?<\/SAVE_MEMORY>/g, '').replace(/<ADD_TODO>[\s\S]*?<\/ADD_TODO>/g, '').replace(/<DONE_TODO[^>]*\/>/g, '').trim(); }
 function stripDisplayTimestamp(text) { return String(text||'').replace(/^\s*(?:⟦ts:[^⟧]*⟧|\[ts:\d{2}-\d{2}\s+\d{2}:\d{2}\]|\[\d{2}-\d{2}\s+\d{2}:\d{2}\])\s*/i, ''); }
 const LEGACY_SHORT_MESSAGE_SEP_RE = /[\u001f\u2063]/g;
 function legacyMessagePlain(content) {

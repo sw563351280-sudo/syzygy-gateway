@@ -16,7 +16,7 @@ const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./tod
 const { extractDailyStateUpdates, stripLeakedStateUpdates, shouldCuratePersistentState } = require('./daily-state-curator');
 const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-merge');
 const { decideMemoryWrite } = require('./memory-merge-curator');
-const { extractCrumbs } = require('./crumb-curator');
+const { extractDialogueCrumbTags } = require('./dialogue-crumbs');
 const { createCrumbDigest } = require('./crumb-digest');
 const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
 const { extractXhsUrl, findNoteData, isAllowedXhsMediaUrl, isAllowedXhsUrl, normalizeNote, parseInitialState, readXhsNote } = require('./xhs-reader');
@@ -7395,7 +7395,8 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             if (shouldScan) txCtx = await scanTranscriptRadar(currentUserMsgText);
             const wakeDecisionsCtx = formatWakeDecisionsForContext(loadRecentWakeDecisions(5));
             const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
-            dynamicBlocks = cutAtSentence([moodSnapshotInst, liveCtx, memCtx, txCtx, wakeDecisionsCtx].filter(Boolean).join('\n\n'), 11000);
+            const dialogueCrumbInst = '【生活碎屑输出规则】\n只有江鱼这一轮说出值得日后找回的具体生活事实时，在回复末尾输出至多一个隐藏标签：<CRUMB>{"fact":"我记着她说……","source_quote":"她这一轮逐字原话","entities":["对象"],"tags":["短标签"]}</CRUMB>。source_quote 必须逐字来自这一轮；技术讨论、寒暄、纯情绪和拿不准的情况不输出。';
+            dynamicBlocks = cutAtSentence([moodSnapshotInst, dialogueCrumbInst, liveCtx, memCtx, txCtx, wakeDecisionsCtx].filter(Boolean).join('\n\n'), 11000);
             if (dynamicBlocks.endsWith('…')) console.log('⚠️ [DynamicBlocks] truncated at sentence boundary');
             _ctxDiag.last = { at: new Date().toISOString(), scanTranscript: shouldScan, transcriptLen: txCtx.length, liveStateLen: (liveCtx||'').length, memoryLen: (memCtx||'').length, totalCtxLen: dynamicBlocks.length, userText: (currentUserMsgText||'').substring(0, 120) };
         } catch(e) { _ctxDiag.last = { at: new Date().toISOString(), error: e.message, userText: (currentUserMsgText||'').substring(0, 120) }; }
@@ -7645,7 +7646,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, visibleContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
-                    queueDailyStateCuration(currentUserMsgText, visibleContent, _tr); queueCrumbCuration(currentUserMsgText, _tr, currentMessageSource); resolveAnticipationsFromUserText(currentUserMsgText);
+                    queueDailyStateCuration(currentUserMsgText, visibleContent, _tr); resolveAnticipationsFromUserText(currentUserMsgText);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, visibleContent);
                 traceEnd(_tr, { ok: true, replyLen: visibleContent.length, path: 'tool-stream' });
@@ -7653,13 +7654,13 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             } else {
                 if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
                 if (finalThink) toolData.choices[0].message.reasoning_content = finalThink;
-                const moodCleaned = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr);
+                const moodCleaned = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, noMemory ? null : { userText: currentUserMsgText, sourceRef: currentMessageSource });
                 toolData.choices[0].message.content = moodCleaned;
                 moodLog('[MOOD DEBUG] tool-path non-stream finalContent has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, moodCleaned, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
-                    queueDailyStateCuration(currentUserMsgText, moodCleaned, _tr); queueCrumbCuration(currentUserMsgText, _tr, currentMessageSource); resolveAnticipationsFromUserText(currentUserMsgText);
+                    queueDailyStateCuration(currentUserMsgText, moodCleaned, _tr); resolveAnticipationsFromUserText(currentUserMsgText);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, moodCleaned);
                 traceEnd(_tr, { ok: true, replyLen: (moodCleaned || '').length, path: 'tool-json' });
@@ -7727,7 +7728,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                         // complete response is parsed below and the plan is
                         // persisted there, while the tag remains invisible.
                         if (contentBuffer
-                            && !/<\s*(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i.test(contentBuffer)
+                            && !/<\s*(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i.test(contentBuffer)
                             && !/(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i.test(contentBuffer)
                             && !/<[A-Z_]*$/i.test(contentBuffer)) {
                             res.write(buildSSEChunk(contentBuffer, lastChunkTemplate) || '');
@@ -7746,7 +7747,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     const piece = delta.content; contentBuffer += piece; fullAiResponse += piece;
 
                     if (!isBuffering) {
-                        const TAG_OPEN = /<\s*(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i;
+                        const TAG_OPEN = /<\s*(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i;
                         const PRIVATE_JOURNAL_MARKER = /(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i;
                         const tagIdx = contentBuffer.search(TAG_OPEN);
                         const privateJournalIdx = contentBuffer.search(PRIVATE_JOURNAL_MARKER);
@@ -7775,15 +7776,16 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                         const close0 = contentBuffer.indexOf('</SAVE_MEMORY>');
                         const close1 = contentBuffer.indexOf('</ADD_TODO>');
                         const close2 = contentBuffer.indexOf('</MOOD_SNAPSHOT>');
-                        const close3 = contentBuffer.indexOf('</STATE_UPDATE>');
-                        const close4 = contentBuffer.indexOf('</ANTICIPATION>');
-                        const close5 = contentBuffer.indexOf('</NEXT_WAKE>');
-                        const close6 = contentBuffer.indexOf('</PRIVATE_JOURNAL>');
-                        const close7 = contentBuffer.indexOf('/>');
-                        const closes = [close0, close1, close2, close3, close4, close5, close6, close7].filter(i => i !== -1);
+                        const close3 = contentBuffer.indexOf('</CRUMB>');
+                        const close4 = contentBuffer.indexOf('</STATE_UPDATE>');
+                        const close5 = contentBuffer.indexOf('</ANTICIPATION>');
+                        const close6 = contentBuffer.indexOf('</NEXT_WAKE>');
+                        const close7 = contentBuffer.indexOf('</PRIVATE_JOURNAL>');
+                        const close8 = contentBuffer.indexOf('/>');
+                        const closes = [close0, close1, close2, close3, close4, close5, close6, close7, close8].filter(i => i !== -1);
                         if (closes.length > 0) {
                             const closeIdx = Math.min(...closes);
-                            const foundTag = closeIdx === close0 ? '</SAVE_MEMORY>' : closeIdx === close1 ? '</ADD_TODO>' : closeIdx === close2 ? '</MOOD_SNAPSHOT>' : closeIdx === close3 ? '</STATE_UPDATE>' : closeIdx === close4 ? '</ANTICIPATION>' : closeIdx === close5 ? '</NEXT_WAKE>' : closeIdx === close6 ? '</PRIVATE_JOURNAL>' : '/>';
+                            const foundTag = closeIdx === close0 ? '</SAVE_MEMORY>' : closeIdx === close1 ? '</ADD_TODO>' : closeIdx === close2 ? '</MOOD_SNAPSHOT>' : closeIdx === close3 ? '</CRUMB>' : closeIdx === close4 ? '</STATE_UPDATE>' : closeIdx === close5 ? '</ANTICIPATION>' : closeIdx === close6 ? '</NEXT_WAKE>' : closeIdx === close7 ? '</PRIVATE_JOURNAL>' : '/>';
                             contentBuffer = contentBuffer.substring(closeIdx + foundTag.length);
                             isBuffering = false;
                             if (contentBuffer) { const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate); if (chunk) res.write(chunk); contentBuffer = ''; }
@@ -7818,10 +7820,10 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
                     moodLog('[MOOD DEBUG] before mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     const beforeMood = streamCleanText;
-                    streamCleanText = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(streamCleanText, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr);
+                    streamCleanText = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(streamCleanText, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, noMemory ? null : { userText: currentUserMsgText, sourceRef: currentMessageSource });
                     moodLog('[MOOD DEBUG] after mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     moodLog('[MOOD DEBUG] mood handler text changed:', beforeMood !== streamCleanText);
-                    if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr); tryAutoDream(currentUserMsgText); queueDailyStateCuration(currentUserMsgText, streamCleanText, _tr); queueCrumbCuration(currentUserMsgText, _tr, currentMessageSource); resolveAnticipationsFromUserText(currentUserMsgText); }
+                    if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr); tryAutoDream(currentUserMsgText); queueDailyStateCuration(currentUserMsgText, streamCleanText, _tr); resolveAnticipationsFromUserText(currentUserMsgText); }
                     if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, streamCleanText);
                     moodLog('[MOOD DEBUG] stream finalize done');
                 } catch(e) { moodLog('[MOOD ERROR] stream finalize error:', e && (e.stack || e.message || e)); }
@@ -7850,14 +7852,14 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 // 非流式：先处理 MOOD_SNAPSHOT，再保存
                 moodLog('[MOOD DEBUG] non-stream content has tag before: ' + String(finalContent || '').includes('<MOOD_SNAPSHOT>'));
                 if (finalContent) {
-                    finalContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr);
+                    finalContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, noMemory ? null : { userText: currentUserMsgText, sourceRef: currentMessageSource });
                     moodLog('[MOOD DEBUG] non-stream after mood handler has tag: ' + finalContent.includes('<MOOD_SNAPSHOT>'));
                 }
                 if (data.choices?.[0]?.message) data.choices[0].message.content = finalContent;
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, finalContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
-                    queueDailyStateCuration(currentUserMsgText, finalContent, _tr); queueCrumbCuration(currentUserMsgText, _tr, currentMessageSource); resolveAnticipationsFromUserText(currentUserMsgText);
+                    queueDailyStateCuration(currentUserMsgText, finalContent, _tr); resolveAnticipationsFromUserText(currentUserMsgText);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, finalContent);
                 traceEnd(_tr, { ok: true, replyLen: (finalContent || '').length, path: 'json' });
@@ -9089,11 +9091,11 @@ app.post('/api/web-chat', async (req, res) => {
                     const { cleanText, memories } = extractSaveMemoryTag(cleanAiContent);
                     for (const mem of memories) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
                     const todoClean = processAssistantActionTags(memories.length > 0 ? cleanText : cleanAiContent);
-                    const finalReply = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(todoClean, { sourceUserMessageId: adaptiveUserMessageId, lastTopic: text }));
+                    const finalReply = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(todoClean, { sourceUserMessageId: adaptiveUserMessageId, lastTopic: text }), null, { userText: text });
                     await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
                     saveLatestConversationSummary(text, finalReply);
                     tryAutoDream(text);
-                    queueDailyStateCuration(text, finalReply); queueCrumbCuration(text); resolveAnticipationsFromUserText(text);
+                    queueDailyStateCuration(text, finalReply); resolveAnticipationsFromUserText(text);
                     resolve({ text: finalReply, thinking });
                     return;
                 }
@@ -9141,12 +9143,12 @@ app.post('/api/web-chat', async (req, res) => {
                 for (const mem of memories) {
                     queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
                 }
-                aiReply = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(processAssistantActionTags(memories.length > 0 ? cleanText : aiReply), { sourceUserMessageId: adaptiveUserMessageId, lastTopic: text }));
+                aiReply = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(processAssistantActionTags(memories.length > 0 ? cleanText : aiReply), { sourceUserMessageId: adaptiveUserMessageId, lastTopic: text }), null, { userText: text });
 
                 await saveToZepWithCounter(text || '（发送了一张图片）', aiReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
                 saveLatestConversationSummary(text, aiReply);
                 tryAutoDream(text);
-                queueDailyStateCuration(text, aiReply); queueCrumbCuration(text); resolveAnticipationsFromUserText(text);
+                queueDailyStateCuration(text, aiReply); resolveAnticipationsFromUserText(text);
 
                 resolve({ text: aiReply, thinking: thinking });
             } catch (err) {
@@ -9296,54 +9298,47 @@ function isRecentCrumbDuplicate(existing, crumb, now) {
     return Boolean(oldTopic && newTopic && oldTopic === newTopic);
 }
 
-function queueCrumbCuration(userText, tr = null, sourceRef = null) {
-    const curatorKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
-    if (!curatorKey || String(userText || '').trim().length < 4) {
-        traceEvent(tr, 'crumb_curator', '生活碎屑跳过', { reason: !curatorKey ? 'missing_api_key' : 'message_too_short' });
-        return;
+function persistDialogueCrumbs(crumbs, tr = null, sourceRef = null) {
+    if (!Array.isArray(crumbs) || !crumbs.length) return 0;
+    const now = new Date(); const dayKey = getChinaDateString(now);
+    const items = loadCrumbs(); let autoCreated = false; let added = 0;
+    for (const crumb of crumbs.slice(0, 1)) {
+        if (items.some(item => isRecentCrumbDuplicate(item, crumb, now))) continue;
+        const entry = { id: `crumb_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, kind: 'crumb', happened_at: now.toISOString(), fact: crumb.fact, source_quote: crumb.source_quote, source_message_id: sourceRef?.message_id || null, source_at: sourceRef?.at || now.toISOString(), entities: crumb.entities, tags: crumb.tags, status: 'active', archive_after_days: 90, created_at: now.toISOString(), last_surfaced_at: null, surface_count: 0 };
+        items.push(entry);
+        ensureEmbedding(entry.id, `${entry.fact}\n${entry.entities.join(' ')}\n${entry.tags.join(' ')}`).catch(error => console.log(`⚠️ [碎屑向量] 异步失败: ${error.message}`));
+        added++;
+        const hasAutoToday = autoCreated || loadAnticipations().some(item => item.created_from === 'auto' && getChinaDateString(new Date(item.created_at)) === dayKey);
+        const sameEntityOpen = loadAnticipations().some(item => item.status === 'open' && crumb.entities.includes(item.entity) && Date.now() - new Date(item.created_at).getTime() < 7 * 86400000);
+        if (crumb.follow_up && !hasAutoToday && !sameEntityOpen && addAnticipation({
+            source_crumb_id: entry.id,
+            content: crumb.follow_up.content,
+            entity: crumb.follow_up.entity,
+            context: entry.fact,
+            source_quote: entry.source_quote,
+            follow_up_after_hours: crumb.follow_up.follow_up_after_hours,
+            reason: crumb.follow_up.reason,
+            created_from: 'auto'
+        })) autoCreated = true;
     }
-    _crumbCuratorQueue = _crumbCuratorQueue.catch(() => {}).then(async () => {
-        const now = new Date(); const dayKey = getChinaDateString(now);
-        const existingItems = loadCrumbs();
-        const crumbs = await extractCrumbs({
-            fetchImpl: fetch,
-            apiKey: curatorKey,
-            endpoint: process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions',
-            model: process.env.CRUMB_CURATOR_MODEL || 'gemini-3-flash-preview',
-            userText,
-            onDiagnostic: detail => traceEvent(tr, 'crumb_curator', '生活碎屑模型结果', detail)
-        });
-        if (!crumbs.length) return;
-        const items = existingItems; let autoCreated = false; let added = 0;
-        for (const crumb of crumbs) {
-            if (items.some(item => isRecentCrumbDuplicate(item, crumb, now))) continue;
-            const entry = { id: `crumb_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, kind: 'crumb', happened_at: now.toISOString(), fact: crumb.fact, source_quote: crumb.source_quote, source_message_id: sourceRef?.message_id || null, source_at: sourceRef?.at || now.toISOString(), entities: crumb.entities, tags: crumb.tags, status: 'active', archive_after_days: 90, created_at: now.toISOString(), last_surfaced_at: null, surface_count: 0 };
-            items.push(entry);
-            ensureEmbedding(entry.id, `${entry.fact}\n${entry.entities.join(' ')}\n${entry.tags.join(' ')}`).catch(error => console.log(`⚠️ [碎屑向量] 异步失败: ${error.message}`));
-            added++;
-            const hasAutoToday = autoCreated || loadAnticipations().some(item => item.created_from === 'auto' && getChinaDateString(new Date(item.created_at)) === dayKey);
-            const sameEntityOpen = loadAnticipations().some(item => item.status === 'open' && crumb.entities.includes(item.entity) && Date.now() - new Date(item.created_at).getTime() < 7 * 86400000);
-            if (crumb.follow_up && !hasAutoToday && !sameEntityOpen && addAnticipation({
-                source_crumb_id: entry.id,
-                content: crumb.follow_up.content,
-                entity: crumb.follow_up.entity,
-                context: entry.fact,
-                source_quote: entry.source_quote,
-                follow_up_after_hours: crumb.follow_up.follow_up_after_hours,
-                reason: crumb.follow_up.reason,
-                created_from: 'auto'
-            })) autoCreated = true;
-        }
-        if (added) saveCrumbs(items.slice(-2000));
-        traceEvent(tr, 'crumb_curator', '生活碎屑整理', { found: crumbs.length, added });
-    }).catch(error => { console.log('🧺 [生活碎屑] 整理失败，不影响本轮回复:', error.message); traceEvent(tr, 'crumb_curator', '生活碎屑失败', { error: error.message }); });
+    if (added) saveCrumbs(items.slice(-2000));
+    traceEvent(tr, 'dialogue_crumb', '对话碎屑写入', { found: crumbs.length, added });
+    return added;
 }
 
-function cleanAssistantInternalArtifacts(content, tr = null) {
+function handleDialogueCrumbsFromAssistantContent(content, crumbContext = null, tr = null) {
+    const { cleanContent, crumbs, tagCount } = extractDialogueCrumbTags(content, crumbContext?.userText || '');
+    traceEvent(tr, 'dialogue_crumb', '对话碎屑标签', { tags: tagCount, valid: crumbs.length });
+    if (crumbs.length && crumbContext?.userText) persistDialogueCrumbs(crumbs, tr, crumbContext.sourceRef || null);
+    return cleanContent;
+}
+
+function cleanAssistantInternalArtifacts(content, tr = null, crumbContext = null) {
     const withoutWakeTag = extractNextWakeTag(content || '').cleanText;
     // 防御性兜底：正常路径会先写入并剥离标签；任何漏网路径也绝不能把它送到用户侧。
     const withoutPrivateJournalTag = privateJournal.extractPrivateJournalTags(withoutWakeTag).cleanText;
-    return stripLeakedStateUpdates(handleMoodSnapshotsFromAssistantContent(withoutPrivateJournalTag, tr));
+    const withoutMoodTags = handleMoodSnapshotsFromAssistantContent(withoutPrivateJournalTag, tr);
+    return stripLeakedStateUpdates(handleDialogueCrumbsFromAssistantContent(withoutMoodTags, crumbContext, tr));
 }
 
 function queueDailyStateCuration(userText, assistantText, tr = null) {
