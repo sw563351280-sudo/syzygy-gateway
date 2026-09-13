@@ -21,3 +21,19 @@ test('ungrounded or repeated dialogue crumb tags never create more than one crum
     assert.equal(result.tagCount, 2);
     assert.deepEqual(result.crumbs, []);
 });
+
+test('dialogue crumbs tolerate braces and literal line breaks inside model strings', () => {
+    const input = '<CRUMB>{"fact":"我记着她把卡片写成了{待办}，\n还说晚点再看。","source_quote":"把卡片写成了{待办}，\n还说晚点再看","entities":["卡片"],"tags":["记录"]}</CRUMB>';
+    const result = extractDialogueCrumbTags(input, '她说：把卡片写成了{待办}，\n还说晚点再看。');
+    assert.equal(result.rawTagCount, 1);
+    assert.equal(result.invalidTagCount, 0);
+    assert.equal(result.crumbs.length, 1);
+});
+
+test('invalid dialogue crumb JSON is hidden but is reported for diagnosis', () => {
+    const result = extractDialogueCrumbTags('<CRUMB>{"fact":"漏了结尾}</CRUMB>', '漏了结尾');
+    assert.equal(result.cleanContent, '');
+    assert.equal(result.rawTagCount, 1);
+    assert.equal(result.tagCount, 0);
+    assert.equal(result.invalidTagCount, 1);
+});
