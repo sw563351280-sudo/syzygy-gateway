@@ -1,5 +1,6 @@
 'use strict';
 
+const { matchSource } = require('./memory-write-utils');
 const { clampFollowUpHours } = require('./anticipation');
 
 function findJson(text) {
@@ -16,15 +17,17 @@ function findJson(text) {
     return null;
 }
 
-function normalizeCrumbs(payload, userText) {
-    const source = String(userText || '').trim(); const seen = new Set(); const crumbs = [];
+function normalizeCrumbs(payload, userText, onReject = () => {}) {
+    const source = userText; const seen = new Set(); const crumbs = [];
     // A message can contribute one independent detail at most.  This keeps
     // the archive a safety net rather than a transcript.
     for (const item of (Array.isArray(payload?.crumbs) ? payload.crumbs : []).slice(0, 1)) {
-        const fact = String(item?.fact || '').trim().slice(0, 160); const quote = String(item?.source_quote || '').trim().slice(0, 240);
-        if (fact.length < 4 || quote.length < 2 || !source.includes(quote)) continue;
-        const entities = (Array.isArray(item.entities) ? item.entities : []).map(x => String(x || '').trim().slice(0, 32)).filter(x => x.length >= 2).filter((x, i, a) => a.indexOf(x) === i).slice(0, 4);
-        if (!entities.length || seen.has(quote)) continue;
+        const fact = String(item?.fact || '').trim().slice(0, 2000);
+        const rawQuote = String(item?.source_quote || '').trim();
+        const quote = matchSource(rawQuote, source);
+        if (fact.length < 4 || !quote) { onReject(fact.length < 4 ? 'empty_fact' : 'source_quote_mismatch'); continue; }
+        const entities = (Array.isArray(item.entities) ? item.entities : []).map(x => String(x || '').trim().slice(0, 32)).filter(x => x.length >= 1).filter((x, i, a) => a.indexOf(x) === i).slice(0, 4);
+        if (seen.has(quote)) { onReject('duplicate_quote'); continue; }
         seen.add(quote);
         const follow = item.follow_up && typeof item.follow_up === 'object' ? item.follow_up : null;
         const follow_up = follow && String(follow.content || '').trim().length >= 4 ? {

@@ -16,6 +16,7 @@ const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./tod
 const { extractDailyStateUpdates, stripLeakedStateUpdates, shouldCuratePersistentState } = require('./daily-state-curator');
 const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-merge');
 const { decideMemoryWrite } = require('./memory-merge-curator');
+const { extractSaveMemoryTag: parseMemoryTag, isRecentCrumbDuplicate: sameCrumb } = require('./memory-write-utils');
 const { extractDialogueCrumbTags } = require('./dialogue-crumbs');
 const { createCrumbDigest } = require('./crumb-digest');
 const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
@@ -2380,19 +2381,7 @@ function processPrivateJournalTags(text) {
 }
 
 function extractSaveMemoryTag(text) {
-    const results = [];
-    let match;
-    const regex = new RegExp(SAVE_MEMORY_REGEX.source, 'g');
-    while ((match = regex.exec(text)) !== null) {
-        results.push({
-            tags: match[1].split(/[,，]/).map(t => t.trim()).filter(Boolean),
-            // 兼容旧标签里的 ttl 属性，但现实长期记忆写入时会统一固定为 perm。
-            ttl: 'perm',
-            content: match[3].trim()
-        });
-    }
-    const cleanText = text.replace(new RegExp(SAVE_MEMORY_REGEX.source, 'g'), '').trim();
-    return { cleanText, memories: results };
+    return parseMemoryTag(text);
 }
 
 function extractAndProcessTodoTags(text) {
@@ -2831,9 +2820,29 @@ async function scanStoredMemoryMergeReviews() {
     return _memoryMergeScan;
 }
 
+async function suggestSavedMemoryMerge(saved, tr) {
+    const key = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
+    if (!key) return;
+    const candidates = (await retrieveMemoryMergeCandidates(saved.content, saved.tags))
+        .filter(item => item.id !== saved.id && item.similarity >= 0.68);
+    if (!candidates.length) return;
+    const incoming = { ...saved, memory_id: saved.id };
+    const decision = await decideMemoryWrite({ fetchImpl: fetch, apiKey: key,
+        endpoint: process.env.MEMORY_MERGE_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions',
+        model: process.env.MEMORY_MERGE_MODEL || 'gemini-3-flash-preview', incoming, candidates });
+    if (decision.action !== 'update' && decision.action !== 'review') return;
+    const review = createMemoryMergeReview({ ...incoming, content: decision.content, tags: decision.tags }, candidates, decision);
+    if (review) wsBroadcast({ type: 'memory_merge_review', id: review.id });
+    traceEvent(tr, 'memory_review', '已保存，另有合并建议', { id: saved.id, review_id: review?.id });
+}
+
 let _memoryWriteQueue = Promise.resolve();
 function queueSmartMemoryWrite(...args) {
-    _memoryWriteQueue = _memoryWriteQueue.catch(() => {}).then(() => smartMemoryWrite(...args)).catch(error => console.log(`⚠️ [记忆写入] 后台失败: ${error.message}`));
+    _memoryWriteQueue = _memoryWriteQueue.catch(() => {}).then(() => smartMemoryWrite(...args)).catch(error => {
+        console.log('记忆写入失败:', error.message);
+        traceEvent(args[6], 'memory_write', '写入失败', { reason: error.message });
+        wsBroadcast({ type: 'memory_write_failed', message: '记忆保存失败，请稍后重试。' });
+    });
     return _memoryWriteQueue;
 }
 
@@ -2841,10 +2850,12 @@ function queueSmartMemoryWrite(...args) {
 //记忆写入统一入口（透传 arousal）
 // ==========================================
 async function smartMemoryWrite(content, tags, source, ttl = 'perm', arousal = 0.5, userMsg = null, tr = null, sourceRef = null) {
-    const validTags = (tags || []).filter(t => t.length >= 2);
-    if (!content || content.trim().length < 10 || validTags.length === 0) {
+    const validTags = (tags || []).map(t => String(t).trim()).filter(Boolean);
+    if (!validTags.length) validTags.push('对话记忆');
+    if (!content || content.trim().length < 4) {
         console.log(`🛡️ [统一守门] 拦截低质量记忆: ${(content || '').substring(0, 30)}`);
-        traceEvent(tr, 'memory_write', '被拦截·质量不足', { reason: (!content || content.trim().length < 10) ? 'content<10字' : '无有效tag', preview: (content || '').substring(0, 60), tags: validTags });
+        traceEvent(tr, 'memory_write', '被拦截·质量不足', { reason: 'content<4字', preview: (content || '').substring(0, 60), tags: validTags });
+        wsBroadcast({ type: 'memory_write_failed', message: '记忆内容不完整，未保存，请重新记录。' });
         return null;
     }
     if (validTags.some(t => ['roleplay','rp','副本','游戏','设定','语c','卡带'].includes(t.toLowerCase()))) {
@@ -2855,38 +2866,14 @@ async function smartMemoryWrite(content, tags, source, ttl = 'perm', arousal = 0
     const emoWeight = (userMsg && source === 'ai_active') ? detectEmotion(userMsg) : 0;
     const origin = normalizeMemorySource(sourceRef);
     const incoming = { content: content.trim(), tags: validTags, source, ttl: 'perm', arousal: effectiveArousal, emotional_weight: emoWeight, ...origin };
-    let candidates = [];
-    try { candidates = await retrieveMemoryMergeCandidates(incoming.content, incoming.tags); }
-    catch (error) { console.log(`⚠️ [记忆检索] 降级为无候选: ${error.message}`); }
-    const curatorKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
-    let decision;
-    try {
-        if (!curatorKey) decision = { action: candidates.length ? 'review' : 'new', content: incoming.content, tags: incoming.tags, target_id: null, reason: '未配置审稿模型', confidence: 0 };
-        else decision = await decideMemoryWrite({ fetchImpl: fetch, apiKey: curatorKey, endpoint: process.env.MEMORY_MERGE_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions', model: process.env.MEMORY_MERGE_MODEL || 'gemini-3-flash-preview', incoming, candidates });
-    } catch (error) {
-        console.log(`⚠️ [记忆审稿] 转入待确认: ${error.message}`);
-        decision = { action: candidates.length ? 'review' : 'new', content: incoming.content, tags: incoming.tags, target_id: null, reason: '审稿服务暂不可用', confidence: 0 };
-    }
-    let result = null;
-    if (decision.action === 'new') result = addLongTermMemory(decision.content, source, decision.tags, 'perm', effectiveArousal, emoWeight, origin);
-    else if (decision.action === 'update') {
-        result = updateLongTermMemoryRevision(decision.target_id, { content: decision.content, tags: decision.tags, source, ttl: 'perm', arousal: effectiveArousal, emotional_weight: emoWeight, ...origin });
-        if (!result) decision = { ...decision, action: 'review', reason: '候选已变化，请手动确认' };
-    }
-    if (decision.action === 'review') {
-        const review = createMemoryMergeReview({ ...incoming, content: decision.content, tags: decision.tags }, candidates, decision);
-        if (review) wsBroadcast({ type: 'memory_merge_review', id: review.id, preview: review.incoming.content.substring(0, 60) });
-        traceEvent(tr, 'memory_write', '待确认合并', { preview: incoming.content.substring(0, 60), candidates: candidates.map(item => ({ id: item.id, similarity: item.similarity })) });
-        return { write_action: 'review', review };
-    }
-    if (decision.action === 'skip') {
-        traceEvent(tr, 'memory_write', '跳过·尚非最终结论', { preview: incoming.content.substring(0, 60) });
-        return { write_action: 'skipped' };
-    }
+    const result = addLongTermMemory(incoming.content, source, validTags, 'perm', effectiveArousal, emoWeight, origin);
+    if (result) setImmediate(() => suggestSavedMemoryMerge(result, tr).catch(error => {
+        traceEvent(tr, 'memory_review', '已保存，合并检查失败', { reason: error.message, id: result.id });
+    }));
     if (result) {
         traceEvent(tr, 'memory_write', result.write_action === 'updated' ? '已合并更新' : '已写入', { id: result.id, preview: result.content.substring(0, 60), tags: result.tags, ttl: 'perm', arousal: effectiveArousal });
     } else {
-        traceEvent(tr, 'memory_write', '被拦截·重复', { reason: '内容完全重复 或 语义相似度>0.6', preview: content.substring(0, 60), tags: validTags });
+        traceEvent(tr, 'memory_write', '被拦截·重复', { reason: '内容完全重复', preview: content.substring(0, 60), tags: validTags });
     }
     if (source === 'ai_active' && result) {
         wsBroadcast({ type: result.write_action === 'updated' ? 'memory_updated' : 'memory_saved', preview: result.content.substring(0, 60), tags: result.tags, source: 'ai_active', id: result.id });
@@ -7635,7 +7622,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             const finalThink = reasoning || thinkFromTag;
 
             const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(cleanForFinal);
-            for (const mem of ntMems) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr, currentMessageSource);
+            if (!noMemory) for (const mem of ntMems) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr, currentMessageSource);
             const todoClean = processAssistantActionTags(ntMems.length > 0 ? ntClean : cleanForFinal);
             const finalContent = todoClean;
 
@@ -7784,6 +7771,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     }
 
                     if (isBuffering) {
+                        contentBuffer = contentBuffer.replace(/<\s*\/\s*(SAVE_MEMORY|CRUMB)\s*>/gi, (_, name) => '</' + name.toUpperCase() + '>');
                         const close0 = contentBuffer.indexOf('</SAVE_MEMORY>');
                         const close1 = contentBuffer.indexOf('</ADD_TODO>');
                         const close2 = contentBuffer.indexOf('</MOOD_SNAPSHOT>');
@@ -7825,7 +7813,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     moodLog('[MOOD DEBUG] fullAiResponse has tag:', fullAiResponse.includes('<MOOD_SNAPSHOT>') || fullAiResponse.includes('[[MOOD_SNAPSHOT]]'));
                     moodLog('[MOOD DEBUG] fullAiResponse tail:', fullAiResponse.slice(-1200));
                     const { cleanText: memClean, memories: streamMemories } = extractSaveMemoryTag(fullAiResponse);
-                    for (const mem of streamMemories) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr, currentMessageSource);
+                    if (!noMemory) for (const mem of streamMemories) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr, currentMessageSource);
                     let streamCleanText = memClean || fullAiResponse;
                     const todoCleanMaybe = processAssistantActionTags(streamCleanText);
                     if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
@@ -8938,7 +8926,7 @@ app.post('/api/web-chat', async (req, res) => {
             } catch(e) { console.log("Zep记忆提取跳过"); }
 
             const ledgerRealtimeContext = buildLedgerRealtimeContext(text);
-            const envContext = buildEnvContext(`【场景确认：溯星小屋私密网页端】\n这里是你的领地，请结合江鱼的专属System Prompt 进行回复。\n如果江鱼发了图片，请仔细观察并给出带有情绪的评价。\n【🚨 工具使用铁律】：当你调用了read_webpage看到页面后，如果需要操作（点击、填写等），必须立刻调用interact_webpage执行！严禁只用文字描述"我点击了"而不实际调用工具！\n【🚨 记忆刻录机制】：用<SAVE_MEMORY>标签记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊和重复话题。一次回复最多一个标签，内容≥10字+清晰标签。详见System Prompt第九项。${ledgerRealtimeContext}`);
+            const envContext = buildEnvContext(`【场景确认：溯星小屋私密网页端】\n这里是你的领地，请结合江鱼的专属System Prompt 进行回复。\n如果江鱼发了图片，请仔细观察并给出带有情绪的评价。\n【🚨 工具使用铁律】：当你调用了read_webpage看到页面后，如果需要操作（点击、填写等），必须立刻调用interact_webpage执行！严禁只用文字描述"我点击了"而不实际调用工具！\n【🚨 记忆刻录机制】：用<SAVE_MEMORY tags="关键词1,关键词2">标签记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊和重复话题。一次回复最多一个标签，内容≥10字+清晰标签。详见System Prompt第九项。${ledgerRealtimeContext}`);
 
 
             if (text) updateRpTracker(text, 'main');
@@ -9287,26 +9275,8 @@ function queuePreviousCrumbDigest() {
     return _crumbDigestQueue;
 }
 
-function crumbTopicKey(crumb) {
-    const fact = String(crumb?.fact || '').replace(/\s+/g, '');
-    if (/(?:困|疲|睡不着|失眠|想睡|睡眠)/.test(fact)) return 'body:sleep';
-    if (/(?:疼|痛|受伤|发烧|不舒服|生病|过敏)/.test(fact)) return 'body:health';
-    if (/(?:吵架|生气|难过|哭|委屈|烦)/.test(fact)) return 'emotion:event';
-    const tags = (Array.isArray(crumb?.tags) ? crumb.tags : [])
-        .map(tag => String(tag || '').trim()).filter(Boolean).sort().join('|');
-    const entities = (Array.isArray(crumb?.entities) ? crumb.entities : [])
-        .map(entity => String(entity || '').trim())
-        .filter(entity => entity && !/^(?:江鱼|我|自己|她)$/.test(entity)).sort().join('|');
-    return `${tags}#${entities}` || fact.slice(0, 12);
-}
-
 function isRecentCrumbDuplicate(existing, crumb, now) {
-    const createdAt = new Date(existing?.created_at || 0).getTime();
-    if (!createdAt || now.getTime() - createdAt > 8 * 3600000) return false;
-    if (existing?.source_quote === crumb.source_quote) return true;
-    const oldTopic = crumbTopicKey(existing);
-    const newTopic = crumbTopicKey(crumb);
-    return Boolean(oldTopic && newTopic && oldTopic === newTopic);
+    return sameCrumb(existing, crumb, now);
 }
 
 function persistDialogueCrumbs(crumbs, tr = null, sourceRef = null) {
@@ -9332,16 +9302,29 @@ function persistDialogueCrumbs(crumbs, tr = null, sourceRef = null) {
             created_from: 'auto'
         })) autoCreated = true;
     }
-    if (added) saveCrumbs(items.slice(-2000));
-    traceEvent(tr, 'dialogue_crumb', '对话碎屑写入', { found: crumbs.length, added });
+    if (added) {
+        try { saveCrumbs(items.slice(-2000)); }
+        catch (error) {
+            traceEvent(tr, 'dialogue_crumb', '碎屑写入失败', { reason: error.message });
+            wsBroadcast({ type: 'memory_write_failed', message: '生活碎屑保存失败，请稍后重试。' });
+            return 0;
+        }
+        wsBroadcast({ type: 'crumb_saved', count: added });
+    }
+    traceEvent(tr, 'dialogue_crumb', '对话碎屑写入', { found: crumbs.length, added, duplicate: crumbs.length - added });
     return added;
 }
 
 function handleDialogueCrumbsFromAssistantContent(content, crumbContext = null, tr = null) {
     const sourceText = crumbContext?.sourceTexts || crumbContext?.userText || '';
-    const { cleanContent, crumbs, tagCount, rawTagCount, invalidTagCount } = extractDialogueCrumbTags(content, sourceText);
-    traceEvent(tr, 'dialogue_crumb', '对话碎屑标签', { raw: rawTagCount, parsed: tagCount, invalid_json: invalidTagCount, valid: crumbs.length, source_scope: crumbContext?.retry ? 'recent_user_messages' : 'current_user_message' });
+    const { cleanContent, crumbs, tagCount, rawTagCount, invalidTagCount, rejected = [] } = extractDialogueCrumbTags(content, sourceText);
+    traceEvent(tr, 'dialogue_crumb', '对话碎屑标签', { raw: rawTagCount, parsed: tagCount, invalid_json: invalidTagCount, valid: crumbs.length, rejected, source_scope: crumbContext?.retry ? 'recent_user_messages' : 'current_user_message' });
     if (crumbs.length && crumbContext?.userText) persistDialogueCrumbs(crumbs, tr, crumbContext.sourceRef || null);
+    else if (crumbContext?.userText && (rawTagCount || invalidTagCount)) {
+        wsBroadcast({ type: 'memory_write_failed', message: invalidTagCount
+            ? '生活碎屑格式不完整，未保存，请重新记录。'
+            : '生活碎屑未匹配到你的原话，请带上原话重新记录。' });
+    }
     return cleanContent;
 }
 

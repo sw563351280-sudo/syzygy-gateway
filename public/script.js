@@ -48,7 +48,7 @@ const starState = { pendingMeteor: false, pendingNebula: false };
 
 // ==================== Markdown 渲染 ====================
 if (typeof marked !== 'undefined') { marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false }); }
-function stripInternalTags(text) { return (text||'').replace(/<MOOD_SNAPSHOT>[\s\S]*?<\/MOOD_SNAPSHOT>/g, '').replace(/\[\[MOOD_SNAPSHOT\]\][\s\S]*?\[\[MOOD_SNAPSHOT\]\]/g, '').replace(/<CRUMB>[\s\S]*?<\/CRUMB>/gi, '').replace(/<SAVE_MEMORY[\s\S]*?<\/SAVE_MEMORY>/g, '').replace(/<ADD_TODO>[\s\S]*?<\/ADD_TODO>/g, '').replace(/<DONE_TODO[^>]*\/>/g, '').trim(); }
+function stripInternalTags(text) { return (text||'').replace(/<MOOD_SNAPSHOT>[\s\S]*?<\/MOOD_SNAPSHOT>/g, '').replace(/\[\[MOOD_SNAPSHOT\]\][\s\S]*?\[\[MOOD_SNAPSHOT\]\]/g, '').replace(/<\s*CRUMB\s*>[\s\S]*?<\s*\/\s*CRUMB\s*>/gi, '').replace(/<\s*SAVE_MEMORY\b[^>]*>[\s\S]*?<\s*\/\s*SAVE_MEMORY\s*>/gi, '').replace(/<ADD_TODO>[\s\S]*?<\/ADD_TODO>/g, '').replace(/<DONE_TODO[^>]*\/>/g, '').trim(); }
 function stripDisplayTimestamp(text) { return String(text||'').replace(/^\s*(?:⟦ts:[^⟧]*⟧|\[ts:\d{2}-\d{2}\s+\d{2}:\d{2}\]|\[\d{2}-\d{2}\s+\d{2}:\d{2}\])\s*/i, ''); }
 const LEGACY_SHORT_MESSAGE_SEP_RE = /[\u001f\u2063]/g;
 function legacyMessagePlain(content) {
@@ -140,7 +140,11 @@ function handleWSMessage(msg) {
     switch (msg.type) {
         case 'new_message': handleCrossPlatformMessage(msg); break;
         case 'dream_done': handleDreamDone(msg); break;
-        case 'memory_saved': handleMemorySaved(msg); break;
+        case 'memory_saved':
+        case 'memory_updated': handleMemorySaved(msg); break;
+        case 'crumb_saved': toast('生活碎屑已保存'); break;
+        case 'memory_write_failed': toast(msg.message || '记忆保存失败，请稍后重试'); break;
+        case 'memory_merge_review': toast('有一条记忆合并建议待确认'); break;
         case 'proactive_message': handleProactiveMessage(msg); break;
         case 'todo_added':
         case 'todo_updated':

@@ -46,7 +46,7 @@ function parseJsonObject(raw) {
 function extractDialogueCrumbTags(content, userText) {
     if (!content || typeof content !== 'string') return { cleanContent: content, crumbs: [], tagCount: 0, rawTagCount: 0, invalidTagCount: 0 };
     const payloads = []; let rawTagCount = 0; let invalidTagCount = 0;
-    const cleanContent = content.replace(/<CRUMB>([\s\S]*?)<\/CRUMB>/gi, (_, raw) => {
+    const cleanContent = content.replace(/<\s*CRUMB\s*>([\s\S]*?)<\s*\/\s*CRUMB\s*>/gi, (_, raw) => {
         rawTagCount++;
         const payload = parseJsonObject(raw);
         if (payload) payloads.push(payload);
@@ -55,11 +55,13 @@ function extractDialogueCrumbTags(content, userText) {
     }).trim();
     // One independent detail is the hard per-response limit. normalizeCrumbs
     // also verifies source_quote against the permitted user source and constrains every field.
-    const sourceText = Array.isArray(userText)
-        ? userText.map(item => String(item || '').trim()).filter(Boolean).join('\n')
-        : userText;
-    const crumbs = normalizeCrumbs({ crumbs: payloads.slice(0, 1) }, sourceText);
-    return { cleanContent, crumbs, tagCount: payloads.length, rawTagCount, invalidTagCount };
+    const rejected = [];
+    const crumbs = [];
+    for (const payload of payloads) {
+        const found = normalizeCrumbs({ crumbs: [payload] }, userText, reason => rejected.push(reason));
+        if (found.length) { crumbs.push(found[0]); break; }
+    }
+    return { cleanContent, crumbs, tagCount: payloads.length, rawTagCount, invalidTagCount, rejected };
 }
 
 module.exports = { extractDialogueCrumbTags, parseJsonObject };

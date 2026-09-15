@@ -44,8 +44,15 @@ async function decideMemoryWrite(options) {
         let response = await request(body);
         if (!response.ok && (response.status === 400 || response.status === 422)) { delete body.response_format; response = await request(body); }
         if (!response.ok) throw new Error(`memory merge curator API ${response.status}`);
-        const raw = (await response.json())?.choices?.[0]?.message?.content || '';
-        return normalizeDecision(findJson(raw), incoming, candidates);
+        const data = await response.json();
+        const message = data?.choices?.[0]?.message || {};
+        for (const raw of [message.content, message.reasoning_content, data?.choices?.[0]?.text, data?.output_text]) {
+            const parsed = typeof raw === 'string' ? findJson(raw) : null;
+            if (parsed && ['new', 'update', 'review', 'skip'].includes(parsed.action)) {
+                return normalizeDecision(parsed, incoming, candidates);
+            }
+        }
+        throw new Error('memory merge curator returned no valid decision');
     } finally { clearTimeout(timer); }
 }
 
