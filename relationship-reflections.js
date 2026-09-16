@@ -6,7 +6,7 @@ const STAGES = new Set(['context', 'trigger', 'escalation', 'rupture', 'repair',
 const CLOSING_STAGES = new Set(['repair', 'resolution', 'aftermath']);
 
 function emptyRelationshipStore() {
-    return { version: 1, episodes: [], insights: [], processed: {}, updated_at: null };
+    return { version: 1, episodes: [], insights: [], processed: {}, active_state: null, updated_at: null };
 }
 
 function normalizeStore(raw) {
@@ -16,6 +16,7 @@ function normalizeStore(raw) {
         episodes: Array.isArray(source.episodes) ? source.episodes : [],
         insights: Array.isArray(source.insights) ? source.insights : [],
         processed: source.processed && typeof source.processed === 'object' ? source.processed : {},
+        active_state: source.active_state && typeof source.active_state === 'object' ? source.active_state : null,
         updated_at: source.updated_at || null,
     };
 }

@@ -20,6 +20,7 @@ const { decideMemoryWrite } = require('./memory-merge-curator');
 const { canonical: canonicalMemoryText, extractSaveMemoryTag: parseMemoryTag, isRecentCrumbDuplicate: sameCrumb } = require('./memory-write-utils');
 const { activeMemoryEvents, publicMemoryEvent, readMemoryEvents, receiveMemoryEvent, updateMemoryEvent } = require('./memory-events');
 const { applyDecision: applyRelationshipDecision, curateRelationshipMemory, emptyRelationshipStore, looksRelationshipRelevant, memorySignature, normalizeStore: normalizeRelationshipStore } = require('./relationship-reflections');
+const { activeRelationshipContext, applyRelationshipSignal, extractRelationshipStateTags } = require('./relationship-state');
 const { extractDialogueCrumbTags } = require('./dialogue-crumbs');
 const { createCrumbDigest } = require('./crumb-digest');
 const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
@@ -3503,7 +3504,9 @@ async function buildSharedSystemPrompt({
         } catch (error) {
             console.log(`🫀 [共享上下文] 生理状态读取失败，降级为空上下文: ${error.message}`);
         }
+        const relationshipStore = loadRelationshipReflections();
         const relationshipReflectionContext = buildRelationshipReflectionContext(query || '');
+        const activeRelationshipStateContext = activeRelationshipContext(relationshipStore);
         resolvedInjectionQueue = [
             { label: '环境参数', content: envContext },
             { label: '时间线', content: formatTimeContext() },
@@ -3511,6 +3514,7 @@ async function buildSharedSystemPrompt({
             { label: '主动相关记忆', content: relatedContext },
             { label: '相关记忆浮现', content: recall.unresolved },
             { label: '长期记忆雷达', content: recall.longTerm },
+            { label: '当前关系状态', content: activeRelationshipStateContext },
             { label: '关系成长记录', content: relationshipReflectionContext },
             { label: '核心雷达', content: recall.core },
             { label: 'RP雷达', content: gateRP(recall.roleplay, query || '') },
@@ -7625,7 +7629,8 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             const wakeDecisionsCtx = formatWakeDecisionsForContext(loadRecentWakeDecisions(5));
             const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
             const dialogueCrumbInst = '【生活碎屑输出规则·每轮主动检查】\n像 MOOD_SNAPSHOT 一样，回复前主动检查江鱼这一轮是否说出了以后可能想找回的具体生活事实；有就悄悄输出至多一个隐藏标签，没有就不要为了完成任务硬写。格式：<CRUMB>{"fact":"我记着她说……","source_quote":"她这一轮逐字原话","entities":["对象"],"tags":["短标签"]}</CRUMB>。标签体必须是一个单行、严格合法的 JSON 对象：字段名和字符串均使用英文双引号，内容里的双引号必须写成 \\"，不使用代码块或额外解释。通常 source_quote 必须逐字来自这一轮；但当她明确说“再写一次”“写进生活碎屑”或“没写进去”时，可以引用近期对话里相关的用户原话，绝不能引用助手杜撰的内容。技术讨论、寒暄、纯情绪、重复近况和拿不准的情况不输出。';
-            dynamicBlocks = cutAtSentence([moodSnapshotInst, dialogueCrumbInst, liveCtx, memCtx, txCtx, wakeDecisionsCtx].filter(Boolean).join('\n\n'), 11000);
+            const relationshipStateInst = '【关系过程状态·由当前对话模型判断】\n你拥有这段对话的完整上下文，因此由你判断当前是否发生关系冲突的开始、持续、修复、暂停未决、真正解决或旧冲突重启。只在状态发生转折时输出至多一个隐藏标签；普通负面情绪、技术分歧和状态未变化时不输出。格式：<RELATIONSHIP_STATE>{"transition":"conflict_started|conflict_continues|repair_started|resolved|paused_unresolved|conflict_reopened","title":"这段过程的短标题","summary":"基于上下文的本轮进展","evidence_quote":"江鱼本轮逐字原话","themes":["短主题"],"confidence":0.0,"user_confirmed":false}</RELATIONSHIP_STATE>。evidence_quote 必须逐字来自江鱼本轮消息。只有江鱼明确接受修复、确认说开或表示已经解决时才能用 resolved，并将 user_confirmed 设为 true；你自己的道歉、解释或示好不能结案。“算了”“不说了”“随便吧”默认是 paused_unresolved，不是和好。标签必须是单行严格 JSON，且不会展示给江鱼。';
+            dynamicBlocks = cutAtSentence([relationshipStateInst, moodSnapshotInst, dialogueCrumbInst, liveCtx, memCtx, txCtx, wakeDecisionsCtx].filter(Boolean).join('\n\n'), 12500);
             if (dynamicBlocks.endsWith('…')) console.log('⚠️ [DynamicBlocks] truncated at sentence boundary');
             _ctxDiag.last = { at: new Date().toISOString(), scanTranscript: shouldScan, transcriptLen: txCtx.length, liveStateLen: (liveCtx||'').length, memoryLen: (memCtx||'').length, totalCtxLen: dynamicBlocks.length, userText: (currentUserMsgText||'').substring(0, 120) };
         } catch(e) { _ctxDiag.last = { at: new Date().toISOString(), error: e.message, userText: (currentUserMsgText||'').substring(0, 120) }; }
@@ -7792,7 +7797,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             toolStreamContentBuffer += piece;
 
             if (!toolStreamBufferingInternalTag) {
-                const tagOpen = /<\s*(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i;
+                const tagOpen = /<\s*(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i;
                 const privateJournalMarker = /(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i;
                 const indexes = [toolStreamContentBuffer.search(tagOpen), toolStreamContentBuffer.search(privateJournalMarker)].filter(index => index >= 0);
                 const internalTagIndex = indexes.length ? Math.min(...indexes) : -1;
@@ -7815,8 +7820,8 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             }
 
             if (toolStreamBufferingInternalTag) {
-                toolStreamContentBuffer = toolStreamContentBuffer.replace(/<\s*\/\s*(SAVE_MEMORY|CRUMB)\s*>/gi, (_, name) => '</' + name.toUpperCase() + '>');
-                const closingTags = ['</SAVE_MEMORY>', '</ADD_TODO>', '</MOOD_SNAPSHOT>', '</CRUMB>', '</STATE_UPDATE>', '</ANTICIPATION>', '</NEXT_WAKE>', '</PRIVATE_JOURNAL>', '/>'];
+                toolStreamContentBuffer = toolStreamContentBuffer.replace(/<\s*\/\s*(SAVE_MEMORY|CRUMB|RELATIONSHIP_STATE)\s*>/gi, (_, name) => '</' + name.toUpperCase() + '>');
+                const closingTags = ['</SAVE_MEMORY>', '</ADD_TODO>', '</MOOD_SNAPSHOT>', '</CRUMB>', '</RELATIONSHIP_STATE>', '</STATE_UPDATE>', '</ANTICIPATION>', '</NEXT_WAKE>', '</PRIVATE_JOURNAL>', '/>'];
                 const matches = closingTags.map(tag => ({ tag, index: toolStreamContentBuffer.indexOf(tag) })).filter(match => match.index !== -1);
                 if (matches.length > 0) {
                     matches.sort((a, b) => a.index - b.index);
@@ -7834,7 +7839,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
         function finishToolVisibleStream() {
             if (toolStreamContentBuffer
-                && !/<\s*(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i.test(toolStreamContentBuffer)
+                && !/<\s*(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i.test(toolStreamContentBuffer)
                 && !/(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i.test(toolStreamContentBuffer)
                 && !/<[A-Z_]*$/i.test(toolStreamContentBuffer)) {
                 writeToolStreamDelta({ content: toolStreamContentBuffer }, toolStreamLastTemplate);
@@ -8050,7 +8055,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                         // complete response is parsed below and the plan is
                         // persisted there, while the tag remains invisible.
                         if (contentBuffer
-                            && !/<\s*(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i.test(contentBuffer)
+                            && !/<\s*(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i.test(contentBuffer)
                             && !/(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i.test(contentBuffer)
                             && !/<[A-Z_]*$/i.test(contentBuffer)) {
                             res.write(buildSSEChunk(contentBuffer, lastChunkTemplate) || '');
@@ -8068,50 +8073,47 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     lastChunkTemplate = parsed;
                     const piece = delta.content; contentBuffer += piece; fullAiResponse += piece;
 
-                    if (!isBuffering) {
-                        const TAG_OPEN = /<\s*(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i;
-                        const PRIVATE_JOURNAL_MARKER = /(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i;
-                        const tagIdx = contentBuffer.search(TAG_OPEN);
-                        const privateJournalIdx = contentBuffer.search(PRIVATE_JOURNAL_MARKER);
-                        const internalTagIndexes = [tagIdx, privateJournalIdx].filter(index => index >= 0);
-                        const saveIdx = internalTagIndexes.length ? Math.min(...internalTagIndexes) : -1;
-                        if (saveIdx === -1) {
-                            const ltIdx = contentBuffer.lastIndexOf('<');
-                            if (ltIdx !== -1 && contentBuffer.substring(ltIdx).length < 30) {
-                                const safe = contentBuffer.substring(0, ltIdx);
-                                const safeChunk = buildSSEChunk(safe, lastChunkTemplate);
-                                if (safeChunk) res.write(safeChunk);
-                                contentBuffer = contentBuffer.substring(ltIdx);} else {
-                                const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate);
-                                if (chunk) res.write(chunk);
-                                contentBuffer = '';
+                    let processBufferedContent = true;
+                    while (processBufferedContent) {
+                        processBufferedContent = false;
+                        if (!isBuffering) {
+                            const tagOpen = /<\s*(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i;
+                            const privateJournalMarker = /(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i;
+                            const tagIdx = contentBuffer.search(tagOpen);
+                            const privateJournalIdx = contentBuffer.search(privateJournalMarker);
+                            const internalTagIndexes = [tagIdx, privateJournalIdx].filter(index => index >= 0);
+                            const saveIdx = internalTagIndexes.length ? Math.min(...internalTagIndexes) : -1;
+                            if (saveIdx === -1) {
+                                const ltIdx = contentBuffer.lastIndexOf('<');
+                                if (ltIdx !== -1 && contentBuffer.substring(ltIdx).length < 30) {
+                                    const safe = contentBuffer.substring(0, ltIdx);
+                                    const safeChunk = buildSSEChunk(safe, lastChunkTemplate);
+                                    if (safeChunk) res.write(safeChunk);
+                                    contentBuffer = contentBuffer.substring(ltIdx);
+                                } else {
+                                    const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate);
+                                    if (chunk) res.write(chunk);
+                                    contentBuffer = '';
+                                }
+                            } else {
+                                const safe = contentBuffer.substring(0, saveIdx);
+                                if (safe) res.write(buildSSEChunk(safe, lastChunkTemplate));
+                                contentBuffer = contentBuffer.substring(saveIdx);
+                                isBuffering = true;
                             }
-                        } else {
-                            const safe = contentBuffer.substring(0, saveIdx);
-                            if (safe) res.write(buildSSEChunk(safe, lastChunkTemplate));
-                            contentBuffer = contentBuffer.substring(saveIdx);
-                            isBuffering = true;
                         }
-                    }
 
-                    if (isBuffering) {
-                        contentBuffer = contentBuffer.replace(/<\s*\/\s*(SAVE_MEMORY|CRUMB)\s*>/gi, (_, name) => '</' + name.toUpperCase() + '>');
-                        const close0 = contentBuffer.indexOf('</SAVE_MEMORY>');
-                        const close1 = contentBuffer.indexOf('</ADD_TODO>');
-                        const close2 = contentBuffer.indexOf('</MOOD_SNAPSHOT>');
-                        const close3 = contentBuffer.indexOf('</CRUMB>');
-                        const close4 = contentBuffer.indexOf('</STATE_UPDATE>');
-                        const close5 = contentBuffer.indexOf('</ANTICIPATION>');
-                        const close6 = contentBuffer.indexOf('</NEXT_WAKE>');
-                        const close7 = contentBuffer.indexOf('</PRIVATE_JOURNAL>');
-                        const close8 = contentBuffer.indexOf('/>');
-                        const closes = [close0, close1, close2, close3, close4, close5, close6, close7, close8].filter(i => i !== -1);
-                        if (closes.length > 0) {
-                            const closeIdx = Math.min(...closes);
-                            const foundTag = closeIdx === close0 ? '</SAVE_MEMORY>' : closeIdx === close1 ? '</ADD_TODO>' : closeIdx === close2 ? '</MOOD_SNAPSHOT>' : closeIdx === close3 ? '</CRUMB>' : closeIdx === close4 ? '</STATE_UPDATE>' : closeIdx === close5 ? '</ANTICIPATION>' : closeIdx === close6 ? '</NEXT_WAKE>' : closeIdx === close7 ? '</PRIVATE_JOURNAL>' : '/>';
-                            contentBuffer = contentBuffer.substring(closeIdx + foundTag.length);
-                            isBuffering = false;
-                            if (contentBuffer) { const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate); if (chunk) res.write(chunk); contentBuffer = ''; }
+                        if (isBuffering) {
+                            contentBuffer = contentBuffer.replace(/<\s*\/\s*(SAVE_MEMORY|CRUMB|RELATIONSHIP_STATE)\s*>/gi, (_, name) => '</' + name.toUpperCase() + '>');
+                            const closingTags = ['</SAVE_MEMORY>', '</ADD_TODO>', '</MOOD_SNAPSHOT>', '</CRUMB>', '</RELATIONSHIP_STATE>', '</STATE_UPDATE>', '</ANTICIPATION>', '</NEXT_WAKE>', '</PRIVATE_JOURNAL>', '/>'];
+                            const matches = closingTags.map(tag => ({ tag, index: contentBuffer.indexOf(tag) })).filter(match => match.index !== -1);
+                            if (matches.length > 0) {
+                                matches.sort((a, b) => a.index - b.index);
+                                const closing = matches[0];
+                                contentBuffer = contentBuffer.substring(closing.index + closing.tag.length);
+                                isBuffering = false;
+                                processBufferedContent = Boolean(contentBuffer);
+                            }
                         }
                     }
                 }
@@ -9674,11 +9676,36 @@ function handleDialogueCrumbsFromAssistantContent(content, crumbContext = null, 
     return cleanContent;
 }
 
+function handleRelationshipStateFromAssistantContent(content, context = null, tr = null) {
+    const { cleanContent, signals, raw, invalid } = extractRelationshipStateTags(content, context?.userText || '');
+    if (!raw && !invalid) return cleanContent;
+    let accepted = 0;
+    let reason = invalid ? 'invalid_or_unmatched_evidence' : 'no_signal';
+    for (const signal of signals) {
+        const applied = applyRelationshipSignal(loadRelationshipReflections(), signal, context?.sourceRef || null);
+        reason = applied.reason;
+        if (!applied.changed) continue;
+        saveRelationshipReflections(applied.store);
+        accepted++;
+        wsBroadcast({
+            type: 'relationship_reflection_updated',
+            episode_id: applied.episode?.id || null,
+            transition: signal.transition,
+        });
+    }
+    traceEvent(tr, 'relationship_state', accepted ? '关系状态已更新' : '关系状态标签未采用', {
+        raw, invalid, valid: signals.length, accepted, reason,
+        transition: signals[0]?.transition || null,
+    });
+    return cleanContent;
+}
+
 function cleanAssistantInternalArtifacts(content, tr = null, crumbContext = null) {
     const withoutWakeTag = extractNextWakeTag(content || '').cleanText;
     // 防御性兜底：正常路径会先写入并剥离标签；任何漏网路径也绝不能把它送到用户侧。
     const withoutPrivateJournalTag = privateJournal.extractPrivateJournalTags(withoutWakeTag).cleanText;
-    const withoutMoodTags = handleMoodSnapshotsFromAssistantContent(withoutPrivateJournalTag, tr);
+    const withoutRelationshipState = handleRelationshipStateFromAssistantContent(withoutPrivateJournalTag, crumbContext, tr);
+    const withoutMoodTags = handleMoodSnapshotsFromAssistantContent(withoutRelationshipState, tr);
     return stripLeakedStateUpdates(handleDialogueCrumbsFromAssistantContent(withoutMoodTags, crumbContext, tr));
 }
 
