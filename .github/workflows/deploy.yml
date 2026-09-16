@@ -140,6 +140,23 @@ jobs:
               echo "ℹ️ 未配置小红书短链云中继，保留 VPS 直连"
             fi
 
+            # 关系记忆整理器使用独立模型与密钥。Secret 只进入 root 可读的
+            # systemd drop-in，不写入仓库、工作目录或 Actions 日志。
+            RELATIONSHIP_REFLECTION_API_KEY='${{ secrets.RELATIONSHIP_REFLECTION_API_KEY }}'
+            RELATIONSHIP_REFLECTION_MODEL='${{ secrets.RELATIONSHIP_REFLECTION_MODEL }}'
+            if [ -n "$RELATIONSHIP_REFLECTION_API_KEY" ] && [ -n "$RELATIONSHIP_REFLECTION_MODEL" ]; then
+              mkdir -p /etc/systemd/system/syzygy.service.d
+              {
+                echo '[Service]'
+                echo "Environment=\"RELATIONSHIP_REFLECTION_API_KEY=${RELATIONSHIP_REFLECTION_API_KEY}\""
+                echo "Environment=\"RELATIONSHIP_REFLECTION_MODEL=${RELATIONSHIP_REFLECTION_MODEL}\""
+              } > /etc/systemd/system/syzygy.service.d/relationship-reflection.conf
+              chmod 600 /etc/systemd/system/syzygy.service.d/relationship-reflection.conf
+              echo "✅ 关系记忆整理器独立模型已配置"
+            else
+              echo "ℹ️ 关系记忆整理器 Secret 未配置，继续使用默认模型"
+            fi
+
             # Step 1: 确保 .sensor_token 有效（不管 systemd 里有没有）
             if [ ! -s /opt/syzygy/.sensor_token ]; then
               echo "🔍 [Deploy] 生成新的 .sensor_token..."
