@@ -6,17 +6,19 @@ const STAGES = new Set(['context', 'trigger', 'escalation', 'rupture', 'repair',
 const CLOSING_STAGES = new Set(['repair', 'resolution', 'aftermath']);
 
 function emptyRelationshipStore() {
-    return { version: 1, episodes: [], insights: [], processed: {}, active_state: null, updated_at: null };
+    return { version: 2, episodes: [], insights: [], processed: {}, active_state: null, temperature_state: null, temperature_events: [], updated_at: null };
 }
 
 function normalizeStore(raw) {
     const source = raw && typeof raw === 'object' ? raw : {};
     return {
-        version: 1,
+        version: 2,
         episodes: Array.isArray(source.episodes) ? source.episodes : [],
         insights: Array.isArray(source.insights) ? source.insights : [],
         processed: source.processed && typeof source.processed === 'object' ? source.processed : {},
         active_state: source.active_state && typeof source.active_state === 'object' ? source.active_state : null,
+        temperature_state: source.temperature_state && typeof source.temperature_state === 'object' ? source.temperature_state : null,
+        temperature_events: Array.isArray(source.temperature_events) ? source.temperature_events : [],
         updated_at: source.updated_at || null,
     };
 }
@@ -183,6 +185,7 @@ function applyDecision(rawStore, memory, decision, now = new Date()) {
     episode.themes = uniqueStrings([...(episode.themes || []), ...(decision.episode.themes || [])], 10);
     episode.status = decision.episode.status === 'resolved' ? 'resolved' : episode.status;
     if (episode.status === 'resolved') episode.ended_at = decision.event.occurred_at || episode.ended_at || timestamp;
+    if (episode.status === 'resolved' && store.active_state?.episode_id === episode.id) store.active_state = null;
     episode.updated_at = timestamp;
 
     const touchedInsights = [];

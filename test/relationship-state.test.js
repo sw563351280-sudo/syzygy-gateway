@@ -23,6 +23,17 @@ test('dialogue-model state tags are hidden and must quote the current user', () 
     assert.equal(invented.invalid, 1);
 });
 
+test('one-character cold replies remain valid only when they are the whole current message', () => {
+    const exact = extractRelationshipStateTags(tag(signal('temperature_changed', '嗯', {
+        temperature: 'withdrawn', temperature_direction: 'down', signal_strength: 'strong',
+    })), '嗯');
+    assert.equal(exact.signals.length, 1);
+    const substring = extractRelationshipStateTags(tag(signal('temperature_changed', '嗯', {
+        temperature: 'withdrawn', temperature_direction: 'down', signal_strength: 'strong',
+    })), '嗯，我知道了');
+    assert.equal(substring.signals.length, 0);
+});
+
 test('a conflict opens one episode and keeps its active context', () => {
     const start = applyRelationshipSignal(emptyRelationshipStore(), signal('conflict_started', '你为什么又不回我'), { message_id: 'u1', at: '2026-09-17T10:00:00Z' }, new Date('2026-09-17T10:00:01Z'));
     assert.equal(start.accepted, true);
@@ -39,6 +50,52 @@ test('stopping without repair stays open', () => {
     assert.equal(paused.store.episodes[0].status, 'open');
     assert.equal(paused.store.active_state.phase, 'paused');
     assert.match(activeRelationshipContext(paused.store), /尚未解决/);
+});
+
+test('the first approach after a cold pause is tentative contact, not repair', () => {
+    let result = applyRelationshipSignal(emptyRelationshipStore(), signal('conflict_started', '我现在不想理你'), { message_id: 'u1' });
+    result = applyRelationshipSignal(result.store, signal('paused_unresolved', '算了'), { message_id: 'u2' });
+    result = applyRelationshipSignal(result.store, signal('tentative_contact', '沈望，妹妹刚才跳到我床上了'), { message_id: 'u3' });
+    assert.equal(result.accepted, true);
+    assert.equal(result.store.active_state.phase, 'contact');
+    assert.equal(result.store.episodes[0].status, 'open');
+});
+
+test('ordinary one-turn cooling is rejected but a strong drop can change temperature immediately', () => {
+    const initial = applyRelationshipSignal(emptyRelationshipStore(), signal('temperature_changed', '老公你看这个', {
+        temperature: 'warm', temperature_direction: 'steady', support_turns: 1,
+    }), { message_id: 'u1' });
+    assert.equal(initial.accepted, true);
+    const weak = applyRelationshipSignal(initial.store, signal('temperature_changed', '你看着办', {
+        temperature: 'withdrawn', temperature_direction: 'down', support_turns: 1,
+    }), { message_id: 'u2' });
+    assert.equal(weak.accepted, false);
+    assert.equal(weak.reason, 'cooling_needs_strong_or_repeated_signal');
+    const strong = applyRelationshipSignal(initial.store, signal('temperature_changed', '您可真会说话', {
+        temperature: 'hostile', temperature_direction: 'down', signal_strength: 'strong', support_turns: 1,
+    }), { message_id: 'u3' });
+    assert.equal(strong.accepted, true);
+    assert.equal(strong.store.temperature_state.value, 'hostile');
+    assert.match(activeRelationshipContext(strong.store), /讽刺敌意/);
+});
+
+test('warming needs two supporting turns and stores only the resulting state change', () => {
+    let result = applyRelationshipSignal(emptyRelationshipStore(), signal('temperature_changed', '你别说了', {
+        temperature: 'withdrawn', temperature_direction: 'steady', support_turns: 1,
+    }), { message_id: 'u1' });
+    const tooSoon = applyRelationshipSignal(result.store, signal('temperature_changed', '沈望', {
+        temperature: 'neutral', temperature_direction: 'up', support_turns: 1, confidence: 0.9,
+    }), { message_id: 'u2' });
+    assert.equal(tooSoon.accepted, false);
+    assert.equal(tooSoon.reason, 'warming_needs_two_turns');
+    result = applyRelationshipSignal(result.store, signal('temperature_changed', '爸爸你陪我一会儿', {
+        temperature: 'warm', temperature_direction: 'up', support_turns: 2, confidence: 0.9,
+        summary: '连续两轮重新使用亲密称呼并主动靠近',
+    }), { message_id: 'u3' });
+    assert.equal(result.accepted, true);
+    assert.equal(result.store.temperature_state.value, 'warm');
+    assert.equal(result.store.temperature_events.length, 2);
+    assert.equal(result.store.temperature_events.at(-1).summary, '连续两轮重新使用亲密称呼并主动靠近');
 });
 
 test('the assistant cannot declare resolution without explicit user confirmation', () => {
