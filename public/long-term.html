@@ -17,7 +17,7 @@
   </style>
 </head>
 <body>
-  <header class="top"><a class="back" id="backLink" href="/" aria-label="返回">←</a><div><h1>恒星</h1><p>已经刻下来的事</p></div><nav class="layer-nav"><a class="on" href="#">恒星</a><a id="dustLink" href="#">星尘</a><a id="cometLink" href="#">彗星</a></nav></header>
+  <header class="top"><a class="back" id="backLink" href="/" aria-label="返回">←</a><div><h1>恒星</h1><p>已经刻下来的事</p></div><nav class="layer-nav"><a class="on" href="#">恒星</a><a id="growthLink" href="#">成长</a><a id="dustLink" href="#">星尘</a><a id="cometLink" href="#">彗星</a></nav></header>
   <main>
     <div class="hero"><h2>共同记忆</h2><p>不按时间淘汰。它们留在这里，等被自然想起。</p></div>
     <button class="inbox-banner" id="inboxBanner" onclick="openInbox()"><span><b id="inboxTitle">记忆正在整理</b><small id="inboxSubtitle">已经收到，不会丢失</small></span><span>查看 →</span></button>
@@ -39,6 +39,7 @@
   <script>
     const PWD=new URLSearchParams(location.search).get('pwd')||localStorage.getItem('memoryPwd')||'';
     document.getElementById('backLink').href='/?pwd='+encodeURIComponent(PWD);
+    document.getElementById('growthLink').href='/relationship-growth.html?pwd='+encodeURIComponent(PWD);
     document.getElementById('dustLink').href='/stardust.html?pwd='+encodeURIComponent(PWD);
     document.getElementById('cometLink').href='/comets.html?pwd='+encodeURIComponent(PWD);
     let ALL_MEMS=[],MEMORY_EVENTS=[],COUNTS={},currentCat='active',currentSource='all',multiSelectMode=false,batchDeleting=false;

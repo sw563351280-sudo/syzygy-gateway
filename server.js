@@ -12,12 +12,14 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const nodeFetch = require('node-fetch');
 const { createCodexBridge } = require('./codex-bridge');
+const { consumeOpenAIStream } = require('./streaming-chat');
 const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
 const { extractDailyStateUpdates, stripLeakedStateUpdates, shouldCuratePersistentState } = require('./daily-state-curator');
 const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-merge');
 const { decideMemoryWrite } = require('./memory-merge-curator');
 const { canonical: canonicalMemoryText, extractSaveMemoryTag: parseMemoryTag, isRecentCrumbDuplicate: sameCrumb } = require('./memory-write-utils');
 const { activeMemoryEvents, publicMemoryEvent, readMemoryEvents, receiveMemoryEvent, updateMemoryEvent } = require('./memory-events');
+const { applyDecision: applyRelationshipDecision, curateRelationshipMemory, emptyRelationshipStore, looksRelationshipRelevant, memorySignature, normalizeStore: normalizeRelationshipStore } = require('./relationship-reflections');
 const { extractDialogueCrumbTags } = require('./dialogue-crumbs');
 const { createCrumbDigest } = require('./crumb-digest');
 const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
@@ -47,7 +49,7 @@ const {
 } = require('./adaptive-wake');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
 const { messageTimestampMs, selectRecentWakeHistory } = require('./wake-context');
-const { hasProjectFileIntent, keepRequestedReadTools } = require('./tool-policy');
+const { hasProjectFileIntent, hasToyDeviceIntent, hasToyFollowUpIntent, hasAlbumSearchIntent, keepRequestedReadTools } = require('./tool-policy');
 const privateJournal = require('./private-journal');
 const { fetchHealthSummary, healthDataStatus } = require('./health-data');
 
@@ -1114,6 +1116,7 @@ const CRUMBS_FILE = path.join(DATA_DIR, 'crumbs.json');
 const ANTICIPATIONS_FILE = path.join(DATA_DIR, 'anticipations.json');
 const MEMORY_MERGE_REVIEWS_FILE = path.join(DATA_DIR, 'memory_merge_reviews.json');
 const MEMORY_EVENTS_FILE = path.join(DATA_DIR, 'memory_events.jsonl');
+const RELATIONSHIP_REFLECTIONS_FILE = path.join(DATA_DIR, 'relationship_reflections.json');
 const PERIOD_FILE = path.join(DATA_DIR, 'period_data.json');
 function loadDreamState() { try { return JSON.parse(fs.readFileSync(DREAM_STATE_FILE, 'utf8')); } catch(e) { return { pending_promises: '', foresight: [], updated_at: null }; } }
 function saveDreamState(state) { fs.writeFileSync(DREAM_STATE_FILE, JSON.stringify(state, null, 2), 'utf8'); }
@@ -1128,6 +1131,29 @@ function saveMemoryMergeReviews(items) { fs.writeFileSync(MEMORY_MERGE_REVIEWS_F
 function loadMemoryEvents() { return readMemoryEvents(MEMORY_EVENTS_FILE); }
 function receiveStoredMemoryEvent(kind, payload) { return receiveMemoryEvent(MEMORY_EVENTS_FILE, kind, payload); }
 function patchStoredMemoryEvent(event, patch) { return updateMemoryEvent(MEMORY_EVENTS_FILE, event, patch); }
+function loadRelationshipReflections() { try { return normalizeRelationshipStore(JSON.parse(fs.readFileSync(RELATIONSHIP_REFLECTIONS_FILE, 'utf8'))); } catch (_) { return emptyRelationshipStore(); } }
+function saveRelationshipReflections(data) { fs.writeFileSync(RELATIONSHIP_REFLECTIONS_FILE, JSON.stringify(normalizeRelationshipStore(data), null, 2), 'utf8'); }
+function buildRelationshipReflectionContext(query) {
+    const text = String(query || '').trim();
+    if (!text || !looksRelationshipRelevant({ content: text, tags: [] })) return '';
+    const store = loadRelationshipReflections();
+    const confidenceWeight = { stable: 0.18, developing: 0.1, tentative: 0 };
+    const insights = store.insights.map(item => {
+        const haystack = [item.title, item.observation, item.lesson, item.next_time].filter(Boolean).join(' ');
+        return { item, score: bigramSimilarity(text, haystack) + (confidenceWeight[item.confidence] || 0) };
+    }).filter(result => result.score >= 0.08)
+        .sort((a, b) => b.score - a.score).slice(0, 3).map(result => result.item);
+    const episodes = store.episodes.map(item => {
+        const haystack = [item.title, item.summary, ...(item.themes || [])].filter(Boolean).join(' ');
+        return { item, score: bigramSimilarity(text, haystack) + (item.status === 'open' ? 0.08 : 0) };
+    }).filter(result => result.score >= 0.08).sort((a, b) => b.score - a.score).slice(0, 2).map(result => result.item);
+    if (!insights.length && !episodes.length) return '';
+    const confidenceLabel = { tentative: '暂定', developing: '逐渐确认', stable: '较稳定' };
+    const lines = [];
+    for (const episode of episodes) lines.push(`• 过程[${episode.status === 'resolved' ? '已修复' : '仍在发展'}] ${episode.title}：${episode.summary}`);
+    for (const insight of insights) lines.push(`• 心得[${confidenceLabel[insight.confidence] || '暂定'}，${(insight.support_memory_ids || []).length}条证据] ${insight.observation}；我学到：${insight.lesson}；下次：${insight.next_time}`);
+    return `\n\n==========\n【关系成长记录——是基于过往过程形成的可修正经验，不是对江鱼的人格定论】\n${lines.join('\n')}\n使用要求：先理解眼前这一次的具体情况；只有确实相似时才自然调整自己的回应。不要向江鱼朗读这些记录，不要声称她“总是”如此；当前事实与旧心得冲突时，以当前事实为准。\n==========\n`;
+}
 function loadPeriod() { try { return JSON.parse(fs.readFileSync(PERIOD_FILE, 'utf8')); } catch(e) { return { records: [], current: null }; } }
 function savePeriod(data) { fs.writeFileSync(PERIOD_FILE, JSON.stringify(data, null, 2), 'utf8'); }
 const PHOTOS_FILE = path.join(DATA_DIR, 'photos.json');
@@ -2960,6 +2986,57 @@ async function suggestSavedMemoryMerge(saved, tr) {
     traceEvent(tr, 'memory_review', '已保存，另有合并建议', { id: saved.id, review_id: review?.id });
 }
 
+function relationshipReflectionModelConfig() {
+    return {
+        apiKey: process.env.RELATIONSHIP_REFLECTION_API_KEY || process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, ''),
+        endpoint: process.env.RELATIONSHIP_REFLECTION_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions',
+        // 关系复盘需要分辨因果、转折和反例，默认使用与日常管家相同的较强模型；
+        // Flash 只继续负责写入门禁，不负责形成稳定心得。
+        model: process.env.RELATIONSHIP_REFLECTION_MODEL || process.env.DAILY_CURATOR_MODEL || 'gemini-3.1-pro-preview',
+    };
+}
+
+async function processRelationshipReflectionMemory(memory, tr = null) {
+    if (!memory?.id || !memory.content || memory.source === 'roleplay') return null;
+    const store = loadRelationshipReflections();
+    const signature = memorySignature(memory);
+    if (store.processed[memory.id]?.signature === signature) return null;
+
+    if (!looksRelationshipRelevant(memory)) {
+        const skipped = applyRelationshipDecision(store, memory, { eligible: false, reason: '未触发关系过程整理' });
+        if (skipped.changed) saveRelationshipReflections(skipped.store);
+        return skipped;
+    }
+
+    const config = relationshipReflectionModelConfig();
+    if (!config.apiKey) throw new Error('未配置关系复盘模型');
+    const decision = await curateRelationshipMemory({ fetchImpl: fetch, ...config, memory, store });
+    const applied = applyRelationshipDecision(store, memory, decision);
+    if (!applied.changed) return applied;
+    saveRelationshipReflections(applied.store);
+    traceEvent(tr, 'relationship_reflection', decision.eligible ? '关系过程已整理' : '不属于关系过程', {
+        memory_id: memory.id,
+        episode_id: applied.episode?.id || null,
+        insight_count: applied.insights.length,
+    });
+    wsBroadcast({
+        type: 'relationship_reflection_updated',
+        episode_id: applied.episode?.id || null,
+        insight_count: applied.insights.length,
+    });
+    return applied;
+}
+
+let _relationshipReflectionQueue = Promise.resolve();
+function queueRelationshipReflection(memory, tr = null) {
+    _relationshipReflectionQueue = _relationshipReflectionQueue.catch(() => {}).then(() => processRelationshipReflectionMemory(memory, tr)).catch(error => {
+        console.log(`⚠️ [关系复盘] ${memory?.id || '?'} 整理失败: ${error.message}`);
+        traceEvent(tr, 'relationship_reflection', '关系复盘等待下次重试', { memory_id: memory?.id || null, reason: error.message });
+        return null;
+    });
+    return _relationshipReflectionQueue;
+}
+
 let _memoryWriteQueue = Promise.resolve();
 function queueSmartMemoryWrite(...args) {
     _memoryWriteQueue = _memoryWriteQueue.catch(() => {}).then(() => smartMemoryWrite(...args)).catch(error => {
@@ -3037,6 +3114,7 @@ async function smartMemoryWrite(content, tags, source, ttl = 'perm', arousal = 0
             }
         } catch(e) {}
     }
+    if (result) queueRelationshipReflection(result, tr);
     return result;
 }
 
@@ -3425,6 +3503,7 @@ async function buildSharedSystemPrompt({
         } catch (error) {
             console.log(`🫀 [共享上下文] 生理状态读取失败，降级为空上下文: ${error.message}`);
         }
+        const relationshipReflectionContext = buildRelationshipReflectionContext(query || '');
         resolvedInjectionQueue = [
             { label: '环境参数', content: envContext },
             { label: '时间线', content: formatTimeContext() },
@@ -3432,6 +3511,7 @@ async function buildSharedSystemPrompt({
             { label: '主动相关记忆', content: relatedContext },
             { label: '相关记忆浮现', content: recall.unresolved },
             { label: '长期记忆雷达', content: recall.longTerm },
+            { label: '关系成长记录', content: relationshipReflectionContext },
             { label: '核心雷达', content: recall.core },
             { label: 'RP雷达', content: gateRP(recall.roleplay, query || '') },
             { label: '对话原文', content: recall.transcript },
@@ -4349,12 +4429,11 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
         ? optionalTools.filter(t => MCP_READ_ONLY.has(t.function?.name))
         : [];
 
-    // toy 工具注入：仅当 toy_enabled=true 且用户明确表达振动/玩具意图时注入
-    const hasExplicitToyIntent = TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false && (
-        /振动|震动|玩具|啵啵|强度|停止.*振动|开启.*振动|调.*强度|toy|vibrat/i.test(textLower)
-    );
+    // toy 工具注入：设备名不是必填；自然的控制说法也能唤起工具。
+    // 仍要求具体的设备动作，避免普通聊天里的“开/停”误触发。
+    const hasExplicitToyIntent = TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false && hasToyDeviceIntent(textLower);
     if (hasExplicitToyIntent) toyContextExpiresAt = Date.now() + 10 * 60 * 1000;
-    const hasToyFollowUp = toyContextExpiresAt > Date.now() && /继续|再|轻一点|重一点|快一点|慢一点|停|加一点|减一点|换/.test(textLower);
+    const hasToyFollowUp = toyContextExpiresAt > Date.now() && hasToyFollowUpIntent(textLower);
     const hasToyIntent = hasExplicitToyIntent || (TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false && hasToyFollowUp);
     const toyTools = hasToyIntent ? optionalTools.filter(t => TOY_TOOLS.has(t.function?.name)) : [];
 
@@ -7451,8 +7530,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         }
 
         // 相册搜索 — 关键词匹配标签/图说/AI描述/文件名，最多把3张匹配图以 base64 注入消息
-        const albumKws = ['照片','相册','图','拍照','上传','album','photo','image','看图','图片','pixai','高中paro'];
-        const askedForPhotos = albumKws.some(kw => (currentUserMsgText || '').toLowerCase().includes(kw.toLowerCase()));
+        const askedForPhotos = hasAlbumSearchIntent(currentUserMsgText);
         const _albumPhotoBlocks = [];
         if (askedForPhotos) {
             const allPhotos = loadPhotos();
@@ -7693,6 +7771,77 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         moodLog('[MOOD DEBUG] route entered body.stream: ' + body.stream + ' type: ' + typeof body.stream + ' isStream: ' + isStreamMode);
         if (isStreamMode) { moodLog('[MOOD DEBUG] entering STREAM branch'); } else { moodLog('[MOOD DEBUG] entering NON-STREAM branch'); }
         let streamingSetup = false;
+        let toolStreamFullContent = '';
+        let toolStreamFullReasoning = '';
+        let toolStreamContentBuffer = '';
+        let toolStreamBufferingInternalTag = false;
+        let toolStreamLastTemplate = null;
+
+        function writeToolStreamDelta(delta, template) {
+            if (!streamingSetup || !delta || !template) return;
+            const chunk = JSON.parse(JSON.stringify(template));
+            if (!chunk.choices?.[0]) return;
+            chunk.choices[0].delta = delta;
+            chunk.choices[0].finish_reason = null;
+            res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+        }
+
+        function pushToolStreamVisibleContent(piece, template) {
+            if (!piece) return;
+            toolStreamLastTemplate = template || toolStreamLastTemplate;
+            toolStreamContentBuffer += piece;
+
+            if (!toolStreamBufferingInternalTag) {
+                const tagOpen = /<\s*(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i;
+                const privateJournalMarker = /(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i;
+                const indexes = [toolStreamContentBuffer.search(tagOpen), toolStreamContentBuffer.search(privateJournalMarker)].filter(index => index >= 0);
+                const internalTagIndex = indexes.length ? Math.min(...indexes) : -1;
+                if (internalTagIndex === -1) {
+                    const possibleTagIndex = toolStreamContentBuffer.lastIndexOf('<');
+                    if (possibleTagIndex !== -1 && toolStreamContentBuffer.substring(possibleTagIndex).length < 30) {
+                        const safe = toolStreamContentBuffer.substring(0, possibleTagIndex);
+                        if (safe) writeToolStreamDelta({ content: safe }, toolStreamLastTemplate);
+                        toolStreamContentBuffer = toolStreamContentBuffer.substring(possibleTagIndex);
+                    } else {
+                        writeToolStreamDelta({ content: toolStreamContentBuffer }, toolStreamLastTemplate);
+                        toolStreamContentBuffer = '';
+                    }
+                } else {
+                    const safe = toolStreamContentBuffer.substring(0, internalTagIndex);
+                    if (safe) writeToolStreamDelta({ content: safe }, toolStreamLastTemplate);
+                    toolStreamContentBuffer = toolStreamContentBuffer.substring(internalTagIndex);
+                    toolStreamBufferingInternalTag = true;
+                }
+            }
+
+            if (toolStreamBufferingInternalTag) {
+                toolStreamContentBuffer = toolStreamContentBuffer.replace(/<\s*\/\s*(SAVE_MEMORY|CRUMB)\s*>/gi, (_, name) => '</' + name.toUpperCase() + '>');
+                const closingTags = ['</SAVE_MEMORY>', '</ADD_TODO>', '</MOOD_SNAPSHOT>', '</CRUMB>', '</STATE_UPDATE>', '</ANTICIPATION>', '</NEXT_WAKE>', '</PRIVATE_JOURNAL>', '/>'];
+                const matches = closingTags.map(tag => ({ tag, index: toolStreamContentBuffer.indexOf(tag) })).filter(match => match.index !== -1);
+                if (matches.length > 0) {
+                    matches.sort((a, b) => a.index - b.index);
+                    const closing = matches[0];
+                    toolStreamContentBuffer = toolStreamContentBuffer.substring(closing.index + closing.tag.length);
+                    toolStreamBufferingInternalTag = false;
+                    if (toolStreamContentBuffer) {
+                        const remaining = toolStreamContentBuffer;
+                        toolStreamContentBuffer = '';
+                        pushToolStreamVisibleContent(remaining, toolStreamLastTemplate);
+                    }
+                }
+            }
+        }
+
+        function finishToolVisibleStream() {
+            if (toolStreamContentBuffer
+                && !/<\s*(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i.test(toolStreamContentBuffer)
+                && !/(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i.test(toolStreamContentBuffer)
+                && !/<[A-Z_]*$/i.test(toolStreamContentBuffer)) {
+                writeToolStreamDelta({ content: toolStreamContentBuffer }, toolStreamLastTemplate);
+            }
+            toolStreamContentBuffer = '';
+        }
+
         while (maxToolRounds-- > 0 && filteredTools.length > 0) {
             if (isStreamMode && !streamingSetup) {
                 res.setHeader('Content-Type', 'text/event-stream');
@@ -7701,7 +7850,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 streamingSetup = true;
             }
             const toolBody = JSON.parse(JSON.stringify(body));
-            toolBody.stream = false;
+            toolBody.stream = isStreamMode;
             toolBody.tools = filteredTools.map(t => { const { _mcp, ...clean } = t; return clean; });
             const isGeminiModel = (body.model || '').toLowerCase().includes('gemini');
             // toolRound 在发送首轮请求前仍为 0；此前判断 === 1 导致
@@ -7728,7 +7877,36 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 return res.status(errStatus).json({ error: "模型报错：" + errText });
             }
 
-            const toolData = await toolResponse.json();
+            let toolData;
+            if (isStreamMode) {
+                const streamed = await consumeOpenAIStream(toolResponse.body, async (chunk, delta) => {
+                    toolStreamLastTemplate = chunk || toolStreamLastTemplate;
+                    if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
+                        toolStreamFullReasoning += delta.reasoning_content;
+                        writeToolStreamDelta({ reasoning_content: delta.reasoning_content }, chunk);
+                    }
+                    if (typeof delta.content === 'string' && delta.content) {
+                        toolStreamFullContent += delta.content;
+                        pushToolStreamVisibleContent(delta.content, chunk);
+                    }
+                });
+                toolData = {
+                    id: streamed.id || 'chatcmpl-tool-stream',
+                    model: streamed.model || body.model,
+                    usage: streamed.usage,
+                    choices: [{
+                        finish_reason: streamed.finishReason,
+                        message: {
+                            role: 'assistant',
+                            content: streamed.content || null,
+                            reasoning_content: streamed.reasoning || null,
+                            tool_calls: streamed.toolCalls,
+                        },
+                    }],
+                };
+            } else {
+                toolData = await toolResponse.json();
+            }
             if (toolData?.usage) console.log('📦 [UpstreamUsage:tool]', { model: toolData?.model || body.model, promptTokens: toolData.usage?.prompt_tokens, completionTokens: toolData.usage?.completion_tokens, totalTokens: toolData.usage?.total_tokens, cachedTokens: toolData.usage?.prompt_tokens_details?.cached_tokens, cacheRead: toolData.usage?.cache_read_input_tokens, cacheWrite: toolData.usage?.cache_creation_input_tokens, details: toolData.usage?.prompt_tokens_details });
             traceEvent(_tr, 'model', '模型请求·工具轮', { round: toolRound, status: toolResponse.status, usage: toolData?.usage || null, cacheMode: cacheMode2 });
             const curMessage = toolData.choices?.[0]?.message;
@@ -7764,8 +7942,8 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             // 没有 tool_calls → 最终回复
             console.log(`🔧 [工具] ${roundLabel}AI返回最终回复`);
             logUsage(cacheMode2, body.model || '', toolData?.usage, 'via-tool');
-            const aiContent = curMessage?.content || '';
-            const reasoning = curMessage?.reasoning_content || '';
+            const aiContent = isStreamMode ? toolStreamFullContent : (curMessage?.content || '');
+            const reasoning = isStreamMode ? toolStreamFullReasoning : (curMessage?.reasoning_content || '');
             // 也兼容 <think> 标签格式
             let thinkFromTag = ''; let cleanForFinal = aiContent;
             if (aiContent.includes('<think>')) {
@@ -7780,17 +7958,10 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             const finalContent = todoClean;
 
             if (isStreamMode) {
-                // 先剥离 MOOD_SNAPSHOT 标签再发送前端
-                moodLog('[MOOD DEBUG] tool-path stream before strip has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
+                // 正文和思考过程已经随上游 SSE 实时发送；这里只收尾并落库。
+                finishToolVisibleStream();
+                moodLog('[MOOD DEBUG] native tool stream before strip has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
                 const visibleContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
-                if (finalThink) {
-                    res.write(`data: ${JSON.stringify({ id: 'think', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { reasoning_content: finalThink }, finish_reason: null }] })}\n\n`);
-                }
-                const chars = visibleContent.split('');
-                for (let i = 0; i < chars.length; i += 8) {
-                    const delta = chars.slice(i, i + 8).join('');
-                    res.write(`data: ${JSON.stringify({ id: toolData.id || 'chatcmpl-tool', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { content: delta }, finish_reason: null }] })}\n\n`);
-                }
                 res.write(`data: ${JSON.stringify({ id: toolData.id || 'chatcmpl-tool', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }] })}\n\n`);
                 res.write('data: [DONE]\n\n');
                 res.end();
@@ -7800,7 +7971,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     queueDailyStateCuration(currentUserMsgText, visibleContent, _tr); resolveAnticipationsFromUserText(currentUserMsgText);
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, visibleContent);
-                traceEnd(_tr, { ok: true, replyLen: visibleContent.length, path: 'tool-stream' });
+                traceEnd(_tr, { ok: true, replyLen: visibleContent.length, path: 'tool-stream-native' });
                 return;
             } else {
                 if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
@@ -8079,11 +8250,13 @@ app.post('/api/long-term-memories', (req, res) => {
     }
     saveLongTermMemories(backActive);
     saveArchivedMemories(backArchived);
-    saveRoleplayMemories(backRP);
+        saveRoleplayMemories(backRP);
         memoryBlocks = memories.filter(m => m.type === 'fact' || m.source === 'migrated_from_blocks');
+        queueRelationshipReflection(entry);
         return res.json({ success: true, memory: entry });
     }
     const entry = addLongTermMemory(content, source || 'manual', parsedTags);
+    if (entry) queueRelationshipReflection(entry);
     res.json({ success: true, memory: entry });
 });
 
@@ -8126,6 +8299,7 @@ app.patch('/api/long-term-memories/:id', (req, res) => {
     } else if (rpIdx !== -1) {
         rpMemories.push(targetMemory); saveRoleplayMemories(rpMemories);
     }
+    if (targetMemory.source !== 'roleplay' && !isRP) queueRelationshipReflection(targetMemory);
     res.json({ success: true, memory: targetMemory });
 });
 
@@ -9028,8 +9202,7 @@ app.post('/api/web-chat', async (req, res) => {
                 }
 
                 // 相册搜索
-                const albumKws2 = ['照片','相册','图','拍照','上传','album','photo','image','看图','图片','pixai'];
-                if (albumKws2.some(kw => (text || '').toLowerCase().includes(kw.toLowerCase()))) {
+                if (hasAlbumSearchIntent(text)) {
                     const allPhotos4 = loadPhotos();
                     if (allPhotos4.length > 0) {
                         const sw2 = (text || '').toLowerCase().split(/[\s,，。！？、]+/).filter(w =>
@@ -9388,7 +9561,6 @@ function upsertStateSlot(key, value, mode, lifeDays) {
 // 串行队列避免连续消息的异步结果同时读写 user_state.json 时互相覆盖。
 let _dailyCuratorQueue = Promise.resolve();
 
-let _crumbCuratorQueue = Promise.resolve();
 let _crumbDigestQueue = Promise.resolve();
 
 function previousChinaDateKey(now = new Date()) {
@@ -9607,6 +9779,65 @@ app.get('/api/crumbs', (req, res) => {
     res.json({ crumbs: items.slice(0, 300) });
 });
 
+let _relationshipBackfill = { running: false, scanned: 0, processed: 0, total: 0, started_at: null, finished_at: null };
+
+async function backfillRelationshipReflections(limit = 100) {
+    if (_relationshipBackfill.running) return _relationshipBackfill;
+    const store = loadRelationshipReflections();
+    const candidates = loadLongTermMemories()
+        .filter(memory => memory?.id && memory.content && memory.source !== 'roleplay')
+        .filter(memory => store.processed[memory.id]?.signature !== memorySignature(memory))
+        .filter(looksRelationshipRelevant)
+        .sort((a, b) => new Date(a.source_at || a.created_at || 0) - new Date(b.source_at || b.created_at || 0))
+        .slice(0, Math.max(1, Math.min(Number(limit) || 100, 300)));
+    _relationshipBackfill = { running: true, scanned: 0, processed: 0, total: candidates.length, started_at: new Date().toISOString(), finished_at: null };
+    try {
+        for (const memory of candidates) {
+            _relationshipBackfill.scanned++;
+            const result = await queueRelationshipReflection(memory);
+            if (result?.changed) _relationshipBackfill.processed++;
+        }
+    } finally {
+        _relationshipBackfill.running = false;
+        _relationshipBackfill.finished_at = new Date().toISOString();
+    }
+    return _relationshipBackfill;
+}
+
+app.get('/api/relationship-reflections', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '密码错误' });
+    const store = loadRelationshipReflections();
+    const episodes = [...store.episodes].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+    const insights = [...store.insights].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+    res.json({
+        episodes,
+        insights,
+        backfill: _relationshipBackfill,
+        stats: {
+            episodes: episodes.length,
+            open: episodes.filter(item => item.status === 'open').length,
+            resolved: episodes.filter(item => item.status === 'resolved').length,
+            insights: insights.length,
+            processed: Object.keys(store.processed).length,
+        },
+        updated_at: store.updated_at,
+    });
+});
+
+app.post('/api/relationship-reflections/backfill', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '密码错误' });
+    if (_relationshipBackfill.running) return res.status(202).json({ success: true, backfill: _relationshipBackfill });
+    const config = relationshipReflectionModelConfig();
+    if (!config.apiKey) return res.status(503).json({ error: '未配置关系复盘模型' });
+    const limit = Number(req.body?.limit) || 100;
+    setImmediate(() => backfillRelationshipReflections(limit).catch(error => {
+        console.log(`⚠️ [关系复盘] 历史整理失败: ${error.message}`);
+        _relationshipBackfill.running = false;
+        _relationshipBackfill.finished_at = new Date().toISOString();
+    }));
+    res.status(202).json({ success: true, backfill: { ..._relationshipBackfill, running: true } });
+});
+
 app.get('/api/memory-events', (req, res) => {
     const includeCompleted = req.query.include_completed === '1';
     const events = loadMemoryEvents().sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
@@ -9647,6 +9878,7 @@ app.post('/api/memory-events/:id/resolve', (req, res) => {
     } else return res.status(400).json({ error: '未知处理方式' });
     if (!result) return res.status(409).json({ error: '记忆处理失败，请重试' });
     completeMemoryEvent(event, result, decision);
+    queueRelationshipReflection(result);
     res.json({ success: true, result });
 });
 

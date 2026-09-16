@@ -1,9 +1,38 @@
 'use strict';
 
 const PROJECT_FILE_INTENT = /文件|代码|源码|server|prompt|json|接口|报错|日志|目录|路径|仓库|git|github|修复|修改|写入|替换|编辑|vps|服务器|终端|部署|systemctl|服务状态|原始对话|对话记录|聊天记录|transcript/i;
+// Device names are optional, but the phrase still needs to express a concrete
+// device action so unrelated chat about "opening" or "stopping" stays safe.
+const TOY_DEVICE_INTENT = /振动|震动|玩具|啵啵|强度|力度|档位|吸力|toy|vibrat|suction|震(?:我|一下|一会|起来)|(?:开|打开|启动|来|给我来|给我开).{0,4}(?:震|振|档)|(?:调|加|减|换).{0,4}(?:强|弱|轻|重|快|慢|大|小|档|力度|吸力)|(?:停|关|关闭|暂停).{0,3}(?:震|振|设备)/i;
+const TOY_FOLLOW_UP_INTENT = /继续|还要|再来|再要|再|轻一点|重一点|快一点|慢一点|停|加一点|减一点|换|保持|就这样/i;
+const ALBUM_TERM = /相册|照片|图片|相片|看图|album|photo|image|pixai|高中paro/i;
 
 function hasProjectFileIntent(text) {
     return PROJECT_FILE_INTENT.test(String(text || ''));
+}
+
+function hasToyDeviceIntent(text) {
+    return TOY_DEVICE_INTENT.test(String(text || ''));
+}
+
+function hasToyFollowUpIntent(text) {
+    return TOY_FOLLOW_UP_INTENT.test(String(text || ''));
+}
+
+function hasAlbumSearchIntent(text) {
+    const value = String(text || '').trim();
+    if (!ALBUM_TERM.test(value)) return false;
+
+    const term = '(?:相册|照片|图片|相片|看图|album|photo|image|pixai|高中paro)';
+    const action = '(?:看(?:看|一下)?|找(?:找|一下)?|搜(?:搜|一下)?|翻(?:翻|一下)?|调出|发给我|展示)';
+
+    // Direct requests such as "看看相册" and polite requests such as
+    // "帮我找一下去年旅行的照片".  Merely mentioning photos or screenshots
+    // must not pull album images into the current turn.
+    return new RegExp(`^(?:${action}).{0,20}${term}`, 'i').test(value)
+        || new RegExp(`(?:帮我|给我|我想|我要|请|能不能|可以|把).{0,20}${action}.{0,20}${term}`, 'i').test(value)
+        || new RegExp(`(?:帮我|给我|我想|我要|请|能不能|可以|把).{0,20}${term}.{0,20}${action}`, 'i').test(value)
+        || new RegExp(`${term}.{0,16}(?:里|中).{0,16}(?:有什么|有没|有没有|哪|找|搜|看|发|调出)`, 'i').test(value);
 }
 
 function requestedBuiltinToolNames(text) {
@@ -40,6 +69,9 @@ function keepRequestedReadTools(tools, text) {
 
 module.exports = {
     hasProjectFileIntent,
+    hasToyDeviceIntent,
+    hasToyFollowUpIntent,
+    hasAlbumSearchIntent,
     requestedBuiltinToolNames,
     keepRequestedReadTools,
 };
