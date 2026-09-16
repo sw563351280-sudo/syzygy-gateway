@@ -45,8 +45,39 @@ test('the assistant cannot declare resolution without explicit user confirmation
     const start = applyRelationshipSignal(emptyRelationshipStore(), signal('conflict_started', '你没有理解我'), { message_id: 'u1' });
     const premature = applyRelationshipSignal(start.store, signal('resolved', '你没有理解我', { user_confirmed: false }), { message_id: 'u2' });
     assert.equal(premature.accepted, false);
-    assert.equal(premature.reason, 'resolution_not_confirmed');
+    assert.equal(premature.reason, 'resolution_without_repair');
     assert.equal(premature.store.episodes[0].status, 'open');
+});
+
+test('one softened reply starts repair but cannot by itself imply reconciliation', () => {
+    let result = applyRelationshipSignal(emptyRelationshipStore(), signal('conflict_started', '我不想跟你说话了'), { message_id: 'u1' });
+    result = applyRelationshipSignal(result.store, signal('repair_started', '今天妹妹又来蹭我了'), { message_id: 'u2' });
+    assert.equal(result.store.active_state.phase, 'repair');
+    assert.equal(result.store.episodes[0].status, 'open');
+});
+
+test('a later relational reconnection can implicitly resolve after repair began', () => {
+    let result = applyRelationshipSignal(emptyRelationshipStore(), signal('conflict_started', '我不想跟你说话了'), { message_id: 'u1' });
+    result = applyRelationshipSignal(result.store, signal('repair_started', '今天妹妹又来蹭我了'), { message_id: 'u2' });
+    result = applyRelationshipSignal(result.store, signal('resolved', '晚上陪我一起看电影吧', {
+        user_confirmed: false,
+        resolution_basis: 'implicit_reconnection',
+        confidence: 0.9,
+    }), { message_id: 'u3' });
+    assert.equal(result.accepted, true);
+    assert.equal(result.store.episodes[0].status, 'resolved');
+    assert.equal(result.store.episodes[0].events.at(-1).resolution_basis, 'implicit_reconnection');
+    assert.equal(result.store.active_state, null);
+});
+
+test('implicit reconciliation cannot skip the repair stage', () => {
+    const start = applyRelationshipSignal(emptyRelationshipStore(), signal('conflict_started', '你刚才让我很难受'), { message_id: 'u1' });
+    const premature = applyRelationshipSignal(start.store, signal('resolved', '那先这样吧', {
+        resolution_basis: 'implicit_reconnection',
+        confidence: 0.95,
+    }), { message_id: 'u2' });
+    assert.equal(premature.accepted, false);
+    assert.equal(premature.reason, 'resolution_without_repair');
 });
 
 test('explicit user acceptance resolves the same episode', () => {

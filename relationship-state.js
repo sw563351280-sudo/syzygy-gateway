@@ -54,6 +54,11 @@ function normalizeSignal(raw, userText) {
     if (!evidence || !matchSource(evidence, [userText])) return null;
     const confidence = Math.max(0, Math.min(1, Number(raw.confidence) || 0));
     if (confidence < 0.65) return null;
+    const userConfirmed = raw.user_confirmed === true;
+    const requestedBasis = compact(raw.resolution_basis, 40);
+    const resolutionBasis = raw.transition === 'resolved'
+        ? (['explicit', 'implicit_reconnection'].includes(requestedBasis) ? requestedBasis : (userConfirmed ? 'explicit' : null))
+        : null;
     return {
         transition: raw.transition,
         title: compact(raw.title || raw.episode_hint, 80) || '一次沟通与磨合',
@@ -61,7 +66,8 @@ function normalizeSignal(raw, userText) {
         evidence_quote: evidence,
         themes: [...new Set((Array.isArray(raw.themes) ? raw.themes : []).map(item => compact(item, 40)).filter(Boolean))].slice(0, 8),
         confidence,
-        user_confirmed: raw.user_confirmed === true,
+        user_confirmed: userConfirmed,
+        resolution_basis: resolutionBasis,
     };
 }
 
@@ -117,8 +123,16 @@ function applyRelationshipSignal(rawStore, signal, sourceRef = null, now = new D
         active = { episode_id: episode.id, phase: 'conflict', opened_at: timestamp, updated_at: timestamp };
     }
 
-    if (signal.transition === 'resolved' && (!signal.user_confirmed || signal.confidence < 0.8)) {
-        return { store, changed: false, accepted: false, reason: 'resolution_not_confirmed', episode };
+    if (signal.transition === 'resolved') {
+        const explicitlyResolved = signal.user_confirmed && signal.confidence >= 0.8;
+        const priorRepair = active?.phase === 'repair'
+            && (episode.events || []).some(event => event.transition === 'repair_started' || event.stage === 'repair');
+        const implicitlyResolved = signal.resolution_basis === 'implicit_reconnection'
+            && signal.confidence >= 0.85
+            && priorRepair;
+        if (!explicitlyResolved && !implicitlyResolved) {
+            return { store, changed: false, accepted: false, reason: priorRepair ? 'implicit_resolution_not_confident' : 'resolution_without_repair', episode };
+        }
     }
 
     const phaseByTransition = {
@@ -132,6 +146,7 @@ function applyRelationshipSignal(rawStore, signal, sourceRef = null, now = new D
         memory_id: eventMemoryId,
         stage: STAGE_BY_TRANSITION[signal.transition],
         transition: signal.transition,
+        resolution_basis: signal.resolution_basis,
         summary: signal.summary,
         occurred_at: occurredAt,
         source_quote: signal.evidence_quote,
@@ -162,7 +177,7 @@ function activeRelationshipContext(store) {
     if (!episode) return '';
     const phaseName = { conflict: '仍在冲突中', repair: '正在尝试修复', paused: '暂时停下但尚未解决' }[active.phase] || '仍在发展';
     const latest = (episode.events || []).at(-1);
-    return `【当前关系过程】${phaseName}：${episode.title}。最近进展：${latest?.summary || episode.summary || '尚未整理'}。这是一段尚未结束的过程；结合完整对话判断本轮是否发生状态转折，不要因为自己道歉或对方停止回复就擅自判定和好。`;
+    return `【当前关系过程】${phaseName}：${episode.title}。最近进展：${latest?.summary || episode.summary || '尚未整理'}。这是一段尚未结束的过程；结合完整对话判断本轮是否发生状态转折。冷战后第一次重新靠近只算开始修复；之后又出现一轮有意义的主动分享、玩笑、亲近、依赖或共同计划，且冲突没有重燃，才可判断为隐性和好。不要因为自己道歉、对方停止回复、单独一个“嗯”或只恢复事务交流就擅自结案。`;
 }
 
 module.exports = {
