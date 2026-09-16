@@ -10,10 +10,20 @@
     function collectImages(clipboardData) {
         if (!clipboardData) return [];
         const result = [];
-        const seen = new Set();
+        const seenObjects = new Set();
+        const seenFingerprints = new Set();
+        const fingerprint = file => [
+            String(file && file.name || ''),
+            String(file && file.type || '').toLowerCase(),
+            Number(file && file.size || 0),
+            Number(file && file.lastModified || 0)
+        ].join('\u0000');
         const add = file => {
-            if (!isImageFile(file) || seen.has(file)) return;
-            seen.add(file);
+            if (!isImageFile(file) || seenObjects.has(file)) return;
+            const key = fingerprint(file);
+            if (seenFingerprints.has(key)) return;
+            seenObjects.add(file);
+            seenFingerprints.add(key);
             result.push(file);
         };
 
