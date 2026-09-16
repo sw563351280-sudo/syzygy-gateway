@@ -21,6 +21,7 @@ const { canonical: canonicalMemoryText, extractSaveMemoryTag: parseMemoryTag, is
 const { activeMemoryEvents, publicMemoryEvent, readMemoryEvents, receiveMemoryEvent, updateMemoryEvent } = require('./memory-events');
 const { applyDecision: applyRelationshipDecision, curateRelationshipMemory, emptyRelationshipStore, looksRelationshipRelevant, memorySignature, normalizeStore: normalizeRelationshipStore } = require('./relationship-reflections');
 const { activeRelationshipContext, applyRelationshipSignal, extractRelationshipStateTags } = require('./relationship-state');
+const { applyDecision: applyRealityDecision, curateRealityMemory, emptyRealityStore, normalizeStore: normalizeRealityStore } = require('./reality-events');
 const { extractDialogueCrumbTags } = require('./dialogue-crumbs');
 const { createCrumbDigest } = require('./crumb-digest');
 const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
@@ -1118,6 +1119,7 @@ const ANTICIPATIONS_FILE = path.join(DATA_DIR, 'anticipations.json');
 const MEMORY_MERGE_REVIEWS_FILE = path.join(DATA_DIR, 'memory_merge_reviews.json');
 const MEMORY_EVENTS_FILE = path.join(DATA_DIR, 'memory_events.jsonl');
 const RELATIONSHIP_REFLECTIONS_FILE = path.join(DATA_DIR, 'relationship_reflections.json');
+const REALITY_EVENTS_FILE = path.join(DATA_DIR, 'reality_events.json');
 const PERIOD_FILE = path.join(DATA_DIR, 'period_data.json');
 function loadDreamState() { try { return JSON.parse(fs.readFileSync(DREAM_STATE_FILE, 'utf8')); } catch(e) { return { pending_promises: '', foresight: [], updated_at: null }; } }
 function saveDreamState(state) { fs.writeFileSync(DREAM_STATE_FILE, JSON.stringify(state, null, 2), 'utf8'); }
@@ -1134,6 +1136,24 @@ function receiveStoredMemoryEvent(kind, payload) { return receiveMemoryEvent(MEM
 function patchStoredMemoryEvent(event, patch) { return updateMemoryEvent(MEMORY_EVENTS_FILE, event, patch); }
 function loadRelationshipReflections() { try { return normalizeRelationshipStore(JSON.parse(fs.readFileSync(RELATIONSHIP_REFLECTIONS_FILE, 'utf8'))); } catch (_) { return emptyRelationshipStore(); } }
 function saveRelationshipReflections(data) { fs.writeFileSync(RELATIONSHIP_REFLECTIONS_FILE, JSON.stringify(normalizeRelationshipStore(data), null, 2), 'utf8'); }
+function loadRealityEvents() { try { return normalizeRealityStore(JSON.parse(fs.readFileSync(REALITY_EVENTS_FILE, 'utf8'))); } catch (_) { return emptyRealityStore(); } }
+function saveRealityEvents(data) { fs.writeFileSync(REALITY_EVENTS_FILE, JSON.stringify(normalizeRealityStore(data), null, 2), 'utf8'); }
+function buildRealityEventContext(query) {
+    const text = String(query || '').trim();
+    if (!text) return '';
+    const store = loadRealityEvents();
+    const matches = store.events.map(event => {
+        const haystack = [event.title, event.summary, event.kind, ...(event.subjects || [])].filter(Boolean).join(' ');
+        return { event, score: bigramSimilarity(text, haystack) + (event.status === 'active' ? 0.05 : 0) };
+    }).filter(item => item.score >= 0.05).sort((a, b) => b.score - a.score).slice(0, 3).map(item => item.event);
+    if (!matches.length) return '';
+    const statusName = { active: '进行中', paused: '暂时停下', completed: '已结束' };
+    const lines = matches.map(event => {
+        const points = (event.milestones || []).slice(-6).map(point => `${point.occurred_at || '时间未标注'} ${point.summary}`).join(' → ');
+        return `• ${event.title}[${statusName[event.status] || event.status}]：${event.summary}${points ? `\n  时间脉络：${points}` : ''}`;
+    });
+    return `\n\n==========\n【现实事件脉络——同一对象可能有多段经历，以时间和阶段区分】\n${lines.join('\n')}\n使用要求：回答当前问题时按时间理解进展；不要把旧工作、旧阶段或已结束事件误当成现在仍在发生。当前消息与旧记录冲突时，以当前消息为准。\n==========\n`;
+}
 function buildRelationshipReflectionContext(query) {
     const text = String(query || '').trim();
     if (!text || !looksRelationshipRelevant({ content: text, tags: [] })) return '';
@@ -3038,6 +3058,44 @@ function queueRelationshipReflection(memory, tr = null) {
     return _relationshipReflectionQueue;
 }
 
+function realityEventModelConfig() {
+    return {
+        apiKey: process.env.REALITY_EVENT_API_KEY || process.env.RELATIONSHIP_REFLECTION_API_KEY || process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, ''),
+        endpoint: process.env.REALITY_EVENT_URL || process.env.RELATIONSHIP_REFLECTION_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions',
+        model: process.env.REALITY_EVENT_MODEL || process.env.RELATIONSHIP_REFLECTION_MODEL || process.env.DAILY_CURATOR_MODEL || 'gemini-3.1-pro-preview',
+    };
+}
+
+async function processRealityEventMemory(memory, tr = null) {
+    if (!memory?.id || !memory.content || memory.source === 'roleplay') return null;
+    const store = loadRealityEvents();
+    if (store.processed[memory.id]?.signature === memorySignature(memory)) return null;
+    const config = realityEventModelConfig();
+    if (!config.apiKey) throw new Error('未配置现实事件整理模型');
+    const decision = await curateRealityMemory({ fetchImpl: fetch, ...config, memory, store });
+    const applied = applyRealityDecision(store, memory, decision);
+    if (!applied.changed) return applied;
+    saveRealityEvents(applied.store);
+    traceEvent(tr, 'reality_event', decision.eligible ? '现实事件脉络已更新' : '不属于现实事件', { memory_id: memory.id, event_id: applied.event?.id || null });
+    wsBroadcast({ type: 'reality_event_updated', event_id: applied.event?.id || null });
+    return applied;
+}
+
+let _realityEventQueue = Promise.resolve();
+function queueRealityEvent(memory, tr = null) {
+    _realityEventQueue = _realityEventQueue.catch(() => {}).then(() => processRealityEventMemory(memory, tr)).catch(error => {
+        console.log(`⚠️ [现实事件] ${memory?.id || '?'} 整理失败: ${error.message}`);
+        traceEvent(tr, 'reality_event', '现实事件整理等待重试', { memory_id: memory?.id || null, reason: error.message });
+        return null;
+    });
+    return _realityEventQueue;
+}
+
+function queueMemoryOrganizers(memory, tr = null) {
+    queueRelationshipReflection(memory, tr);
+    queueRealityEvent(memory, tr);
+}
+
 let _memoryWriteQueue = Promise.resolve();
 function queueSmartMemoryWrite(...args) {
     _memoryWriteQueue = _memoryWriteQueue.catch(() => {}).then(() => smartMemoryWrite(...args)).catch(error => {
@@ -3115,7 +3173,7 @@ async function smartMemoryWrite(content, tags, source, ttl = 'perm', arousal = 0
             }
         } catch(e) {}
     }
-    if (result) queueRelationshipReflection(result, tr);
+    if (result) queueMemoryOrganizers(result, tr);
     return result;
 }
 
@@ -3507,6 +3565,7 @@ async function buildSharedSystemPrompt({
         const relationshipStore = loadRelationshipReflections();
         const relationshipReflectionContext = buildRelationshipReflectionContext(query || '');
         const activeRelationshipStateContext = activeRelationshipContext(relationshipStore);
+        const realityEventContext = buildRealityEventContext(query || '');
         resolvedInjectionQueue = [
             { label: '环境参数', content: envContext },
             { label: '时间线', content: formatTimeContext() },
@@ -3514,6 +3573,7 @@ async function buildSharedSystemPrompt({
             { label: '主动相关记忆', content: relatedContext },
             { label: '相关记忆浮现', content: recall.unresolved },
             { label: '长期记忆雷达', content: recall.longTerm },
+            { label: '现实事件脉络', content: realityEventContext },
             { label: '当前关系状态', content: activeRelationshipStateContext },
             { label: '关系成长记录', content: relationshipReflectionContext },
             { label: '核心雷达', content: recall.core },
@@ -8254,11 +8314,11 @@ app.post('/api/long-term-memories', (req, res) => {
     saveArchivedMemories(backArchived);
         saveRoleplayMemories(backRP);
         memoryBlocks = memories.filter(m => m.type === 'fact' || m.source === 'migrated_from_blocks');
-        queueRelationshipReflection(entry);
+        queueMemoryOrganizers(entry);
         return res.json({ success: true, memory: entry });
     }
     const entry = addLongTermMemory(content, source || 'manual', parsedTags);
-    if (entry) queueRelationshipReflection(entry);
+    if (entry) queueMemoryOrganizers(entry);
     res.json({ success: true, memory: entry });
 });
 
@@ -8301,7 +8361,7 @@ app.patch('/api/long-term-memories/:id', (req, res) => {
     } else if (rpIdx !== -1) {
         rpMemories.push(targetMemory); saveRoleplayMemories(rpMemories);
     }
-    if (targetMemory.source !== 'roleplay' && !isRP) queueRelationshipReflection(targetMemory);
+    if (targetMemory.source !== 'roleplay' && !isRP) queueMemoryOrganizers(targetMemory);
     res.json({ success: true, memory: targetMemory });
 });
 
@@ -9806,18 +9866,27 @@ app.get('/api/crumbs', (req, res) => {
     res.json({ crumbs: items.slice(0, 300) });
 });
 
-let _relationshipBackfill = { running: false, scanned: 0, processed: 0, total: 0, started_at: null, finished_at: null };
+let _relationshipBackfill = { running: false, scanned: 0, processed: 0, total: 0, available: 0, started_at: null, finished_at: null };
+let _realityBackfill = { running: false, scanned: 0, processed: 0, total: 0, available: 0, started_at: null, finished_at: null };
 
-async function backfillRelationshipReflections(limit = 100) {
+function selectRecentBackfillCandidates(items, rawLimit) {
+    const newestFirst = [...items].sort((a, b) => new Date(b.source_at || b.created_at || 0) - new Date(a.source_at || a.created_at || 0));
+    const isMax = String(rawLimit || '').trim().toLowerCase() === 'max';
+    const count = Math.max(1, Math.min(Number(rawLimit) || 20, 500));
+    const selected = (isMax ? newestFirst : newestFirst.slice(0, count))
+        .sort((a, b) => new Date(a.source_at || a.created_at || 0) - new Date(b.source_at || b.created_at || 0));
+    return { selected, available: newestFirst.length };
+}
+
+async function backfillRelationshipReflections(limit = 20) {
     if (_relationshipBackfill.running) return _relationshipBackfill;
     const store = loadRelationshipReflections();
-    const candidates = loadLongTermMemories()
+    const pending = loadLongTermMemories()
         .filter(memory => memory?.id && memory.content && memory.source !== 'roleplay')
         .filter(memory => store.processed[memory.id]?.signature !== memorySignature(memory))
-        .filter(looksRelationshipRelevant)
-        .sort((a, b) => new Date(a.source_at || a.created_at || 0) - new Date(b.source_at || b.created_at || 0))
-        .slice(0, Math.max(1, Math.min(Number(limit) || 100, 300)));
-    _relationshipBackfill = { running: true, scanned: 0, processed: 0, total: candidates.length, started_at: new Date().toISOString(), finished_at: null };
+        .filter(looksRelationshipRelevant);
+    const { selected: candidates, available } = selectRecentBackfillCandidates(pending, limit);
+    _relationshipBackfill = { running: true, scanned: 0, processed: 0, total: candidates.length, available, started_at: new Date().toISOString(), finished_at: null };
     try {
         for (const memory of candidates) {
             _relationshipBackfill.scanned++;
@@ -9831,23 +9900,51 @@ async function backfillRelationshipReflections(limit = 100) {
     return _relationshipBackfill;
 }
 
+async function backfillRealityEvents(limit = 20) {
+    if (_realityBackfill.running) return _realityBackfill;
+    const store = loadRealityEvents();
+    const pending = loadLongTermMemories()
+        .filter(memory => memory?.id && memory.content && memory.source !== 'roleplay')
+        .filter(memory => store.processed[memory.id]?.signature !== memorySignature(memory));
+    const { selected: candidates, available } = selectRecentBackfillCandidates(pending, limit);
+    _realityBackfill = { running: true, scanned: 0, processed: 0, total: candidates.length, available, started_at: new Date().toISOString(), finished_at: null };
+    try {
+        for (const memory of candidates) {
+            _realityBackfill.scanned++;
+            const result = await queueRealityEvent(memory);
+            if (result?.changed) _realityBackfill.processed++;
+        }
+    } finally {
+        _realityBackfill.running = false;
+        _realityBackfill.finished_at = new Date().toISOString();
+    }
+    return _realityBackfill;
+}
+
 app.get('/api/relationship-reflections', (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '密码错误' });
     const store = loadRelationshipReflections();
+    const realityStore = loadRealityEvents();
     const episodes = [...store.episodes].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
     const insights = [...store.insights].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+    const realityEvents = [...realityStore.events].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
     res.json({
         episodes,
         insights,
         temperature_state: store.temperature_state,
         temperature_events: [...store.temperature_events].reverse(),
         backfill: _relationshipBackfill,
+        reality_events: realityEvents,
+        reality_backfill: _realityBackfill,
         stats: {
             episodes: episodes.length,
             open: episodes.filter(item => item.status === 'open').length,
             resolved: episodes.filter(item => item.status === 'resolved').length,
             insights: insights.length,
             processed: Object.keys(store.processed).length,
+            reality_events: realityEvents.length,
+            reality_active: realityEvents.filter(item => item.status === 'active').length,
+            reality_processed: Object.keys(realityStore.processed).length,
         },
         updated_at: store.updated_at,
     });
@@ -9858,13 +9955,27 @@ app.post('/api/relationship-reflections/backfill', (req, res) => {
     if (_relationshipBackfill.running) return res.status(202).json({ success: true, backfill: _relationshipBackfill });
     const config = relationshipReflectionModelConfig();
     if (!config.apiKey) return res.status(503).json({ error: '未配置关系复盘模型' });
-    const limit = Number(req.body?.limit) || 100;
+    const limit = String(req.body?.limit || '20').toLowerCase() === 'max' ? 'max' : (Number(req.body?.limit) || 20);
     setImmediate(() => backfillRelationshipReflections(limit).catch(error => {
         console.log(`⚠️ [关系复盘] 历史整理失败: ${error.message}`);
         _relationshipBackfill.running = false;
         _relationshipBackfill.finished_at = new Date().toISOString();
     }));
     res.status(202).json({ success: true, backfill: { ..._relationshipBackfill, running: true } });
+});
+
+app.post('/api/reality-events/backfill', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '密码错误' });
+    if (_realityBackfill.running) return res.status(202).json({ success: true, backfill: _realityBackfill });
+    const config = realityEventModelConfig();
+    if (!config.apiKey) return res.status(503).json({ error: '未配置现实事件整理模型' });
+    const limit = String(req.body?.limit || '20').toLowerCase() === 'max' ? 'max' : (Number(req.body?.limit) || 20);
+    setImmediate(() => backfillRealityEvents(limit).catch(error => {
+        console.log(`⚠️ [现实事件] 历史整理失败: ${error.message}`);
+        _realityBackfill.running = false;
+        _realityBackfill.finished_at = new Date().toISOString();
+    }));
+    res.status(202).json({ success: true, backfill: { ..._realityBackfill, running: true } });
 });
 
 app.get('/api/memory-events', (req, res) => {
@@ -9907,7 +10018,7 @@ app.post('/api/memory-events/:id/resolve', (req, res) => {
     } else return res.status(400).json({ error: '未知处理方式' });
     if (!result) return res.status(409).json({ error: '记忆处理失败，请重试' });
     completeMemoryEvent(event, result, decision);
-    queueRelationshipReflection(result);
+    queueMemoryOrganizers(result);
     res.json({ success: true, result });
 });
 
