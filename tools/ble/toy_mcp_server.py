@@ -45,7 +45,6 @@ BLE_ADDRESS = os.environ.get("TOY_BLE_ADDRESS", "")
 MCP_TOKEN = os.environ.get("TOY_MCP_TOKEN", "")
 LISTEN_HOST = os.environ.get("TOY_MCP_HOST", "127.0.0.1")
 LISTEN_PORT = int(os.environ.get("TOY_MCP_PORT", "8000"))
-MAX_DURATION_SECONDS = 90
 
 if not BLE_ADDRESS:
     print("FATAL: TOY_BLE_ADDRESS not set", file=sys.stderr)
@@ -63,7 +62,6 @@ logger = logging.getLogger("toy_mcp")
 
 _client: BleakClient | None = None
 _write_lock = asyncio.Lock()
-_stop_timer_tasks: dict[str, asyncio.Task[Any]] = {}
 _connected = False
 _last_error: str | None = None
 _last_connect_attempt_at: float | None = None
@@ -118,7 +116,7 @@ def _is_live() -> bool:
 
 
 async def _maintain_connection() -> None:
-    """Background task: keep BLE connected. Merged with auto-stop timer management."""
+    """Background task: keep the BLE connection alive."""
     global _connected, _client, _last_error, _last_connect_attempt_at, _last_connect_attempt_ok
     backoff = 2.0
     while True:
@@ -169,9 +167,6 @@ async def _do_suction(intensity: int) -> None:
 
 
 async def _do_stop_vibration() -> None:
-    task = _stop_timer_tasks.pop("vibration", None)
-    if task is not None and task is not asyncio.current_task():
-        task.cancel()
     payload = encode_vibration(intensity=0, nonce=_next_nonce())
     async with _write_lock:
         if _client is None or not _client.is_connected:
@@ -185,9 +180,6 @@ async def _do_stop_vibration() -> None:
 
 
 async def _do_stop_suction() -> None:
-    task = _stop_timer_tasks.pop("suction", None)
-    if task is not None and task is not asyncio.current_task():
-        task.cancel()
     payload = encode_suction(intensity=0, nonce=_next_nonce())
     async with _write_lock:
         if _client is None or not _client.is_connected:
@@ -205,22 +197,6 @@ async def _do_stop_all() -> None:
     await _do_stop_vibration()
 
 
-def _schedule_auto_stop(mode: str, delay: float) -> None:
-    old_task = _stop_timer_tasks.get(mode)
-    if old_task is not None:
-        old_task.cancel()
-    async def _delayed():
-        await asyncio.sleep(delay)
-        try:
-            if mode == "suction":
-                await _do_stop_suction()
-            else:
-                await _do_stop_vibration()
-        except Exception as exc:
-            logger.error("Auto-stop %s failed: %s", mode, exc)
-    _stop_timer_tasks[mode] = asyncio.create_task(_delayed())
-
-
 # ---------------------------------------------------------------------------
 # MCP JSON-RPC / FastAPI
 # ---------------------------------------------------------------------------
@@ -231,16 +207,14 @@ _session_store: dict[str, Any] = {}
 TOOLS_DEF = [
     {
         "name": "toy_vibrate",
-        "description": "控制江鱼身上设备的振动强度。直接调用即可，不需要先调用 toy_status 或检查连接状态，连接由服务端自动维持。改变强度时直接再次调用本工具覆盖，不要先调用 toy_stop_vibration。",
+        "description": "控制江鱼身上设备的振动强度。直接调用即可，不需要先调用 toy_status 或检查连接状态，连接由服务端自动维持。会持续运行，直到明确调用停止工具或再次调用本工具改变强度。",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "intensity": {"type": "integer", "minimum": 1, "maximum": 100,
                               "description": "振动强度 1-100"},
-                "duration_seconds": {"type": "integer", "minimum": 1, "maximum": MAX_DURATION_SECONDS,
-                                     "description": f"持续时间（秒），1-{MAX_DURATION_SECONDS}"},
             },
-            "required": ["intensity", "duration_seconds"],
+            "required": ["intensity"],
         },
     },
     {
@@ -250,14 +224,13 @@ TOOLS_DEF = [
     },
     {
         "name": "toy_suction",
-        "description": "Control suction intensity. Use only for a clear device-control request. Repeating this tool updates the intensity and refreshes its timer.",
+        "description": "Control suction intensity. Use only for a clear device-control request. It remains active until explicitly stopped or its intensity is changed.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "intensity": {"type": "integer", "minimum": 1, "maximum": 100},
-                "duration_seconds": {"type": "integer", "minimum": 1, "maximum": MAX_DURATION_SECONDS},
             },
-            "required": ["intensity", "duration_seconds"],
+            "required": ["intensity"],
         },
     },
     {
@@ -332,15 +305,10 @@ async def _handle_request(body: dict[str, Any], request: Request) -> dict[str, A
 async def _execute_tool(name: str, args: dict[str, Any]) -> str:
     if name == "toy_vibrate":
         intensity = args.get("intensity")
-        duration = args.get("duration_seconds")
         if type(intensity) is not int:
             return "Error: intensity must be a strict integer 1-100"
-        if type(duration) is not int:
-            return f"Error: duration_seconds must be a strict integer 1-{MAX_DURATION_SECONDS}"
         if not (1 <= intensity <= 100):
             return f"Error: intensity must be 1-100, got {intensity}"
-        if not (1 <= duration <= MAX_DURATION_SECONDS):
-            return f"Error: duration_seconds must be 1-{MAX_DURATION_SECONDS}, got {duration}"
 
         if not _is_live():
             try:
@@ -351,16 +319,12 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
                 return f"Error: connection failed: {exc}"
 
         await _do_vibrate(intensity)
-        _schedule_auto_stop("vibration", float(duration))
-        return f"OK intensity={intensity} duration={duration}"
+        return f"OK intensity={intensity}; active until stopped"
 
     elif name == "toy_suction":
         intensity = args.get("intensity")
-        duration = args.get("duration_seconds")
         if type(intensity) is not int or not (1 <= intensity <= 100):
             return "Error: intensity must be a strict integer 1-100"
-        if type(duration) is not int or not (1 <= duration <= MAX_DURATION_SECONDS):
-            return f"Error: duration_seconds must be a strict integer 1-{MAX_DURATION_SECONDS}"
         if not _is_live():
             try:
                 await asyncio.wait_for(_connect(), timeout=8)
@@ -369,8 +333,7 @@ async def _execute_tool(name: str, args: dict[str, Any]) -> str:
             except Exception as exc:
                 return f"Error: connection failed: {exc}"
         await _do_suction(intensity)
-        _schedule_auto_stop("suction", float(duration))
-        return f"OK intensity={intensity} duration={duration}"
+        return f"OK intensity={intensity}; active until stopped"
 
     elif name == "toy_stop_vibration":
         if not _is_live():
@@ -453,8 +416,6 @@ async def _on_shutdown():
 
 async def _shutdown() -> None:
     logger.info("Shutting down...")
-    for task in _stop_timer_tasks.values():
-        task.cancel()
     if _connected:
         try:
             await _do_stop_all()
