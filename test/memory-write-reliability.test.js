@@ -2,7 +2,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const vm = require('node:vm');
 const { extractDialogueCrumbTags } = require('../dialogue-crumbs');
 const { extractSaveMemoryTag, isRecentCrumbDuplicate } = require('../memory-write-utils');
 const { decideMemoryWrite } = require('../memory-merge-curator');
@@ -48,22 +47,13 @@ test('review reads a structured decision in reasoning and reports malformed resu
         fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: {
             content: '正在整理', reasoning_content: JSON.stringify({ action: 'new', ...incoming })
         } }] }) }) };
-    assert.equal((await decideMemoryWrite(options)).action, 'new');
+    assert.equal((await decideMemoryWrite(options)).action, 'create');
     await assert.rejects(decideMemoryWrite({ ...options, fetchImpl: async () => ({ ok: true, json: async () => ({}) }) }), /no valid decision/);
 });
-test('long term persistence precedes review; review failure cannot undo saved memory', async () => {
+test('long term intake persists an event before review and does not directly append canonical memory', () => {
     const source = fs.readFileSync(require.resolve('../server'), 'utf8');
     const fn = source.slice(source.indexOf('async function smartMemoryWrite('), source.indexOf('// 🚨 AI 的专属情感面具'));
-    const saved = [], deferred = [];
-    const context = { console: { log() {} }, normalizeMemorySource: () => ({}), detectEmotion: () => 0,
-        addLongTermMemory: (content, source, tags) => { const entry = { id: 'new', content, source, tags }; saved.push(entry); return entry; },
-        setImmediate: callback => deferred.push(callback), suggestSavedMemoryMerge: async () => { throw new Error('offline'); },
-        traceEvent() {}, wsBroadcast() {}, loadDiaries: () => [], saveDiaries() {}, Date };
-    vm.createContext(context);
-    vm.runInContext(fn, context);
-    const result = await context.smartMemoryWrite('我记着她决定以后一直养猫。', ['猫'], 'ai_active');
-    assert.equal(result.id, 'new');
-    assert.equal(saved.length, 1);
-    await deferred[0]();
-    assert.equal(saved.length, 1);
+    assert.ok(fn.indexOf("receiveStoredMemoryEvent('long_term'") >= 0);
+    assert.ok(fn.indexOf('processLongTermMemoryEvent(received.event') > fn.indexOf("receiveStoredMemoryEvent('long_term'"));
+    assert.equal(fn.includes('const result = addLongTermMemory(incoming.content'), false);
 });

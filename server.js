@@ -16,7 +16,8 @@ const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./tod
 const { extractDailyStateUpdates, stripLeakedStateUpdates, shouldCuratePersistentState } = require('./daily-state-curator');
 const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-merge');
 const { decideMemoryWrite } = require('./memory-merge-curator');
-const { extractSaveMemoryTag: parseMemoryTag, isRecentCrumbDuplicate: sameCrumb } = require('./memory-write-utils');
+const { canonical: canonicalMemoryText, extractSaveMemoryTag: parseMemoryTag, isRecentCrumbDuplicate: sameCrumb } = require('./memory-write-utils');
+const { activeMemoryEvents, publicMemoryEvent, readMemoryEvents, receiveMemoryEvent, updateMemoryEvent } = require('./memory-events');
 const { extractDialogueCrumbTags } = require('./dialogue-crumbs');
 const { createCrumbDigest } = require('./crumb-digest');
 const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
@@ -1112,6 +1113,7 @@ const TODOS_FILE = path.join(DATA_DIR, 'todos.json');
 const CRUMBS_FILE = path.join(DATA_DIR, 'crumbs.json');
 const ANTICIPATIONS_FILE = path.join(DATA_DIR, 'anticipations.json');
 const MEMORY_MERGE_REVIEWS_FILE = path.join(DATA_DIR, 'memory_merge_reviews.json');
+const MEMORY_EVENTS_FILE = path.join(DATA_DIR, 'memory_events.jsonl');
 const PERIOD_FILE = path.join(DATA_DIR, 'period_data.json');
 function loadDreamState() { try { return JSON.parse(fs.readFileSync(DREAM_STATE_FILE, 'utf8')); } catch(e) { return { pending_promises: '', foresight: [], updated_at: null }; } }
 function saveDreamState(state) { fs.writeFileSync(DREAM_STATE_FILE, JSON.stringify(state, null, 2), 'utf8'); }
@@ -1123,6 +1125,9 @@ function loadAnticipations() { try { const items = JSON.parse(fs.readFileSync(AN
 function saveAnticipations(items) { fs.writeFileSync(ANTICIPATIONS_FILE, JSON.stringify(items, null, 2), 'utf8'); }
 function loadMemoryMergeReviews() { try { const items = JSON.parse(fs.readFileSync(MEMORY_MERGE_REVIEWS_FILE, 'utf8')); return Array.isArray(items) ? items : []; } catch (_) { return []; } }
 function saveMemoryMergeReviews(items) { fs.writeFileSync(MEMORY_MERGE_REVIEWS_FILE, JSON.stringify(items, null, 2), 'utf8'); }
+function loadMemoryEvents() { return readMemoryEvents(MEMORY_EVENTS_FILE); }
+function receiveStoredMemoryEvent(kind, payload) { return receiveMemoryEvent(MEMORY_EVENTS_FILE, kind, payload); }
+function patchStoredMemoryEvent(event, patch) { return updateMemoryEvent(MEMORY_EVENTS_FILE, event, patch); }
 function loadPeriod() { try { return JSON.parse(fs.readFileSync(PERIOD_FILE, 'utf8')); } catch(e) { return { records: [], current: null }; } }
 function savePeriod(data) { fs.writeFileSync(PERIOD_FILE, JSON.stringify(data, null, 2), 'utf8'); }
 const PHOTOS_FILE = path.join(DATA_DIR, 'photos.json');
@@ -2064,8 +2069,8 @@ function addRoleplayMemory(content, tags = [], ttl = '1w') {
 //现实记忆新增（加入 arousal + activation_count）。
 // 长期记忆不再有保质期：它们只会被合并、人工归档，绝不因时间或热度自动消失。
 function normalizeMemorySource(sourceRef = null, fallbackAt = new Date().toISOString()) {
-    const quote = String(sourceRef?.quote || '').replace(/\s+/g, ' ').trim().slice(0, 240);
-    return { source_quote: quote, source_at: sourceRef?.at || fallbackAt, source_message_id: sourceRef?.message_id || null };
+    const quote = String(sourceRef?.quote ?? sourceRef?.source_quote ?? '').replace(/\s+/g, ' ').trim().slice(0, 240);
+    return { source_quote: quote, source_at: sourceRef?.at || sourceRef?.source_at || fallbackAt, source_message_id: sourceRef?.message_id || sourceRef?.source_message_id || null };
 }
 
 // OpenClaw 会把一小段运行时元数据放进 user message。它不是用户说的话，
@@ -2772,7 +2777,126 @@ async function retrieveMemoryMergeCandidates(content, tags) {
     return memories.map(memory => {
         const similarity = queryEmbedding && cache[memory.id] ? cosineSimilarity(queryEmbedding, cache[memory.id]) : bigramSimilarity(content, memory.content);
         return { id: memory.id, content: memory.content, tags: memory.tags || [], created_at: memory.created_at, updated_at: memory.updated_at, similarity, shared_tags: (tags || []).filter(tag => (memory.tags || []).some(old => String(old).trim() === String(tag).trim())), tag_overlap: tagOverlap(tags, memory.tags) };
-    }).sort((a, b) => b.similarity - a.similarity).slice(0, 3);
+    }).sort((a, b) => (b.similarity + Math.min(b.tag_overlap, 2) * 0.12) - (a.similarity + Math.min(a.tag_overlap, 2) * 0.12)).slice(0, 5);
+}
+
+function findExactLongTermMemory(content) {
+    const wanted = canonicalMemoryText(content);
+    if (!wanted) return null;
+    return loadLongTermMemories().find(memory => !memory.merged_into && canonicalMemoryText(memory.content) === wanted) || null;
+}
+
+function recordLongTermMemoryConfirmation(id, input) {
+    const memories = loadLongTermMemories();
+    const memory = memories.find(item => item.id === id && !item.merged_into);
+    if (!memory) return null;
+    const confirmation = {
+        at: input.source_at || new Date().toISOString(),
+        source_message_id: input.source_message_id || null,
+        source_quote: input.source_quote || '',
+    };
+    memory.confirmations = Array.isArray(memory.confirmations) ? memory.confirmations : [];
+    if (!memory.confirmations.some(item => item.source_message_id && item.source_message_id === confirmation.source_message_id)) {
+        memory.confirmations.push(confirmation);
+        memory.confirmations = memory.confirmations.slice(-30);
+    }
+    memory.mention_count = Number(memory.mention_count || 1) + 1;
+    memory.last_seen_at = confirmation.at;
+    memory.updated_at = new Date().toISOString();
+    saveLongTermMemories(memories);
+    return { ...memory, write_action: 'same' };
+}
+
+function completeMemoryEvent(event, result, decision, tr = null) {
+    const completed = patchStoredMemoryEvent(event, {
+        status: 'completed',
+        result_id: result?.id || null,
+        decision: decision || event.decision || null,
+        error: null,
+        completed_at: new Date().toISOString(),
+    });
+    traceEvent(tr, 'memory_event', '记忆事件已整理', { event_id: event.id, action: decision?.action || 'create', result_id: result?.id || null });
+    wsBroadcast({ type: 'memory_event_completed', event: publicMemoryEvent(completed) });
+    return result;
+}
+
+function holdMemoryEvent(event, status, error, decision = null, candidates = [], tr = null) {
+    const held = patchStoredMemoryEvent(event, {
+        status,
+        error: error || null,
+        decision,
+        candidates: candidates.map(item => ({ id: item.id, content: item.content, tags: item.tags || [], similarity: item.similarity, tag_overlap: item.tag_overlap || 0 })),
+    });
+    traceEvent(tr, 'memory_event', status === 'needs_review' ? '记忆事件待确认' : '记忆事件等待重试', { event_id: event.id, reason: error || decision?.reason || '', action: decision?.action || null });
+    wsBroadcast({ type: 'memory_event_attention', event: publicMemoryEvent(held) });
+    return null;
+}
+
+async function processLongTermMemoryEvent(event, tr = null) {
+    if (!event || event.kind !== 'long_term') return null;
+    if (event.status === 'completed' || event.status === 'ignored') {
+        return event.result_id ? loadLongTermMemories().find(item => item.id === event.result_id) || null : null;
+    }
+    event = patchStoredMemoryEvent(event, { status: 'processing', attempts: Number(event.attempts || 0) + 1, error: null });
+    const incoming = event.payload || {};
+
+    const exact = findExactLongTermMemory(incoming.content);
+    if (exact) {
+        const confirmed = recordLongTermMemoryConfirmation(exact.id, incoming) || exact;
+        return completeMemoryEvent(event, confirmed, { action: 'same', target_id: exact.id, confidence: 1, reason: '规范化内容完全相同' }, tr);
+    }
+
+    let candidates = [];
+    try {
+        candidates = (await retrieveMemoryMergeCandidates(incoming.content, incoming.tags))
+            .filter(item => item.similarity >= 0.5 || item.tag_overlap > 0);
+    } catch (error) {
+        return holdMemoryEvent(event, 'pending', `候选检索失败：${error.message}`, null, [], tr);
+    }
+
+    if (!candidates.length) {
+        const created = addLongTermMemory(incoming.content, incoming.source, incoming.tags, 'perm', incoming.arousal, incoming.emotional_weight, incoming);
+        if (created) return completeMemoryEvent(event, created, { action: 'create', target_id: null, confidence: 1, reason: '没有可能重复的候选' }, tr);
+        const raced = findExactLongTermMemory(incoming.content);
+        if (raced) return completeMemoryEvent(event, raced, { action: 'same', target_id: raced.id, confidence: 1, reason: '并发写入已存在' }, tr);
+        return holdMemoryEvent(event, 'pending', '正式记忆写入失败', null, candidates, tr);
+    }
+
+    const key = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
+    if (!key) return holdMemoryEvent(event, 'pending', '未配置记忆审查模型', null, candidates, tr);
+
+    let decision;
+    try {
+        decision = await decideMemoryWrite({
+            fetchImpl: fetch,
+            apiKey: key,
+            endpoint: process.env.MEMORY_MERGE_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions',
+            model: process.env.MEMORY_MERGE_MODEL || 'gemini-3-flash-preview',
+            incoming,
+            candidates,
+        });
+    } catch (error) {
+        return holdMemoryEvent(event, 'pending', `审查器失败：${error.message}`, null, candidates, tr);
+    }
+
+    const threshold = decision.action === 'create' ? 0.78 : 0.85;
+    if (['review', 'conflict'].includes(decision.action) || decision.confidence < threshold) {
+        return holdMemoryEvent(event, 'needs_review', decision.reason || '审查置信度不足', decision, candidates, tr);
+    }
+
+    if (decision.action === 'same') {
+        const confirmed = recordLongTermMemoryConfirmation(decision.target_id, incoming);
+        return confirmed ? completeMemoryEvent(event, confirmed, decision, tr) : holdMemoryEvent(event, 'needs_review', '重复目标已不存在', decision, candidates, tr);
+    }
+    if (decision.action === 'update' || decision.action === 'supersede') {
+        const updated = updateLongTermMemoryRevision(decision.target_id, { ...incoming, content: decision.content, tags: decision.tags });
+        return updated ? completeMemoryEvent(event, updated, decision, tr) : holdMemoryEvent(event, 'needs_review', '更新目标已不存在', decision, candidates, tr);
+    }
+    if (decision.action === 'create') {
+        const created = addLongTermMemory(decision.content || incoming.content, incoming.source, decision.tags || incoming.tags, 'perm', incoming.arousal, incoming.emotional_weight, incoming);
+        return created ? completeMemoryEvent(event, created, decision, tr) : holdMemoryEvent(event, 'pending', '正式记忆写入失败', decision, candidates, tr);
+    }
+    return holdMemoryEvent(event, 'needs_review', '无法确定处理方式', decision, candidates, tr);
 }
 
 function updateLongTermMemoryRevision(id, input) {
@@ -2846,6 +2970,31 @@ function queueSmartMemoryWrite(...args) {
     return _memoryWriteQueue;
 }
 
+async function retryMemoryEvent(event) {
+    if (!event || event.status === 'completed' || event.status === 'ignored' || event.status === 'needs_review') return null;
+    if (event.kind === 'long_term') return processLongTermMemoryEvent(event);
+    if (event.kind === 'crumb') {
+        const payload = event.payload || {};
+        return persistDialogueCrumbs([payload], null, { message_id: payload.source_message_id || null, at: payload.source_at || event.created_at });
+    }
+    return null;
+}
+
+async function retryPendingMemoryEvents(limit = 10) {
+    const staleProcessingBefore = Date.now() - 2 * 60 * 1000;
+    const pending = loadMemoryEvents()
+        .filter(event => ['received', 'pending'].includes(event.status) || (event.status === 'processing' && new Date(event.updated_at).getTime() < staleProcessingBefore))
+        .sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at))
+        .slice(0, limit);
+    for (const event of pending) {
+        try { await retryMemoryEvent(event); }
+        catch (error) {
+            patchStoredMemoryEvent(event, { status: 'pending', error: `后台重试失败：${error.message}` });
+        }
+    }
+    return pending.length;
+}
+
 // ==========================================
 //记忆写入统一入口（透传 arousal）
 // ==========================================
@@ -2866,22 +3015,26 @@ async function smartMemoryWrite(content, tags, source, ttl = 'perm', arousal = 0
     const emoWeight = (userMsg && source === 'ai_active') ? detectEmotion(userMsg) : 0;
     const origin = normalizeMemorySource(sourceRef);
     const incoming = { content: content.trim(), tags: validTags, source, ttl: 'perm', arousal: effectiveArousal, emotional_weight: emoWeight, ...origin };
-    const result = addLongTermMemory(incoming.content, source, validTags, 'perm', effectiveArousal, emoWeight, origin);
-    if (result) setImmediate(() => suggestSavedMemoryMerge(result, tr).catch(error => {
-        traceEvent(tr, 'memory_review', '已保存，合并检查失败', { reason: error.message, id: result.id });
-    }));
+    const received = receiveStoredMemoryEvent('long_term', incoming);
+    traceEvent(tr, 'memory_event', received.created ? '已收进记忆事件箱' : '已存在同源记忆事件', { event_id: received.event.id, status: received.event.status, source_message_id: incoming.source_message_id });
+    if (received.created) wsBroadcast({ type: 'memory_event_received', event: publicMemoryEvent(received.event) });
+    const result = await processLongTermMemoryEvent(received.event, tr);
     if (result) {
-        traceEvent(tr, 'memory_write', result.write_action === 'updated' ? '已合并更新' : '已写入', { id: result.id, preview: result.content.substring(0, 60), tags: result.tags, ttl: 'perm', arousal: effectiveArousal });
+        const label = result.write_action === 'same' ? '已确认为同一条' : result.write_action === 'updated' ? '已合并更新' : '已写入';
+        traceEvent(tr, 'memory_write', label, { id: result.id, event_id: received.event.id, preview: result.content.substring(0, 60), tags: result.tags, ttl: 'perm', arousal: effectiveArousal });
     } else {
-        traceEvent(tr, 'memory_write', '被拦截·重复', { reason: '内容完全重复', preview: content.substring(0, 60), tags: validTags });
+        traceEvent(tr, 'memory_write', '已安全保存·等待整理', { event_id: received.event.id, preview: content.substring(0, 60), tags: validTags });
     }
     if (source === 'ai_active' && result) {
-        wsBroadcast({ type: result.write_action === 'updated' ? 'memory_updated' : 'memory_saved', preview: result.content.substring(0, 60), tags: result.tags, source: 'ai_active', id: result.id });
+        wsBroadcast({ type: result.write_action === 'updated' ? 'memory_updated' : 'memory_saved', preview: result.content.substring(0, 60), tags: result.tags, source: 'ai_active', id: result.id, event_id: received.event.id });
         try {
             const diaries = loadDiaries();
-            diaries.push({ id: 'syzygy_' + Date.now().toString(36), text: `沈望${result.write_action === 'updated' ? '更新了' : '记下了'}：${result.content}`, author: 'system', type: 'syzygy_note', date: new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' }).replace(/\//g, '-'), datetime: new Date().toISOString() });
-            saveDiaries(diaries);
-            console.log('📖 [私语手记] 沈望自动记录了一条记忆');
+            const diaryKey = `memory_event:${received.event.id}`;
+            if (!diaries.some(item => item.memory_event_key === diaryKey)) {
+                diaries.push({ id: 'syzygy_' + Date.now().toString(36), text: `沈望${result.write_action === 'updated' ? '更新了' : result.write_action === 'same' ? '又确认了' : '记下了'}：${result.content}`, author: 'system', type: 'syzygy_note', memory_event_key: diaryKey, date: new Date().toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' }).replace(/\//g, '-'), datetime: new Date().toISOString() });
+                saveDiaries(diaries);
+                console.log('📖 [私语手记] 沈望自动记录了一条记忆');
+            }
         } catch(e) {}
     }
     return result;
@@ -8656,7 +8809,8 @@ app.get('/api/longterm-page-data', async (req, res) => {
     const anticipations = loadAnticipations().sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
     const mergeReviews = loadMemoryMergeReviews().filter(item => item.status === 'pending').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     const crumbDigests = loadDailyPages().filter(page => page.crumb_digest).map(page => ({ date: page.date, ...page.crumb_digest })).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30);
-    res.json({ memories: allMems, counts, heatStats: { high: heatHigh, mid: heatMid, low: heatLow }, profile, dreamLogs, pendingPromises, weeklies, monthlies, crumbs, crumbCount, crumbDigests, anticipations, mergeReviews });
+    const memoryEvents = activeMemoryEvents(loadMemoryEvents()).sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at)).slice(0, 100).map(publicMemoryEvent);
+    res.json({ memories: allMems, counts, heatStats: { high: heatHigh, mid: heatMid, low: heatLow }, profile, dreamLogs, pendingPromises, weeklies, monthlies, crumbs, crumbCount, crumbDigests, anticipations, mergeReviews, memoryEvents });
 });
 
 app.get('/memory-manager', (req, res) => {
@@ -9284,10 +9438,20 @@ function persistDialogueCrumbs(crumbs, tr = null, sourceRef = null) {
     const now = new Date(); const dayKey = getChinaDateString(now);
     const items = loadCrumbs(); let autoCreated = false; let added = 0;
     for (const crumb of crumbs.slice(0, 1)) {
-        if (items.some(item => isRecentCrumbDuplicate(item, crumb, now))) continue;
-        const entry = { id: `crumb_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, kind: 'crumb', happened_at: now.toISOString(), fact: crumb.fact, source_quote: crumb.source_quote, source_message_id: sourceRef?.message_id || null, source_at: sourceRef?.at || now.toISOString(), entities: crumb.entities, tags: crumb.tags, status: 'active', archive_after_days: 90, created_at: now.toISOString(), last_surfaced_at: null, surface_count: 0 };
+        const payload = { ...crumb, happened_at: now.toISOString(), source_message_id: sourceRef?.message_id || null, source_at: sourceRef?.at || now.toISOString() };
+        const received = receiveStoredMemoryEvent('crumb', payload);
+        traceEvent(tr, 'memory_event', received.created ? '已收进碎屑事件箱' : '已存在同源碎屑事件', { event_id: received.event.id, status: received.event.status, source_message_id: payload.source_message_id });
+        if (received.created) wsBroadcast({ type: 'memory_event_received', event: publicMemoryEvent(received.event) });
+        if (received.event.status === 'completed' || received.event.status === 'ignored') continue;
+        let event = patchStoredMemoryEvent(received.event, { status: 'processing', attempts: Number(received.event.attempts || 0) + 1, error: null });
+        const duplicate = items.find(item => (payload.source_message_id && item.source_message_id === payload.source_message_id) || isRecentCrumbDuplicate(item, crumb, now));
+        if (duplicate) {
+            event = patchStoredMemoryEvent(event, { status: 'completed', result_id: duplicate.id, decision: { action: 'same', target_id: duplicate.id, confidence: 1, reason: payload.source_message_id && duplicate.source_message_id === payload.source_message_id ? '同一消息已处理' : '短时间内内容完全相同' }, error: null, completed_at: now.toISOString() });
+            wsBroadcast({ type: 'memory_event_completed', event: publicMemoryEvent(event) });
+            continue;
+        }
+        const entry = { id: `crumb_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`, kind: 'crumb', happened_at: payload.happened_at, fact: crumb.fact, source_quote: crumb.source_quote, source_message_id: payload.source_message_id, source_at: payload.source_at, entities: crumb.entities, tags: crumb.tags, status: 'active', archive_after_days: 90, created_at: now.toISOString(), last_surfaced_at: null, surface_count: 0 };
         items.push(entry);
-        ensureEmbedding(entry.id, `${entry.fact}\n${entry.entities.join(' ')}\n${entry.tags.join(' ')}`).catch(error => console.log(`⚠️ [碎屑向量] 异步失败: ${error.message}`));
         added++;
         const hasAutoToday = autoCreated || loadAnticipations().some(item => item.created_from === 'auto' && getChinaDateString(new Date(item.created_at)) === dayKey);
         const sameEntityOpen = loadAnticipations().some(item => item.status === 'open' && crumb.entities.includes(item.entity) && Date.now() - new Date(item.created_at).getTime() < 7 * 86400000);
@@ -9305,9 +9469,19 @@ function persistDialogueCrumbs(crumbs, tr = null, sourceRef = null) {
     if (added) {
         try { saveCrumbs(items.slice(-2000)); }
         catch (error) {
+            const failed = loadMemoryEvents().find(item => item.kind === 'crumb' && item.status === 'processing' && item.payload?.source_message_id === (sourceRef?.message_id || null));
+            if (failed) patchStoredMemoryEvent(failed, { status: 'pending', error: `碎屑写盘失败：${error.message}` });
             traceEvent(tr, 'dialogue_crumb', '碎屑写入失败', { reason: error.message });
             wsBroadcast({ type: 'memory_write_failed', message: '生活碎屑保存失败，请稍后重试。' });
             return 0;
+        }
+        for (const entry of items.slice(-added)) {
+            ensureEmbedding(entry.id, `${entry.fact}\n${entry.entities.join(' ')}\n${entry.tags.join(' ')}`).catch(error => console.log(`⚠️ [碎屑向量] 异步失败: ${error.message}`));
+            const event = loadMemoryEvents().find(item => item.kind === 'crumb' && item.status === 'processing' && ((entry.source_message_id && item.payload?.source_message_id === entry.source_message_id) || (!entry.source_message_id && canonicalMemoryText(item.payload?.fact) === canonicalMemoryText(entry.fact))));
+            if (event) {
+                const completed = patchStoredMemoryEvent(event, { status: 'completed', result_id: entry.id, decision: { action: 'create', target_id: null, confidence: 1, reason: '新生活事件' }, error: null, completed_at: now.toISOString() });
+                wsBroadcast({ type: 'memory_event_completed', event: publicMemoryEvent(completed) });
+            }
         }
         wsBroadcast({ type: 'crumb_saved', count: added });
     }
@@ -9431,6 +9605,49 @@ app.get('/api/crumbs', (req, res) => {
     const status = String(req.query.status || 'all');
     const items = loadCrumbs().filter(item => status === 'all' || item.status === status).sort((a, b) => new Date(b.happened_at || b.created_at) - new Date(a.happened_at || a.created_at));
     res.json({ crumbs: items.slice(0, 300) });
+});
+
+app.get('/api/memory-events', (req, res) => {
+    const includeCompleted = req.query.include_completed === '1';
+    const events = loadMemoryEvents().sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+    const visible = includeCompleted ? events.slice(0, 100) : activeMemoryEvents(events).slice(0, 100);
+    res.json({ events: visible.map(publicMemoryEvent) });
+});
+
+app.post('/api/memory-events/:id/retry', (req, res) => {
+    const event = loadMemoryEvents().find(item => item.id === req.params.id);
+    if (!event) return res.status(404).json({ error: '未找到记忆事件' });
+    if (event.status === 'completed' || event.status === 'ignored') return res.json({ success: true, event: publicMemoryEvent(event) });
+    const queued = patchStoredMemoryEvent(event, { status: 'pending', error: null });
+    setImmediate(() => retryMemoryEvent(queued).catch(error => console.log(`⚠️ [记忆事件] 手动重试失败: ${error.message}`)));
+    res.status(202).json({ success: true, event: publicMemoryEvent(queued) });
+});
+
+app.post('/api/memory-events/:id/resolve', (req, res) => {
+    let event = loadMemoryEvents().find(item => item.id === req.params.id);
+    if (!event) return res.status(404).json({ error: '未找到记忆事件' });
+    if (event.kind !== 'long_term') return res.status(400).json({ error: '生活碎屑不支持语义合并' });
+    const action = String(req.body?.action || '');
+    if (action === 'ignore') {
+        event = patchStoredMemoryEvent(event, { status: 'ignored', error: null, completed_at: new Date().toISOString() });
+        return res.json({ success: true, event: publicMemoryEvent(event) });
+    }
+    const incoming = event.payload || {};
+    let result = null; let decision = null;
+    if (action === 'create') {
+        result = findExactLongTermMemory(incoming.content) || addLongTermMemory(incoming.content, incoming.source || 'ai_active', incoming.tags || [], 'perm', incoming.arousal || 0.8, incoming.emotional_weight || 0, incoming);
+        decision = { action: 'create', target_id: null, confidence: 1, reason: '人工确认单独保留' };
+    } else if (action === 'merge' || action === 'same') {
+        const targetId = String(req.body?.target_id || event.decision?.target_id || '');
+        if (!(event.candidates || []).some(item => item.id === targetId)) return res.status(400).json({ error: '合并目标不在审查候选中' });
+        result = action === 'same'
+            ? recordLongTermMemoryConfirmation(targetId, incoming)
+            : updateLongTermMemoryRevision(targetId, { ...incoming, content: String(req.body?.content || event.decision?.content || incoming.content), tags: event.decision?.tags || incoming.tags });
+        decision = { action: action === 'same' ? 'same' : 'update', target_id: targetId, confidence: 1, reason: '人工确认' };
+    } else return res.status(400).json({ error: '未知处理方式' });
+    if (!result) return res.status(409).json({ error: '记忆处理失败，请重试' });
+    completeMemoryEvent(event, result, decision);
+    res.json({ success: true, result });
 });
 
 app.get('/api/anticipations', (req, res) => {
@@ -10513,6 +10730,10 @@ server.listen(PORT, () => {
             }
         }).catch(e => console.log('🧲 [启动向量索引] 失败:', e.message));
     }, 10000);
+
+    // 记忆事件先落盘、后整理；重启或模型短暂故障都不会丢失。
+    setTimeout(() => retryPendingMemoryEvents().catch(error => console.log(`⚠️ [记忆事件] 启动重试失败: ${error.message}`)), 12000);
+    setInterval(() => retryPendingMemoryEvents().catch(error => console.log(`⚠️ [记忆事件] 后台重试失败: ${error.message}`)), 5 * 60 * 1000).unref();
 
     setInterval(cleanAndArchiveMemories, 6 * 60 * 60 * 1000);
     restoreAdaptiveWake();

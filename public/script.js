@@ -143,6 +143,8 @@ function handleWSMessage(msg) {
         case 'memory_saved':
         case 'memory_updated': handleMemorySaved(msg); break;
         case 'crumb_saved': toast('生活碎屑已保存'); break;
+        case 'memory_event_received': toast(msg.event?.kind === 'crumb' ? '已收进星尘，正在整理' : '已收进记忆，正在整理'); break;
+        case 'memory_event_attention': toast('有一条记忆需要确认'); break;
         case 'memory_write_failed': toast(msg.message || '记忆保存失败，请稍后重试'); break;
         case 'memory_merge_review': toast('有一条记忆合并建议待确认'); break;
         case 'proactive_message': handleProactiveMessage(msg); break;

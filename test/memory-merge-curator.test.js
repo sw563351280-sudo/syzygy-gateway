@@ -7,7 +7,7 @@ const incoming = { content: '吵架模块最终版确定为五条原则。', tag
 const candidates = [{ id: 'old', content: '旧版吵架模块。', tags: ['吵架模块'], similarity: 0.82 }];
 
 test('only accepts an update target returned by vector retrieval', () => {
-    assert.equal(normalizeDecision({ action: 'update', target_id: 'other', content: 'x' }, incoming, candidates).action, 'review');
+    assert.equal(normalizeDecision({ action: 'same', target_id: 'other', content: 'x' }, incoming, candidates).action, 'review');
     assert.equal(normalizeDecision({ action: 'update', target_id: 'old', content: 'x' }, incoming, candidates).target_id, 'old');
 });
 
@@ -25,4 +25,10 @@ test('memory merge curator uses Flash-compatible JSON and retries without respon
     assert.ok(requests[0].response_format);
     assert.equal(requests[1].response_format, undefined);
     assert.match(requests[0].messages[0].content, /我=沈望、她=江鱼/);
+});
+
+test('legacy actions are normalized and uncertain target actions require review', () => {
+    assert.equal(normalizeDecision({ action: 'new', confidence: 1 }, incoming, candidates).action, 'create');
+    assert.equal(normalizeDecision({ action: 'skip', confidence: 1 }, incoming, candidates).action, 'review');
+    assert.equal(normalizeDecision({ action: 'supersede', target_id: null, confidence: 1 }, incoming, candidates).action, 'review');
 });
