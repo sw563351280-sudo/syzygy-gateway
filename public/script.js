@@ -947,6 +947,11 @@ function devOpenConsole(tab) {
     setTimeout(function() { switchConsoleTab(tab || 'logs'); }, 0);
 }
 
+function openCodexWorkspace() {
+    goView('dev');
+    setTimeout(devOpenCodex, 0);
+}
+
 let devCodexSocket = null;
 let devCodexTaskId = null;
 let devCodexApprovalId = null;
@@ -1379,15 +1384,22 @@ async function devSendCodexMessage(event) {
         toast('正在重新连接 Codex，请再发送一次');
         return;
     }
+    const shouldSteer = devCodexTurnActive;
     devCodexAddBubble('user', prompt);
     devCodexAssistantBubble = null;
     devCodexOptimisticMessage = prompt;
     devCodexFinishActivity('已收到补充，正在调整');
     devCodexActivityStream = null;
-    devCodexStartActivity(devCodexTurnActive ? '正在交给 Codex 补充处理' : '正在继续这段对话');
+    devCodexStartActivity(shouldSteer ? '正在交给 Codex 补充处理' : '正在继续这段对话');
     devCodexSetTurnActive(true);
     devCodexSetStatus('正在发送');
-    devCodexSocket.send(JSON.stringify({ type: devCodexTurnActive ? 'steer' : 'followup', text: prompt }));
+    devCodexSocket.send(JSON.stringify({ type: shouldSteer ? 'steer' : 'followup', text: prompt }));
+}
+
+function devCodexComposerKeydown(event) {
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    event.currentTarget?.form?.requestSubmit();
 }
 
 async function devLoadLatestCodexChat() {

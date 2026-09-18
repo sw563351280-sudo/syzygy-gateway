@@ -93,6 +93,10 @@
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h4"/><path d="M5 3v18"/></svg>
                 <span>账本</span>
             </div>
+            <div class="neu-card neu-grid-card" onclick="openCodexWorkspace()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCodexWorkspace()}" aria-label="打开 Codex 开发对话">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4,17 10,11 4,5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                <span>Codex</span>
+            </div>
         </div>
 
         <div class="neu-bottom-nav">
@@ -291,7 +295,7 @@
             <div class="dev-codex-toolbar"><label>权限<select id="devCodexMode"><option value="readOnly">只读</option><option value="workspaceWrite">可修改</option></select></label><label>思考<select id="devCodexEffort"><option value="low">低</option><option value="medium" selected>中</option><option value="high">高</option><option value="xhigh">极高</option></select></label><span id="devCodexTaskStatus">准备聊天</span></div>
             <div id="devCodexMessages" class="dev-codex-messages" role="log" aria-live="polite"><div class="dev-codex-empty">直接告诉 Codex 你想检查、修改或继续追问什么。</div></div>
             <div class="dev-codex-approval" id="devCodexApproval" hidden><strong id="devCodexApprovalTitle">Codex 请求确认</strong><p id="devCodexApprovalText"></p><div><button type="button" onclick="devApproveCodex('accept')">允许本次</button><button type="button" onclick="devApproveCodex('acceptForSession')">本次会话允许</button><button type="button" onclick="devApproveCodex('decline')">拒绝</button></div></div>
-            <form id="devCodexComposer" class="dev-codex-composer" onsubmit="devSendCodexMessage(event)"><textarea id="devCodexPrompt" rows="2" maxlength="12000" placeholder="给 Codex 发消息…" required></textarea><div><button id="devCodexInterruptButton" class="dev-secondary-action" type="button" onclick="devInterruptCodex()" hidden>中断</button><button id="devCodexSendButton" class="dev-primary-action" type="submit">发送</button></div></form>
+            <form id="devCodexComposer" class="dev-codex-composer" onsubmit="devSendCodexMessage(event)"><textarea id="devCodexPrompt" rows="2" maxlength="12000" placeholder="给 Codex 发消息…（Enter 发送，Shift+Enter 换行）" onkeydown="devCodexComposerKeydown(event)" required></textarea><div><button id="devCodexInterruptButton" class="dev-secondary-action" type="button" onclick="devInterruptCodex()" hidden>中断</button><button id="devCodexSendButton" class="dev-primary-action" type="submit">发送</button></div></form>
         </section>
 
         <div class="dev-section-heading"><span>运行监控</span><em>LIVE STATUS</em></div>
