@@ -8,6 +8,7 @@ const {
     curateRealityMemory,
     emptyRealityStore,
     normalizeDecision,
+    removeMemoryEvidence,
 } = require('../reality-events');
 
 function memory(id, content, at = '2026-09-10T10:00:00.000Z') {
@@ -98,4 +99,28 @@ test('curator retries without response_format and normalizes its decision', asyn
     assert.equal(requests.length, 2);
     assert.equal(requests[0].model, 'strong-model');
     assert.equal(result.event.kind, 'pet');
+});
+
+test('deleting a source memory removes milestones and empty reality events', () => {
+    const store = {
+        ...emptyRealityStore(),
+        events: [{
+            id: 'life1', title: '学习开车', status: 'completed', summary: '已经学会', ended_at: '2026-09-12T10:00:00Z',
+            milestones: [
+                { memory_id: 'm1', stage: 'beginning', summary: '第一次练车', occurred_at: '2026-09-10T10:00:00Z' },
+                { memory_id: 'm2', stage: 'completion', summary: '通过考试', occurred_at: '2026-09-12T10:00:00Z' },
+            ],
+        }],
+        processed: { m1: { signature: 'a' }, m2: { signature: 'b' } },
+    };
+    const first = removeMemoryEvidence(store, 'm2', new Date('2026-09-13T00:00:00Z'));
+    assert.equal(first.removed_milestones, 1);
+    assert.equal(first.store.events[0].status, 'active');
+    assert.equal(first.store.events[0].ended_at, null);
+    assert.equal(first.store.events[0].summary, '第一次练车');
+    assert.equal(first.store.processed.m2, undefined);
+
+    const second = removeMemoryEvidence(first.store, 'm1', new Date('2026-09-14T00:00:00Z'));
+    assert.equal(second.removed_events, 1);
+    assert.equal(second.store.events.length, 0);
 });

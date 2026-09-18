@@ -8,6 +8,7 @@ const {
     emptyRelationshipStore,
     looksRelationshipRelevant,
     normalizeDecision,
+    removeMemoryEvidence,
 } = require('../relationship-reflections');
 
 function memory(id, content, at = '2026-09-10T10:00:00.000Z') {
@@ -100,4 +101,30 @@ test('curator retries without response_format and keeps evidence ids constrained
     assert.equal(requests.length, 2);
     assert.equal(requests[0].model, 'strong-model');
     assert.deepEqual(result.insights[0].support_memory_ids, ['m1']);
+});
+
+test('deleting a source memory cascades through episodes and recalculates insights', () => {
+    const store = {
+        ...emptyRelationshipStore(),
+        episodes: [
+            { id: 'e1', status: 'open', summary: '旧摘要', events: [{ memory_id: 'm1', stage: 'rupture', summary: '发生僵持', occurred_at: '2026-09-10T10:00:00Z' }] },
+            { id: 'e2', status: 'resolved', summary: '修复摘要', events: [{ memory_id: 'm2', stage: 'resolution', summary: '完成修复', occurred_at: '2026-09-11T10:00:00Z' }] },
+        ],
+        insights: [{ id: 'i1', key: 'repair', support_memory_ids: ['m1', 'm2'], counter_memory_ids: ['m1'], episode_ids: ['e1', 'e2'], confidence: 'developing' }],
+        processed: { m1: { signature: 'a' }, m2: { signature: 'b' } },
+        active_state: { episode_id: 'e1' },
+    };
+    const first = removeMemoryEvidence(store, 'm1', new Date('2026-09-12T00:00:00Z'));
+    assert.equal(first.removed_events, 1);
+    assert.equal(first.removed_episodes, 1);
+    assert.equal(first.store.active_state, null);
+    assert.deepEqual(first.store.insights[0].support_memory_ids, ['m2']);
+    assert.deepEqual(first.store.insights[0].counter_memory_ids, []);
+    assert.deepEqual(first.store.insights[0].episode_ids, ['e2']);
+    assert.equal(first.store.insights[0].confidence, 'tentative');
+    assert.equal(first.store.processed.m1, undefined);
+
+    const second = removeMemoryEvidence(first.store, 'm2', new Date('2026-09-13T00:00:00Z'));
+    assert.equal(second.store.episodes.length, 0);
+    assert.equal(second.store.insights.length, 0);
 });

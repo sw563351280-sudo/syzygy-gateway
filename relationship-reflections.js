@@ -134,6 +134,52 @@ function confidenceForInsight(insight, episodes) {
     return 'tentative';
 }
 
+function removeMemoryEvidence(rawStore, memoryId, now = new Date()) {
+    const store = JSON.parse(JSON.stringify(normalizeStore(rawStore)));
+    const id = compactText(memoryId, 120);
+    if (!id) return { store, changed: false, removed_events: 0, removed_episodes: 0, removed_insights: 0 };
+    const beforeEpisodes = store.episodes.length;
+    let removedEvents = 0;
+    for (const episode of store.episodes) {
+        const before = (episode.events || []).length;
+        episode.events = (episode.events || []).filter(event => event.memory_id !== id);
+        removedEvents += before - episode.events.length;
+        if (before !== episode.events.length && episode.events.length) {
+            episode.started_at = episode.events[0].occurred_at || episode.started_at;
+            const hasClosingEvent = episode.events.some(event => CLOSING_STAGES.has(event.stage));
+            if (!hasClosingEvent) { episode.status = 'open'; episode.ended_at = null; }
+            episode.summary = episode.events.slice(-4).map(event => event.summary).filter(Boolean).join('；').slice(0, 500);
+            episode.updated_at = now.toISOString();
+        }
+    }
+    store.episodes = store.episodes.filter(episode => (episode.events || []).length > 0);
+    const episodeIds = new Set(store.episodes.map(episode => episode.id));
+    const beforeInsights = store.insights.length;
+    store.insights = store.insights.map(insight => {
+        insight.support_memory_ids = (insight.support_memory_ids || []).filter(item => item !== id);
+        insight.counter_memory_ids = (insight.counter_memory_ids || []).filter(item => item !== id);
+        const support = new Set(insight.support_memory_ids);
+        insight.episode_ids = store.episodes
+            .filter(episode => (episode.events || []).some(event => support.has(event.memory_id)))
+            .map(episode => episode.id);
+        insight.confidence = confidenceForInsight(insight, store.episodes);
+        insight.updated_at = now.toISOString();
+        return insight;
+    }).filter(insight => (insight.support_memory_ids || []).length > 0 && (insight.episode_ids || []).some(episodeId => episodeIds.has(episodeId)));
+    const hadProcessed = Object.prototype.hasOwnProperty.call(store.processed, id);
+    delete store.processed[id];
+    if (store.active_state?.episode_id && !episodeIds.has(store.active_state.episode_id)) store.active_state = null;
+    const changed = removedEvents > 0 || beforeEpisodes !== store.episodes.length || beforeInsights !== store.insights.length || hadProcessed;
+    if (changed) store.updated_at = now.toISOString();
+    return {
+        store,
+        changed,
+        removed_events: removedEvents,
+        removed_episodes: beforeEpisodes - store.episodes.length,
+        removed_insights: beforeInsights - store.insights.length,
+    };
+}
+
 function applyDecision(rawStore, memory, decision, now = new Date()) {
     const store = JSON.parse(JSON.stringify(normalizeStore(rawStore)));
     const timestamp = now.toISOString();
@@ -300,4 +346,5 @@ module.exports = {
     memorySignature,
     normalizeDecision,
     normalizeStore,
+    removeMemoryEvidence,
 };

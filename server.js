@@ -19,9 +19,9 @@ const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-
 const { decideMemoryWrite } = require('./memory-merge-curator');
 const { canonical: canonicalMemoryText, extractSaveMemoryTag: parseMemoryTag, isRecentCrumbDuplicate: sameCrumb } = require('./memory-write-utils');
 const { activeMemoryEvents, publicMemoryEvent, readMemoryEvents, receiveMemoryEvent, updateMemoryEvent } = require('./memory-events');
-const { applyDecision: applyRelationshipDecision, curateRelationshipMemory, emptyRelationshipStore, looksRelationshipRelevant, memorySignature, normalizeStore: normalizeRelationshipStore } = require('./relationship-reflections');
+const { applyDecision: applyRelationshipDecision, curateRelationshipMemory, emptyRelationshipStore, looksRelationshipRelevant, memorySignature, normalizeStore: normalizeRelationshipStore, removeMemoryEvidence: removeRelationshipMemoryEvidence } = require('./relationship-reflections');
 const { activeRelationshipContext, applyRelationshipSignal, extractRelationshipStateTags } = require('./relationship-state');
-const { applyDecision: applyRealityDecision, curateRealityMemory, emptyRealityStore, normalizeStore: normalizeRealityStore } = require('./reality-events');
+const { applyDecision: applyRealityDecision, curateRealityMemory, emptyRealityStore, normalizeStore: normalizeRealityStore, removeMemoryEvidence: removeRealityMemoryEvidence } = require('./reality-events');
 const { extractDialogueCrumbTags } = require('./dialogue-crumbs');
 const { createCrumbDigest } = require('./crumb-digest');
 const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
@@ -1138,6 +1138,15 @@ function loadRelationshipReflections() { try { return normalizeRelationshipStore
 function saveRelationshipReflections(data) { fs.writeFileSync(RELATIONSHIP_REFLECTIONS_FILE, JSON.stringify(normalizeRelationshipStore(data), null, 2), 'utf8'); }
 function loadRealityEvents() { try { return normalizeRealityStore(JSON.parse(fs.readFileSync(REALITY_EVENTS_FILE, 'utf8'))); } catch (_) { return emptyRealityStore(); } }
 function saveRealityEvents(data) { fs.writeFileSync(REALITY_EVENTS_FILE, JSON.stringify(normalizeRealityStore(data), null, 2), 'utf8'); }
+function removeMemoryFromGrowth(memoryId) {
+    const relationship = removeRelationshipMemoryEvidence(loadRelationshipReflections(), memoryId);
+    const reality = removeRealityMemoryEvidence(loadRealityEvents(), memoryId);
+    if (relationship.changed) saveRelationshipReflections(relationship.store);
+    if (reality.changed) saveRealityEvents(reality.store);
+    if (relationship.changed) wsBroadcast({ type: 'relationship_reflection_updated', memory_id: memoryId, deleted: true });
+    if (reality.changed) wsBroadcast({ type: 'reality_event_updated', memory_id: memoryId, deleted: true });
+    return { relationship, reality };
+}
 function buildRealityEventContext(query) {
     const text = String(query || '').trim();
     if (!text) return '';
@@ -8373,7 +8382,14 @@ app.delete('/api/long-term-memories/:id', (req, res) => {
         if (rpFiltered.length !== rpMemories.length) { saveRoleplayMemories(rpFiltered); ok = true; }
     }
     if (!ok) return res.status(404).json({ error: "未找到该记忆" });
-    res.json({ success: true });
+    const growth = removeMemoryFromGrowth(req.params.id);
+    res.json({ success: true, growth_cleanup: {
+        relationship_events: growth.relationship.removed_events,
+        relationship_episodes: growth.relationship.removed_episodes,
+        relationship_insights: growth.relationship.removed_insights,
+        reality_milestones: growth.reality.removed_milestones,
+        reality_events: growth.reality.removed_events,
+    } });
 });
 
 app.post('/api/archive-memories/:id/restore', (req, res) => {
@@ -8392,8 +8408,16 @@ app.post('/api/archive-memories/:id/restore', (req, res) => {
 app.delete('/api/archive-memories/:id', (req, res) => {
     const archived = loadArchivedMemories();
     const filtered = archived.filter(m => m.id !== req.params.id);
+    if (filtered.length === archived.length) return res.status(404).json({ error: "未找到该冰封记忆" });
     saveArchivedMemories(filtered);
-    res.json({ success: true });
+    const growth = removeMemoryFromGrowth(req.params.id);
+    res.json({ success: true, growth_cleanup: {
+        relationship_events: growth.relationship.removed_events,
+        relationship_episodes: growth.relationship.removed_episodes,
+        relationship_insights: growth.relationship.removed_insights,
+        reality_milestones: growth.reality.removed_milestones,
+        reality_events: growth.reality.removed_events,
+    } });
 });
 
 // ==========================================

@@ -145,6 +145,33 @@ function applyDecision(rawStore, memory, decision, now = new Date()) {
     return { store, changed: true, event };
 }
 
+function removeMemoryEvidence(rawStore, memoryId, now = new Date()) {
+    const store = JSON.parse(JSON.stringify(normalizeStore(rawStore)));
+    const id = compact(memoryId, 120);
+    if (!id) return { store, changed: false, removed_milestones: 0, removed_events: 0 };
+    const beforeEvents = store.events.length;
+    let removedMilestones = 0;
+    for (const event of store.events) {
+        const before = (event.milestones || []).length;
+        event.milestones = (event.milestones || []).filter(milestone => milestone.memory_id !== id);
+        removedMilestones += before - event.milestones.length;
+        if (before !== event.milestones.length && event.milestones.length) {
+            event.started_at = event.milestones[0].occurred_at || event.started_at;
+            const completion = [...event.milestones].reverse().find(milestone => milestone.stage === 'completion');
+            if (event.status === 'completed' && !completion) event.status = 'active';
+            event.ended_at = event.status === 'completed' ? completion?.occurred_at || null : null;
+            event.summary = event.milestones.slice(-4).map(milestone => milestone.summary).filter(Boolean).join('；').slice(0, 600);
+            event.updated_at = now.toISOString();
+        }
+    }
+    store.events = store.events.filter(event => (event.milestones || []).length > 0);
+    const hadProcessed = Object.prototype.hasOwnProperty.call(store.processed, id);
+    delete store.processed[id];
+    const changed = removedMilestones > 0 || beforeEvents !== store.events.length || hadProcessed;
+    if (changed) store.updated_at = now.toISOString();
+    return { store, changed, removed_milestones: removedMilestones, removed_events: beforeEvents - store.events.length };
+}
+
 function buildMessages(memory, store) {
     const candidates = eventCandidates(store, memory);
     const compactCandidates = candidates.map(event => ({
@@ -199,4 +226,4 @@ async function curateRealityMemory(options) {
     }
 }
 
-module.exports = { applyDecision, buildMessages, curateRealityMemory, emptyRealityStore, eventCandidates, findJson, normalizeDecision, normalizeStore };
+module.exports = { applyDecision, buildMessages, curateRealityMemory, emptyRealityStore, eventCandidates, findJson, normalizeDecision, normalizeStore, removeMemoryEvidence };
