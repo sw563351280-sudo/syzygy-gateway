@@ -425,6 +425,76 @@ function createCodexBridge(options = {}) {
     }
 
     let usagePromise = null;
+    let accountStatusPromise = null;
+
+    function readAccountStatus() {
+        if (!config.enabled) return Promise.resolve({ ok: false, error: 'Codex Bridge 已禁用' });
+        if (accountStatusPromise) return accountStatusPromise;
+        accountStatusPromise = new Promise((resolve, reject) => {
+            let child;
+            let settled = false;
+            const timer = setTimeout(() => finishError('读取 Codex 账号状态超时'), 8_000);
+            const finish = (value) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                try { child?.kill(); } catch (_) {}
+                resolve(value);
+            };
+            const finishError = (message) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                try { child?.kill(); } catch (_) {}
+                reject(new Error(shortText(message, 800)));
+            };
+            try {
+                child = spawnProcess(config.bin, ['app-server', '--listen', 'stdio://'], {
+                    cwd: config.cwd,
+                    env: buildCodexEnv(),
+                    stdio: ['pipe', 'pipe', 'pipe']
+                });
+                const stdout = readline.createInterface({ input: child.stdout });
+                stdout.on('line', (line) => {
+                    if (!line.trim()) return;
+                    let message;
+                    try { message = JSON.parse(line); } catch (_) { return; }
+                    if (message.id === 1) {
+                        if (message.error) return finishError(message.error.message || 'Codex 初始化失败');
+                        try {
+                            child.stdin.write(JSON.stringify({ method: 'initialized', params: {} }) + '\n');
+                            child.stdin.write(JSON.stringify({ method: 'account/read', id: 2, params: { refreshToken: false } }) + '\n');
+                        } catch (error) { finishError(error.message); }
+                        return;
+                    }
+                    if (message.id !== 2) return;
+                    if (message.error) return finishError(message.error.message || '无法读取 Codex 账号状态');
+                    const result = message.result || {};
+                    if (typeof result.requiresOpenaiAuth !== 'boolean') return finishError('Codex 返回了无法识别的账号状态');
+                    finish({
+                        ok: true,
+                        authenticated: !result.requiresOpenaiAuth,
+                        requiresOpenaiAuth: result.requiresOpenaiAuth,
+                        account: result.account || null,
+                        fetchedAt: new Date().toISOString()
+                    });
+                });
+                child.stderr.on('data', () => {});
+                child.once('error', (error) => finishError(`无法启动 Codex：${error.message}`));
+                child.once('close', () => { if (!settled) finishError('Codex 账号连接已关闭'); });
+                child.stdin.write(JSON.stringify({
+                    method: 'initialize',
+                    id: 1,
+                    params: { clientInfo: { name: 'syzygy-account-check', title: 'Syzygy Account Check', version: '1.0.0' } }
+                }) + '\n');
+            } catch (error) {
+                finishError(error.message);
+            }
+        });
+        accountStatusPromise.then(() => { accountStatusPromise = null; }, () => { accountStatusPromise = null; });
+        return accountStatusPromise;
+    }
+
     function readAccountUsage() {
         if (!config.enabled) return Promise.resolve({ ok: false, error: 'Codex Bridge 已禁用' });
         if (usagePromise) return usagePromise;
@@ -653,6 +723,7 @@ function createCodexBridge(options = {}) {
         listTasks() { return order.slice().reverse().map(id => publicTask(tasks.get(id))).filter(Boolean); },
         startTask,
         readAccountUsage,
+        readAccountStatus,
         loginStatus,
         startDeviceLogin,
         cancelDeviceLogin,

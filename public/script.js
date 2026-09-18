@@ -1514,16 +1514,16 @@ async function devRefreshOverview() {
     devRefreshCodexLogin(true);
     refreshDevicePanel();
     try {
-        const [r, codexResponse, usageResponse, xhsResponse, tasksResponse] = await Promise.all([
+        const [r, codexResponse, accountResponse, xhsResponse, tasksResponse] = await Promise.all([
             fetch('/api/console/status', { cache: 'no-store' }),
             fetch('/api/codex/status', { cache: 'no-store' }),
-            fetch('/api/codex/usage', { cache: 'no-store' }),
+            fetch('/api/codex/account', { cache: 'no-store' }),
             fetch('/api/xhs-walk/status', { cache: 'no-store' }),
             fetch('/api/codex/tasks', { cache: 'no-store' })
         ]);
         const info = await r.json();
         const codex = await codexResponse.json().catch(() => ({}));
-        const usageData = await usageResponse.json().catch(() => ({}));
+        const accountData = await accountResponse.json().catch(() => ({}));
         const xhs = await xhsResponse.json().catch(() => ({}));
         const tasksData = await tasksResponse.json().catch(() => ({}));
         const ready = r.ok && info && info.ok !== false && info.configured !== false;
@@ -1533,10 +1533,11 @@ async function devRefreshOverview() {
         if (serverDot) serverDot.dataset.state = ready ? 'ready' : 'error';
         if (status) { status.dataset.state = ready ? 'ready' : 'error'; status.innerHTML = '<i></i>' + (ready ? '系统在线' : '需要检查'); }
         const loginAction = document.getElementById('devCodexLoginAction');
-        const primary = usageData?.rateLimits?.rateLimits?.primary || usageData?.rateLimits?.rateLimitsByLimitId?.codex?.primary;
-        const codexAuthenticated = Boolean(primary) || (usageResponse.ok && usageData?.ok !== false && !usageData?.error);
-        devCodexAuthRequired = !codexAuthenticated;
-        if (loginAction) loginAction.hidden = codexAuthenticated;
+        const accountResolved = accountResponse.ok && accountData?.ok !== false && typeof accountData?.requiresOpenaiAuth === 'boolean';
+        if (accountResolved) {
+            devCodexAuthRequired = accountData.requiresOpenaiAuth;
+            if (loginAction) loginAction.hidden = !devCodexAuthRequired;
+        }
         devRenderXhsMonitor(xhsResponse.ok ? xhs : null);
         devRenderRecentTask(tasksResponse.ok ? tasksData.tasks : []);
     } catch (e) {

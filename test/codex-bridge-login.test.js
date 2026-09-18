@@ -50,6 +50,31 @@ function createFakeCodexProcess() {
     return child;
 }
 
+function createFakeAccountProcess(result) {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.killed = false;
+    child.stdin = new Writable({
+        write(chunk, _encoding, callback) {
+            const message = JSON.parse(chunk.toString().trim());
+            if (message.method === 'initialize') {
+                setImmediate(() => child.stdout.write(JSON.stringify({ id: 1, result: {} }) + '\n'));
+            }
+            if (message.method === 'account/read') {
+                setImmediate(() => child.stdout.write(JSON.stringify({ id: 2, result }) + '\n'));
+            }
+            callback();
+        }
+    });
+    child.kill = () => {
+        if (child.killed) return;
+        child.killed = true;
+        setImmediate(() => child.emit('close', 0, null));
+    };
+    return child;
+}
+
 test('device login survives without a browser socket and completes from app-server notification', async () => {
     const child = createFakeCodexProcess();
     const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
@@ -76,4 +101,27 @@ test('device login can be cancelled and the background process is stopped', asyn
     assert.equal(bridge.cancelDeviceLogin().status, 'cancelled');
     await waitFor(() => child.killed);
     assert.equal(child.killed, true);
+});
+
+test('account status uses the explicit app-server auth signal', async () => {
+    const child = createFakeAccountProcess({
+        account: { type: 'chatgpt', email: 'test@example.com', planType: 'pro' },
+        requiresOpenaiAuth: false
+    });
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
+
+    const status = await bridge.readAccountStatus();
+    assert.equal(status.ok, true);
+    assert.equal(status.authenticated, true);
+    assert.equal(status.requiresOpenaiAuth, false);
+    assert.equal(status.account.planType, 'pro');
+});
+
+test('account status only requests login when app-server says auth is required', async () => {
+    const child = createFakeAccountProcess({ account: null, requiresOpenaiAuth: true });
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
+
+    const status = await bridge.readAccountStatus();
+    assert.equal(status.authenticated, false);
+    assert.equal(status.requiresOpenaiAuth, true);
 });

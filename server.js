@@ -10948,6 +10948,15 @@ app.get('/api/codex/status', (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(codexBridge.status());
 });
+app.get('/api/codex/account', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const account = await codexBridge.readAccountStatus();
+        res.status(account.ok ? 200 : 503).json(account);
+    } catch (error) {
+        res.status(503).json({ ok: false, error: String(error.message || '无法读取 Codex 账号状态') });
+    }
+});
 app.get('/api/codex/usage', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
