@@ -920,6 +920,7 @@ function toast(msg){
 }
 
 function goView(viewId) {
+    if (viewId !== 'dev' && document.body.classList.contains('codex-chat-mode')) devSetCodexImmersive(false);
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
     const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', dev:'sec-dev', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state', ledger:'sec-ledger' };
     const target = document.getElementById(map[viewId]);
@@ -1095,6 +1096,7 @@ function devOpenCodex() {
     const panel = document.getElementById('devCodexPanel');
     if (!panel) return;
     panel.hidden = false;
+    devSetCodexImmersive(true);
     document.getElementById('devCodexPrompt')?.focus();
     if (devCodexTaskId) devConnectCodex(devCodexTaskId);
     else devLoadLatestCodexChat();
@@ -1117,6 +1119,27 @@ function devResumeRecentTask() {
 function devCloseCodex() {
     const panel = document.getElementById('devCodexPanel');
     if (panel) panel.hidden = true;
+    devSetCodexImmersive(false);
+}
+
+function devSetCodexImmersive(active) {
+    const section = document.getElementById('sec-dev');
+    const title = document.getElementById('devViewTitle');
+    const actions = document.getElementById('devCodexTopActions');
+    section?.classList.toggle('codex-chat-open', Boolean(active));
+    document.body.classList.toggle('codex-chat-mode', Boolean(active));
+    if (title) title.textContent = active ? 'Codex · 小屋' : '开发中枢';
+    if (actions) actions.hidden = !active;
+}
+
+function devExitCodex() {
+    devCloseCodex();
+    goView('home');
+}
+
+function devOpenDashboard() {
+    devCloseCodex();
+    goView('dev');
 }
 
 function devCodexSetStatus(text) {
@@ -1142,7 +1165,15 @@ function devCodexAddBubble(role, text = '') {
     list.querySelector('.dev-codex-empty')?.remove();
     const bubble = document.createElement('div');
     bubble.className = 'dev-codex-bubble ' + (role === 'user' ? 'is-user' : role === 'activity' ? 'is-activity' : 'is-assistant');
-    bubble.textContent = String(text || '');
+    if (role === 'assistant') {
+        const content = document.createElement('div');
+        content.className = 'md-content';
+        bubble._codexText = String(text || '');
+        content.innerHTML = renderMarkdown(bubble._codexText);
+        bubble.appendChild(content);
+    } else {
+        bubble.textContent = String(text || '');
+    }
     list.appendChild(bubble);
     list.scrollTop = list.scrollHeight;
     return bubble;
@@ -1152,7 +1183,10 @@ function devCodexAppendAssistant(text) {
     if (!text) return;
     devCodexCollapseActivity('已开始回复');
     if (!devCodexAssistantBubble || !devCodexAssistantBubble.isConnected) devCodexAssistantBubble = devCodexAddBubble('assistant');
-    devCodexAssistantBubble.textContent += String(text);
+    devCodexAssistantBubble._codexText = (devCodexAssistantBubble._codexText || '') + String(text);
+    const content = devCodexAssistantBubble.querySelector('.md-content');
+    if (content) content.innerHTML = renderMarkdown(devCodexAssistantBubble._codexText);
+    devCodexAssistantBubble.classList.add('is-streaming');
     const list = devCodexMessages();
     if (list) list.scrollTop = list.scrollHeight;
 }
@@ -1276,6 +1310,7 @@ function devCodexRenderEvent(event) {
         return;
     }
     if (method === 'turn/completed') {
+        devCodexAssistantBubble?.classList.remove('is-streaming');
         devCodexSetTurnActive(false);
         devCodexSetStatus(params.turn?.status === 'failed' ? '回复失败' : '可以继续追问');
         devCodexFinishActivity(params.turn?.status === 'failed' ? '本轮执行失败' : '本轮已完成');
