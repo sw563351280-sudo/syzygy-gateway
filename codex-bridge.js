@@ -293,6 +293,10 @@ function createCodexBridge(options = {}) {
         return mode === 'workspaceWrite' ? 'workspace-write' : 'read-only';
     }
 
+    function approvalPolicy(mode) {
+        return mode === 'workspaceWrite' ? 'on-request' : 'never';
+    }
+
     function handleResponse(task, message) {
         if (message.error) {
             failTask(task, message.error.message || 'Codex RPC 请求失败');
@@ -306,7 +310,7 @@ function createCodexBridge(options = {}) {
                 params: {
                     model: task.model,
                     cwd: task.cwd,
-                    approvalPolicy: task.mode === 'workspaceWrite' ? 'onRequest' : 'never',
+                    approvalPolicy: approvalPolicy(task.mode),
                     // thread/start uses the SandboxMode wire enum, whose values are kebab-case.
                     // turn/start below uses the structured SandboxPolicy enum and remains camelCase.
                     sandbox: threadSandboxMode(task.mode),
@@ -327,7 +331,7 @@ function createCodexBridge(options = {}) {
                     cwd: task.cwd,
                     model: task.model,
                     effort: task.effort,
-                    approvalPolicy: task.mode === 'workspaceWrite' ? 'onRequest' : 'never',
+                    approvalPolicy: approvalPolicy(task.mode),
                     sandboxPolicy: task.mode === 'workspaceWrite'
                         ? { type: 'workspaceWrite', writableRoots: [task.cwd], networkAccess: config.networkAccess }
                         : { type: 'readOnly', access: { type: 'fullAccess' } },
@@ -587,7 +591,7 @@ function createCodexBridge(options = {}) {
                     cwd: task.cwd,
                     model: task.model,
                     effort: task.effort,
-                    approvalPolicy: task.mode === 'workspaceWrite' ? 'onRequest' : 'never',
+                    approvalPolicy: approvalPolicy(task.mode),
                     sandboxPolicy: task.mode === 'workspaceWrite'
                         ? { type: 'workspaceWrite', writableRoots: [task.cwd], networkAccess: config.networkAccess }
                         : { type: 'readOnly', access: { type: 'fullAccess' } },

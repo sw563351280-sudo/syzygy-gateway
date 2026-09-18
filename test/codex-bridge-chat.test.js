@@ -90,7 +90,8 @@ test('workspace-write mode uses the correct thread wire enum and structured turn
     const threadStart = child.writes.find(message => message.method === 'thread/start');
     const firstTurn = child.writes.find(message => message.method === 'turn/start' && message.id === 3);
     assert.equal(threadStart.params.sandbox, 'workspace-write');
-    assert.equal(threadStart.params.approvalPolicy, 'onRequest');
+    assert.equal(threadStart.params.approvalPolicy, 'on-request');
+    assert.equal(firstTurn.params.approvalPolicy, 'on-request');
     assert.equal(firstTurn.params.sandboxPolicy.type, 'workspaceWrite');
     assert.deepEqual(firstTurn.params.sandboxPolicy.writableRoots, [process.cwd()]);
 
