@@ -2165,6 +2165,8 @@ body.neu-mode #sec-console { background:#101827; }
 .dev-codex-bubble.is-user { align-self:flex-end; border-bottom-right-radius:5px; background:#d7eeee; color:#285b59; }
 .dev-codex-bubble.is-assistant { align-self:flex-start; border-bottom-left-radius:5px; background:rgba(255,255,255,.88); box-shadow:0 5px 14px rgba(76,104,128,.08); }
 .dev-codex-bubble.is-assistant .md-content { min-width:0; }
+.dev-codex-bubble-images { display:grid; grid-template-columns:repeat(2,minmax(0,180px)); gap:7px; margin-top:8px; }
+.dev-codex-bubble-images img { display:block; width:100%; max-height:220px; border-radius:10px; object-fit:cover; }
 .dev-codex-bubble.is-streaming::after { display:inline-block; width:5px; height:14px; margin-left:4px; border-radius:2px; background:#6f8fa8; vertical-align:-2px; content:''; animation:dev-codex-cursor .9s steps(2,end) infinite; }
 .dev-codex-bubble.is-activity { align-self:center; max-width:94%; padding:5px 9px; background:transparent; color:#8290a2; font-size:10px; text-align:center; }
 .dev-codex-activity-stream { align-self:flex-start; width:min(94%,420px); border:1px solid rgba(79,101,122,.12); border-radius:12px; background:rgba(255,255,255,.52); color:#75869a; font-size:10px; overflow:hidden; }
@@ -2180,9 +2182,17 @@ body.neu-mode #sec-console { background:#101827; }
 @keyframes dev-codex-pulse { 50% { opacity:.35; transform:scale(.72); } }
 @keyframes dev-codex-cursor { 50% { opacity:.15; } }
 .dev-codex-composer { display:flex; align-items:flex-end; gap:9px; margin-top:10px; }
+.dev-codex-attach { flex:0 0 46px; width:46px; height:46px; display:grid; place-items:center; border:1px solid rgba(79,101,122,.16); border-radius:13px; background:rgba(255,255,255,.72); color:#607184; cursor:pointer; }
+.dev-codex-attach svg { width:21px; height:21px; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
 .dev-codex-composer textarea { flex:1; min-height:46px; max-height:140px; box-sizing:border-box; resize:vertical; border:1px solid rgba(79,101,122,.16); border-radius:13px; padding:11px 12px; background:rgba(255,255,255,.82); color:#26364b; font:12px/1.5 inherit; outline:none; }
 .dev-codex-composer textarea:focus { border-color:rgba(39,128,123,.45); box-shadow:0 0 0 3px rgba(99,214,197,.1); }
 .dev-codex-composer > div { display:flex; gap:6px; }
+.dev-codex-image-preview { display:flex; align-items:center; gap:7px; margin-top:8px; padding:7px 9px; overflow-x:auto; border:1px solid rgba(79,101,122,.1); border-radius:12px; background:rgba(255,255,255,.42); }
+.dev-codex-image-preview[hidden] { display:none; }
+.dev-codex-image-preview > span { flex:0 0 auto; color:#718096; font-size:10px; }
+.dev-codex-image-preview-item { position:relative; flex:0 0 54px; width:54px; height:54px; }
+.dev-codex-image-preview-item img { display:block; width:100%; height:100%; border-radius:9px; object-fit:cover; }
+.dev-codex-image-preview-item button { position:absolute; top:-5px; right:-5px; width:19px; height:19px; display:grid; place-items:center; padding:0; border:1px solid rgba(255,255,255,.72); border-radius:50%; background:#74879a; color:#fff; font:14px/1 sans-serif; cursor:pointer; }
 .dev-codex-approval { margin-top:10px; padding:11px; border:1px solid rgba(212,160,74,.35); border-radius:12px; background:rgba(212,160,74,.08); color:#51452a; }
 .dev-codex-approval[hidden] { display:none; }
 .dev-codex-approval strong { font-size:12px; }
@@ -3652,6 +3662,22 @@ body.neu-mode #sec-dev.codex-chat-open #devCodexPanel {
   align-items: stretch;
   margin: 0;
   gap: 10px;
+}
+#sec-dev.codex-chat-open .dev-codex-composer.is-dragging { border-radius:17px; box-shadow:0 0 0 3px rgba(90,143,202,.18); }
+#sec-dev.codex-chat-open .dev-codex-attach {
+  flex-basis: 48px;
+  width: 48px;
+  height: 48px;
+  border-color: rgba(255,255,255,.58);
+  border-radius: 15px;
+  background: rgba(237,244,251,.66);
+  box-shadow: 4px 4px 10px rgba(135,151,172,.17), -3px -3px 8px rgba(255,255,255,.55);
+  color: #66809b;
+}
+#sec-dev.codex-chat-open .dev-codex-image-preview {
+  margin: 0 0 8px;
+  border-color: rgba(255,255,255,.48);
+  background: rgba(237,244,251,.45);
 }
 #sec-dev.codex-chat-open .dev-codex-composer textarea {
   min-height: 48px;

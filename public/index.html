@@ -11,7 +11,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=81">
+    <link rel="stylesheet" href="style.css?v=82">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body class="neu-mode">
@@ -301,7 +301,8 @@
             <div class="dev-codex-bottom-bar">
                 <div class="dev-codex-approval" id="devCodexApproval" hidden><strong id="devCodexApprovalTitle">Codex 请求确认</strong><p id="devCodexApprovalText"></p><div><button type="button" onclick="devApproveCodex('accept')">允许本次</button><button type="button" onclick="devApproveCodex('acceptForSession')">本次会话允许</button><button type="button" onclick="devApproveCodex('decline')">拒绝</button></div></div>
                 <div class="dev-codex-toolbar"><label>权限<select id="devCodexMode"><option value="readOnly">只读</option><option value="workspaceWrite">可修改</option></select></label><label>思考<select id="devCodexEffort"><option value="low">低</option><option value="medium" selected>中</option><option value="high">高</option><option value="xhigh">极高</option></select></label><span id="devCodexTaskStatus">准备聊天</span></div>
-                <form id="devCodexComposer" class="dev-codex-composer" onsubmit="devSendCodexMessage(event)"><textarea id="devCodexPrompt" rows="1" maxlength="12000" placeholder="给 Codex 发消息…" onkeydown="devCodexComposerKeydown(event)" required></textarea><div><button id="devCodexInterruptButton" class="dev-secondary-action" type="button" onclick="devInterruptCodex()" hidden>中断</button><button id="devCodexSendButton" class="dev-primary-action" type="submit">发送 <span aria-hidden="true">✦</span></button></div></form>
+                <div id="devCodexImagePreview" class="dev-codex-image-preview" hidden aria-live="polite"></div>
+                <form id="devCodexComposer" class="dev-codex-composer" onsubmit="devSendCodexMessage(event)"><button class="dev-codex-attach" type="button" onclick="devChooseCodexImages()" title="添加图片" aria-label="添加图片"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 4 4 2-2 5 5"/></svg></button><input id="devCodexImageInput" type="file" accept="image/*" multiple hidden><textarea id="devCodexPrompt" rows="1" maxlength="12000" placeholder="给 Codex 发消息…" aria-description="可选择图片或直接粘贴剪贴板中的截图" onkeydown="devCodexComposerKeydown(event)"></textarea><div><button id="devCodexInterruptButton" class="dev-secondary-action" type="button" onclick="devInterruptCodex()" hidden>中断</button><button id="devCodexSendButton" class="dev-primary-action" type="submit">发送 <span aria-hidden="true">✦</span></button></div></form>
             </div>
         </section>
 
@@ -581,7 +582,7 @@
 
 <script src="clipboard-images.js?v=1"></script>
 <script src="thinking-parser.js?v=1"></script>
-<script src="script.js?v=68"></script>
+<script src="script.js?v=69"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>
         <div id="menuModel" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🤖 模型: -</div>

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { PassThrough, Writable } = require('node:stream');
 const { createCodexBridge } = require('../codex-bridge');
+const TEST_IMAGE = 'data:image/png;base64,AAAA';
 
 function waitFor(check, timeoutMs = 1000) {
     const startedAt = Date.now();
@@ -64,12 +65,13 @@ test('completed Codex task stays alive and starts a follow-up turn on the same t
     await waitFor(() => task.status === 'completed');
     assert.equal(child.killed, false);
 
-    bridge.sendClientCommand(task, { type: 'followup', text: '继续解释一下' });
+    bridge.sendClientCommand(task, { type: 'followup', text: '继续解释一下', images: [TEST_IMAGE] });
     await waitFor(() => task.status === 'running' && task.turnId === 'turn-2');
 
     const followup = child.writes.find(message => String(message.id || '').startsWith('followup-'));
     assert.equal(followup.params.threadId, 'thread-chat');
     assert.equal(followup.params.input[0].text, '继续解释一下');
+    assert.deepEqual(followup.params.input[1], { type: 'image', url: TEST_IMAGE, detail: 'auto' });
     assert.ok(task.events.some(event => event.method === 'codex/user-message' && event.params.text === '继续解释一下'));
 
     bridge.sendClientCommand(task, { type: 'steer', text: '再补充一个边界情况' });
@@ -83,7 +85,7 @@ test('completed Codex task stays alive and starts a follow-up turn on the same t
 test('workspace-write mode uses the correct thread wire enum and structured turn policy', async () => {
     const child = createFakeChatProcess();
     const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
-    const started = bridge.startTask({ prompt: '修复这个问题', mode: 'workspaceWrite', effort: 'high' });
+    const started = bridge.startTask({ prompt: '修复这个问题', images: [TEST_IMAGE], mode: 'workspaceWrite', effort: 'high' });
     const task = bridge.taskById(started.id);
 
     await waitFor(() => task.status === 'running' && task.turnId === 'turn-1');
@@ -94,6 +96,19 @@ test('workspace-write mode uses the correct thread wire enum and structured turn
     assert.equal(firstTurn.params.approvalPolicy, 'on-request');
     assert.equal(firstTurn.params.sandboxPolicy.type, 'workspaceWrite');
     assert.deepEqual(firstTurn.params.sandboxPolicy.writableRoots, [process.cwd()]);
+    assert.deepEqual(firstTurn.params.input[1], { type: 'image', url: TEST_IMAGE, detail: 'auto' });
 
     child.kill();
+});
+
+test('Codex image input only accepts bounded image data URLs', () => {
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: createFakeChatProcess });
+    assert.throws(
+        () => bridge.startTask({ prompt: '看看这个', images: ['https://example.com/private.png'] }),
+        /图片格式无效/
+    );
+    assert.throws(
+        () => bridge.startTask({ prompt: '', images: [] }),
+        /输入问题或添加图片/
+    );
 });

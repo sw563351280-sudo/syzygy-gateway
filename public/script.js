@@ -955,6 +955,9 @@ let devCodexTurnActive = false;
 let devCodexAssistantBubble = null;
 let devCodexActivityStream = null;
 let devCodexOptimisticMessage = null;
+let devCodexImages = [];
+let devCodexInitialImages = [];
+let devCodexImagesBusy = false;
 let devCodexAuthRequired = false;
 let devCodexLoginTimer = null;
 let devCodexLoginSnapshot = { status: 'idle' };
@@ -1151,6 +1154,66 @@ function devCodexMessages() {
     return document.getElementById('devCodexMessages');
 }
 
+function devChooseCodexImages() {
+    document.getElementById('devCodexImageInput')?.click();
+}
+
+function devRenderCodexImagePreview() {
+    const wrap = document.getElementById('devCodexImagePreview');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    wrap.hidden = devCodexImages.length === 0;
+    if (devCodexImages.length === 0) return;
+    const label = document.createElement('span');
+    label.textContent = `已附加 ${devCodexImages.length} 张`;
+    wrap.appendChild(label);
+    for (let index = 0; index < devCodexImages.length; index += 1) {
+        const item = document.createElement('div');
+        item.className = 'dev-codex-image-preview-item';
+        const image = document.createElement('img');
+        image.src = devCodexImages[index];
+        image.alt = `待发送图片 ${index + 1}`;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.setAttribute('aria-label', `移除图片 ${index + 1}`);
+        remove.textContent = '×';
+        remove.onclick = () => {
+            devCodexImages.splice(index, 1);
+            devRenderCodexImagePreview();
+        };
+        item.append(image, remove);
+        wrap.appendChild(item);
+    }
+}
+
+function devClearCodexImages() {
+    devCodexImages = [];
+    devRenderCodexImagePreview();
+    const input = document.getElementById('devCodexImageInput');
+    if (input) input.value = '';
+}
+
+async function devAddCodexImages(fileList, source = 'picker') {
+    if (devCodexImagesBusy) return toast('图片还在处理中');
+    const files = Array.from(fileList || []).filter(file => file && String(file.type || '').toLowerCase().startsWith('image/'));
+    if (!files.length) return;
+    if (devCodexImages.length + files.length > 4) return toast('Codex 一次最多发送 4 张图片');
+    devCodexImagesBusy = true;
+    const send = document.getElementById('devCodexSendButton');
+    if (send) send.disabled = true;
+    try {
+        const images = await Promise.all(files.map(file => compressImageFile(file, { maxDim: 1600, targetBytes: 700 * 1024 })));
+        devCodexImages.push(...images);
+        devRenderCodexImagePreview();
+        toast(source === 'paste' ? `已粘贴 ${images.length} 张截图` : `已添加 ${images.length} 张图片`);
+    } catch (error) {
+        toast(error.message || '图片处理失败');
+    } finally {
+        devCodexImagesBusy = false;
+        if (send) send.disabled = false;
+    }
+}
+
 function devCodexClearMessages() {
     const list = devCodexMessages();
     if (list) list.innerHTML = '<div class="dev-codex-empty">直接告诉 Codex 你想检查、修改或继续追问什么。</div>';
@@ -1159,7 +1222,7 @@ function devCodexClearMessages() {
     devCodexOptimisticMessage = null;
 }
 
-function devCodexAddBubble(role, text = '') {
+function devCodexAddBubble(role, text = '', images = []) {
     const list = devCodexMessages();
     if (!list) return null;
     list.querySelector('.dev-codex-empty')?.remove();
@@ -1171,6 +1234,23 @@ function devCodexAddBubble(role, text = '') {
         bubble._codexText = String(text || '');
         content.innerHTML = renderMarkdown(bubble._codexText);
         bubble.appendChild(content);
+    } else if (role === 'user') {
+        if (text) {
+            const copy = document.createElement('div');
+            copy.textContent = String(text);
+            bubble.appendChild(copy);
+        }
+        if (images.length) {
+            const grid = document.createElement('div');
+            grid.className = 'dev-codex-bubble-images';
+            for (const source of images) {
+                const image = document.createElement('img');
+                image.src = source;
+                image.alt = '发送给 Codex 的图片';
+                grid.appendChild(image);
+            }
+            bubble.appendChild(grid);
+        }
     } else {
         bubble.textContent = String(text || '');
     }
@@ -1346,7 +1426,8 @@ function devCodexHandleMessage(message) {
     if (message.type === 'codex_snapshot') {
         devCodexTaskId = message.task?.id || devCodexTaskId;
         devCodexClearMessages();
-        if (message.task?.prompt) devCodexAddBubble('user', message.task.prompt);
+        if (message.task?.prompt) devCodexAddBubble('user', message.task.prompt, devCodexInitialImages);
+        devCodexInitialImages = [];
         devCodexSetStatus(message.task?.status || '运行中');
         (message.events || []).forEach(devCodexRenderEvent);
         devCodexSetTurnActive(message.task?.status === 'running' || message.task?.status === 'starting');
@@ -1375,11 +1456,13 @@ function devConnectCodex(taskId) {
     devCodexSocket.onclose = () => { if (devCodexTaskId === taskId && devCodexTurnActive) devCodexSetStatus('连接已关闭'); };
 }
 
-async function devCreateCodexTask(prompt) {
-    if (!prompt) return;
+async function devCreateCodexTask(prompt, images = []) {
+    if (!prompt && images.length === 0) return;
+    const displayPrompt = prompt || `（发送了 ${images.length} 张图片）`;
     devCodexClearMessages();
-    devCodexAddBubble('user', prompt);
-    devCodexOptimisticMessage = prompt;
+    devCodexInitialImages = images.slice();
+    devCodexAddBubble('user', displayPrompt, images);
+    devCodexOptimisticMessage = displayPrompt;
     devCodexStartActivity('正在创建 Codex 任务');
     devCodexSetStatus('正在启动');
     devCodexSetTurnActive(true);
@@ -1387,11 +1470,12 @@ async function devCreateCodexTask(prompt) {
         const response = await fetch('/api/codex/tasks', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt, mode: document.getElementById('devCodexMode')?.value, effort: document.getElementById('devCodexEffort')?.value })
+            body: JSON.stringify({ prompt, images, mode: document.getElementById('devCodexMode')?.value, effort: document.getElementById('devCodexEffort')?.value })
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.task) throw new Error(data.error || '无法创建 Codex 任务');
         devCodexTaskId = data.task.id;
+        devClearCodexImages();
         devConnectCodex(devCodexTaskId);
         devRefreshOverview();
     } catch (error) {
@@ -1405,9 +1489,10 @@ async function devSendCodexMessage(event) {
     event?.preventDefault();
     const input = document.getElementById('devCodexPrompt');
     const prompt = input?.value?.trim();
-    if (!prompt) return;
+    const images = devCodexImages.slice();
+    if (!prompt && images.length === 0) return;
     if (input) input.value = '';
-    if (!devCodexTaskId) return devCreateCodexTask(prompt);
+    if (!devCodexTaskId) return devCreateCodexTask(prompt, images);
     if (!devCodexSocket || devCodexSocket.readyState !== WebSocket.OPEN) {
         if (input) input.value = prompt;
         devConnectCodex(devCodexTaskId);
@@ -1415,15 +1500,17 @@ async function devSendCodexMessage(event) {
         return;
     }
     const shouldSteer = devCodexTurnActive;
-    devCodexAddBubble('user', prompt);
+    const displayPrompt = prompt || `（发送了 ${images.length} 张图片）`;
+    devCodexAddBubble('user', displayPrompt, images);
     devCodexAssistantBubble = null;
-    devCodexOptimisticMessage = prompt;
+    devCodexOptimisticMessage = displayPrompt;
     devCodexFinishActivity('已收到补充，正在调整');
     devCodexActivityStream = null;
     devCodexStartActivity(shouldSteer ? '正在交给 Codex 补充处理' : '正在继续这段对话');
     devCodexSetTurnActive(true);
     devCodexSetStatus('正在发送');
-    devCodexSocket.send(JSON.stringify({ type: shouldSteer ? 'steer' : 'followup', text: prompt }));
+    devCodexSocket.send(JSON.stringify({ type: shouldSteer ? 'steer' : 'followup', text: prompt, images }));
+    devClearCodexImages();
 }
 
 function devCodexComposerKeydown(event) {
@@ -1431,6 +1518,35 @@ function devCodexComposerKeydown(event) {
     event.preventDefault();
     event.currentTarget?.form?.requestSubmit();
 }
+
+document.getElementById('devCodexImageInput')?.addEventListener('change', async event => {
+    try { await devAddCodexImages(event.target.files, 'picker'); }
+    finally { event.target.value = ''; }
+});
+
+document.getElementById('devCodexPrompt')?.addEventListener('paste', event => {
+    const files = window.SyzygyClipboard
+        ? window.SyzygyClipboard.collectImages(event.clipboardData)
+        : Array.from(event.clipboardData?.files || []).filter(file => String(file.type || '').startsWith('image/'));
+    if (!files.length) return;
+    event.preventDefault();
+    devAddCodexImages(files, 'paste');
+});
+
+const devCodexComposer = document.getElementById('devCodexComposer');
+devCodexComposer?.addEventListener('dragover', event => {
+    if (!Array.from(event.dataTransfer?.items || []).some(item => item.kind === 'file')) return;
+    event.preventDefault();
+    devCodexComposer.classList.add('is-dragging');
+});
+devCodexComposer?.addEventListener('dragleave', () => devCodexComposer.classList.remove('is-dragging'));
+devCodexComposer?.addEventListener('drop', event => {
+    devCodexComposer.classList.remove('is-dragging');
+    const files = Array.from(event.dataTransfer?.files || []);
+    if (!files.some(file => String(file.type || '').startsWith('image/'))) return;
+    event.preventDefault();
+    devAddCodexImages(files, 'drop');
+});
 
 async function devLoadLatestCodexChat() {
     try {
@@ -1458,6 +1574,7 @@ function devNewCodexChat() {
     devCodexSetTurnActive(false);
     document.getElementById('devCodexApproval')?.setAttribute('hidden', '');
     devCodexClearMessages();
+    devClearCodexImages();
     devCodexSetStatus('新对话');
     document.getElementById('devCodexPrompt')?.focus();
     return true;

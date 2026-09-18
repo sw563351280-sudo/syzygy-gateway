@@ -6,12 +6,34 @@ const path = require('path');
 const MAX_TASKS = 30;
 const MAX_EVENTS = 500;
 const MAX_PROMPT_LENGTH = 12000;
+const MAX_IMAGE_COUNT = 4;
+const MAX_IMAGE_DATA_BYTES = 4 * 1024 * 1024;
 const LOGIN_TIMEOUT_MS = 16 * 60 * 1000;
 const CHAT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const ALLOWED_DECISIONS = new Set(['accept', 'acceptForSession', 'decline', 'cancel']);
 
 function shortText(value, max = 4000) {
     return String(value || '').replace(/\u0000/g, '').slice(0, max);
+}
+
+function normalizeImages(value) {
+    if (!Array.isArray(value)) return [];
+    if (value.length > MAX_IMAGE_COUNT) throw new Error(`一次最多发送 ${MAX_IMAGE_COUNT} 张图片`);
+    let totalBytes = 0;
+    return value.map(item => {
+        const url = String(item || '');
+        const match = url.match(/^data:image\/(?:jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/i);
+        if (!match) throw new Error('Codex 图片格式无效');
+        totalBytes += Math.ceil(match[1].length * 0.75);
+        if (totalBytes > MAX_IMAGE_DATA_BYTES) throw new Error('Codex 图片总大小不能超过 4 MB');
+        return url;
+    });
+}
+
+function buildTurnInput(text, images) {
+    const input = [{ type: 'text', text: text || '请查看我附上的图片。' }];
+    for (const url of images || []) input.push({ type: 'image', url, detail: 'auto' });
+    return input;
 }
 
 function buildCodexEnv() {
@@ -265,6 +287,7 @@ function createCodexBridge(options = {}) {
         if (task.timeout) clearTimeout(task.timeout);
         if (task.idleTimeout) clearTimeout(task.idleTimeout);
         task.status = 'failed';
+        task.input = null;
         task.error = shortText(message, 1000) || 'Codex 任务失败';
         addEvent(task, 'codex/error', { message: task.error });
         if (activeTaskId === task.id) activeTaskId = null;
@@ -327,7 +350,7 @@ function createCodexBridge(options = {}) {
                 id: 3,
                 params: {
                     threadId: task.threadId,
-                    input: [{ type: 'text', text: task.prompt }],
+                    input: task.input,
                     cwd: task.cwd,
                     model: task.model,
                     effort: task.effort,
@@ -341,6 +364,7 @@ function createCodexBridge(options = {}) {
             });
             return;
         }
+        task.input = null;
         if (message.id === 3) {
             task.turnId = message.result?.turn?.id || null;
             if (!task.turnId) return failTask(task, 'Codex 没有返回 turn id');
@@ -588,13 +612,16 @@ function createCodexBridge(options = {}) {
         if (!config.enabled) throw new Error('Codex Bridge 已被禁用');
         if (activeTaskId) throw new Error('当前已有 Codex 任务运行中，请先等待或中断它');
         const prompt = shortText(input.prompt, MAX_PROMPT_LENGTH).trim();
-        if (!prompt) throw new Error('请输入要诊断的问题');
+        const images = normalizeImages(input.images);
+        if (!prompt && images.length === 0) throw new Error('请输入问题或添加图片');
+        const displayPrompt = prompt || `（发送了 ${images.length} 张图片）`;
         const mode = input.mode === 'workspaceWrite' ? 'workspaceWrite' : 'readOnly';
         const effort = ['low', 'medium', 'high', 'xhigh'].includes(input.effort) ? input.effort : 'medium';
         const task = {
             id: crypto.randomUUID(),
             status: 'starting',
-            prompt,
+            prompt: displayPrompt,
+            input: buildTurnInput(prompt, images),
             model: /^[a-zA-Z0-9._-]{1,80}$/.test(input.model || '') ? input.model : config.model,
             effort,
             mode,
@@ -634,14 +661,17 @@ function createCodexBridge(options = {}) {
         }
         if (payload.type === 'steer') {
             const text = shortText(payload.text, 4000).trim();
-            if (!text || !task.threadId || !task.turnId) throw new Error('当前任务还不能继续对话');
-            addEvent(task, 'codex/user-message', { text, steer: true });
-            write(task, { method: 'turn/steer', id: `steer-${Date.now()}`, params: { threadId: task.threadId, expectedTurnId: task.turnId, input: [{ type: 'text', text }] } });
+            const images = normalizeImages(payload.images);
+            if ((!text && images.length === 0) || !task.threadId || !task.turnId) throw new Error('当前任务还不能继续对话');
+            const displayText = text || `（发送了 ${images.length} 张图片）`;
+            addEvent(task, 'codex/user-message', { text: displayText, imageCount: images.length, steer: true });
+            write(task, { method: 'turn/steer', id: `steer-${Date.now()}`, params: { threadId: task.threadId, expectedTurnId: task.turnId, input: buildTurnInput(text, images) } });
             return;
         }
         if (payload.type === 'followup') {
             const text = shortText(payload.text, MAX_PROMPT_LENGTH).trim();
-            if (!text) throw new Error('请输入要继续问 Codex 的内容');
+            const images = normalizeImages(payload.images);
+            if (!text && images.length === 0) throw new Error('请输入内容或添加图片');
             if (!task.threadId || !task.proc || task.proc.stdin.destroyed) throw new Error('这个 Codex 对话已经休眠，请新建对话');
             if (!['completed', 'interrupted'].includes(task.status)) throw new Error('请等当前回复结束后再继续');
             if (activeTaskId && activeTaskId !== task.id) throw new Error('当前有另一个 Codex 对话正在运行');
@@ -651,13 +681,14 @@ function createCodexBridge(options = {}) {
             task.error = null;
             activeTaskId = task.id;
             task.timeout = setTimeout(() => failTask(task, 'Codex 任务超时'), config.timeoutMs);
-            addEvent(task, 'codex/user-message', { text });
+            const displayText = text || `（发送了 ${images.length} 张图片）`;
+            addEvent(task, 'codex/user-message', { text: displayText, imageCount: images.length });
             write(task, {
                 method: 'turn/start',
                 id: `followup-${Date.now()}`,
                 params: {
                     threadId: task.threadId,
-                    input: [{ type: 'text', text }],
+                    input: buildTurnInput(text, images),
                     cwd: task.cwd,
                     model: task.model,
                     effort: task.effort,
