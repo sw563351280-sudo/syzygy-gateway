@@ -93,7 +93,7 @@
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h4"/><path d="M5 3v18"/></svg>
                 <span>账本</span>
             </div>
-            <div class="neu-card neu-grid-card" onclick="openCodexWorkspace()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openCodexWorkspace()}" aria-label="打开 Codex 开发对话">
+            <div class="neu-card neu-grid-card" onclick="goView('dev');setTimeout(devOpenCodex,0)" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();goView('dev');setTimeout(devOpenCodex,0)}" aria-label="打开 Codex 开发对话">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4,17 10,11 4,5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
                 <span>Codex</span>
             </div>
@@ -574,7 +574,7 @@
 
 <script src="clipboard-images.js?v=1"></script>
 <script src="thinking-parser.js?v=1"></script>
-<script src="script.js?v=65"></script>
+<script src="script.js?v=66"></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>
         <div id="menuModel" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🤖 模型: -</div>

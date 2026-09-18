@@ -947,11 +947,6 @@ function devOpenConsole(tab) {
     setTimeout(function() { switchConsoleTab(tab || 'logs'); }, 0);
 }
 
-function openCodexWorkspace() {
-    goView('dev');
-    setTimeout(devOpenCodex, 0);
-}
-
 let devCodexSocket = null;
 let devCodexTaskId = null;
 let devCodexApprovalId = null;
