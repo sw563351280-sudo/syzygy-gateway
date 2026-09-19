@@ -2199,7 +2199,7 @@ body.neu-mode #sec-console { background:#101827; }
 .dev-codex-approval p { margin:7px 0 10px; white-space:pre-wrap; font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; word-break:break-word; }
 .dev-codex-approval button { margin-right:6px; border:1px solid rgba(79,101,122,.2); border-radius:8px; padding:7px 9px; background:#fff; color:#40516a; font-size:11px; cursor:pointer; }
 .dev-codex-approval button:hover { border-color:#277f7a; color:#277f7a; }
-.dev-login-panel[hidden],.dev-login-code[hidden],.dev-login-actions [hidden] { display:none; }
+.dev-login-panel[hidden],.dev-login-code[hidden],.dev-login-actions [hidden] { display:none !important; }
 .dev-login-status { display:flex; align-items:flex-start; gap:11px; margin-top:16px; padding:13px; border:1px solid rgba(79,101,122,.12); border-radius:14px; background:rgba(255,255,255,.5); }
 .dev-login-status i { flex:0 0 9px; width:9px; height:9px; margin-top:4px; border-radius:50%; background:#c9a961; box-shadow:0 0 10px rgba(201,169,97,.48); }
 .dev-login-status[data-state="waiting"] i { background:#63d6c5; box-shadow:0 0 10px rgba(99,214,197,.65); }

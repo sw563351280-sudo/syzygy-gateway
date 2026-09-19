@@ -1028,7 +1028,19 @@ function devRenderCodexLogin(login = {}, autoOpen = false) {
 
     if (waiting) devScheduleCodexLoginRefresh();
     else clearTimeout(devCodexLoginTimer);
-    if (status === 'completed' && previousStatus !== 'completed') setTimeout(devRefreshOverview, 900);
+    if (status === 'completed' && previousStatus !== 'completed') {
+        devCodexAuthRequired = false;
+        if (panel && !panel.hidden) {
+            setTimeout(() => {
+                devCloseCodexLogin();
+                devOpenCodex();
+                devRefreshOverview();
+                toast('ChatGPT Pro 已连接');
+            }, 650);
+        } else {
+            setTimeout(devRefreshOverview, 900);
+        }
+    }
 }
 
 async function devRefreshCodexLogin(autoOpen = false) {
