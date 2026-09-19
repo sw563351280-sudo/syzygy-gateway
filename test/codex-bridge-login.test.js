@@ -103,25 +103,37 @@ test('device login can be cancelled and the background process is stopped', asyn
     assert.equal(child.killed, true);
 });
 
-test('account status uses the explicit app-server auth signal', async () => {
+test('account status keeps a connected ChatGPT account authenticated', async () => {
     const child = createFakeAccountProcess({
         account: { type: 'chatgpt', email: 'test@example.com', planType: 'pro' },
-        requiresOpenaiAuth: false
+        requiresOpenaiAuth: true
     });
     const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
 
     const status = await bridge.readAccountStatus();
     assert.equal(status.ok, true);
     assert.equal(status.authenticated, true);
-    assert.equal(status.requiresOpenaiAuth, false);
+    assert.equal(status.loginRequired, false);
+    assert.equal(status.requiresOpenaiAuth, true);
     assert.equal(status.account.planType, 'pro');
 });
 
-test('account status only requests login when app-server says auth is required', async () => {
+test('account status requests login when OpenAI auth is required and no account exists', async () => {
     const child = createFakeAccountProcess({ account: null, requiresOpenaiAuth: true });
     const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
 
     const status = await bridge.readAccountStatus();
     assert.equal(status.authenticated, false);
+    assert.equal(status.loginRequired, true);
     assert.equal(status.requiresOpenaiAuth, true);
+});
+
+test('account status accepts an environment that does not require OpenAI auth', async () => {
+    const child = createFakeAccountProcess({ account: null, requiresOpenaiAuth: false });
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
+
+    const status = await bridge.readAccountStatus();
+    assert.equal(status.authenticated, true);
+    assert.equal(status.loginRequired, false);
+    assert.equal(status.requiresOpenaiAuth, false);
 });

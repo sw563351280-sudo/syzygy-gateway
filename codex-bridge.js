@@ -495,11 +495,14 @@ function createCodexBridge(options = {}) {
                     if (message.error) return finishError(message.error.message || '无法读取 Codex 账号状态');
                     const result = message.result || {};
                     if (typeof result.requiresOpenaiAuth !== 'boolean') return finishError('Codex 返回了无法识别的账号状态');
+                    const account = result.account || null;
+                    const loginRequired = result.requiresOpenaiAuth && !account;
                     finish({
                         ok: true,
-                        authenticated: !result.requiresOpenaiAuth,
+                        authenticated: !loginRequired,
+                        loginRequired,
                         requiresOpenaiAuth: result.requiresOpenaiAuth,
-                        account: result.account || null,
+                        account,
                         fetchedAt: new Date().toISOString()
                     });
                 });

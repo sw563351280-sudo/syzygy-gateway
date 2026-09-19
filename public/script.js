@@ -1662,9 +1662,9 @@ async function devRefreshOverview() {
         if (serverDot) serverDot.dataset.state = ready ? 'ready' : 'error';
         if (status) { status.dataset.state = ready ? 'ready' : 'error'; status.innerHTML = '<i></i>' + (ready ? '系统在线' : '需要检查'); }
         const loginAction = document.getElementById('devCodexLoginAction');
-        const accountResolved = accountResponse.ok && accountData?.ok !== false && typeof accountData?.requiresOpenaiAuth === 'boolean';
+        const accountResolved = accountResponse.ok && accountData?.ok !== false && typeof accountData?.loginRequired === 'boolean';
         if (accountResolved) {
-            devCodexAuthRequired = accountData.requiresOpenaiAuth;
+            devCodexAuthRequired = accountData.loginRequired;
             if (loginAction) loginAction.hidden = !devCodexAuthRequired;
         }
         devRenderXhsMonitor(xhsResponse.ok ? xhs : null);
