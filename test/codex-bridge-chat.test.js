@@ -101,6 +101,48 @@ test('workspace-write mode uses the correct thread wire enum and structured turn
     child.kill();
 });
 
+test('approval request id zero can be accepted by the client', async () => {
+    const child = createFakeChatProcess();
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
+    const started = bridge.startTask({ prompt: '提交修改', mode: 'workspaceWrite', effort: 'medium' });
+    const task = bridge.taskById(started.id);
+
+    await waitFor(() => task.status === 'running');
+    child.stdout.write(JSON.stringify({
+        id: 0,
+        method: 'item/commandExecution/requestApproval',
+        params: { command: ['git', 'commit'], reason: '需要写入 .git' }
+    }) + '\n');
+    await waitFor(() => task.pending.has('0'));
+
+    bridge.sendClientCommand(task, { type: 'approval', requestId: 0, decision: 'accept' });
+    const response = await waitFor(() => child.writes.find(message => message.id === 0 && message.result));
+    assert.deepEqual(response.result, { decision: 'accept' });
+    assert.equal(task.pending.has('0'), false);
+    child.kill();
+});
+
+test('permission approvals return the requested grant with the selected scope', async () => {
+    const child = createFakeChatProcess();
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
+    const started = bridge.startTask({ prompt: '推送修改', mode: 'workspaceWrite', effort: 'medium' });
+    const task = bridge.taskById(started.id);
+    const permissions = { fileSystem: { write: [process.cwd()] }, network: { enabled: true } };
+
+    await waitFor(() => task.status === 'running');
+    child.stdout.write(JSON.stringify({
+        id: 7,
+        method: 'item/permissions/requestApproval',
+        params: { permissions, reason: '需要提交并推送' }
+    }) + '\n');
+    await waitFor(() => task.pending.has('7'));
+
+    bridge.sendClientCommand(task, { type: 'approval', requestId: 7, decision: 'acceptForSession' });
+    const response = await waitFor(() => child.writes.find(message => message.id === 7 && message.result));
+    assert.deepEqual(response.result, { permissions, scope: 'session' });
+    child.kill();
+});
+
 test('Codex image input only accepts bounded image data URLs', () => {
     const bridge = createCodexBridge({ cwd: process.cwd(), spawn: createFakeChatProcess });
     assert.throws(

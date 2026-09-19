@@ -384,7 +384,7 @@ function createCodexBridge(options = {}) {
 
     function handleServerRequest(task, message) {
         const method = String(message.method || '');
-        if (method.includes('requestApproval')) {
+        if (method.includes('requestApproval') || method === 'applyPatchApproval' || method === 'execCommandApproval') {
             task.pending.set(String(message.id), message);
             addEvent(task, method, { requestId: message.id, ...(message.params || {}) });
             return;
@@ -707,12 +707,31 @@ function createCodexBridge(options = {}) {
             return;
         }
         if (payload.type === 'approval') {
-            const requestId = String(payload.requestId || '');
+            const requestId = String(payload.requestId ?? '');
             const pending = task.pending.get(requestId);
             const decision = String(payload.decision || '');
             if (!pending || !ALLOWED_DECISIONS.has(decision)) throw new Error('审批请求已失效或决定无效');
             task.pending.delete(requestId);
-            write(task, { id: pending.id, result: { decision } });
+            let result;
+            if (pending.method === 'item/permissions/requestApproval') {
+                const accepted = decision === 'accept' || decision === 'acceptForSession';
+                result = {
+                    permissions: accepted ? (pending.params?.permissions || {}) : {},
+                    scope: decision === 'acceptForSession' ? 'session' : 'turn'
+                };
+            } else if (pending.method === 'applyPatchApproval' || pending.method === 'execCommandApproval') {
+                const legacyDecision = decision === 'accept'
+                    ? 'approved'
+                    : decision === 'acceptForSession'
+                        ? 'approved_for_session'
+                        : decision === 'cancel'
+                            ? 'abort'
+                            : { denied: { rejection: '用户拒绝了这项操作' } };
+                result = { decision: legacyDecision };
+            } else {
+                result = { decision };
+            }
+            write(task, { id: pending.id, result });
             addEvent(task, 'codex/approval-resolved', { requestId: pending.id, decision });
             return;
         }

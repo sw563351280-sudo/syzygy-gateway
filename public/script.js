@@ -1348,13 +1348,30 @@ function devCodexSetTurnActive(active) {
 
 function devCodexShowApproval(event) {
     const params = event?.params || {};
-    devCodexApprovalId = params.requestId || null;
+    devCodexApprovalId = params.requestId ?? null;
     const box = document.getElementById('devCodexApproval');
     const text = document.getElementById('devCodexApprovalText');
-    if (!box || !text || !devCodexApprovalId) return;
+    if (!box || !text || devCodexApprovalId === null) return;
     const command = Array.isArray(params.command) ? params.command.join(' ') : (params.command || 'Codex 请求执行一项操作');
-    text.textContent = [params.reason, command, params.cwd].filter(Boolean).join('\n');
+    const permissions = params.permissions ? devDescribeCodexPermissions(params.permissions) : '';
+    text.textContent = [params.reason, command, permissions, params.cwd].filter(Boolean).join('\n');
     box.hidden = false;
+}
+
+function devDescribeCodexPermissions(permissions) {
+    const lines = [];
+    const entries = permissions?.fileSystem?.entries;
+    if (Array.isArray(entries)) {
+        for (const entry of entries) {
+            const target = entry?.path?.path || entry?.path?.pattern || entry?.path?.value?.path || entry?.path?.value?.kind;
+            if (target) lines.push(`${entry.access === 'write' ? '写入' : entry.access === 'read' ? '读取' : '访问'}：${target}`);
+        }
+    }
+    if (Array.isArray(permissions?.fileSystem?.write)) {
+        for (const target of permissions.fileSystem.write) lines.push(`写入：${target}`);
+    }
+    if (permissions?.network?.enabled) lines.push('访问网络');
+    return lines.join('\n') || 'Codex 请求临时扩大权限';
 }
 
 function devCodexRenderEvent(event) {
@@ -1364,6 +1381,18 @@ function devCodexRenderEvent(event) {
     if (method.includes('requestApproval')) {
         devCodexShowApproval(event);
         devCodexAddBubble('activity', '等待确认 · ' + (params.reason || params.command || 'Codex 请求执行操作'));
+        return;
+    }
+    if (method === 'applyPatchApproval' || method === 'execCommandApproval') {
+        devCodexShowApproval(event);
+        devCodexAddBubble('activity', '等待确认 · ' + (params.reason || params.command || 'Codex 请求执行操作'));
+        return;
+    }
+    if (method === 'codex/approval-resolved') {
+        if (devCodexApprovalId !== null && String(devCodexApprovalId) === String(params.requestId)) {
+            document.getElementById('devCodexApproval')?.setAttribute('hidden', '');
+            devCodexApprovalId = null;
+        }
         return;
     }
     if (method === 'codex/user-message') {
@@ -1622,7 +1651,7 @@ function devRenderRecentTask(tasks = []) {
 }
 
 function devApproveCodex(decision) {
-    if (!devCodexSocket || devCodexSocket.readyState !== WebSocket.OPEN || !devCodexApprovalId) return;
+    if (!devCodexSocket || devCodexSocket.readyState !== WebSocket.OPEN || devCodexApprovalId === null) return;
     devCodexSocket.send(JSON.stringify({ type: 'approval', requestId: devCodexApprovalId, decision }));
     devCodexApprovalId = null;
     const box = document.getElementById('devCodexApproval');
