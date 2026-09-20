@@ -51,7 +51,7 @@ const {
 } = require('./adaptive-wake');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
 const { messageTimestampMs, selectRecentWakeHistory } = require('./wake-context');
-const { hasProjectFileIntent, hasMusicIntent, hasToyDeviceIntent, hasToyFollowUpIntent, hasAlbumSearchIntent, keepRequestedReadTools } = require('./tool-policy');
+const { hasProjectFileIntent, hasToyDeviceIntent, hasToyFollowUpIntent, hasAlbumSearchIntent, keepRequestedReadTools } = require('./tool-policy');
 const privateJournal = require('./private-journal');
 const { fetchHealthSummary, healthDataStatus } = require('./health-data');
 const { createMusic, MUSIC_TOOLS, TOOL_NAMES: MUSIC_TOOL_NAMES, environmentRanker } = require('./music');
@@ -4488,7 +4488,7 @@ if (_configChanged) { saveToolsConfig(TOOLS_ENABLED); console.log('🔧 [工具�
 
 // 轻量工具（始终可见，不触发工具循环）
 const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'exec', 'bark_push', 'check_phone', 'check_ledger', 'query_ledger', 'search_transcript', 'check_environment']);
-const ALWAYS_AVAILABLE_TOOLS = new Set([...LIGHT_TOOLS, 'read_private_journal']);
+const ALWAYS_AVAILABLE_TOOLS = new Set([...LIGHT_TOOLS, 'read_private_journal', ...MUSIC_TOOL_NAMES]);
 // toy MCP 工具
 const TOY_TOOLS = new Set(['toy_vibrate', 'toy_suction', 'toy_stop_vibration', 'toy_stop_suction', 'toy_stop_all', 'toy_status']);
 let toyContextExpiresAt = 0;
@@ -4504,9 +4504,6 @@ function isExplicitHealthDataRequest(text) {
 
 function filterRelevantTools(allTools, userText, forceToolChoice) {
     const alwaysTools = allTools.filter(t => ALWAYS_AVAILABLE_TOOLS.has(t.function?.name));
-    if (hasMusicIntent(userText)) {
-        alwaysTools.push(...allTools.filter(t => MUSIC_TOOL_NAMES.includes(t.function?.name)));
-    }
     const optionalTools = allTools.filter(t => !ALWAYS_AVAILABLE_TOOLS.has(t.function?.name) && !MUSIC_TOOL_NAMES.includes(t.function?.name));
     const textLower = (userText || '').toLowerCase();
     // "查一下"、"看一下" 这类日常说法不能当成代码请求；否则模型会

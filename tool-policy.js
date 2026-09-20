@@ -41,11 +41,9 @@ function hasMusicIntent(text) {
 
 function requestedBuiltinToolNames(text) {
     const value = String(text || '');
-    const names = new Set();
-    if (hasMusicIntent(value)) {
-        names.add('music_search_and_play');
-        names.add('music_current_session');
-    }
+    // Music tools only prepare a card/read state, never autoplay. Keep them
+    // available for voluntary song gifts and short follow-ups such as "好".
+    const names = new Set(['music_search_and_play', 'music_current_session']);
 
     if (/https?:\/\//i.test(value)) names.add('fetch_txt');
     if (/html|网页源码|页面结构/i.test(value)) names.add('fetch_html');

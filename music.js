@@ -8,7 +8,7 @@ const { createRoom } = require('./music-room');
 
 const TOOL_NAMES = ['music_search_and_play', 'music_current_session'];
 const MUSIC_TOOLS = [
-    { type: 'function', function: { name: TOOL_NAMES[0], description: '用户点歌、推荐音乐或邀请一起听时：用具体歌名/歌手搜索真实可播放歌曲，生成播放卡。模糊版本返回 needs_choice；失败返回 error。ready 只表示卡片准备好，用户点击后才播放。网易云房间模式只推荐，不能控制 App 播放。', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'], additionalProperties: false } } },
+    { type: 'function', function: { name: TOOL_NAMES[0], description: '可根据聊天语境主动选歌送给用户，不必等用户说“点歌”；也可承接“好”“你选”等回复。自行判断是否适合，不必每轮调用，用户拒绝听歌时不要继续推荐。决定递出一首具体歌曲时，调用本工具搜索真实可播放歌曲并生成播放卡，不能只用文字假装已点歌。query 填具体歌名/歌手。needs_choice 表示需要选版本；error 时如实说明失败；ready 只表示卡片准备好，用户点击后才播放，不得声称已经播放。网易云房间模式只推荐，不能控制 App 播放。', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'], additionalProperties: false } } },
     { type: 'function', function: { name: TOOL_NAMES[1], description: '查询真实的当前共听模式、歌曲和播放/暂停/关闭状态。不得把历史歌曲称为正在播放。', parameters: { type: 'object', properties: {}, additionalProperties: false } } },
 ];
 function event(data, type, session, extra = {}) {

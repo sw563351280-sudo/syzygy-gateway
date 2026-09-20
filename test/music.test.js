@@ -250,9 +250,32 @@ test('daily discovery validates, excludes known songs, clamps artists and reject
     assert.ok(fallback.songs.length);
 });
 
-test('music tools survive read-tool filtering only with musical intent', () => {
+test('music tools remain available for spontaneous gifts and short follow-ups', () => {
     assert.ok(requestedBuiltinToolNames('陪我听首歌，推荐一首').has('music_search_and_play'));
     const tools = ['music_search_and_play', 'music_current_session'].map(name => ({ function: { name } }));
     assert.equal(keepRequestedReadTools(tools, '一起听歌').length, 2);
-    assert.equal(keepRequestedReadTools(tools, '晚上好').length, 0);
+    for (const text of ['晚上好', '好', '你选', '今天有点累', '']) {
+        assert.equal(keepRequestedReadTools(tools, text).length, 2);
+    }
+    assert.deepEqual(keepRequestedReadTools([], '好'), [], 'disabled tools are not reintroduced');
+});
+
+test('actual gateway tool selection offers music without keyword gates or duplicates', () => {
+    const vm = require('node:vm');
+    const source = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+    const start = source.indexOf('const ALWAYS_AVAILABLE_TOOLS =');
+    const end = source.indexOf('// MCP Server 配置', start);
+    assert.ok(start >= 0 && end > start);
+    const names = require('../music').TOOL_NAMES;
+    const select = vm.runInNewContext(source.slice(start, end) + '\nfilterRelevantTools;', {
+        ...require('../tool-policy'), LIGHT_TOOLS: [], MUSIC_TOOL_NAMES: names,
+        TOOLS_ENABLED: {}, console: { log() {} },
+    });
+    const available = names.map(name => ({ function: { name } }));
+    for (const phrase of ['好', '你选', '今天下雨了', '一起听歌']) {
+        for (const forced of [null, { type: 'function', function: { name: 'fetch_txt' } }]) {
+            assert.deepEqual(Array.from(select(available, phrase, forced), t => t.function.name), names);
+        }
+    }
+    assert.equal(select([], '好', null).length, 0);
 });
