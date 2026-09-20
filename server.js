@@ -681,6 +681,7 @@ const API_ROUTES = {
     '68886868':   'https://api.68886868.xyz/v1/chat/completions',
     'tree':   'https://api.treegpt.cc/v1/chat/completions',
     'reward':   'https://reward.dzzi.ai/v1/chat/completions',
+    'jumeng':   'https://api.jumengai.net/v1/chat/completions',
 
 };
 
