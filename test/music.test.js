@@ -160,6 +160,10 @@ test('credentials are encrypted, sent only in body, and logout persists', async 
     await provider.api('/listentogether/status', {}, 'companion');
     assert.equal(request.url.includes('private-secret'), false);
     assert.equal(JSON.parse(request.options.body).cookie, 'MUSIC_U=private-secret');
+    const firstUrl = request.url;
+    await provider.api('/listentogether/status', {}, 'companion');
+    assert.notEqual(request.url, firstUrl, 'each POST must bypass upstream URL-only cache');
+    assert.equal(new URL(request.url).pathname, '/listentogether/status');
     provider.setCookie('companion', '');
     const reopened = createProvider({ directory, secret });
     assert.equal(reopened.status().companionLoggedIn, false);

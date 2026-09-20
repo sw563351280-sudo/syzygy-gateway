@@ -14,12 +14,20 @@ async function main() {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'syzygy-music-browser-'));
     const output = path.resolve(__dirname, '../../tmp/music-qa');
     fs.mkdirSync(output, { recursive: true });
+    let qrCount = 0;
+    let failQr = false;
     const song = sid => ({ id: String(sid), name: sid === '1' ? '晚风留声' : '海边来信', artist: '测试歌手', album: '共听测试', provider: 'netease', duration: 20000 });
     const music = createMusic({ directory, secret: 'browser-test-secret', provider: {
         status: () => ({ configured: true, userLoggedIn: true, companionLoggedIn: true }),
         search: async () => [song('1'), song('2')], detail: async sid => song(String(sid)), audio: async () => 'mock-verified-audio',
         playlist: async () => ({ id: '7', name: '晚安之前', tracks: [song('1'), song('2')] }),
-        api: async route => {
+        api: async (route, params) => {
+            if (route === '/login/qr/key') {
+                if (failQr) throw new Error('Temporary QR service failure');
+                return { code: 200, data: { unikey: `qr-${++qrCount}` } };
+            }
+            if (route === '/login/qr/create') return { code: 200, data: { qrimg: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9l0AAAAASUVORK5CYII=' } };
+            if (route === '/login/qr/check') return { code: params.key === 'qr-1' ? 800 : 801 };
             if (route === '/lyric') return { code: 200, lrc: { lyric: '[00:00.00] 今晚的风，替我们记得\n[00:08.00] 把一首歌，留给此刻' } };
             if (route === '/msg/private/history') return { code: 200, msgs: [{ time: Date.now(), msg: { generalMsg: { nativeUrl: 'orpheus://listenTogether?roomId=test-room&inviterId=7' } } }] };
             if (route === '/listentogether/sync/playlist/get') return { code: 200, data: { playCommand: { targetSongId: '2', playStatus: 'PLAY' } } };
@@ -55,7 +63,7 @@ async function main() {
         console.log('Preview loaded');
         await page.waitForFunction(() => Boolean(window.SyzygyMusic));
         const click = (selector, target = page) => target.evaluate(s => document.querySelector('#syzygy-music').shadowRoot.querySelector(s).click(), selector);
-        const waitState = state => page.waitForFunction(async expected => (await (await fetch('/api/music/status')).json()).session.state === expected, {}, state);
+        const waitState = state => page.waitForFunction(async expected => (await (await fetch('/api/music/status')).json()).session?.state === expected, { polling: 250 }, state);
         await click('.launcher');
         await page.evaluate(() => {
             const r = document.querySelector('#syzygy-music').shadowRoot;
@@ -90,7 +98,7 @@ async function main() {
         await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.library summary')?.textContent.includes('晚安之前'));
         await click('.library summary'); await click('.library details > button'); await waitState('play');
         await click('[data-action="next"]');
-        await page.waitForFunction(async () => (await (await fetch('/api/music/status')).json()).session.song.id === '2');
+        await page.waitForFunction(async () => { const s = (await (await fetch('/api/music/status')).json()).session; return s?.song?.id === '2' && s.state === 'play'; }, { polling: 250 });
         await click('[data-action="stop"]'); await waitState('closed');
         await page.reload();
         console.log('Queue and reload checks passed');
@@ -101,7 +109,7 @@ async function main() {
         await click('[data-mode="netease-room"]');
         await page.evaluate(() => { document.querySelector('#syzygy-music').shadowRoot.querySelector('.partner').value = '7'; });
         await click('[data-action="join"]');
-        await page.waitForFunction(async () => { const s = (await (await fetch('/api/music/status')).json()).session; return s.mode === 'netease-room' && s.state === 'play'; });
+        await page.waitForFunction(async () => { const s = (await (await fetch('/api/music/status')).json()).session; return s?.mode === 'netease-room' && s.state === 'play'; }, { polling: 250 });
         assert.equal(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('audio').paused), true);
         await page.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 1 });
         await page.waitForFunction(() => Boolean(window.SyzygyMusic));
@@ -111,6 +119,22 @@ async function main() {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
         await click('[data-action="leave"]'); await waitState('closed');
         assert.equal(music.status().session.mode, 'local');
+
+        await click('[data-tab="settings"]');
+        await click('[data-login="companion"]');
+        await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.qr-status').textContent.includes('已过期'));
+        await click('[data-action="refresh-qr"]');
+        await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.qr-status').textContent === '等待扫码');
+        assert.equal(qrCount, 2, 'expired challenge replaced with a new key');
+        failQr = true;
+        await click('[data-action="refresh-qr"]');
+        await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.qr-status').textContent.includes('生成失败'));
+        failQr = false;
+        await click('[data-action="refresh-qr"]');
+        await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.qr-status').textContent === '等待扫码');
+        assert.equal(qrCount, 3, 'retry remains usable after a generation failure');
+        assert.equal(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('h2').textContent), '耳机分你一只。');
+        console.log('QR expiry refresh and failed-generation retry passed');
 
         // Exercise the real chat-card renderer with untrusted metadata.
         const source = fs.readFileSync(path.resolve(__dirname, '../public/script.js'), 'utf8');

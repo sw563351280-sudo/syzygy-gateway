@@ -60,6 +60,9 @@ function createProvider({ directory, secret, base = process.env.NCM_API_BASE, fe
     async function api(route, params = {}, profile = 'user', signal) {
         if (!base) throw fail('NOT_CONFIGURED', '请先在服务端配置 NCM_API_BASE 音乐服务地址', 503);
         const url = new URL(route, String(base).replace(/\/$/, '') + '/');
+        // Upstream apicache keys by URL, not POST body. Never reuse a response
+        // across searches, accounts, QR challenges or room heartbeats.
+        url.searchParams.set('_request', crypto.randomUUID());
         if (!['http:', 'https:'].includes(url.protocol)) throw fail('INVALID_API', '音乐服务地址无效', 503);
         const timeout = AbortSignal.timeout(12000);
         const controller = new AbortController();

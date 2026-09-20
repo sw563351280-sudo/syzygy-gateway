@@ -10,11 +10,11 @@
       <link rel="stylesheet" href="/music-player.css?v=1">
       <button class="launcher" aria-label="打开一起听歌">♫ <span>一起听</span></button>
       <section class="panel" aria-label="一起听歌" hidden>
-        <header><div><small>SHARED LISTENING</small><h2>把此刻，听成我们。</h2></div><button data-action="hide" aria-label="收起播放器">⌄</button></header>
+        <header><div><small>SHARED LISTENING</small><h2>耳机分你一只。</h2></div><button data-action="hide" aria-label="收起播放器">⌄</button></header>
         <div class="mode"><button data-mode="local">小屋播放器</button><button data-mode="netease-room">网易云一起听</button></div>
         <p class="notice" role="status" aria-live="polite"></p>
         <div class="room" hidden><p>在网易云 App 邀请陪伴账号。歌曲由 App 播放，小屋同步歌曲并在聊天里陪你听。</p><label>你的网易云 UID<input class="partner" inputmode="numeric" placeholder="发送邀请的账号 ID"></label><button data-action="join">开始等待邀请</button><button data-action="leave">退出房间</button></div>
-        <div class="now"><img class="cover" alt="专辑封面" hidden><div><strong class="song-name">还没有选择歌曲</strong><p class="artist">选一首，或者让沈望来选。</p><small class="state"></small></div></div>
+        <div class="now"><img class="cover" alt="专辑封面" hidden><div><strong class="song-name">还没有选择歌曲</strong><p class="artist">你先选。不选我就塞一首给你。</p><small class="state"></small></div></div>
         <audio preload="none" crossorigin="anonymous"></audio>
         <div class="transport"><button data-action="previous" aria-label="上一首">上一首</button><button data-action="toggle">播放</button><button data-action="next" aria-label="下一首">下一首</button><button data-action="stop">结束共听</button></div>
         <label class="seek-label"><span class="time">0:00 / 0:00</span><input class="seek" type="range" min="0" max="100" value="0" aria-label="播放进度"></label>
@@ -46,6 +46,13 @@
     let lastHeartbeat = 0;
     let qrTimer = null;
     let qrGeneration = 0;
+    let qrProfile = null;
+    const refreshQr = document.createElement('button');
+    refreshQr.textContent = '刷新二维码';
+    refreshQr.dataset.action = 'refresh-qr';
+    refreshQr.hidden = true;
+    $('.qr-status').after(refreshQr);
+    refreshQr.addEventListener('click', () => { if (qrProfile) void attempt(() => login(qrProfile)); });
     let audioContext;
     let gain;
     let lastOffers = '';
@@ -102,7 +109,7 @@
     }
     function renderNow(s = current) {
         $('.song-name').textContent = s?.name || '还没有选择歌曲';
-        $('.artist').textContent = s?.artist || '选一首，或者让沈望来选。';
+        $('.artist').textContent = s?.artist || '你先选。不选我就塞一首给你。';
         $('.cover').hidden = !s;
         if (s) $('.cover').src = `/api/music/cover/${s.id}`;
         $('.transport').hidden = inRoom();
@@ -273,7 +280,19 @@
     async function login(profile) {
         const token = ++qrGeneration;
         clearInterval(qrTimer);
-        const start = await api('/login/start', { profile });
+        qrProfile = profile;
+        refreshQr.hidden = false;
+        refreshQr.disabled = true;
+        $('.qr').hidden = true;
+        $('.qr').removeAttribute('src');
+        $('.qr-status').textContent = '正在生成新二维码…';
+        let start;
+        try { start = await api('/login/start', { profile }); }
+        catch (e) {
+            if (token !== qrGeneration) return;
+            $('.qr-status').textContent = '生成失败，请点“刷新二维码”重试。';
+            throw e;
+        } finally { if (token === qrGeneration) refreshQr.disabled = false; }
         if (token !== qrGeneration) return;
         $('.qr').src = start.image; $('.qr').hidden = false;
         $('.qr-status').textContent = '请使用对应账号的网易云 App 扫码。';
@@ -284,9 +303,15 @@
             try {
                 const result = await api('/login/check', { token: start.token });
                 if (token !== qrGeneration) return;
-                $('.qr-status').textContent = ({ waiting: '等待扫码', confirm: '请在手机上确认登录', success: '登录成功', expired: '二维码已过期，请重新登录', error: '登录失败，请重试' })[result.status];
+                $('.qr-status').textContent = ({ waiting: '等待扫码', confirm: '请在手机上确认登录', success: '登录成功', expired: '二维码已过期，请点“刷新二维码”。', error: '登录失败，请点“刷新二维码”重试。' })[result.status];
+                if (result.status === 'success') { refreshQr.hidden = true; qrProfile = null; }
                 if (['success', 'expired', 'error'].includes(result.status)) { clearInterval(qrTimer); $('.qr').hidden = true; await refresh(); }
-            } catch (e) { clearInterval(qrTimer); notice(e.message, true); }
+            } catch (e) {
+                if (token !== qrGeneration) return;
+                clearInterval(qrTimer); $('.qr').hidden = true;
+                $('.qr-status').textContent = '登录状态检查失败，请点“刷新二维码”重试。';
+                notice(e.message, true);
+            }
             finally { checking = false; }
         }, 3000);
     }
@@ -294,7 +319,7 @@
         const button = e.target.closest('button'); if (!button) return;
         if (button.dataset.tab) void attempt(() => tab(button.dataset.tab));
         if (button.dataset.login) void attempt(() => login(button.dataset.login));
-        if (button.dataset.logout) void attempt(async () => { qrGeneration++; clearInterval(qrTimer); await api('/login/logout', { profile: button.dataset.logout }); $('.qr').hidden = true; await refresh(); });
+        if (button.dataset.logout) void attempt(async () => { qrGeneration++; clearInterval(qrTimer); qrProfile = null; refreshQr.hidden = true; $('.qr').hidden = true; $('.qr-status').textContent = ''; await api('/login/logout', { profile: button.dataset.logout }); await refresh(); });
         if (button.dataset.mode) void attempt(async () => {
             chosenMode = button.dataset.mode;
             if (chosenMode === 'local' && inRoom()) { await api('/mode', { mode: 'local' }); await refresh(); renderNow(); }
