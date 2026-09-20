@@ -1,0 +1,6 @@
+[Service]
+Environment="NCM_API_BASE=http://127.0.0.1:3001"
+# Optional daily curation through an OpenAI-compatible chat/completions endpoint:
+# Environment="MUSIC_LLM_URL=https://your-provider/v1/chat/completions"
+# Environment="MUSIC_LLM_MODEL=your-model"
+# Store MUSIC_LLM_KEY in the gateway's protected EnvironmentFile.

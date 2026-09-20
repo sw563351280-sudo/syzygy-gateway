@@ -72,7 +72,7 @@ jobs:
               find /tmp/syzygy_backup -type f | while read f; do
                 rel=$(echo "$f" | sed "s|^/tmp/syzygy_backup/||")
                 case "$rel" in
-                  server.js|model_prompts.json|public/index.html|public/style.css|public/script.js|public/manifest.json)
+                  server.js|model_prompts.json|public/index.html|public/style.css|public/script.js|public/manifest.json|music*.js|tool-policy.js|public/music-player.*|tools/music-api/*)
                     echo "  ⏭️ 跳过: $rel (以仓库发布版本为准)" ;;
                   *)
                     cp "$f" "/opt/syzygy/$rel"
@@ -269,6 +269,9 @@ jobs:
               systemctl daemon-reload
               echo "✅ [Deploy] VPS 控制台配置完成"
             fi
+
+            # Music routes and UI require a loopback-only API adapter.
+            sh /opt/syzygy/tools/music-api/deploy.sh
 
             echo "🔍 [Deploy] 重启服务..."
             (systemctl restart syzygy.service && sleep 2 && journalctl -u syzygy.service --no-pager -n 5) || echo "⚠️ restart may have failed"

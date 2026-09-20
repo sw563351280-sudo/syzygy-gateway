@@ -4,7 +4,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "test:music:browser": "node scripts/music-browser-smoke.js",
+    "test:music:live": "node scripts/music-live-probe.js"
   },
   "engines": {
     "node": ">=18.0.0"

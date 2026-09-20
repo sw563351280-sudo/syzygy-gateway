@@ -1,0 +1,8 @@
+{
+  "name": "syzygy-music-api-service",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": { "start": "node start.js" },
+  "engines": { "node": ">=20" },
+  "dependencies": { "@neteasecloudmusicapienhanced/api": "4.40.1" }
+}

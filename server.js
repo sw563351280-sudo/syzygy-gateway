@@ -51,9 +51,10 @@ const {
 } = require('./adaptive-wake');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
 const { messageTimestampMs, selectRecentWakeHistory } = require('./wake-context');
-const { hasProjectFileIntent, hasToyDeviceIntent, hasToyFollowUpIntent, hasAlbumSearchIntent, keepRequestedReadTools } = require('./tool-policy');
+const { hasProjectFileIntent, hasMusicIntent, hasToyDeviceIntent, hasToyFollowUpIntent, hasAlbumSearchIntent, keepRequestedReadTools } = require('./tool-policy');
 const privateJournal = require('./private-journal');
 const { fetchHealthSummary, healthDataStatus } = require('./health-data');
+const { createMusic, MUSIC_TOOLS, TOOL_NAMES: MUSIC_TOOL_NAMES, environmentRanker } = require('./music');
 
 const execFileAsync = promisify(execFile);
 
@@ -716,6 +717,17 @@ function getModelPromptConfig(modelName) {
 // ==========================================
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+let music;
+try {
+    music = createMusic({ directory: path.join(DATA_DIR, 'music'), secret: SESSION_SECRET, ranker: environmentRanker });
+} catch (error) {
+    console.error('音乐模块初始化失败，聊天仍可用:', error.code || 'MUSIC_INIT_ERROR');
+    const unavailable = { status: 'error', error: { code: 'MUSIC_UNAVAILABLE', message: '音乐数据暂不可用，请检查服务端日志' } };
+    const router = express.Router();
+    router.use((req, res) => res.status(503).json({ code: unavailable.error.code, error: unavailable.error.message }));
+    music = { router, context: () => '', executeTool: async () => JSON.stringify(unavailable) };
+}
+app.use('/api/music', music.router);
 const PRIVATE_JOURNAL_FILE = path.join(DATA_DIR, 'private_journal.enc');
 const PRIVATE_JOURNAL_KEY_FILE = path.join(DATA_DIR, '.private_journal_key');
 const LEDGER_FILE = path.join(DATA_DIR, 'ledger_transactions.json');
@@ -3527,6 +3539,9 @@ function buildFinalSystemPrompt(injectionQueue, tr) {
             console.log(`📊 [预算控制] ${item.label} 被裁剪，剩余预算不足 (已用${usedBudget}/${MEMORY_BUDGET})`);
         }
     }
+    let musicContext = '';
+    try { musicContext = music.context(); } catch { /* Music storage failures must not interrupt chat. */ }
+    if (musicContext) parts.push(musicContext);
     return { stableSystemPrompt: systemPrompt, volatileParts: parts };
 }
 
@@ -3890,7 +3905,8 @@ async function tryAutoDream(userText) {
     return;
 }
 
-async function executeToolCall(name, args, mcpServer) {
+async function executeToolCall(name, args, mcpServer, callId) {
+    if (!mcpServer && MUSIC_TOOL_NAMES.includes(name)) return music.executeTool(name, args, callId);
     if (mcpServer) {
         try {
             console.log(`🔧 [MCP工具] ${mcpServer}/${name}(${JSON.stringify(args).substring(0, 100)})`);
@@ -4434,6 +4450,7 @@ async function saveToZepWithCounter(userMsg, aiMsg, lastUserContent, messages, m
 // 🌟 独立 RP 模式雷达
 // ==========================================
 const BUILTIN_TOOLS = [
+    ...MUSIC_TOOLS,
     { type: "function", function: { name: "fetch_txt", description: "【仅在用户明确要求查看某个网页、或需要获取网络信息时使用】读取网页URL返回纯文本。如果内容被截断，可用offset参数继续读。日常闲聊、情感对话、RP时严禁调用。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" }, offset: { type: "integer", description: "从第几个字符开始读（默认0）。截断后设置此值继续读" } }, required: ["url"] } } },
     { type: "function", function: { name: "fetch_html", description: "【仅在需要分析网页HTML结构、调试前端代码时使用】读取网页返回原始HTML。大多数情况应该用 fetch_txt。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
     { type: "function", function: { name: "fetch_json", description: "【仅在需要调用API接口获取JSON数据时使用】读取JSON接口URL，返回格式化JSON。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "JSON接口的URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
@@ -4487,7 +4504,10 @@ function isExplicitHealthDataRequest(text) {
 
 function filterRelevantTools(allTools, userText, forceToolChoice) {
     const alwaysTools = allTools.filter(t => ALWAYS_AVAILABLE_TOOLS.has(t.function?.name));
-    const optionalTools = allTools.filter(t => !ALWAYS_AVAILABLE_TOOLS.has(t.function?.name));
+    if (hasMusicIntent(userText)) {
+        alwaysTools.push(...allTools.filter(t => MUSIC_TOOL_NAMES.includes(t.function?.name)));
+    }
+    const optionalTools = allTools.filter(t => !ALWAYS_AVAILABLE_TOOLS.has(t.function?.name) && !MUSIC_TOOL_NAMES.includes(t.function?.name));
     const textLower = (userText || '').toLowerCase();
     // "查一下"、"看一下" 这类日常说法不能当成代码请求；否则模型会
     // 带着一整套文件工具去翻源码，既慢又容易答偏。
@@ -7841,6 +7861,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             console.log('📒 [账本] 已注入实时数据，跳过账本 function calling');
         }
         let maxToolRounds = 5, toolRound = 0, lastToolSig = '', fileModified = false;
+        const musicToolRecords = [];
         const isStreamMode = body.stream === true;
         moodLog('[MOOD DEBUG] route entered body.stream: ' + body.stream + ' type: ' + typeof body.stream + ' isStream: ' + isStreamMode);
         if (isStreamMode) { moodLog('[MOOD DEBUG] entering STREAM branch'); } else { moodLog('[MOOD DEBUG] entering NON-STREAM branch'); }
@@ -8000,13 +8021,14 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
                     const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name);
                     const startTime = Date.now();
-                    const result = await executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null);
+                    const result = await executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null, tc.id);
                     if (tc.function.name === 'write_file' || tc.function.name === 'edit_file') fileModified = true;
                     const elapsed = Date.now() - startTime;
+                    if (MUSIC_TOOL_NAMES.includes(tc.function.name)) musicToolRecords.push({ name: tc.function.name, arguments: fnArgs, result, elapsed });
                     const privateJournalRead = tc.function.name === 'read_private_journal';
                     traceEvent(_tr, 'tool', tc.function.name, { args: JSON.stringify(fnArgs).substring(0, 200), elapsed, resultLen: result.length, resultPreview: privateJournalRead ? '[私密日记结果已省略]' : result.substring(0, 200), mcp: toolDef?._mcp || null });
                     if (isStreamMode && !privateJournalRead) {
-                        res.write(`data: ${JSON.stringify({ type: 'tool_call', name: tc.function.name, arguments: fnArgs, result: result.substring(0, 5000), elapsed })}\n\n`);
+                        res.write(`data: ${JSON.stringify({ type: 'tool_call', name: tc.function.name, arguments: fnArgs, result: MUSIC_TOOL_NAMES.includes(tc.function.name) ? result : result.substring(0, 5000), elapsed })}\n\n`);
                     }
                     body.messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
                 }
@@ -8060,6 +8082,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, moodCleaned);
                 traceEnd(_tr, { ok: true, replyLen: (moodCleaned || '').length, path: 'tool-json' });
+                if (musicToolRecords.length) toolData.music_tool_calls = musicToolRecords;
                 return res.status(200).json(toolData);
             }
         }
@@ -9484,7 +9507,7 @@ app.post('/api/web-chat', async (req, res) => {
                         for (const tc of curMsg.tool_calls) {
                             let fnArgs = {};
                             try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
-                            const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name); const result = await executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null);
+                            const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name); const result = await executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null, tc.id);
                             apiMessages.push({ role: 'tool', tool_call_id: tc.id, content: result });
                         }
                         fetchBody.messages = apiMessages;

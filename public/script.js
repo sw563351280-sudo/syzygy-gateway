@@ -2571,6 +2571,21 @@ function renderToolCallGroupHTML(toolCalls, isStreaming) {
         html += '</div>';
     }
     html += '</div></div>';
+    // Tool output is data. Only verified numeric provider IDs become controls;
+    // text is escaped and no model-authored HTML is executed.
+    for (var musicCall of toolCalls) {
+        if (musicCall.name !== 'music_search_and_play') continue;
+        try {
+            var musicResult = JSON.parse(musicCall.result);
+            var musicSongs = musicResult.status === 'ready' && musicResult.attachment?.song_id === musicResult.song?.id
+                ? [musicResult.song] : musicResult.status === 'needs_choice' ? musicResult.candidates || [] : [];
+            if (musicResult.status === 'error') html += '<p class="music-tool-error">' + escHtml(musicResult.error?.message || '点歌失败') + '</p>';
+            for (var musicSong of musicSongs) {
+                if (musicSong.provider !== 'netease' || !musicSong.playable || !/^\d{1,20}$/.test(String(musicSong.id))) continue;
+                html += '<div class="music-chat-card" style="padding:12px;margin:8px 0;border:1px solid #d6dedb;border-radius:14px;background:#f5f3ed;color:#30444d"><strong>' + escHtml(musicSong.name) + '</strong><small style="display:block">' + escHtml(musicSong.artist) + '</small><button type="button" data-music-song="' + musicSong.id + '" style="margin-top:8px;padding:6px 12px;border-radius:10px;border:1px solid #bfcfcb;background:white">♫ 打开播放卡</button></div>';
+            }
+        } catch (e) { /* Ignore truncated historical tool results. */ }
+    }
     return html;
 }
 
@@ -3136,6 +3151,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
             // ==========================================
             const data = await response.json();
             fullReply = data.choices[0].message.content || "";
+            if (Array.isArray(data.music_tool_calls)) toolCallRecords.push(...data.music_tool_calls);
             rawAssistantText = fullReply;
             reasoningContent = data.choices[0].message.reasoning_content || '';
 
@@ -3155,6 +3171,11 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
             mainTextDiv.classList.add('md-content');
             sDiv.appendChild(mainTextDiv);
             mainTextDiv.innerHTML = renderMarkdown(fullReply);
+            if (toolCallRecords.length) {
+                const musicCards = document.createElement('div');
+                musicCards.innerHTML = renderToolCallGroupHTML(toolCallRecords, false);
+                sDiv.appendChild(musicCards);
+            }
         }
 
         // --- 5. 存入云端，思考链从 DOM 取（避免流解析丢数据）---

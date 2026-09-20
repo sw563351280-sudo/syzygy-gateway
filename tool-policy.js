@@ -35,9 +35,17 @@ function hasAlbumSearchIntent(text) {
         || new RegExp(`${term}.{0,16}(?:里|中).{0,16}(?:有什么|有没|有没有|哪|找|搜|看|发|调出)`, 'i').test(value);
 }
 
+function hasMusicIntent(text) {
+    return /音乐|听.{0,6}歌|点歌|放.{0,8}歌|推荐.{0,8}歌|一起听|这首|歌单|私选|music/i.test(String(text || ''));
+}
+
 function requestedBuiltinToolNames(text) {
     const value = String(text || '');
     const names = new Set();
+    if (hasMusicIntent(value)) {
+        names.add('music_search_and_play');
+        names.add('music_current_session');
+    }
 
     if (/https?:\/\//i.test(value)) names.add('fetch_txt');
     if (/html|网页源码|页面结构/i.test(value)) names.add('fetch_html');
@@ -69,6 +77,7 @@ function keepRequestedReadTools(tools, text) {
 
 module.exports = {
     hasProjectFileIntent,
+    hasMusicIntent,
     hasToyDeviceIntent,
     hasToyFollowUpIntent,
     hasAlbumSearchIntent,
