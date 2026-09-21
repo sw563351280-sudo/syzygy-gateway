@@ -3853,14 +3853,15 @@ function toggleChatToolMenu() {
     const menu = document.getElementById('chatToolMenu');
     const btn  = document.getElementById('chatToolBtn');
     const isOpen = menu.classList.contains('show');
-    
-    if (isOpen) {
-        menu.classList.remove('show');
-        btn.classList.remove('open');
-    } else {
-        menu.classList.add('show');
-        btn.classList.add('open');
-    }
+    menu.classList.toggle('show', !isOpen);
+    btn.classList.toggle('open', !isOpen);
+    btn.setAttribute('aria-expanded', String(!isOpen));
+}
+
+function openChatMusic() {
+    const menu = document.getElementById('chatToolMenu');
+    if (menu?.classList.contains('show')) toggleChatToolMenu();
+    window.SyzygyMusic?.open();
 }
 
 /* 点击其他地方自动收起 */
@@ -3869,7 +3870,9 @@ document.addEventListener('click', function(e) {
     const menu = document.getElementById('chatToolMenu');
     if (menu && wrap && !wrap.contains(e.target)) {
         menu.classList.remove('show');
-        document.getElementById('chatToolBtn')?.classList.remove('open');
+        const btn = document.getElementById('chatToolBtn');
+        btn?.classList.remove('open');
+        btn?.setAttribute('aria-expanded', 'false');
     }
 });
 

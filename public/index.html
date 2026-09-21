@@ -11,7 +11,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
-    <link rel="stylesheet" href="style.css?v=83">
+    <link rel="stylesheet" href="style.css?v=85">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body class="neu-mode">
@@ -150,7 +150,7 @@
 
                 <div class="chat-bottom-bar">
     <div class="chat-model-row">
-        <div style="display:flex;align-items:center;flex:1">
+        <div class="chat-model-control">
             <div class="model-icon-wrap" id="modelIconWrap"></div>
             <select id="modelSelect" class="model-select" onchange="onModelChange(this)">
                 <option value="">⟡ 正在连接...</option>
@@ -160,21 +160,29 @@
 
     <div id="imgPreviewWrap" class="chat-image-preview" hidden aria-live="polite"></div>
 
-    <div style="display:flex;gap:8px;align-items:flex-end;width:100%;">
+    <div class="chat-composer-row">
         <div class="chat-tool-wrap">
-            <button class="chat-tool-btn" id="chatToolBtn" onclick="toggleChatToolMenu()">⊕</button>
+            <button class="chat-tool-btn" id="chatToolBtn" onclick="toggleChatToolMenu()" aria-label="更多功能" aria-controls="chatToolMenu" aria-expanded="false">＋</button>
             <div class="chat-tool-menu" id="chatToolMenu">
-    <label class="chat-tool-item">
-        <input type="checkbox" id="streamToggle" checked>
-        <span>打字机效果</span>
-    </label>
-    <label class="chat-tool-item" id="toolsMasterLabel">
-        <input type="checkbox" id="toolsMasterToggle" onchange="toggleAllToolsUI()">
-        <span>🔧 启用工具</span>
-    </label>
-    <label for="imgUpload" class="chat-tool-item">
-        <span>◇</span>
+    <label for="imgUpload" class="chat-tool-item chat-tool-action">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 18 5-5 3 3 3-4 5 5"/></svg>
         <span>发送图片</span>
+    </label>
+    <button type="button" class="chat-tool-item chat-tool-action" onclick="openChatMusic()">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10 18V5l10-2v13"/><circle cx="7" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>
+        <span>一起听</span>
+    </button>
+    <div class="chat-tool-divider"></div>
+    <div class="chat-tool-caption">聊天偏好</div>
+    <label class="chat-tool-item chat-tool-preference">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h16"/><path d="M17 10v4"/></svg>
+        <span>打字机效果</span>
+        <input type="checkbox" id="streamToggle" checked>
+    </label>
+    <label class="chat-tool-item chat-tool-preference" id="toolsMasterLabel">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 7 3-3 3 3-3 3-3-3Zm8 10 3-3 3 3-3 3-3-3ZM4 17h6M14 7h6"/></svg>
+        <span>启用工具</span>
+        <input type="checkbox" id="toolsMasterToggle" onchange="toggleAllToolsUI()">
     </label>
     <input type="file" id="imgUpload" accept="image/*" multiple style="display:none;">
 </div>
@@ -582,8 +590,8 @@
 
 <script src="clipboard-images.js?v=1"></script>
 <script src="thinking-parser.js?v=1"></script>
-<script src="script.js?v=73"></script>
-<script src="music-player.js?v=2" defer></script>
+<script src="script.js?v=74"></script>
+<script src="music-player.js?v=3" defer></script>
         <div id="msgContextMenu" style="display: none; position: fixed; background: rgba(10, 17, 40, 0.95); border: 1px solid var(--gold); box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-radius: 12px; padding: 8px 0; z-index: 9999; backdrop-filter: blur(10px); color: #fff; font-size: 0.9em; min-width: 150px;">
         <div id="menuTime" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🕒 时间: -</div>
         <div id="menuModel" style="padding: 8px 15px; color: var(--dim); font-size: 0.85em; border-bottom: 1px solid rgba(255,255,255,0.1);">🤖 模型: -</div>

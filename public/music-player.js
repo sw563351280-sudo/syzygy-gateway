@@ -7,7 +7,7 @@
     document.body.append(host);
     const root = host.attachShadow({ mode: 'open' });
     root.innerHTML = `
-      <link rel="stylesheet" href="/music-player.css?v=1">
+      <link rel="stylesheet" href="/music-player.css?v=2">
       <button class="launcher" aria-label="打开一起听歌">♫ <span>一起听</span></button>
       <section class="panel" aria-label="一起听歌" hidden>
         <header><div><small>SHARED LISTENING</small><h2>耳机分你一只。</h2></div><button data-action="hide" aria-label="收起播放器">⌄</button></header>
@@ -342,6 +342,12 @@
         if (actions[button.dataset.action]) void attempt(actions[button.dataset.action]);
     });
     $('.launcher').addEventListener('click', () => { $('.panel').hidden = !$('.panel').hidden; if (!$('.panel').hidden) void attempt(refresh); });
+    const chatSection = document.getElementById('sec-chat');
+    if (chatSection) {
+        const syncChatLauncher = () => host.classList.toggle('chat-active', chatSection.classList.contains('active'));
+        new MutationObserver(syncChatLauncher).observe(chatSection, { attributes: true, attributeFilter: ['class'] });
+        syncChatLauncher();
+    }
     root.addEventListener('keydown', e => { if (e.key === 'Escape') { $('.panel').hidden = true; $('.launcher').focus(); } });
     $('.search').addEventListener('submit', e => { e.preventDefault(); const query = new FormData(e.currentTarget).get('q'); void attempt(async () => { notice('正在搜索…'); const songs = await api('/search?q=' + encodeURIComponent(query)); renderSongs($('.search-results'), songs); notice(songs.length ? '' : '没有找到歌曲，试试补充歌手。'); }); });
     $('.import').addEventListener('submit', e => { e.preventDefault(); const value = new FormData(e.currentTarget).get('value'); void attempt(async () => { notice('正在导入歌单…'); await api('/playlists/import', { value }); await loadLibrary(); notice('歌单已导入。'); }); });
