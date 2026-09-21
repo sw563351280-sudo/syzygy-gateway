@@ -3784,19 +3784,19 @@ body.neu-mode #sec-chat .msg.user {
 }
 html.is-mobile-device body.neu-mode #sec-chat .msg.user,
 html.is-mobile-device body.neu-mode #sec-chat .msg.sys {
-  backdrop-filter: blur(4px) !important;
-  -webkit-backdrop-filter: blur(4px) !important;
+  backdrop-filter: blur(2px) !important;
+  -webkit-backdrop-filter: blur(2px) !important;
 }
 @media (max-width: 768px), (max-device-width: 768px) {
   body.neu-mode #sec-chat .msg.user {
     background: rgba(120,180,220,.15) !important;
-    backdrop-filter: blur(4px) !important;
-    -webkit-backdrop-filter: blur(4px) !important;
+    backdrop-filter: blur(2px) !important;
+    -webkit-backdrop-filter: blur(2px) !important;
   }
   body.neu-mode #sec-chat .msg.sys {
     background: rgba(255,255,255,.10) !important;
-    backdrop-filter: blur(4px) !important;
-    -webkit-backdrop-filter: blur(4px) !important;
+    backdrop-filter: blur(2px) !important;
+    -webkit-backdrop-filter: blur(2px) !important;
   }
 }
 body.neu-mode #sec-chat .msg-actions .msg-inline-btn,
