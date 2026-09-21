@@ -3782,6 +3782,18 @@ body.neu-mode #sec-chat .msg.user {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 }
+@media (max-width: 768px) {
+  body.neu-mode #sec-chat .msg.user {
+    background: rgba(120,180,220,.15) !important;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  body.neu-mode #sec-chat .msg.sys {
+    background: rgba(255,255,255,.10) !important;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+}
 body.neu-mode #sec-chat .msg-actions .msg-inline-btn,
 body.neu-mode #sec-chat .msg-action-btn { display: none !important; }
 body.neu-mode #sec-chat .msg-actions:not(:has(.version-nav)) { display: none; }
