@@ -3758,48 +3758,43 @@ body.neu-mode #sec-chat .msg-row {
   margin-bottom: 22px;
 }
 body.neu-mode #sec-chat .msg.sys {
-  width: 100%;
-  max-width: 100%;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent !important;
+  width: fit-content;
+  max-width: 94%;
+  padding: 10px 14px 8px;
+  border: 1px solid rgba(180,210,235,.18);
+  border-radius: 18px;
+  background: rgba(120,160,200,.15) !important;
   color: #4b5c70;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  box-shadow: 0 3px 12px rgba(72,98,124,.055);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   font-weight: 400;
   -webkit-font-smoothing: antialiased;
   text-shadow: 0 0 .65px rgba(67,84,105,.18);
 }
-body.neu-mode #sec-chat .msg.sys:hover { border: 0; box-shadow: none; }
+body.neu-mode #sec-chat .msg.sys:hover { border-color: rgba(180,210,235,.26); box-shadow: 0 4px 18px rgba(72,98,124,.08); }
 body.neu-mode #sec-chat .msg.user {
-  border: 1px solid rgba(255,255,255,.32);
-  border-radius: 16px;
-  background: rgba(255,255,255,.25) !important;
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 18px;
+  background: rgba(255,255,255,.18) !important;
   color: var(--chat-ink);
   box-shadow: 0 3px 12px rgba(75,98,120,.035);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
-body.neu-mode #sec-chat .msg.sys {
-  padding-left: 14px;
-  border-left: 2px solid rgba(197,161,93,.72);
-}
-body.neu-mode #sec-chat .msg.sys:hover { border-left: 2px solid rgba(197,161,93,.72); }
 body.neu-mode #sec-chat .msg-actions .msg-inline-btn,
 body.neu-mode #sec-chat .msg-action-btn { display: none !important; }
 body.neu-mode #sec-chat .msg-actions:not(:has(.version-nav)) { display: none; }
 body.neu-mode #sec-chat .msg-row.sys.has-think-marker {
   flex-direction: column;
-  align-items: stretch;
+  align-items: flex-start;
   gap: 3px;
 }
 body.neu-mode #sec-chat .think-marker {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  width: 100%;
+  width: auto;
   padding-left: 2px;
 }
 body.neu-mode #sec-chat .think-marker[hidden] { display: none !important; }
