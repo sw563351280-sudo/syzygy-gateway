@@ -3761,26 +3761,26 @@ body.neu-mode #sec-chat .msg.sys {
   width: fit-content;
   max-width: 94%;
   padding: 10px 14px 8px;
-  border: 1px solid rgba(180,210,235,.18);
+  border: 0.5px solid rgba(255,255,255,.3);
   border-radius: 18px;
-  background: rgba(20,30,50,.18) !important;
+  background: rgba(255,255,255,.08) !important;
   color: #4b5c70;
   box-shadow: 0 3px 12px rgba(72,98,124,.055);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   font-weight: 400;
   -webkit-font-smoothing: antialiased;
   text-shadow: 0 0 .65px rgba(67,84,105,.18);
 }
 body.neu-mode #sec-chat .msg.sys:hover { border-color: rgba(180,210,235,.26); box-shadow: 0 4px 18px rgba(72,98,124,.08); }
 body.neu-mode #sec-chat .msg.user {
-  border: 1px solid rgba(255,255,255,.28);
+  border: 0.5px solid rgba(255,255,255,.35);
   border-radius: 18px;
-  background: rgba(80,140,200,.22) !important;
+  background: rgba(120,180,220,.12) !important;
   color: var(--chat-ink);
   box-shadow: 0 3px 12px rgba(75,98,120,.035);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 body.neu-mode #sec-chat .msg-actions .msg-inline-btn,
 body.neu-mode #sec-chat .msg-action-btn { display: none !important; }
