@@ -2668,6 +2668,37 @@ async function hydrateGitHubCard(el, url) {
     }
 }
 
+function createThinkingMarker(thinking) {
+    const marker = document.createElement('div');
+    marker.className = 'think-marker';
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'think-marker-button';
+    button.setAttribute('aria-label', '展开深度思考过程');
+    button.textContent = '🫧';
+
+    const detail = document.createElement('div');
+    detail.className = 'think-marker-detail';
+    detail.hidden = true;
+
+    const update = (value) => {
+        const clean = stripDisplayTimestamp(value || '');
+        detail.innerHTML = escapeHtml(clean).replace(/\n/g, '<br>');
+        marker.hidden = !clean.trim();
+    };
+    button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        detail.hidden = !detail.hidden;
+        marker.classList.toggle('is-open', !detail.hidden);
+        button.setAttribute('aria-expanded', String(!detail.hidden));
+    });
+
+    marker.append(button, detail);
+    update(thinking);
+    return { element: marker, detail, update };
+}
+
 function renderChatMessages(options = {}){
     if (_isStreamingReply) { _renderDeferred = true; return; }
     const win = document.getElementById('chatWindow');
@@ -2710,9 +2741,6 @@ function renderChatMessages(options = {}){
         // rawContent 是模型原始正文。优先重新解析它，可修复旧版前端把
         // 反引号里的 <thinking> 示例误拆进思考气泡的历史消息。
         const finalThinking = (v.reasoning || m.reasoning || extractedThink.thinking || (!hasRawContent ? rawThinking : '')) || '';
-        if (finalThinking) div.classList.add('has-thinking');
-        if (m._thinkingOpen) div.classList.add('show-thinking');
-        if(finalThinking) htmlContent += '<div class="think-box"><div class="think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">🫧 深度思考过程 ▾</div><div class="think-content" style="display:none">' + stripDisplayTimestamp(finalThinking).replace(/\n/g,'<br>') + '</div></div>';
         // 渲染工具调用记录（整组折叠）
         if (v.toolCalls && v.toolCalls.length > 0) htmlContent += renderToolCallGroupHTML(v.toolCalls, false);
         if (m.role === 'user') {
@@ -2746,6 +2774,10 @@ function renderChatMessages(options = {}){
         htmlContent += actionsHtml;
 
         div.innerHTML = htmlContent;
+        if (m.role === 'assistant' && finalThinking.trim()) {
+            rowDiv.classList.add('has-think-marker');
+            rowDiv.appendChild(createThinkingMarker(finalThinking).element);
+        }
         rowDiv.appendChild(div);
 
         win.appendChild(rowDiv);
@@ -3020,10 +3052,14 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         let thinkContent = "";
         let reasoningContent = "";  // delta.reasoning_content
         let rawAssistantText = "";   // 未清洗的原始返回
-        let thinkBox = null, thinkTextDiv = null;
+        let thinkMarker = null, thinkTextDiv = null;
 
         // ==========================================
         resetSilenceTimer();
+        thinkMarker = createThinkingMarker('');
+        thinkMarker.element.hidden = true;
+        thinkTextDiv = thinkMarker.detail;
+        sRow.insertBefore(thinkMarker.element, sDiv);
         // 🌊 流式接收核心逻辑 (Stream = true)
         // ==========================================
         if (isStream) {
@@ -3032,14 +3068,8 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
             const decoder = new TextDecoder("utf-8");
             let buffer = "";
 
-            // 创建两个用于装文字的框框
+            // 思考过程显示为消息气泡上方的常驻 🫧 标记
             sDiv.innerHTML = '';
-            thinkBox = document.createElement('div');
-            thinkBox.className = 'think-box';
-            thinkBox.style.display = 'none'; // 默认隐藏，如果有内容再显示
-            thinkBox.innerHTML = `<div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🫧 深度思考过程 ▾</div><div class="think-content" style="display:none"></div>`;
-            thinkTextDiv = thinkBox.querySelector('.think-content');
-            sDiv.appendChild(thinkBox);
             
             const mainTextDiv = document.createElement('div');
             mainTextDiv.classList.add('md-content');
@@ -3083,8 +3113,8 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
                         if (delta.reasoning_content) {
                             thinkContent += delta.reasoning_content;
                             reasoningContent += delta.reasoning_content;
-                            thinkBox.style.display = 'block'; // 显示思考框
-                            thinkTextDiv.innerHTML = stripDisplayTimestamp(thinkContent).replace(/\n/g, '<br>');
+                            sRow.classList.add('has-think-marker');
+                            thinkMarker.update(thinkContent);
                             scrollChatToBottomIfNear(win);
                         }
 
@@ -3106,8 +3136,8 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
                             const combinedThinking = [reasoningContent, parsed.thinking].filter(Boolean).join('\n\n');
                             if (combinedThinking) {
                                 thinkContent = combinedThinking;
-                                thinkBox.style.display = 'block';
-                                thinkTextDiv.innerHTML = stripDisplayTimestamp(thinkContent).replace(/\n/g, '<br>');
+                                sRow.classList.add('has-think-marker');
+                                thinkMarker.update(thinkContent);
                             }
 
                             if (fullReply) mainTextDiv.innerHTML = stripDisplayTimestamp(fullReply).replace(/\n/g, '<br>') + '<span class="typing-cursor"></span>';
@@ -3132,8 +3162,8 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
                             const combinedThinking = [reasoningContent, result.thinking].filter(Boolean).join('\n\n');
                             if (combinedThinking) {
                                 thinkContent = combinedThinking;
-                                thinkBox.style.display = 'block';
-                                thinkTextDiv.innerHTML = stripDisplayTimestamp(thinkContent).replace(/\n/g, '<br>');
+                                sRow.classList.add('has-think-marker');
+                                thinkMarker.update(thinkContent);
                             }
                         }
                     } catch(e) {}
@@ -3160,10 +3190,8 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
 
             sDiv.innerHTML = '';
             if (thinkContent) {
-                const thinkBox = document.createElement('div');
-                thinkBox.className = 'think-box';
-                thinkBox.innerHTML = `<div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🫧 深度思考过程 ▾</div><div class="think-content" style="display:none">${stripDisplayTimestamp(thinkContent).replace(/\n/g, '<br>')}</div>`;
-                sDiv.appendChild(thinkBox);
+                sRow.classList.add('has-think-marker');
+                thinkMarker.update(thinkContent);
             }
             const mainTextDiv = document.createElement('div');
             mainTextDiv.classList.add('md-content');
@@ -3178,7 +3206,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
 
         // --- 5. 存入云端，思考链从 DOM 取（避免流解析丢数据）---
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-        const domThinking = stripDisplayTimestamp(thinkTextDiv && thinkBox && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || ''));
+        const domThinking = stripDisplayTimestamp(thinkContent || (thinkTextDiv ? thinkTextDiv.innerText : '') || '');
         assistantMsg = { _id: crypto.randomUUID(), role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
         getLiveSession(sessionId).messages.push(assistantMsg);
         // 先存本地备份，再尝试云端同步
@@ -3203,7 +3231,6 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         sRow.dataset.msgIndex = msgIdx;
         sRow.tabIndex = 0;
         sRow.setAttribute('aria-label', '沈望的消息，长按打开操作');
-        if (domThinking) sDiv.classList.add('has-thinking');
         actionsDiv.innerHTML = '<button class="msg-inline-btn msg-regenerate" onclick="regenerateAt(' + msgIdx + ')" title="重新生成" aria-label="重新生成">↻</button><button class="msg-inline-btn fav-star" id="favBtn_' + msgIdx + '" onclick="toggleFavorite(' + msgIdx + ')" title="收藏" aria-label="收藏">★</button>';
         sDiv.appendChild(actionsDiv);
         sDiv.classList.remove('msg-loading');
@@ -3755,14 +3782,7 @@ function showChatMessageMenu(row, clientX, clientY) {
     const entries = msg.role === 'user'
         ? [{key:'edit',label:'编辑',action:()=>editUserMessage(index)}, {key:'refresh',label:'重发',action:()=>resendUserMessage(index)}]
         : [{key:'refresh',label:msg._failed ? '重试' : '刷新',action:()=>msg._failed ? retryLastMessage() : regenerateAt(index)},
-           {key:'star',label:msg._favoriteId ? '取消收藏' : '收藏',action:()=>toggleFavorite(index),favorite:true},
-           ...(row.querySelector('.think-box') ? [{key:'thinking',label:'思考',action:()=>{
-               msg._thinkingOpen = !msg._thinkingOpen;
-               const body = row.querySelector('.msg');
-               body.classList.toggle('show-thinking', msg._thinkingOpen);
-               const content = body.querySelector('.think-content');
-               if (content && msg._thinkingOpen) content.style.display = 'block';
-           }}] : [])];
+           {key:'star',label:msg._favoriteId ? '取消收藏' : '收藏',action:()=>toggleFavorite(index),favorite:true}];
     menu.replaceChildren();
     for (const entry of entries) {
         const button = document.createElement('button');
@@ -3789,7 +3809,7 @@ let _chatMenuHoldTimer = null, _chatMenuHoldStart = null;
 document.addEventListener('pointerdown', e => {
     if (!e.target.closest('#msgContextMenu')) closeChatMessageMenu();
     const row = e.target.closest('#chatWindow .msg-row[data-msg-index]');
-    if (!row || e.target.closest('button,a,input,.think-header') || e.pointerType === 'mouse') return;
+    if (!row || e.target.closest('button,a,input,.think-marker-button') || e.pointerType === 'mouse') return;
     _chatMenuHoldStart = {x:e.clientX,y:e.clientY};
     clearTimeout(_chatMenuHoldTimer);
     _chatMenuHoldTimer = setTimeout(() => { showChatMessageMenu(row,e.clientX,e.clientY); _chatMenuHoldTimer=null; }, 480);
@@ -4250,6 +4270,11 @@ async function regenerateSend(aiMsgIndex) {
     if (!sDiv) return;
     sDiv.innerHTML = '<span class="loading-indicator">⟡ 信号传输中…</span>';
     sDiv.classList.add('msg-loading');
+    targetRow.classList.remove('has-think-marker');
+    targetRow.querySelector('.think-marker')?.remove();
+    const thinkMarker = createThinkingMarker('');
+    thinkMarker.element.hidden = true;
+    targetRow.insertBefore(thinkMarker.element, sDiv);
     const currentSup = suppliers[activeSupIndex];
     if (!currentSup) { sDiv.innerHTML = '<div class="msg-error"><div>【未配置供应商】</div></div>'; return; }
     // 与普通发送一致：生成期间不要让同步把当前会话替换成旧快照。
@@ -4276,13 +4301,13 @@ async function regenerateSend(aiMsgIndex) {
         var toolCallRecords = [];
         if(isStream) {
             const reader = response.body.getReader(); const decoder = new TextDecoder('utf-8'); let buffer='', rawAcc='', reasoningAcc='';
-            sDiv.innerHTML=''; const thinkBox=document.createElement('div'); thinkBox.className='think-box'; thinkBox.style.display='none'; thinkBox.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🫧 深度思考过程 ▾</div><div class="think-content"></div>'; const thinkTextDiv=thinkBox.querySelector('.think-content'); sDiv.appendChild(thinkBox);
+            sDiv.innerHTML=''; const thinkTextDiv=thinkMarker.detail;
             const mainTextDiv=document.createElement('div'); mainTextDiv.classList.add('md-content'); sDiv.appendChild(mainTextDiv);
             const toolGroupEl=document.createElement('div'); toolGroupEl.className='tool-call-group-wrap'; toolGroupEl.style.display='none'; sDiv.appendChild(toolGroupEl);
-            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); if(p.type==='tool_call'){toolCallRecords.push({name:p.name,arguments:p.arguments||{},result:p.result||'',elapsed:p.elapsed||0}); toolGroupEl.style.display='block'; updateToolGroupDOM(toolGroupEl,toolCallRecords,true); scrollChatToBottomIfNear(win);continue;} const d=p.choices[0].delta; if(d.reasoning_content){reasoningAcc+=d.reasoning_content; thinkBox.style.display='block';} if(d.content){rawAcc+=d.content; const parsed=extractThinkingFromContent(rawAcc); fullReply=parsed.visibleContent; const combinedThink=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n'); if(combinedThink){thinkContent=combinedThink; thinkBox.style.display='block'; thinkTextDiv.innerHTML=stripDisplayTimestamp(thinkContent).replace(/\n/g,'<br>');} mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';} scrollChatToBottomIfNear(win);}catch(e){}}}
+            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); if(p.type==='tool_call'){toolCallRecords.push({name:p.name,arguments:p.arguments||{},result:p.result||'',elapsed:p.elapsed||0}); toolGroupEl.style.display='block'; updateToolGroupDOM(toolGroupEl,toolCallRecords,true); scrollChatToBottomIfNear(win);continue;} const d=p.choices[0].delta; if(d.reasoning_content){reasoningAcc+=d.reasoning_content;} if(d.content){rawAcc+=d.content; const parsed=extractThinkingFromContent(rawAcc); fullReply=parsed.visibleContent; const combinedThink=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n'); if(combinedThink){thinkContent=combinedThink; thinkMarker.element.hidden=false; targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent);} mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';} scrollChatToBottomIfNear(win);}catch(e){}}}
             mainTextDiv.innerHTML=renderMarkdown(fullReply);
             if(toolCallRecords.length>0)updateToolGroupDOM(toolGroupEl,toolCallRecords,false);
-        } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){const tb=document.createElement('div');tb.className='think-box';tb.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🫧 深度思考过程 ▾</div><div class="think-content">'+stripDisplayTimestamp(thinkContent).replace(/\n/g,'<br>')+'</div>';sDiv.appendChild(tb);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
+        } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){thinkMarker.element.hidden=false; targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
         sDiv.classList.remove('msg-loading');
         const timeStr=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
         const liveSession = getLiveSession(sessionId) || session;

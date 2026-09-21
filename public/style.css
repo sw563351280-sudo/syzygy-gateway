@@ -3790,7 +3790,49 @@ body.neu-mode #sec-chat .msg.sys:hover { border-left: 2px solid rgba(197,161,93,
 body.neu-mode #sec-chat .msg-actions .msg-inline-btn,
 body.neu-mode #sec-chat .msg-action-btn { display: none !important; }
 body.neu-mode #sec-chat .msg-actions:not(:has(.version-nav)) { display: none; }
-body.neu-mode #sec-chat .msg.sys.has-thinking:not(.show-thinking) > .think-box { display: none !important; }
+body.neu-mode #sec-chat .msg-row.sys.has-think-marker {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+body.neu-mode #sec-chat .think-marker {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding-left: 2px;
+}
+body.neu-mode #sec-chat .think-marker[hidden] { display: none !important; }
+body.neu-mode #sec-chat .think-marker-button {
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #71869b;
+  font-size: 14px;
+  line-height: 18px;
+  cursor: pointer;
+  opacity: .72;
+  filter: saturate(.78);
+}
+body.neu-mode #sec-chat .think-marker-button:hover,
+body.neu-mode #sec-chat .think-marker-button:focus-visible {
+  opacity: 1;
+  outline: none;
+  transform: translateY(-1px);
+}
+body.neu-mode #sec-chat .think-marker-detail {
+  max-width: 100%;
+  margin: 1px 0 2px;
+  padding: 0 8px 0 2px;
+  color: #8191a5;
+  font-size: 10px;
+  line-height: 1.55;
+  letter-spacing: .01em;
+  text-shadow: none;
+}
+body.neu-mode #sec-chat .think-marker-detail[hidden] { display: none !important; }
 .msg-context-menu[hidden] { display: none !important; }
 .msg-context-menu {
   position: fixed;
