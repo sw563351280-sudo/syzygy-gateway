@@ -3763,11 +3763,11 @@ body.neu-mode #sec-chat .msg.sys {
   padding: 10px 14px 8px;
   border: 1px solid rgba(180,210,235,.18);
   border-radius: 18px;
-  background: rgba(120,160,200,.15) !important;
+  background: rgba(20,30,50,.18) !important;
   color: #4b5c70;
   box-shadow: 0 3px 12px rgba(72,98,124,.055);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   font-weight: 400;
   -webkit-font-smoothing: antialiased;
   text-shadow: 0 0 .65px rgba(67,84,105,.18);
@@ -3776,11 +3776,11 @@ body.neu-mode #sec-chat .msg.sys:hover { border-color: rgba(180,210,235,.26); bo
 body.neu-mode #sec-chat .msg.user {
   border: 1px solid rgba(255,255,255,.28);
   border-radius: 18px;
-  background: rgba(255,255,255,.18) !important;
+  background: rgba(80,140,200,.22) !important;
   color: var(--chat-ink);
   box-shadow: 0 3px 12px rgba(75,98,120,.035);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 body.neu-mode #sec-chat .msg-actions .msg-inline-btn,
 body.neu-mode #sec-chat .msg-action-btn { display: none !important; }
