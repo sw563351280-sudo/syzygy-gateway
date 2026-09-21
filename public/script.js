@@ -49,7 +49,7 @@ const starState = { pendingMeteor: false, pendingNebula: false };
 // ==================== Markdown 渲染 ====================
 if (typeof marked !== 'undefined') { marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false }); }
 function stripInternalTags(text) { return (text||'').replace(/<MOOD_SNAPSHOT>[\s\S]*?<\/MOOD_SNAPSHOT>/g, '').replace(/\[\[MOOD_SNAPSHOT\]\][\s\S]*?\[\[MOOD_SNAPSHOT\]\]/g, '').replace(/<\s*CRUMB\s*>[\s\S]*?<\s*\/\s*CRUMB\s*>/gi, '').replace(/<\s*SAVE_MEMORY\b[^>]*>[\s\S]*?<\s*\/\s*SAVE_MEMORY\s*>/gi, '').replace(/<ADD_TODO>[\s\S]*?<\/ADD_TODO>/g, '').replace(/<DONE_TODO[^>]*\/>/g, '').trim(); }
-function stripDisplayTimestamp(text) { return String(text||'').replace(/^\s*(?:⟦ts:[^⟧]*⟧|\[ts:\d{2}-\d{2}\s+\d{2}:\d{2}\]|\[\d{2}-\d{2}\s+\d{2}:\d{2}\])\s*/i, ''); }
+function stripDisplayTimestamp(text) { return String(text||'').replace(/^\s*(?:(?:⟦ts:[^⟧]*⟧|\[ts:\d{2}-\d{2}\s+\d{2}:\d{2}\]|\[\d{2}-\d{2}\s+\d{2}:\d{2}\])\s*)+/i, ''); }
 const LEGACY_SHORT_MESSAGE_SEP_RE = /[\u001f\u2063]/g;
 function legacyMessagePlain(content) {
     if (Array.isArray(content)) {
@@ -195,7 +195,7 @@ function normForDedup(s) {
 // Time prefixes belong to the model prompt only. They must never become part
 // of a cross-device message identity or visible chat content.
 function stripTransportTimePrefix(content) {
-  return String(content || '').replace(/^\s*(?:⟦ts:[^⟧]*⟧|\[ts:\d{2}-\d{2}\s+\d{2}:\d{2}\]|\[\d{2}-\d{2}\s+\d{2}:\d{2}\])\s*/i, '');
+  return stripDisplayTimestamp(content);
 }
 
 function tailHasContent(session, content, lookback) {
@@ -2690,6 +2690,8 @@ function renderChatMessages(options = {}){
         const rowDiv = document.createElement('div');
         rowDiv.className = 'msg-row ' + (m.role === 'user' ? 'user' : 'sys');
         rowDiv.setAttribute('data-msg-index', index);
+        rowDiv.tabIndex = 0;
+        rowDiv.setAttribute('aria-label', (m.role === 'user' ? '我的消息' : '沈望的消息') + '，长按打开操作');
 
         const div = document.createElement('div');
         div.className = 'msg ' + (m.role === 'user' ? 'user' : 'sys');
@@ -2708,11 +2710,13 @@ function renderChatMessages(options = {}){
         // rawContent 是模型原始正文。优先重新解析它，可修复旧版前端把
         // 反引号里的 <thinking> 示例误拆进思考气泡的历史消息。
         const finalThinking = (v.reasoning || m.reasoning || extractedThink.thinking || (!hasRawContent ? rawThinking : '')) || '';
-        if(finalThinking) htmlContent += '<div class="think-box"><div class="think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">' + finalThinking.replace(/\n/g,'<br>') + '</div></div>';
+        if (finalThinking) div.classList.add('has-thinking');
+        if (m._thinkingOpen) div.classList.add('show-thinking');
+        if(finalThinking) htmlContent += '<div class="think-box"><div class="think-header" onclick="var c=this.nextElementSibling;c.style.display=c.style.display===\'none\'?\'block\':\'none\';">🫧 深度思考过程 ▾</div><div class="think-content" style="display:none">' + stripDisplayTimestamp(finalThinking).replace(/\n/g,'<br>') + '</div></div>';
         // 渲染工具调用记录（整组折叠）
         if (v.toolCalls && v.toolCalls.length > 0) htmlContent += renderToolCallGroupHTML(v.toolCalls, false);
         if (m.role === 'user') {
-            htmlContent += '<div>' + legacyMessagePlain(displayContent || '').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
+            htmlContent += '<div>' + stripDisplayTimestamp(legacyMessagePlain(displayContent || '')).replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>') + '</div>';
             const xhsUrl = findXhsLink(displayContent);
             if (xhsUrl) htmlContent += '<div class="xhs-card" data-xhs-url="' + encodeURIComponent(xhsUrl) + '">正在读取小红书笔记…</div>';
             const githubUrl = findGitHubLink(displayContent);
@@ -2736,21 +2740,13 @@ function renderChatMessages(options = {}){
             } else {
                 actionsHtml += '<button class="msg-inline-btn msg-regenerate" onclick="regenerateAt(' + index + ')" title="重新生成" aria-label="重新生成">↻</button>';
             }
-            actionsHtml += '<button class="msg-inline-btn fav-star" id="favBtn_' + index + '" onclick="openFavDialog(' + index + ')" title="收藏" aria-label="收藏">★</button>';
+            actionsHtml += '<button class="msg-inline-btn fav-star' + (m._favoriteId ? ' faved' : '') + '" id="favBtn_' + index + '" onclick="toggleFavorite(' + index + ')" title="收藏" aria-label="收藏">★</button>';
         }
         actionsHtml += '</div>';
         htmlContent += actionsHtml;
 
         div.innerHTML = htmlContent;
         rowDiv.appendChild(div);
-
-        if(m.role !== 'user'){
-            const btn = document.createElement('button');
-            btn.className = 'msg-action-btn';
-            btn.innerHTML = '⋮';
-            btn.onclick = (e) => showContextMenu(e.clientX, e.clientY, v);
-            rowDiv.appendChild(btn);
-        }
 
         win.appendChild(rowDiv);
     });
@@ -2942,7 +2938,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         safeContent = '（发送了图片）';
     }
     safeContent = legacyMessagePlain(safeContent);
-    if (typeof safeContent === 'string') safeContent = fmtTsTag(v.fullTime) + safeContent;
+    if (typeof safeContent === 'string') safeContent = fmtTsTag(v.fullTime) + stripDisplayTimestamp(safeContent);
     return { role: m.role, content: safeContent };
 });
 
@@ -3041,7 +3037,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
             thinkBox = document.createElement('div');
             thinkBox.className = 'think-box';
             thinkBox.style.display = 'none'; // 默认隐藏，如果有内容再显示
-            thinkBox.innerHTML = `<div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none"></div>`;
+            thinkBox.innerHTML = `<div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🫧 深度思考过程 ▾</div><div class="think-content" style="display:none"></div>`;
             thinkTextDiv = thinkBox.querySelector('.think-content');
             sDiv.appendChild(thinkBox);
             
@@ -3088,7 +3084,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
                             thinkContent += delta.reasoning_content;
                             reasoningContent += delta.reasoning_content;
                             thinkBox.style.display = 'block'; // 显示思考框
-                            thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
+                            thinkTextDiv.innerHTML = stripDisplayTimestamp(thinkContent).replace(/\n/g, '<br>');
                             scrollChatToBottomIfNear(win);
                         }
 
@@ -3111,7 +3107,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
                             if (combinedThinking) {
                                 thinkContent = combinedThinking;
                                 thinkBox.style.display = 'block';
-                                thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
+                                thinkTextDiv.innerHTML = stripDisplayTimestamp(thinkContent).replace(/\n/g, '<br>');
                             }
 
                             if (fullReply) mainTextDiv.innerHTML = stripDisplayTimestamp(fullReply).replace(/\n/g, '<br>') + '<span class="typing-cursor"></span>';
@@ -3137,7 +3133,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
                             if (combinedThinking) {
                                 thinkContent = combinedThinking;
                                 thinkBox.style.display = 'block';
-                                thinkTextDiv.innerHTML = thinkContent.replace(/\n/g, '<br>');
+                                thinkTextDiv.innerHTML = stripDisplayTimestamp(thinkContent).replace(/\n/g, '<br>');
                             }
                         }
                     } catch(e) {}
@@ -3166,7 +3162,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
             if (thinkContent) {
                 const thinkBox = document.createElement('div');
                 thinkBox.className = 'think-box';
-                thinkBox.innerHTML = `<div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🧠 深度思考过程 ▾</div><div class="think-content" style="display:none">${thinkContent.replace(/\n/g, '<br>')}</div>`;
+                thinkBox.innerHTML = `<div class="think-header" onclick="const c=this.nextElementSibling;c.style.display=c.style.display==='none'?'block':'none';">🫧 深度思考过程 ▾</div><div class="think-content" style="display:none">${stripDisplayTimestamp(thinkContent).replace(/\n/g, '<br>')}</div>`;
                 sDiv.appendChild(thinkBox);
             }
             const mainTextDiv = document.createElement('div');
@@ -3182,7 +3178,7 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
 
         // --- 5. 存入云端，思考链从 DOM 取（避免流解析丢数据）---
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-        const domThinking = thinkTextDiv && thinkBox && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || '');
+        const domThinking = stripDisplayTimestamp(thinkTextDiv && thinkBox && thinkBox.style.display !== 'none' ? (thinkTextDiv.innerText || thinkContent || '') : (thinkContent || ''));
         assistantMsg = { _id: crypto.randomUUID(), role: 'assistant', versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
         getLiveSession(sessionId).messages.push(assistantMsg);
         // 先存本地备份，再尝试云端同步
@@ -3204,7 +3200,11 @@ var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
         const actionsDiv = document.createElement('div');
         actionsDiv.className = 'msg-actions';
         const msgIdx = getLiveSession(sessionId).messages.length - 1;
-        actionsDiv.innerHTML = '<button class="msg-inline-btn msg-regenerate" onclick="regenerateAt(' + msgIdx + ')" title="重新生成" aria-label="重新生成">↻</button><button class="msg-inline-btn fav-star" id="favBtn_' + msgIdx + '" onclick="openFavDialog(' + msgIdx + ')" title="收藏" aria-label="收藏">★</button>';
+        sRow.dataset.msgIndex = msgIdx;
+        sRow.tabIndex = 0;
+        sRow.setAttribute('aria-label', '沈望的消息，长按打开操作');
+        if (domThinking) sDiv.classList.add('has-thinking');
+        actionsDiv.innerHTML = '<button class="msg-inline-btn msg-regenerate" onclick="regenerateAt(' + msgIdx + ')" title="重新生成" aria-label="重新生成">↻</button><button class="msg-inline-btn fav-star" id="favBtn_' + msgIdx + '" onclick="toggleFavorite(' + msgIdx + ')" title="收藏" aria-label="收藏">★</button>';
         sDiv.appendChild(actionsDiv);
         sDiv.classList.remove('msg-loading');
 
@@ -3737,23 +3737,81 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-function showContextMenu(clientX, clientY, msg){
+const CHAT_MENU_ICONS = {
+    edit: '<path d="m4 20 4.2-1 10.6-10.6-3.2-3.2L5 15.8 4 20Z"/><path d="m13.8 6.8 3.2 3.2"/>',
+    refresh: '<path d="M20 11a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/>',
+    star: '<path d="m12 2.6 2.9 6 6.6 1-4.8 4.6 1.1 6.5-5.8-3.1-5.8 3.1 1.1-6.5-4.8-4.6 6.6-1 2.9-6Z"/>'
+};
+function closeChatMessageMenu() {
     const menu = document.getElementById('msgContextMenu');
-    if(!menu) return;
-    const timeEl = document.getElementById('menuTime'); const modelEl = document.getElementById('menuModel');
-    if(timeEl) timeEl.innerText  = `🕒 时间: ${msg.time  || '刚刚'}`;
-    if(modelEl) modelEl.innerText = `🤖 模型: ${msg.model || '未知'}`;
-
-    menu.style.display = 'block'; menu.style.left = clientX + 'px'; menu.style.top = clientY + 'px';
-    if(clientX + menu.offsetWidth > window.innerWidth) menu.style.left = (window.innerWidth - menu.offsetWidth - 10) + 'px';
-    if(clientY + menu.offsetHeight > window.innerHeight) menu.style.top = (window.innerHeight - menu.offsetHeight - 10) + 'px';
+    if (menu) menu.hidden = true;
 }
-
-document.addEventListener('click', (e) => {
-    // 💥 加上了 !e.target.closest('.msg-action-btn')，给小按键发免死金牌
-    if(!e.target.closest('#msgContextMenu') && !e.target.closest('.msg') && !e.target.closest('.msg-action-btn')){
-        const menu = document.getElementById('msgContextMenu');
-        if(menu) menu.style.display = 'none';
+function showChatMessageMenu(row, clientX, clientY) {
+    const menu = document.getElementById('msgContextMenu');
+    const session = getActiveSession();
+    const index = Number(row?.dataset.msgIndex);
+    const msg = session?.messages?.[index];
+    if (!menu || !msg || _isStreamingReply) return;
+    const entries = msg.role === 'user'
+        ? [{key:'edit',label:'编辑',action:()=>editUserMessage(index)}, {key:'refresh',label:'重发',action:()=>resendUserMessage(index)}]
+        : [{key:'refresh',label:msg._failed ? '重试' : '刷新',action:()=>msg._failed ? retryLastMessage() : regenerateAt(index)},
+           {key:'star',label:msg._favoriteId ? '取消收藏' : '收藏',action:()=>toggleFavorite(index),favorite:true},
+           ...(row.querySelector('.think-box') ? [{key:'thinking',label:'思考',action:()=>{
+               msg._thinkingOpen = !msg._thinkingOpen;
+               const body = row.querySelector('.msg');
+               body.classList.toggle('show-thinking', msg._thinkingOpen);
+               const content = body.querySelector('.think-content');
+               if (content && msg._thinkingOpen) content.style.display = 'block';
+           }}] : [])];
+    menu.replaceChildren();
+    for (const entry of entries) {
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = 'msg-context-action'; button.setAttribute('role','menuitem');
+        if (entry.favorite) button.classList.add('favorite-action');
+        if (entry.favorite && msg._favoriteId) button.classList.add('is-favorite');
+        button.innerHTML = entry.key === 'thinking' ? '<span class="msg-context-bubble" aria-hidden="true">🫧</span><span>'+entry.label+'</span>'
+            : '<svg viewBox="0 0 24 24" fill="'+(entry.favorite && msg._favoriteId ? 'currentColor' : 'none')+'" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+CHAT_MENU_ICONS[entry.key]+'</svg><span>'+entry.label+'</span>';
+        button.addEventListener('click', () => { closeChatMessageMenu(); entry.action(); });
+        menu.appendChild(button);
+    }
+    menu.hidden = false;
+    const bounds = menu.getBoundingClientRect();
+    const rowBounds = row.getBoundingClientRect();
+    menu.style.left = Math.max(8, Math.min(window.innerWidth - bounds.width - 8, clientX - bounds.width / 2)) + 'px';
+    menu.style.top = Math.max(8, Math.min(window.innerHeight - bounds.height - 8, rowBounds.top - bounds.height - 8)) + 'px';
+    menu.querySelector('button')?.focus({preventScroll:true});
+}
+function showContextMenu(clientX, clientY, msg) {
+    const row = document.querySelector('#chatWindow .msg-row[data-msg-index="'+msg?.index+'"]');
+    if (row) showChatMessageMenu(row, clientX, clientY);
+}
+let _chatMenuHoldTimer = null, _chatMenuHoldStart = null;
+document.addEventListener('pointerdown', e => {
+    if (!e.target.closest('#msgContextMenu')) closeChatMessageMenu();
+    const row = e.target.closest('#chatWindow .msg-row[data-msg-index]');
+    if (!row || e.target.closest('button,a,input,.think-header') || e.pointerType === 'mouse') return;
+    _chatMenuHoldStart = {x:e.clientX,y:e.clientY};
+    clearTimeout(_chatMenuHoldTimer);
+    _chatMenuHoldTimer = setTimeout(() => { showChatMessageMenu(row,e.clientX,e.clientY); _chatMenuHoldTimer=null; }, 480);
+});
+document.addEventListener('pointermove', e => {
+    if (_chatMenuHoldStart && Math.hypot(e.clientX-_chatMenuHoldStart.x,e.clientY-_chatMenuHoldStart.y) > 10) {
+        clearTimeout(_chatMenuHoldTimer); _chatMenuHoldTimer=null; _chatMenuHoldStart=null;
+    }
+});
+for (const type of ['pointerup','pointercancel','scroll']) document.addEventListener(type, () => {
+    clearTimeout(_chatMenuHoldTimer); _chatMenuHoldTimer=null; _chatMenuHoldStart=null;
+}, true);
+document.addEventListener('contextmenu', e => {
+    const row = e.target.closest('#chatWindow .msg-row[data-msg-index]');
+    if (!row) return;
+    e.preventDefault(); showChatMessageMenu(row,e.clientX,e.clientY);
+});
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeChatMessageMenu();
+    const row = e.target.closest?.('#chatWindow .msg-row[data-msg-index]');
+    if (row && ((e.shiftKey && e.key === 'F10') || e.key === 'Enter')) {
+        e.preventDefault(); const r=row.getBoundingClientRect(); showChatMessageMenu(row,r.left+r.width/2,r.top);
     }
 });
 
@@ -3793,6 +3851,12 @@ window.addEventListener('DOMContentLoaded', enforceNeuTheme);
 
 async function startSystem() {
     await syncFromCloud();
+    try {
+        await loadFavCache();
+        renderChatMessages();
+    } catch (e) {
+        console.warn('[favorites] 初始收藏状态加载失败:', e.message);
+    }
     updateDays();
     document.body.dataset.view = "home";
     if (document.body.classList.contains('neu-mode')) neuInitHome();
@@ -4193,7 +4257,7 @@ async function regenerateSend(aiMsgIndex) {
     let reSilenceTimer = null;
     const modelEl = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
-    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; c=legacyMessagePlain(c); if(typeof c==='string'&&m.role==='user')c=fmtTsTag(v.fullTime)+c; return {role:m.role,content:c}; });
+    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; c=legacyMessagePlain(c); if(typeof c==='string'&&m.role==='user')c=fmtTsTag(v.fullTime)+stripDisplayTimestamp(c); return {role:m.role,content:c}; });
     if (historyMsgs.length > 50) historyMsgs = historyMsgs.slice(-50);
     try {
         let apiUrl = '/v1/chat/completions';
@@ -4212,19 +4276,19 @@ async function regenerateSend(aiMsgIndex) {
         var toolCallRecords = [];
         if(isStream) {
             const reader = response.body.getReader(); const decoder = new TextDecoder('utf-8'); let buffer='', rawAcc='', reasoningAcc='';
-            sDiv.innerHTML=''; const thinkBox=document.createElement('div'); thinkBox.className='think-box'; thinkBox.style.display='none'; thinkBox.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content"></div>'; const thinkTextDiv=thinkBox.querySelector('.think-content'); sDiv.appendChild(thinkBox);
+            sDiv.innerHTML=''; const thinkBox=document.createElement('div'); thinkBox.className='think-box'; thinkBox.style.display='none'; thinkBox.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🫧 深度思考过程 ▾</div><div class="think-content"></div>'; const thinkTextDiv=thinkBox.querySelector('.think-content'); sDiv.appendChild(thinkBox);
             const mainTextDiv=document.createElement('div'); mainTextDiv.classList.add('md-content'); sDiv.appendChild(mainTextDiv);
             const toolGroupEl=document.createElement('div'); toolGroupEl.className='tool-call-group-wrap'; toolGroupEl.style.display='none'; sDiv.appendChild(toolGroupEl);
-            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); if(p.type==='tool_call'){toolCallRecords.push({name:p.name,arguments:p.arguments||{},result:p.result||'',elapsed:p.elapsed||0}); toolGroupEl.style.display='block'; updateToolGroupDOM(toolGroupEl,toolCallRecords,true); scrollChatToBottomIfNear(win);continue;} const d=p.choices[0].delta; if(d.reasoning_content){reasoningAcc+=d.reasoning_content; thinkBox.style.display='block';} if(d.content){rawAcc+=d.content; const parsed=extractThinkingFromContent(rawAcc); fullReply=parsed.visibleContent; const combinedThink=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n'); if(combinedThink){thinkContent=combinedThink; thinkBox.style.display='block'; thinkTextDiv.innerHTML=thinkContent.replace(/\n/g,'<br>');} mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';} scrollChatToBottomIfNear(win);}catch(e){}}}
+            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); if(p.type==='tool_call'){toolCallRecords.push({name:p.name,arguments:p.arguments||{},result:p.result||'',elapsed:p.elapsed||0}); toolGroupEl.style.display='block'; updateToolGroupDOM(toolGroupEl,toolCallRecords,true); scrollChatToBottomIfNear(win);continue;} const d=p.choices[0].delta; if(d.reasoning_content){reasoningAcc+=d.reasoning_content; thinkBox.style.display='block';} if(d.content){rawAcc+=d.content; const parsed=extractThinkingFromContent(rawAcc); fullReply=parsed.visibleContent; const combinedThink=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n'); if(combinedThink){thinkContent=combinedThink; thinkBox.style.display='block'; thinkTextDiv.innerHTML=stripDisplayTimestamp(thinkContent).replace(/\n/g,'<br>');} mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';} scrollChatToBottomIfNear(win);}catch(e){}}}
             mainTextDiv.innerHTML=renderMarkdown(fullReply);
             if(toolCallRecords.length>0)updateToolGroupDOM(toolGroupEl,toolCallRecords,false);
-        } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){const tb=document.createElement('div');tb.className='think-box';tb.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🧠 深度思考过程 ▾</div><div class="think-content">'+thinkContent.replace(/\n/g,'<br>')+'</div>';sDiv.appendChild(tb);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
+        } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){const tb=document.createElement('div');tb.className='think-box';tb.innerHTML='<div class="think-header" onclick="this.parentElement.classList.toggle(\'open\')">🫧 深度思考过程 ▾</div><div class="think-content">'+stripDisplayTimestamp(thinkContent).replace(/\n/g,'<br>')+'</div>';sDiv.appendChild(tb);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
         sDiv.classList.remove('msg-loading');
         const timeStr=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
         const liveSession = getLiveSession(sessionId) || session;
         const liveAiMsg = aiMsgId ? liveSession.messages.find(m => (m._id || m.id) === aiMsgId) : liveSession.messages[aiMsgIndex];
         if (!liveAiMsg) throw new Error('重新生成的目标消息已不在当前会话中');
-        ensureVersioned(liveAiMsg); liveAiMsg.versions.push({content:fullReply,thinking:thinkContent,time:timeStr,model:selectedModel,fullTime:new Date().toISOString(), toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined}); liveAiMsg.activeVersion=liveAiMsg.versions.length-1; liveAiMsg._zepDirty=true;
+        ensureVersioned(liveAiMsg); liveAiMsg.versions.push({content:fullReply,thinking:stripDisplayTimestamp(thinkContent),time:timeStr,model:selectedModel,fullTime:new Date().toISOString(), toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined}); liveAiMsg.activeVersion=liveAiMsg.versions.length-1; liveAiMsg._zepDirty=true;
         saveToCloud(); renderChatMessages();
     } catch(err) { sDiv.innerHTML='<div class="msg-error"><div>【网络崩溃】</div><div class="msg-error-detail">'+err.message+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); } finally { clearTimeout(reSilenceTimer); _isStreamingReply=false; if (_renderDeferred) { _renderDeferred=false; renderChatMessages(); } }
 }
@@ -4357,6 +4421,44 @@ let _favActiveTag = null;
 let _favTagsExpanded = false;
 let _favDetailTrigger = null;
 
+function normalizeFavoriteRecord(f) {
+    return {
+        ...f,
+        tags: Array.isArray(f.tags) ? f.tags : [],
+        messages: Array.isArray(f.messages) ? f.messages : []
+    };
+}
+
+function favoriteComparable(value) {
+    return normForDedup(stripDisplayTimestamp(legacyMessagePlain(value || '')));
+}
+
+function applyFavoriteMarkers() {
+    for (const session of chatSessions || []) {
+        const messages = Array.isArray(session.messages) ? session.messages : [];
+        for (let i = 0; i < messages.length; i++) {
+            const msg = messages[i];
+            if (msg.role !== 'assistant') continue;
+            const aiContent = favoriteComparable(getActiveVersion(msg).content);
+            let userContent = '';
+            for (let j = i - 1; j >= 0; j--) {
+                if (messages[j].role === 'user') {
+                    userContent = favoriteComparable(getActiveVersion(messages[j]).content);
+                    break;
+                }
+            }
+            const match = aiContent && _favCache.find(f => {
+                const favoriteMessages = Array.isArray(f.messages) ? f.messages : [];
+                const favoriteUser = favoriteMessages.find(x => x && x.role === 'user') || favoriteMessages[0];
+                const favoriteAssistant = favoriteMessages.find(x => x && x.role === 'assistant') || favoriteMessages[1];
+                return userContent === favoriteComparable(favoriteUser?.content)
+                    && aiContent === favoriteComparable(favoriteAssistant?.content);
+            });
+            msg._favoriteId = match?.id || null;
+        }
+    }
+}
+
 async function loadFavCache() {
     const r = await fetch('/api/favorites', { cache: 'no-store' });
     if (!r.ok) {
@@ -4365,11 +4467,8 @@ async function loadFavCache() {
         throw new Error(detail || ('HTTP ' + r.status));
     }
     const d = await r.json();
-    _favCache = Array.isArray(d.favorites) ? d.favorites.map(f => ({
-        ...f,
-        tags: Array.isArray(f.tags) ? f.tags : [],
-        messages: Array.isArray(f.messages) ? f.messages : []
-    })) : [];
+    _favCache = Array.isArray(d.favorites) ? d.favorites.map(normalizeFavoriteRecord) : [];
+    applyFavoriteMarkers();
 }
 
 function openFavDialog(index) {
@@ -4398,6 +4497,25 @@ function openFavDialog(index) {
 
 function closeFavModal() {
     document.getElementById('favModal').style.display = 'none';
+}
+
+async function toggleFavorite(index) {
+    const session = getActiveSession();
+    const msg = session?.messages?.[index];
+    if (!msg || msg.role !== 'assistant') return;
+    if (!msg._favoriteId) return openFavDialog(index);
+    try {
+        const r = await fetch('/api/favorites/' + encodeURIComponent(msg._favoriteId), { method: 'DELETE' });
+        const d = await r.json();
+        if (!r.ok || !d.success) throw new Error(d.error || '取消收藏失败');
+        _favCache = _favCache.filter(f => f.id !== msg._favoriteId);
+        msg._favoriteId = null;
+        saveToCloud();
+        renderChatMessages();
+        toast('已取消收藏');
+    } catch (e) {
+        toast('取消收藏失败: ' + e.message);
+    }
 }
 
 async function confirmFavorite() {
@@ -4434,8 +4552,10 @@ async function confirmFavorite() {
         if (d.success) {
             toast('已收藏 ⭐');
             closeFavModal();
-            const btn = document.getElementById('favBtn_' + _favTargetMsgIdx);
-            if (btn) { btn.classList.add('faved'); btn.innerHTML = '★'; }
+            aiMsg._favoriteId = d.favorite?.id || true;
+            if (d.favorite) _favCache.unshift(normalizeFavoriteRecord(d.favorite));
+            saveToCloud();
+            renderChatMessages();
         } else {
             toast('收藏失败: ' + (d.error || '未知'));
         }
@@ -4459,6 +4579,7 @@ async function loadAndRenderFavorites() {
     if (_favActiveTag && !_favCache.some(f => f.tags.includes(_favActiveTag))) _favActiveTag = null;
     renderFavFilters();
     filterFavByTag(_favActiveTag, false);
+    renderChatMessages();
 }
 
 function toggleFavTags() {
