@@ -926,6 +926,8 @@ function goView(viewId) {
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
+    const metaTheme = document.getElementById('theme-color-meta');
+    if (metaTheme) metaTheme.setAttribute('content', viewId === 'chat' ? '#EFF6FD' : '#E8EFF7');
     const VIEWS = ['home','chat','data','favorites','dev','console','flo','calendar','album','state','ledger'];
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);

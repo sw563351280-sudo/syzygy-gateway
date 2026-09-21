@@ -2945,6 +2945,7 @@ body.neu-mode #sec-console{
 
 /* ═══ 功能页 · 同一天幕的不同星象 ═══ */
 html { background: #E8EFF7; }
+html:has(body.view-chat) { background: #EFF6FD; }
 
 body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album) {
   position: relative;
@@ -3715,7 +3716,12 @@ body.neu-mode #sec-chat::before {
     background:
       radial-gradient(circle 30px at 50% 4%, rgba(255,255,255,.38), transparent 75%),
       radial-gradient(circle 34px at 14% 65%, rgba(255,255,255,.34), transparent 75%),
-      radial-gradient(circle 30px at 79% 67%, rgba(255,255,255,.34), transparent 75%);
+      radial-gradient(circle 30px at 79% 67%, rgba(255,255,255,.34), transparent 75%),
+      linear-gradient(180deg,
+        #EFF6FD 0,
+        #EFF6FD calc(env(safe-area-inset-top, 0px) + 8px),
+        rgba(239,246,253,.55) calc(env(safe-area-inset-top, 0px) + 56px),
+        transparent calc(env(safe-area-inset-top, 0px) + 112px));
   }
 }
 body.neu-mode #sec-chat .chat-floating-topbar {
@@ -3774,9 +3780,12 @@ body.neu-mode #sec-chat .msg.user {
   box-shadow: 0 3px 12px rgba(75,98,120,.045);
 }
 body.neu-mode #sec-chat .chat-window .msg {
-  font-size: clamp(14px, 3.8vw, 16px) !important;
+  font-size: 13px !important;
   line-height: 1.75 !important;
   letter-spacing: .015em;
+}
+@media (min-width: 601px) {
+  body.neu-mode #sec-chat .chat-window .msg { font-size: 15px !important; }
 }
 body.neu-mode #sec-chat .msg.sys .md-content p { margin: 0 0 1em; }
 body.neu-mode #sec-chat .msg.sys .md-content blockquote {
