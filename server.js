@@ -13,6 +13,7 @@ const { promisify } = require('util');
 const nodeFetch = require('node-fetch');
 const { createCodexBridge } = require('./codex-bridge');
 const { consumeOpenAIStream } = require('./streaming-chat');
+const { composeContext, createBudgetObserver } = require('./context-budget');
 const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
 const { extractDailyStateUpdates, stripLeakedStateUpdates, shouldCuratePersistentState } = require('./daily-state-curator');
 const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-merge');
@@ -7773,10 +7774,9 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 ? [{ type: 'text', text: prefix }, ...finalUserContent]
                 : prefix + finalUserContent;
         }
-        newMessages.push({ role: 'user', content: finalUserContent });
-        newMessages.unshift(systemMsg);
-
-        const bodyMessages = newMessages;
+        const contextParts = { systemMessage: systemMsg, historyMessages: newMessages,
+            currentMessage: { role: 'user', content: finalUserContent } };
+        const bodyMessages = composeContext(contextParts);
         body.messages = bodyMessages;
 
         // === 调试日志 ===
@@ -7802,6 +7802,8 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
 
         const apiUrl = resolveApiUrl(req.path);
+        const contextBudget = createBudgetObserver({ endpoint: apiUrl, model: body.model || '' });
+        contextBudget.context(contextParts);
 
         
         console.log('🛤️ [DEBUG] req.path:', req.path); 
@@ -7958,6 +7960,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             toolRound++;
             const roundLabel = `第${toolRound}轮`;
             console.log(`🔧 [工具] ${roundLabel}请求（${enabledTools.length}个工具）...`);
+            const budgetCall = contextBudget.request(toolBody);
             const toolResponse = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(toolBody) });
 
             if (!toolResponse.ok) {
@@ -8005,6 +8008,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             traceEvent(_tr, 'model', '模型请求·工具轮', { round: toolRound, status: toolResponse.status, usage: toolData?.usage || null, cacheMode: cacheMode2 });
             const curMessage = toolData.choices?.[0]?.message;
 
+            contextBudget.response(budgetCall, toolData?.usage);
             if (curMessage?.tool_calls && curMessage.tool_calls.length > 0) {
                 const thisSig = curMessage.tool_calls.map(t => t.function.name + ':' + (t.function.arguments || '')).join('|');
                 if (thisSig === lastToolSig) {
@@ -8110,6 +8114,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             delete body.tools; delete body.tool_choice;
         }
 
+        const finalBudgetCall = contextBudget.request(body);
         const response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
         if (!response.ok) {
             const errText = await response.text();
@@ -8130,6 +8135,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let sseBuffer = ''; let contentBuffer = ''; let isBuffering = false; let lastChunkTemplate = null; let fullAiResponse = ''; let fullReasoning = '';
+            let budgetStreamUsage = null;
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -8154,6 +8160,10 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                         res.write('data: [DONE]\n\n'); continue;
                     }
                     let parsed; try { parsed = JSON.parse(dataStr); } catch(e) { res.write(line + '\n'); continue; }
+                    if (parsed.usage) {
+                        budgetStreamUsage = { ...budgetStreamUsage, ...parsed.usage };
+                        contextBudget.response(finalBudgetCall, budgetStreamUsage);
+                    }
                     const delta = parsed.choices?.[0]?.delta;
                     if (delta && delta.reasoning_content) fullReasoning += delta.reasoning_content;
                     if (!delta || delta.content === undefined) {
@@ -8244,12 +8254,14 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     moodLog('[MOOD DEBUG] stream finalize done');
                 } catch(e) { moodLog('[MOOD ERROR] stream finalize error:', e && (e.stack || e.message || e)); }
             }
+            contextBudget.response(finalBudgetCall, budgetStreamUsage);
             await finalizeStreamAssistant();
             traceEnd(_tr, { ok: true, replyLen: fullAiResponse.length, path: 'stream' });
         } else {
             const rawText = await response.text();
             try {
                 const data = JSON.parse(rawText);
+                contextBudget.response(finalBudgetCall, data?.usage);
                 const assistantContent = data.choices?.[0]?.message?.content;
                 let finalContent = assistantContent || "";
                 if (assistantContent) {
@@ -9434,11 +9446,11 @@ app.post('/api/web-chat', async (req, res) => {
                     const prefix = webGitHubContext.text + '\n\n';
                     finalUser = Array.isArray(finalUser) ? [{ type: 'text', text: prefix }, ...finalUser] : prefix + finalUser;
                 }
-                const apiMessages = [
-                    webSystemMsg,
-                    ...historyMessages,
-                    { role: "user", content: finalUser }
-                ];
+                const webContextParts = { systemMessage: webSystemMsg, historyMessages,
+                    currentMessage: { role: 'user', content: finalUser } };
+                const apiMessages = composeContext(webContextParts);
+                const webContextBudget = createBudgetObserver({ endpoint: baseUrl, model: webModelName });
+                webContextBudget.context(webContextParts);
 
                 const wStableHash = require('crypto').createHash('sha256').update(webStableBlock).digest('hex').substring(0,12);
                 console.log(`📐 [CacheOpt-web] stableHash=${wStableHash} volatileHash=${volatileText?require('crypto').createHash('sha256').update(volatileText).digest('hex').substring(0,12):'(none)'} stableTokens≈${estimateTokens(webStableBlock)} totalMsg=${apiMessages.length} cache_control=${webIsClaude?'ephemeral':'none'}`);
@@ -9480,6 +9492,7 @@ app.post('/api/web-chat', async (req, res) => {
 
                     const roundLabel = `第${8 - webMaxRounds}轮`;
                     console.log(`🔧 [web-chat工具] ${roundLabel}请求...`);
+                    const webBudgetCall = webContextBudget.request(toolFetchBody);
                     const toolRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -9495,6 +9508,7 @@ app.post('/api/web-chat', async (req, res) => {
                     }
 
                     const toolData = await toolRes.json();
+                    webContextBudget.response(webBudgetCall, toolData?.usage);
                     const curMsg = toolData.choices?.[0]?.message;
 
                     if (curMsg?.tool_calls && curMsg.tool_calls.length > 0) {
@@ -9546,6 +9560,7 @@ app.post('/api/web-chat', async (req, res) => {
                     console.log(`🔧 [web-chat工具压缩] ${toolResults.length}段 → ${truncated.length}字符`);
                 }
 
+                const webFinalBudgetCall = webContextBudget.request(fetchBody);
                 const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -9559,6 +9574,7 @@ app.post('/api/web-chat', async (req, res) => {
 
                 const aiData = await aiRes.json();
                 logUsage(cacheMode, webModelName || model, aiData?.usage, 'web-chat-final');
+                webContextBudget.response(webFinalBudgetCall, aiData?.usage);
                 const message = aiData.choices?.[0]?.message;
                 let aiReply = message?.content || "";
                 let thinking = "";
