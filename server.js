@@ -682,6 +682,7 @@ const API_ROUTES = {
     'tree':   'https://api.treegpt.cc/v1/chat/completions',
     'reward':   'https://reward.dzzi.ai/v1/chat/completions',
     'jumeng':   'https://api.jumengai.net/v1/chat/completions',
+    'aihubmix': 'https://aihubmix.com/v1/chat/completions',
 
 };
 
