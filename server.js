@@ -13,7 +13,7 @@ const { promisify } = require('util');
 const nodeFetch = require('node-fetch');
 const { createCodexBridge } = require('./codex-bridge');
 const { consumeOpenAIStream } = require('./streaming-chat');
-const { composeContext, createBudgetObserver } = require('./context-budget');
+const { composeContext, createBudgetObserver, readConfig: readContextBudgetConfig } = require('./context-budget');
 const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
 const { extractDailyStateUpdates, stripLeakedStateUpdates, shouldCuratePersistentState } = require('./daily-state-curator');
 const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-merge');
@@ -8676,6 +8676,19 @@ app.get('/debug-console', (req, res) => {
         try { return e.m.toLowerCase().includes(filter); } catch(_) { return e.m.includes(req.query.filter || ''); }
     });
     res.json({ count: _consoleRing.length, shown: entries.length, entries });
+});
+
+app.get('/api/context-budget/status', (req, res) => {
+    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '需要管理密码' });
+    const config = readContextBudgetConfig();
+    res.set('Cache-Control', 'no-store');
+    res.json({
+        enabled: config.enabled,
+        mode: config.enabled ? 'observe' : 'off',
+        targetCny: config.targetCny,
+        historyTokens: config.historyTokens,
+        pricedRoutes: Object.keys(config.rates || {}),
+    });
 });
 
 app.get('/api/traces', (req, res) => {

@@ -1734,12 +1734,18 @@ function switchConsoleTab(name) {
 
 // ==================== 原始日志 ====================
 let _logAutoTimer = null;
-function loadRawLogs() {
+async function loadRawLogs() {
     let pwd = localStorage.getItem('memoryPwd');
     if (!pwd) { pwd = prompt('管理密码:'); if (!pwd) return; localStorage.setItem('memoryPwd', pwd); }
     const filter = document.getElementById('logFilterInput')?.value || '';
     const url = '/debug-console?n=200&pwd=' + encodeURIComponent(pwd) + (filter ? '&filter=' + encodeURIComponent(filter) : '');
-    fetch(url).then(r => r.json()).then(data => {
+    const statusEl = document.getElementById('contextBudgetStatus');
+    try {
+        const [logResponse, statusResponse] = await Promise.all([
+            fetch(url, { cache: 'no-store' }),
+            fetch('/api/context-budget/status?pwd=' + encodeURIComponent(pwd), { cache: 'no-store' })
+        ]);
+        const data = await logResponse.json();
         const pre = document.getElementById('logOutput');
         if (!pre) return;
         pre.innerHTML = ''; // 清空后逐行用 textContent 追加，避免 XSS
@@ -1753,7 +1759,20 @@ function loadRawLogs() {
             pre.appendChild(document.createTextNode('\n'));
         });
         pre.scrollTop = pre.scrollHeight;
-    }).catch(() => {});
+        const status = await statusResponse.json().catch(() => ({}));
+        if (statusEl) {
+            if (!statusResponse.ok) statusEl.textContent = '费用观测：状态不可用';
+            else {
+                const priced = Array.isArray(status.pricedRoutes) && status.pricedRoutes.length > 0;
+                statusEl.textContent = status.enabled
+                    ? '费用观测：已开启' + (priced ? ' · 已配置价格' : ' · 未配置价格')
+                    : '费用观测：已关闭';
+                statusEl.style.color = status.enabled ? (priced ? '#27ae60' : '#e67e22') : '#e74c3c';
+            }
+        }
+    } catch (_) {
+        if (statusEl) { statusEl.textContent = '费用观测：连接失败'; statusEl.style.color = '#e74c3c'; }
+    }
 }
 let _logFilterTimer = null;
 function logFilterDebounce() { clearTimeout(_logFilterTimer); _logFilterTimer = setTimeout(loadRawLogs, 400); }

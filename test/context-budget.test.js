@@ -36,10 +36,11 @@ test('missing, invalid or inconsistent accounting is unknown, not free', () => {
     assert.equal(normalizeUsage({ input_tokens: NaN }).uncached, null);
 });
 
-test('off is default; invalid configuration cannot enable model calls or guess prices', () => {
-    assert.equal(readConfig({}).enabled, false);
+test('passive observation is on by default and explicit off disables it', () => {
+    assert.equal(readConfig({}).enabled, true);
+    assert.equal(readConfig({ CONTEXT_BUDGET_MODE: 'off' }).enabled, false);
     assert.deepEqual(readConfig({ CONTEXT_BUDGET_RATES_JSON: 'bad' }).rates, {});
-    const observer = createBudgetObserver({ endpoint: 'https://example.test', model: 'test', config: readConfig({}), log() { assert.fail('disabled'); } });
+    const observer = createBudgetObserver({ endpoint: 'https://example.test', model: 'test', config: readConfig({ CONTEXT_BUDGET_MODE: 'off' }), log() { assert.fail('disabled'); } });
     observer.context({}); observer.response(observer.request({}), usage);
 });
 

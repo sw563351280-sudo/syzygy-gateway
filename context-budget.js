@@ -57,7 +57,8 @@ function readConfig(env = process.env) {
     let rates = {};
     try { rates = JSON.parse(env.CONTEXT_BUDGET_RATES_JSON || '{}'); } catch (_) { /* Unknown pricing, never guess. */ }
     return {
-        enabled: env.CONTEXT_BUDGET_MODE === 'observe',
+        // Passive numeric logging is safe to keep on. It can be disabled explicitly.
+        enabled: String(env.CONTEXT_BUDGET_MODE || 'observe').toLowerCase() !== 'off',
         targetCny: Number(env.CONTEXT_BUDGET_TARGET_CNY) > 0 ? Number(env.CONTEXT_BUDGET_TARGET_CNY) : 0.08,
         historyTokens: Number(env.CONTEXT_BUDGET_HISTORY_TOKENS) > 0 ? Number(env.CONTEXT_BUDGET_HISTORY_TOKENS) : 12000,
         rates: rates && typeof rates === 'object' && !Array.isArray(rates) ? rates : {},

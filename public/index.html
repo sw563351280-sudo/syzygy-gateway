@@ -390,6 +390,7 @@
                 <input id="logFilterInput" class="log-filter-input" placeholder="过滤关键字…" oninput="logFilterDebounce()">
                 <button class="console-action" onclick="loadRawLogs()" title="刷新">↻</button>
                 <label><input type="checkbox" id="logAutoRefresh" onchange="toggleLogAutoRefresh()"> 自动刷新</label>
+                <span id="contextBudgetStatus" style="margin-left:auto;font-size:0.82rem;color:#888">费用观测：检查中…</span>
             </div>
             <pre id="logOutput" class="console-log-output"></pre>
         </div>
