@@ -1,0 +1,61 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { selectCacheHistory, cachedChatHistory } = require('../public/cache-history');
+const { prepareCachedRequest } = require('../provider-cache');
+const messages = n => Array.from({ length: n }, (_, i) => ({ _id: String(i), role: i % 2 ? 'assistant' : 'user', content: 'message ' + i }));
+
+test('history prefix stays identical during append then rotates within a bound', () => {
+    const all = messages(210);
+    let anchor;
+    const starts = [];
+    for (let count = 100; count <= 120; count += 2) {
+        const result = selectCacheHistory(all.slice(0, count), anchor);
+        anchor = result.anchorId;
+        starts.push(anchor);
+        assert.ok(result.messages.length >= 30 && result.messages.length <= 38);
+        assert.equal(result.messages.at(-1), all[count - 1]);
+    }
+    assert.deepEqual(starts.slice(0, 6), ['70', '70', '70', '70', '70', '80']);
+});
+
+test('storage cap, deletion, versions, restart and absent IDs never resurrect old content', () => {
+    const all = messages(210);
+    const original = selectCacheHistory(all.slice(0, 200));
+    assert.equal(selectCacheHistory(all.slice(2, 202), original.anchorId).anchorId, original.anchorId);
+    const edited = all.slice(2, 202).map(m => m._id === original.anchorId ? { ...m, content: 'edited' } : m);
+    assert.equal(selectCacheHistory(edited, original.anchorId).messages[0].content, 'edited');
+    assert.equal(selectCacheHistory(edited.filter(m => m._id !== original.anchorId), original.anchorId).messages.length, 30);
+    assert.equal(selectCacheHistory([], original.anchorId).anchorId, null);
+    assert.equal(selectCacheHistory(all.slice(0, 10), original.anchorId).messages.length, 10);
+    assert.equal(selectCacheHistory(all.map(({ _id, ...m }) => m)).anchorId, null);
+});
+
+test('scope is provider/model/session specific; inaccessible storage safely falls back', () => {
+    const map = new Map();
+    const storage = { getItem: k => map.get(k), setItem: (k, v) => map.set(k, v), removeItem: k => map.delete(k) };
+    const route = '/via/aihubmix/v1/chat/completions', model = 'claude-opus-4-6-think';
+    cachedChatHistory(messages(100), 'a', route, model, storage);
+    assert.equal(cachedChatHistory(messages(102), 'a', route, model, storage).length, 32);
+    assert.equal(cachedChatHistory(messages(102), 'b', route, model, storage).length, 30);
+    assert.equal(cachedChatHistory(messages(102), 'a', route, 'claude-sonnet-4-6', storage).length, 30);
+    assert.equal(cachedChatHistory(messages(102), 'a', '/via/other/v1', model, storage).length, 30);
+    assert.equal(cachedChatHistory(messages(102), 'a', route, model, undefined).length, 30);
+    assert.equal([...map.values()].some(v => v.includes('message')), false);
+});
+
+test('actual wire cache prefix survives next turn while dynamic suffix changes', () => {
+    const all = messages(102);
+    const first = selectCacheHistory(all.slice(0, 100));
+    const second = selectCacheHistory(all, first.anchorId);
+    function wire(history, dynamic) {
+        return prepareCachedRequest('https://aihubmix.com/v1/chat/completions', {
+            model: 'claude-opus-4-6', messages: [{ role: 'system', content: 'fixed' }, ...history.map(({ role, content }) => ({ role, content })), { role: 'user', content: dynamic }],
+        }, { historyEnd: history.length });
+    }
+    // Cache markers themselves do not contribute text to the model prefix.
+    const clean = value => JSON.stringify(value, (key, v) => key === 'cache_control' ? undefined : v);
+    const textBlocks = list => list.map(m => ({ ...m, content: typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : m.content }));
+    const a = wire(first.messages, 'time1'), b = wire(second.messages, 'time2');
+    assert.equal(clean(textBlocks(a.messages.slice(0, -1))), clean(textBlocks(b.messages.slice(0, 31))));
+});

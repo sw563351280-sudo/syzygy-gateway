@@ -2974,10 +2974,12 @@ async function sendChat(options = {}) {
         }
     }
 
-    // ✅ 修改后的代码：界面里依然存着 200 条，但我们只挑最近的 20 条发给沈望
-// .slice(-21, -1) 的意思是从最后数第 31 条开始，取到倒数第 2 条
-// 这样沈望既能记得刚刚聊了什么，又不会因为看太多废话而烧掉你的 Token
-var historyMsgs = session.messages.slice(-31, -1).map(function(m) {
+    // AIHubMix Claude keeps one start for several turns (30–38 history messages).
+    // IDs survive the 200-message storage cap; other providers retain last-30.
+    let historyStorage;
+    try { historyStorage = window.sessionStorage; } catch (_) {}
+var historyMsgs = cachedChatHistory(session.messages.slice(0, -1), session.id,
+    currentSup.url, selectedModel, historyStorage).map(function(m) {
     var v = getActiveVersion(m);
     var safeContent = v.content;
     if (Array.isArray(v.content)) {

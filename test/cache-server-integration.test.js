@@ -8,6 +8,25 @@ const { prepareCachedRequest, inspectCacheRequest, cacheAdapterStatus } = requir
 const { mergeUsage, readConfig, normalizeUsage } = require('../context-budget');
 const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
+test('fixed output rules move intact into cached system only for AIHubMix', () => {
+    const start = source.indexOf('const moodSnapshotInst =', source.indexOf('const isClaudeModel ='));
+    const end = source.indexOf("if (dynamicBlocks.endsWith", start);
+    assert.ok(start >= 0 && end > start);
+    function run(enabled) {
+        const state = { systemMsg: { content: 'system' }, dynamicBlocks: '',
+            liveCtx: 'LIVE', memCtx: 'MEMORY', txCtx: 'TRANSCRIPT', wakeDecisionsCtx: 'WAKE',
+            supportsBlockCache: () => enabled, resolveApiUrl: () => '', req: { path: '/' }, body: { model: 'test' },
+            cutAtSentence: (s, n) => s.slice(0, n) };
+        vm.runInNewContext(source.slice(start, end), state);
+        return state;
+    }
+    const old = run(false), updated = run(true);
+    const fixed = updated.systemMsg.content.slice('system\n\n'.length);
+    assert.equal(fixed + '\n\n' + updated.dynamicBlocks, old.dynamicBlocks);
+    assert.equal(updated.dynamicBlocks, 'LIVE\n\nMEMORY\n\nTRANSCRIPT\n\nWAKE');
+    assert.equal(old.systemMsg.content, 'system');
+});
+
 // Run the actual integration fragments without starting server background jobs.
 for (const [start, end] of [
     ['const toolWireBody =', 'if (!toolResponse.ok)'],

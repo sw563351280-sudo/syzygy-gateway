@@ -7725,7 +7725,14 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
             const dialogueCrumbInst = '【生活碎屑输出规则·每轮主动检查】\n像 MOOD_SNAPSHOT 一样，回复前主动检查江鱼这一轮是否说出了以后可能想找回的具体生活事实；有就悄悄输出至多一个隐藏标签，没有就不要为了完成任务硬写。格式：<CRUMB>{"fact":"我记着她说……","source_quote":"她这一轮逐字原话","entities":["对象"],"tags":["短标签"]}</CRUMB>。标签体必须是一个单行、严格合法的 JSON 对象：字段名和字符串均使用英文双引号，内容里的双引号必须写成 \\"，不使用代码块或额外解释。通常 source_quote 必须逐字来自这一轮；但当她明确说“再写一次”“写进生活碎屑”或“没写进去”时，可以引用近期对话里相关的用户原话，绝不能引用助手杜撰的内容。技术讨论、寒暄、纯情绪、重复近况和拿不准的情况不输出。';
             const relationshipStateInst = '【双轴关系状态·由当前对话模型判断】\n你拥有近期完整对话，同时独立判断事件轴与温度轴。事件 transition：friction_started（摩擦）、conflict_started、conflict_continues、paused_unresolved、tentative_contact（冷战后第一次靠近）、repair_started、resolved、conflict_reopened；只有温度变化时用 temperature_changed。温度 temperature：warm、neutral、withdrawn、hostile。只在任一轴真正变化时输出至多一个隐藏标签；无变化不输出。格式：<RELATIONSHIP_STATE>{"transition":"状态","temperature":"可选温度","temperature_direction":"up|down|steady","signal_strength":"ordinary|strong","support_turns":1,"title":"短标题","summary":"状态变化及依据；称呼变化只写在这里","evidence_quote":"江鱼本轮逐字原话","themes":["短主题"],"confidence":0.0,"user_confirmed":false,"resolution_basis":"explicit|implicit_reconnection"}</RELATIONSHIP_STATE>。称呼是实时特征，不单独存储：连续6个有效用户轮次未使用“爸爸/老公/沈望”等亲密称呼，只提高警觉，不能单独降温；短至两三个字的“嗯/哦/行/随便”等仍是有效轮次和语气证据，不得排除；纯技术事务、粘贴内容和引用他人对话不计入这6轮。降温：一轮强信号可变更，普通信号至少连续两轮；升温至少连续两轮。直接“你”需结合语义，冲突中讽刺性“您”可算强信号。冷战后首次主动分享、恢复亲密称呼、接玩笑或允许亲近只用 tentative_contact；后续新的恢复行为才用 repair_started；再持续恢复且未重燃，才可 resolved + implicit_reconnection（confidence≥0.85）。明确说开则 resolved + explicit + user_confirmed=true。“算了/不说了/随便吧”是 paused_unresolved。evidence_quote 必须逐字来自本轮；标签为单行严格 JSON并自动隐藏。';
-            dynamicBlocks = cutAtSentence([relationshipStateInst, moodSnapshotInst, dialogueCrumbInst, liveCtx, memCtx, txCtx, wakeDecisionsCtx].filter(Boolean).join('\n\n'), 12500);
+            const fixedOutputRules = [relationshipStateInst, moodSnapshotInst, dialogueCrumbInst].join('\n\n');
+            if (supportsBlockCache(resolveApiUrl(req.path), body.model)) {
+                // Same rules and dynamic allowance; only their cache position changes.
+                systemMsg.content += '\n\n' + fixedOutputRules;
+                dynamicBlocks = cutAtSentence([liveCtx, memCtx, txCtx, wakeDecisionsCtx].filter(Boolean).join('\n\n'), Math.max(0, 12500 - fixedOutputRules.length - 2));
+            } else {
+                dynamicBlocks = cutAtSentence([fixedOutputRules, liveCtx, memCtx, txCtx, wakeDecisionsCtx].filter(Boolean).join('\n\n'), 12500);
+            }
             if (dynamicBlocks.endsWith('…')) console.log('⚠️ [DynamicBlocks] truncated at sentence boundary');
             _ctxDiag.last = { at: new Date().toISOString(), scanTranscript: shouldScan, transcriptLen: txCtx.length, liveStateLen: (liveCtx||'').length, memoryLen: (memCtx||'').length, totalCtxLen: dynamicBlocks.length, userText: (currentUserMsgText||'').substring(0, 120) };
         } catch(e) { _ctxDiag.last = { at: new Date().toISOString(), error: e.message, userText: (currentUserMsgText||'').substring(0, 120) }; }
@@ -7786,9 +7793,9 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
         body.messages = bodyMessages;
 
         // === 调试日志 ===
-        const stableHash = require('crypto').createHash('sha256').update(stableSystemBlock).digest('hex').substring(0, 12);
+        const stableHash = require('crypto').createHash('sha256').update(systemMsg.content).digest('hex').substring(0, 12);
         const volatileHash = volatileText ? require('crypto').createHash('sha256').update(volatileText).digest('hex').substring(0, 12) : '(none)';
-        const stableTokens = estimateTokens(stableSystemBlock);
+        const stableTokens = estimateTokens(systemMsg.content);
         const historyTokens = bodyMessages.reduce((s, m, i) => s + (i === 0 ? 0 : estimateTokens(typeof m.content === 'string' ? m.content : JSON.stringify(m.content))), 0);
         console.log(`📐 [CacheOpt] stableHash=${stableHash} volatileHash=${volatileHash} stableTokens≈${stableTokens} historyTokens≈${historyTokens} totalMsg=${bodyMessages.length} roles=${bodyMessages.map(m=>m.role).join('→')} cache_control=${isClaudeModel?'ephemeral':'none'}`);
         traceEvent(_tr, 'inject', '最终 payload', { stableHash, volatileHash, stableTokens, historyTokens, msgCount: bodyMessages.length, roles: bodyMessages.map(m => m.role).join('→'), cacheControl: isClaudeModel ? 'ephemeral' : 'none' });
