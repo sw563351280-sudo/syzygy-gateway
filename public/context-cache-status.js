@@ -12,6 +12,7 @@
         if (status.latestSummary) {
             const states = { resumed: '已校验并衔接云端省略的历史', resume_skipped: '历史校验不匹配，按当前记录处理', started: '正在总结', committed: '已完整保存', failed: '失败，保留原文', cooldown: '暂停重试，保留原文', invalidated: '历史有变化，旧覆盖已失效', invalid_ids: '消息身份不完整，保留原文' };
             lines.push('最近摘要：' + (states[status.latestSummary.state] || '状态未知') + ' · ' + status.latestSummary.at);
+            if (status.latestSummary.fallbackCount) lines.push('摘要失败保护：本轮最多发送最近 ' + status.latestSummary.fallbackCount + ' 条历史，避免超长原文请求。');
         }
         const last = status.latestCache;
         if (status.latestToolSchema) {

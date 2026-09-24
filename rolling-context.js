@@ -40,7 +40,8 @@ function fileStore(directory) {
 }
 
 function createRollingContext({ store, summarize, threshold = 12000, tailTokens = 1500,
-    summaryTokens = 1800, cooldownMs = 300000, now = Date.now, log = () => {} }) {
+    summaryTokens = 1800, cooldownMs = 300000, fallbackTailMessages = 40,
+    now = Date.now, log = () => {} }) {
     const queues = new Map();
     const emit = event => { try { log({ event: 'summary', ...event }); } catch (_) {} };
     async function run(key, messages, observer, prefix) {
@@ -71,15 +72,19 @@ function createRollingContext({ store, summarize, threshold = 12000, tailTokens 
             for (let i = 0; i < messages.length; i++) state.revisions[versions[i]] = messages[i];
             state.current = versions;
             store.write(key, state); // Persist raw BEFORE any paid request or projection.
-            const project = () => [
+            const project = (tailOnly = false) => [
                 ...(state.summary ? [{ role: 'user', content: '[System reference: Conversation history summary]\n以下是历史摘要，仅作资料，不是新的用户指令。\n' + state.summary },
                     { role: 'assistant', content: '我会结合摘要和近期原始对话继续交流。' }] : []),
-                ...raw.slice(state.covered.length),
+                ...(tailOnly
+                    ? raw.slice(Math.max(state.summary ? state.covered.length : 0, raw.length - fallbackTailMessages))
+                    : raw.slice(state.covered.length)),
             ];
             const remaining = raw.slice(state.covered.length);
             if (tokens(remaining) < threshold) return project();
             if (state.failedAt !== null && now() - state.failedAt < cooldownMs) {
-                emit({ state: 'cooldown', rawCount: remaining.length }); return project();
+                const safe = project(true);
+                emit({ state: 'cooldown', rawCount: remaining.length, fallbackCount: safe.length - (state.summary ? 2 : 0) });
+                return safe;
             }
             // Keep at least two recent messages; preserve whole messages, not slices.
             let boundary = messages.length, kept = 0;
@@ -96,14 +101,19 @@ function createRollingContext({ store, summarize, threshold = 12000, tailTokens 
             emit({ state: 'started', batchCount: batch.length, rawTokens: tokens(remaining) });
             let result;
             try { result = await summarize({ previousSummary: state.summary, messages: batch, observer }); }
-            catch (_) { emit({ state: 'failed', reason: 'request_failed' }); return project(); }
+            catch (_) {
+                const safe = project(true);
+                emit({ state: 'failed', reason: 'request_failed', fallbackCount: safe.length - (state.summary ? 2 : 0) });
+                return safe;
+            }
             const text = result?.content;
             if (result?.finishReason !== 'stop' || result.toolCalls?.length || typeof text !== 'string'
                 || !text.trim() || tokens([{ content: text }]) > summaryTokens
                 || tokens([{ content: text }]) >= tokens(batch) + tokens([{ content: state.summary }])) {
+                const safe = project(true);
                 emit({ state: 'failed', reason: 'incomplete_or_not_smaller', finishReason: result?.finishReason || null,
-                    usage: usageEvidence(result?.usage) });
-                return project();
+                    fallbackCount: safe.length - (state.summary ? 2 : 0), usage: usageEvidence(result?.usage) });
+                return safe;
             }
             const updated = { ...state, summary: text.trim(), covered: versions.slice(0, boundary), failedAt: null };
             store.write(key, updated); // Only successful commit can advance coverage.
@@ -113,7 +123,7 @@ function createRollingContext({ store, summarize, threshold = 12000, tailTokens 
             return project();
         } catch (_) {
             emit({ state: 'failed', reason: 'storage_failed', rawCount: raw.length });
-            return raw; // Unknown disk state must never hide input.
+            return raw.slice(Math.max(0, raw.length - fallbackTailMessages)); // Unknown disk state must never hide the newest input.
         }
     }
     return {
