@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { measureMessages, usageEvidence } = require('./context-budget');
+const { validPrefix, seed, nextDigest } = require('./public/context-continuity');
 const tokens = messages => measureMessages(messages).textTokens;
 const fingerprint = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const wire = message => ({ role: message.role, content: message.content });
@@ -42,15 +43,28 @@ function createRollingContext({ store, summarize, threshold = 12000, tailTokens 
     summaryTokens = 1800, cooldownMs = 300000, now = Date.now, log = () => {} }) {
     const queues = new Map();
     const emit = event => { try { log({ event: 'summary', ...event }); } catch (_) {} };
-    async function run(key, messages, observer) {
-        const raw = messages.map(wire);
+    async function run(key, messages, observer, prefix) {
+        let raw = messages.map(wire);
         if (!validMessages(messages)) { emit({ state: 'invalid_ids', rawCount: messages.length }); return raw; }
         let state;
         try {
             state = store.read(key) || { version: 1, revisions: {}, covered: [], summary: '', failedAt: null };
             if (state.version !== 1 || !state.revisions || !Array.isArray(state.covered) || typeof state.summary !== 'string') throw Error('invalid state');
             if (state.covered.length && (!state.summary.trim() || state.covered.some(v => !state.revisions[v]))) throw Error('inconsistent coverage');
-            // Snapshot uses the CURRENT input only. Never stitch back deleted messages.
+            // Restore only an explicitly omitted, revision-verified prefix. Missing
+            // messages alone never authorize restoration (they may have been deleted).
+            if (validPrefix(prefix) && prefix.firstId === messages[0]?._contextId && Array.isArray(state.current)) {
+                const before = state.current.slice(0, prefix.count).map(v => state.revisions[v]);
+                const boundary = state.revisions[state.current[prefix.count]];
+                const valid = before.length === prefix.count && boundary?._contextId === prefix.firstId
+                    && before.every(m => m && typeof m._contextRevision === 'string' && /^[a-f0-9]{64}$/.test(m._contextRevision));
+                const hash = valid ? before.reduce((h, m) => nextDigest(h, m._contextId, m._contextRevision), seed) : null;
+                const combined = valid && hash === prefix.hash ? [...before, ...messages] : null;
+                if (combined && validMessages(combined)) {
+                    messages = combined; raw = messages.map(wire);
+                    emit({ state: 'resumed', restoredCount: before.length });
+                } else emit({ state: 'resume_skipped', reason: 'prefix_not_verified' });
+            }
             const versions = messages.map(m => fingerprint(m));
             const matches = state.covered.every((v, i) => versions[i] === v);
             if (!matches) { state.covered = []; state.summary = ''; emit({ state: 'invalidated' }); }
@@ -103,12 +117,12 @@ function createRollingContext({ store, summarize, threshold = 12000, tailTokens 
         }
     }
     return {
-        async project(scope, messages, observer) {
+        async project(scope, messages, observer, prefix = null) {
             const key = fingerprint(scope);
             // Serialize a session so concurrent edits/retries cannot commit out of order.
             // Each request still projects its own snapshot, including edits and deletions.
             const previous = queues.get(key) || Promise.resolve();
-            const pending = previous.catch(() => {}).then(() => run(key, messages, observer));
+            const pending = previous.catch(() => {}).then(() => run(key, messages, observer, prefix));
             queues.set(key, pending);
             try { return await pending; } finally { if (queues.get(key) === pending) queues.delete(key); }
         },

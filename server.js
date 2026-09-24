@@ -7824,7 +7824,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 ? [{ type: 'text', text: prefix }, ...finalUserContent]
                 : prefix + finalUserContent;
         }
-        let projectedHistory = newMessages.map(({ _contextId, ...message }) => message);
+        let projectedHistory = newMessages.map(({ _contextId, _contextRevision, ...message }) => message);
         if (contextProtocol?.version === 1 && typeof contextProtocol.sessionId === 'string'
             && contextProtocol.sessionId.length <= 200 && !isOpenClawRequest
             && supportsBlockCache(resolveApiUrl(req.path), body.model)) {
@@ -7839,7 +7839,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 return { ...message, _contextId: `import:${digest}:${occurrence}` };
             });
             projectedHistory = await rollingContext.project(
-                [contextProtocol.sessionId, resolveApiUrl(req.path), body.model], identified, contextBudget);
+                [contextProtocol.sessionId, resolveApiUrl(req.path), body.model], identified, contextBudget, contextProtocol.prefix);
         }
         const hasProjectedSummary = typeof projectedHistory[0]?.content === 'string'
             && projectedHistory[0].content.startsWith('[System reference: Conversation history summary]\n');

@@ -11,19 +11,22 @@ const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 test('real main projection sends only original history to summarizer and strips private metadata', async () => {
     const begin = source.indexOf('let projectedHistory =');
     const end = source.indexOf('body.messages = bodyMessages;', begin) + 'body.messages = bodyMessages;'.length;
-    const messages = [{ _contextId: 'a', role: 'user', content: 'old' }, { _contextId: 'b', role: 'assistant', content: 'reply' }];
+    const messages = [{ _contextId: 'a', _contextRevision: 'private', role: 'user', content: 'old' }, { _contextId: 'b', role: 'assistant', content: 'reply' }];
+    const prefix = { version: 1, count: 2, hash: 'test', firstId: 'a' };
     let observed;
     const body = { model: 'claude-opus-4-6' };
     await vm.runInNewContext(`(async () => { ${source.slice(begin, end)} })()`, {
-        newMessages: messages, contextProtocol: { version: 1, sessionId: 'session' }, isOpenClawRequest: false,
+        newMessages: messages, contextProtocol: { version: 1, sessionId: 'session', prefix }, isOpenClawRequest: false,
         supportsBlockCache: () => true, resolveApiUrl: () => 'https://aihubmix.com/v1', req: { path: '/' },
-        rollingContext: { async project(scope, history) { observed = { scope, history }; return history.map(({ role, content }) => ({ role, content })); } },
+        rollingContext: { async project(scope, history, observer, proof) { observed = { scope, history, proof }; return history.map(({ role, content }) => ({ role, content })); } },
         body, contextBudget: {}, systemMsg: { role: 'system', content: 'rules' }, finalUserContent: 'dynamic and latest',
         composeContext: require('../context-budget').composeContext,
     });
     assert.equal(observed.history.length, 2);
     assert.equal(observed.history.some(m => m.content.includes('dynamic')), false);
     assert.equal(JSON.stringify(body).includes('_contextId'), false);
+    assert.equal(JSON.stringify(body).includes('_contextRevision'), false);
+    assert.equal(observed.proof, prefix);
     assert.equal(body.messages.at(-1).content, 'dynamic and latest');
 });
 

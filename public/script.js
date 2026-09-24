@@ -740,6 +740,7 @@ async function _doSave() {
     var MAX_SYNC_BYTES = 3 * 1024 * 1024; // 3 MB
 
     // 1. 深拷贝 chatSessions — 不影响内存中的原始数据
+    ContextContinuity.ensureMessageIds(chatSessions, () => crypto.randomUUID());
     var clone;
     try { clone = structuredClone(chatSessions); } catch (_e) { clone = JSON.parse(JSON.stringify(chatSessions)); }
 
@@ -748,7 +749,7 @@ async function _doSave() {
         var s = clone[si];
         if (!s.messages) continue;
         cleanupOldImages(s);
-        s.messages = s.messages.slice(-200);
+        ContextContinuity.trimContextWindow(s, getActiveVersion);
         for (var mi = 0; mi < s.messages.length; mi++) {
             var m = s.messages[mi];
             if (m.versions && m.versions.length > 5) {
@@ -2999,7 +3000,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
     safeContent = legacyMessagePlain(safeContent);
     if (typeof safeContent === 'string') safeContent = fmtTsTag(v.fullTime) + stripDisplayTimestamp(safeContent);
     if (useRollingContext && !m._id) m._id = crypto.randomUUID();
-    return { role: m.role, content: safeContent, ...(useRollingContext ? { _contextId: m._id } : {}) };
+    return { role: m.role, content: safeContent, ...(useRollingContext ? { _contextId: m._id, _contextRevision: ContextContinuity.revisionOf(m, getActiveVersion) } : {}) };
 });
 
 
@@ -3022,7 +3023,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         // 🔍 诊断日志：请求 payload 大小
         const reqBody = {
             model: selectedModel,
-            ...(useRollingContext ? { contextProtocol: { version: 1, sessionId: session.id } } : {}),
+            ...(useRollingContext ? { contextProtocol: { version: 1, sessionId: session.id, prefix: session.contextPrefix || null } } : {}),
             messages: historyMsgs,
             stream: isStream,
             useCrossplatform: localStorage.getItem('syzygy_crossplatform') !== 'false'
@@ -4312,7 +4313,7 @@ async function regenerateSend(aiMsgIndex) {
     const modelEl = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
     const useRollingContext = await canUseRollingContext(currentSup.url, selectedModel, fetch);
-    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; c=legacyMessagePlain(c); if(typeof c==='string'&&(m.role==='user'||useRollingContext))c=fmtTsTag(v.fullTime)+stripDisplayTimestamp(c); if(useRollingContext&&!m._id)m._id=crypto.randomUUID(); return {role:m.role,content:c,...(useRollingContext?{_contextId:m._id}:{})}; });
+    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; c=legacyMessagePlain(c); if(typeof c==='string'&&(m.role==='user'||useRollingContext))c=fmtTsTag(v.fullTime)+stripDisplayTimestamp(c); if(useRollingContext&&!m._id)m._id=crypto.randomUUID(); return {role:m.role,content:c,...(useRollingContext?{_contextId:m._id,_contextRevision:ContextContinuity.revisionOf(m,getActiveVersion)}:{})}; });
     if (!useRollingContext && historyMsgs.length > 50) historyMsgs = historyMsgs.slice(-50);
     try {
         let apiUrl = '/v1/chat/completions';
@@ -4326,7 +4327,7 @@ async function regenerateSend(aiMsgIndex) {
         const isStream = streamToggle ? streamToggle.checked : true;
         const reTimeout = useRollingContext ? 135000 : 90000;
         const reController=new AbortController(); reSilenceTimer=setTimeout(()=>reController.abort(),reTimeout); function reReset(){clearTimeout(reSilenceTimer);reSilenceTimer=setTimeout(()=>reController.abort(),reTimeout)}
-        const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream,...(useRollingContext?{contextProtocol:{version:1,sessionId:session.id}}:{})}) });
+        const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream,...(useRollingContext?{contextProtocol:{version:1,sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
         if (!response.ok) { clearTimeout(reSilenceTimer); const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         let fullReply='', thinkContent='';
         var toolCallRecords = [];
@@ -5380,11 +5381,12 @@ function saveLocalBackup() {
 function buildSavePayload() {
     // 🛡️ 拒绝序列化脏兜底状态
     if (_hasDirtyFallbackState()) { console.warn('[save] 跳过：数据为脏兜底状态'); return null; }
+    ContextContinuity.ensureMessageIds(chatSessions, () => crypto.randomUUID());
     var clone;
     try { clone = structuredClone(chatSessions); } catch (_) { clone = JSON.parse(JSON.stringify(chatSessions)); }
     for (var si = 0; si < clone.length; si++) {
         var s = clone[si]; if (!s.messages) continue;
-        s.messages = s.messages.slice(-200);
+        ContextContinuity.trimContextWindow(s, getActiveVersion);
         for (var mi = 0; mi < s.messages.length; mi++) { delete s.messages[mi]._zepDirty; }
     }
     return JSON.stringify({ suppliers: suppliers, chatSessions: clone, activeSupIndex: activeSupIndex, activeChatId: activeChatId, _version: _dataVersion });
