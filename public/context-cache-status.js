@@ -6,6 +6,13 @@
             ? 'AIHubMix 缓存格式：本地检查通过 · 5 分钟缓存（未向模型发请求，不代表实际命中）'
             : 'AIHubMix 缓存格式：尚未确认，请检查服务是否更新并重启'];
         if (!status.enabled) lines.push('费用观测已关闭，无法更新实际缓存结果。');
+        if (status.contextOptimization) lines.push(status.contextOptimization.rollingSummary
+            ? `滚动摘要：已配置，未压缩历史约 ${status.contextOptimization.thresholdTokens} token 时触发（会产生摘要调用费用）`
+            : '滚动摘要：未配置摘要密钥，网页保持原历史窗口。');
+        if (status.latestSummary) {
+            const states = { started: '正在总结', committed: '已完整保存', failed: '失败，保留原文', cooldown: '暂停重试，保留原文', invalidated: '历史有变化，旧覆盖已失效', invalid_ids: '消息身份不完整，保留原文' };
+            lines.push('最近摘要：' + (states[status.latestSummary.state] || '状态未知') + ' · ' + status.latestSummary.at);
+        }
         const last = status.latestCache;
         if (!last) lines.push('本次服务启动后暂无用量记录，无需为检查配置而发送聊天。');
         else {

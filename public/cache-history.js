@@ -27,7 +27,18 @@
         } catch (_) {}
         return result.messages;
     }
-    const api = { selectCacheHistory, isCacheHistoryRoute, cachedChatHistory };
+    async function canUseRollingContext(url, model, fetchImpl) {
+        if (!isCacheHistoryRoute(url, model)) return false;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        try {
+            const response = await fetchImpl('/api/context-budget/capabilities', { cache: 'no-store', signal: controller.signal });
+            if (!response.ok) return false;
+            const status = await response.json();
+            return status.version === 1 && status.rollingSummary === true;
+        } catch (_) { return false; } finally { clearTimeout(timeout); }
+    }
+    const api = { selectCacheHistory, isCacheHistoryRoute, cachedChatHistory, canUseRollingContext };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else Object.assign(root, api);
 })(typeof window !== 'undefined' ? window : globalThis);

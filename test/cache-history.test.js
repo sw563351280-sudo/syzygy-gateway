@@ -3,7 +3,18 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { selectCacheHistory, cachedChatHistory } = require('../public/cache-history');
 const { prepareCachedRequest } = require('../provider-cache');
+const { canUseRollingContext } = require('../public/cache-history');
 const messages = n => Array.from({ length: n }, (_, i) => ({ _id: String(i), role: i % 2 ? 'assistant' : 'user', content: 'message ' + i }));
+
+test('free readiness check gates expanded history on configured server support', async () => {
+    const route = '/via/aihubmix/v1/chat/completions';
+    const model = 'claude-opus-4-6';
+    assert.equal(await canUseRollingContext(route, model, async () => ({ ok: true, json: async () => ({ version: 1, rollingSummary: true }) })), true);
+    assert.equal(await canUseRollingContext(route, model, async () => ({ ok: false })), false);
+    assert.equal(await canUseRollingContext(route, model, async () => { throw Error('offline'); }), false);
+    assert.equal(await canUseRollingContext(route, model, async () => ({ ok: true, json: async () => ({ version: 1, rollingSummary: false }) })), false);
+    assert.equal(await canUseRollingContext('/via/other/v1', model, () => assert.fail('other routes untouched')), false);
+});
 
 test('history prefix stays identical during append then rotates within a bound', () => {
     const all = messages(210);

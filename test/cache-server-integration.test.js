@@ -8,6 +8,32 @@ const { prepareCachedRequest, inspectCacheRequest, cacheAdapterStatus } = requir
 const { mergeUsage, readConfig, normalizeUsage } = require('../context-budget');
 const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
+test('real main projection sends only original history to summarizer and strips private metadata', async () => {
+    const begin = source.indexOf('let projectedHistory =');
+    const end = source.indexOf('body.messages = bodyMessages;', begin) + 'body.messages = bodyMessages;'.length;
+    const messages = [{ _contextId: 'a', role: 'user', content: 'old' }, { _contextId: 'b', role: 'assistant', content: 'reply' }];
+    let observed;
+    const body = { model: 'claude-opus-4-6' };
+    await vm.runInNewContext(`(async () => { ${source.slice(begin, end)} })()`, {
+        newMessages: messages, contextProtocol: { version: 1, sessionId: 'session' }, isOpenClawRequest: false,
+        supportsBlockCache: () => true, resolveApiUrl: () => 'https://aihubmix.com/v1', req: { path: '/' },
+        rollingContext: { async project(scope, history) { observed = { scope, history }; return history.map(({ role, content }) => ({ role, content })); } },
+        body, systemMsg: { role: 'system', content: 'rules' }, finalUserContent: 'dynamic and latest',
+        composeContext: require('../context-budget').composeContext,
+    });
+    assert.equal(observed.history.length, 2);
+    assert.equal(observed.history.some(m => m.content.includes('dynamic')), false);
+    assert.equal(JSON.stringify(body).includes('_contextId'), false);
+    assert.equal(body.messages.at(-1).content, 'dynamic and latest');
+});
+
+test('saving frontend state cannot invoke legacy paid summary generation', () => {
+    const start = source.indexOf("app.post('/api/sync-config'");
+    const end = source.indexOf("app.get('/api/user-state'", start);
+    assert.doesNotMatch(source.slice(start, end), /updateRollingSummaries\s*\(/);
+    assert.match(source, /delete body\.contextProtocol/);
+});
+
 test('fixed output rules move intact into cached system only for AIHubMix', () => {
     const start = source.indexOf('const moodSnapshotInst =', source.indexOf('const isClaudeModel ='));
     const end = source.indexOf("if (dynamicBlocks.endsWith", start);
@@ -80,7 +106,7 @@ test('status endpoint is authenticated and performs no upstream request', () => 
     const end = source.indexOf("app.get('/api/traces'", offset);
     vm.runInNewContext(source.slice(offset, end), {
         app: { get(_url, fn) { handler = fn; } }, process: { env: { MEMORY_PASSWORD: 'test' } },
-        readContextBudgetConfig: () => readConfig({}), cacheAdapterStatus,
+        readContextBudgetConfig: () => readConfig({}), cacheAdapterStatus, rollingContextCapabilities: () => ({ version: 1, rollingSummary: true }),
         _budgetConsoleRing: [{ t: 'now', m: '[ContextBudget] ' + JSON.stringify({ event: 'usage', host: 'aihubmix.com',
             model: 'claude-opus-4-6-think', cacheState: 'written', usage: { read: 0, write: 8000 } }) }],
         fetch() { assert.fail('no upstream access'); },

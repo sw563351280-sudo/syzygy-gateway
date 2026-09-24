@@ -15,6 +15,8 @@ const { createCodexBridge } = require('./codex-bridge');
 const { consumeOpenAIStream } = require('./streaming-chat');
 const { composeContext, createBudgetObserver, mergeUsage, readConfig: readContextBudgetConfig } = require('./context-budget');
 const { prepareCachedRequest, supportsBlockCache, cacheAdapterStatus } = require('./provider-cache');
+const { createRollingContext, fileStore, createSummarizer } = require('./rolling-context');
+const { budgetDynamicParts } = require('./dynamic-budget');
 const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
 const { extractDailyStateUpdates, stripLeakedStateUpdates, shouldCuratePersistentState } = require('./daily-state-curator');
 const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-merge');
@@ -725,6 +727,21 @@ function getModelPromptConfig(modelName) {
 // 持久化计数器与目录初始化
 // ==========================================
 const DATA_DIR = path.join(__dirname, 'data');
+function rollingContextCapabilities() {
+    return { version: 1, rollingSummary: Boolean(process.env.CONTEXT_SUMMARY_API_KEY || process.env.DREAM_API_KEY || process.env.ROUTER_API_KEY),
+        thresholdTokens: readContextBudgetConfig().historyTokens, recentTailTokens: 1500, dynamicSoftTokens: 3000 };
+}
+const rollingContext = createRollingContext({
+    store: fileStore(path.join(DATA_DIR, 'rolling-context')),
+    threshold: readContextBudgetConfig().historyTokens,
+    summarize: async input => createSummarizer({
+        fetchImpl: fetch,
+        endpoint: process.env.CONTEXT_SUMMARY_URL || 'https://www.msuicode.com/v1/chat/completions',
+        model: process.env.CONTEXT_SUMMARY_MODEL || 'gemini-3-flash-preview-thinking',
+        apiKey: process.env.CONTEXT_SUMMARY_API_KEY || process.env.DREAM_API_KEY || process.env.ROUTER_API_KEY || '',
+    })(input),
+    log: event => console.log('[ContextBudget]', JSON.stringify(event)),
+});
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 let music;
 try {
@@ -3641,7 +3658,12 @@ async function buildSharedSystemPrompt({
     };
 }
 
-function buildVolatileContext(parts = []) {
+function buildVolatileContext(parts = [], budget = null) {
+    if (budget) {
+        const limited = budgetDynamicParts(parts, budget);
+        parts = limited.parts;
+        console.log('[ContextBudget]', JSON.stringify({ event: 'dynamic_budget', ...limited.metrics }));
+    }
     // 结构化去重：按 label 或前20字作为 id
     const seen = new Set(); const deduped = [];
     for (const p of parts) {
@@ -7438,6 +7460,8 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             userPreview: ''
         });
         let body = req.body;
+        const contextProtocol = body.contextProtocol;
+        delete body.contextProtocol; // Gateway-only metadata must never reach a provider.
         const noMemory = req.headers['x-no-memory'] === 'true';
         const sourceTabId = req.headers['x-tab-id'] || null;
         const sourceMessageId = req.headers['x-message-id'] || null;
@@ -7744,7 +7768,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             ...volatilePartsArr,
             dynamicBlocks,
             memoryContext && memoryContext.trim() ? memoryContext.trim() : null,
-        ].filter(Boolean));
+        ].filter(Boolean), supportsBlockCache(resolveApiUrl(req.path), body.model) ? { maxTokens: 3000, detailTokens: 600 } : null);
         volatileRaw = volatileRaw ? dedupSections(volatileRaw) : null;
         logSectionSizes(volatileRaw);
         const volatileText = volatileRaw;
@@ -7787,7 +7811,28 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 ? [{ type: 'text', text: prefix }, ...finalUserContent]
                 : prefix + finalUserContent;
         }
-        const contextParts = { systemMessage: systemMsg, historyMessages: newMessages,
+        let projectedHistory = newMessages.map(({ _contextId, ...message }) => message);
+        if (contextProtocol?.version === 1 && typeof contextProtocol.sessionId === 'string'
+            && contextProtocol.sessionId.length <= 200 && !isOpenClawRequest
+            && supportsBlockCache(resolveApiUrl(req.path), body.model)) {
+            // Foreign-platform inserts have no frontend ID. Their occurrence and
+            // content form a private revision identity; nothing is logged.
+            const importedCounts = new Map();
+            const identified = newMessages.map(message => {
+                if (message._contextId) return message;
+                const digest = crypto.createHash('sha256').update(JSON.stringify([message.role, message.content])).digest('hex');
+                const occurrence = importedCounts.get(digest) || 0;
+                importedCounts.set(digest, occurrence + 1);
+                return { ...message, _contextId: `import:${digest}:${occurrence}` };
+            });
+            projectedHistory = await rollingContext.project(
+                [contextProtocol.sessionId, resolveApiUrl(req.path), body.model], identified);
+        }
+        const hasProjectedSummary = typeof projectedHistory[0]?.content === 'string'
+            && projectedHistory[0].content.startsWith('[System reference: Conversation history summary]\n');
+        const contextParts = { systemMessage: systemMsg,
+            summaryMessages: hasProjectedSummary ? projectedHistory.slice(0, 2) : [],
+            historyMessages: hasProjectedSummary ? projectedHistory.slice(2) : projectedHistory,
             currentMessage: { role: 'user', content: finalUserContent } };
         const bodyMessages = composeContext(contextParts);
         body.messages = bodyMessages;
@@ -8695,10 +8740,23 @@ app.get('/debug-console', (req, res) => {
     res.json({ count: _consoleRing.length, shown: entries.length, entries });
 });
 
+// Configuration only: no secrets, user content, or upstream probes.
+app.get('/api/context-budget/capabilities', (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(rollingContextCapabilities());
+});
+
 app.get('/api/context-budget/status', (req, res) => {
     if (!process.env.MEMORY_PASSWORD || req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '需要管理密码' });
     const config = readContextBudgetConfig();
     let latestCache = null;
+    let latestSummary = null;
+    for (let i = _budgetConsoleRing.length - 1; i >= 0; i--) {
+        try {
+            const event = JSON.parse(_budgetConsoleRing[i].m.slice('[ContextBudget] '.length));
+            if (event.event === 'summary') { latestSummary = { at: _budgetConsoleRing[i].t, ...event }; break; }
+        } catch (_) {}
+    }
     for (let i = _budgetConsoleRing.length - 1; i >= 0; i--) {
         try {
             const event = JSON.parse(_budgetConsoleRing[i].m.slice('[ContextBudget] '.length));
@@ -8716,6 +8774,8 @@ app.get('/api/context-budget/status', (req, res) => {
         historyTokens: config.historyTokens,
         pricedRoutes: Object.keys(config.rates || {}),
         cacheAdapter: cacheAdapterStatus(),
+        contextOptimization: rollingContextCapabilities(),
+        latestSummary,
         latestCache,
     });
 });
@@ -9460,7 +9520,8 @@ app.post('/api/web-chat', async (req, res) => {
 
                 const volatilePartsArr2 = [...volatileParts];
                 volatilePartsArr2.splice(1, 0, buildWeatherSnapshot());
-                let volatileText = buildVolatileContext([...volatilePartsArr2]);
+                let volatileText = buildVolatileContext([...volatilePartsArr2],
+                    supportsBlockCache(baseUrl, webModelName) ? { maxTokens: 3000, detailTokens: 600 } : null);
                 volatileText = volatileText ? dedupSections(volatileText) : null;
                 if (volatileText) logSectionSizes(volatileText);
                 let finalUser = userContent;
@@ -10887,7 +10948,8 @@ app.post('/api/sync-config', (req, res) => {
         const fileSize = fs.statSync(CONFIG_FILE).size;
         console.log('✅ [sync-config] 写入成功 v' + newVersion + ' 文件 ' + (fileSize / 1024).toFixed(0) + ' KB  来源: ' + (req.headers['user-agent'] || '?').substring(0,60) + '  ip: ' + (req.ip || '?').substring(0,20));
         res.json({ success: true, _version: newVersion });
-        setImmediate(() => { updateRollingSummaries(data.chatSessions).catch(e => console.log('rolling summary failed:', e.message)); });
+        // Summary generation belongs to threshold-based chat projection, not every save.
+        // Legacy summaries remain on disk; this path must not initiate paid requests.
     } catch(e) {
         console.error('❌ [sync-config] 保存失败:', e.message);
         res.status(500).json({ error: 'SAVE_FAILED', message: e.message });

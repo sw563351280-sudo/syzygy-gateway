@@ -2974,12 +2974,13 @@ async function sendChat(options = {}) {
         }
     }
 
-    // AIHubMix Claude keeps one start for several turns (30–38 history messages).
-    // IDs survive the 200-message storage cap; other providers retain last-30.
+    // Send original available history to our gateway; it archives and projects it.
+    // Other channels keep their existing window. No provider receives these IDs.
+    const useRollingContext = await canUseRollingContext(currentSup.url, selectedModel, fetch);
     let historyStorage;
     try { historyStorage = window.sessionStorage; } catch (_) {}
-var historyMsgs = cachedChatHistory(session.messages.slice(0, -1), session.id,
-    currentSup.url, selectedModel, historyStorage).map(function(m) {
+var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedChatHistory(session.messages.slice(0, -1), session.id,
+    currentSup.url, selectedModel, historyStorage)).map(function(m) {
     var v = getActiveVersion(m);
     var safeContent = v.content;
     if (Array.isArray(v.content)) {
@@ -2997,7 +2998,8 @@ var historyMsgs = cachedChatHistory(session.messages.slice(0, -1), session.id,
     }
     safeContent = legacyMessagePlain(safeContent);
     if (typeof safeContent === 'string') safeContent = fmtTsTag(v.fullTime) + stripDisplayTimestamp(safeContent);
-    return { role: m.role, content: safeContent };
+    if (useRollingContext && !m._id) m._id = crypto.randomUUID();
+    return { role: m.role, content: safeContent, ...(useRollingContext ? { _contextId: m._id } : {}) };
 });
 
 
@@ -3013,13 +3015,14 @@ var historyMsgs = cachedChatHistory(session.messages.slice(0, -1), session.id,
         const controller = new AbortController();
 
         const useToolsTO = document.getElementById('useToolsToggle')?.checked;
-        const toolTimeout = useToolsTO ? 300000 : 120000;
+        const toolTimeout = useToolsTO ? 300000 : useRollingContext ? 165000 : 120000;
         silenceTimer = setTimeout(() => controller.abort(), toolTimeout);
         function resetSilenceTimer() { clearTimeout(silenceTimer); silenceTimer = setTimeout(() => controller.abort(), toolTimeout); }
 
         // 🔍 诊断日志：请求 payload 大小
         const reqBody = {
             model: selectedModel,
+            ...(useRollingContext ? { contextProtocol: { version: 1, sessionId: session.id } } : {}),
             messages: historyMsgs,
             stream: isStream,
             useCrossplatform: localStorage.getItem('syzygy_crossplatform') !== 'false'
@@ -4308,8 +4311,9 @@ async function regenerateSend(aiMsgIndex) {
     let reSilenceTimer = null;
     const modelEl = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
-    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; c=legacyMessagePlain(c); if(typeof c==='string'&&m.role==='user')c=fmtTsTag(v.fullTime)+stripDisplayTimestamp(c); return {role:m.role,content:c}; });
-    if (historyMsgs.length > 50) historyMsgs = historyMsgs.slice(-50);
+    const useRollingContext = await canUseRollingContext(currentSup.url, selectedModel, fetch);
+    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; c=legacyMessagePlain(c); if(typeof c==='string'&&(m.role==='user'||useRollingContext))c=fmtTsTag(v.fullTime)+stripDisplayTimestamp(c); if(useRollingContext&&!m._id)m._id=crypto.randomUUID(); return {role:m.role,content:c,...(useRollingContext?{_contextId:m._id}:{})}; });
+    if (!useRollingContext && historyMsgs.length > 50) historyMsgs = historyMsgs.slice(-50);
     try {
         let apiUrl = '/v1/chat/completions';
         const viaMatch = currentSup.url.match(/\/via\/(\w+)\//);
@@ -4320,8 +4324,9 @@ async function regenerateSend(aiMsgIndex) {
 
         const streamToggle = document.getElementById('streamToggle');
         const isStream = streamToggle ? streamToggle.checked : true;
-        const reController=new AbortController(); reSilenceTimer=setTimeout(()=>reController.abort(),90000); function reReset(){clearTimeout(reSilenceTimer);reSilenceTimer=setTimeout(()=>reController.abort(),90000)}
-        const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream}) });
+        const reTimeout = useRollingContext ? 135000 : 90000;
+        const reController=new AbortController(); reSilenceTimer=setTimeout(()=>reController.abort(),reTimeout); function reReset(){clearTimeout(reSilenceTimer);reSilenceTimer=setTimeout(()=>reController.abort(),reTimeout)}
+        const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream,...(useRollingContext?{contextProtocol:{version:1,sessionId:session.id}}:{})}) });
         if (!response.ok) { clearTimeout(reSilenceTimer); const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         let fullReply='', thinkContent='';
         var toolCallRecords = [];
