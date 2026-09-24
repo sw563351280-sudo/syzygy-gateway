@@ -11,6 +11,21 @@ function sseStream(events) {
     return new Response(body).body;
 }
 
+test('fragmented UTF8 and final usage without newline retain earlier cache detail', async () => {
+    const text = 'data:' + JSON.stringify({ choices: [{ delta: { content: '你好' } }],
+        usage: { prompt_tokens: 9000, prompt_tokens_details: { cached_tokens: 8000, cache_creation_tokens: 500 } } }) + '\r\n\r\n'
+        + 'data: ' + JSON.stringify({ choices: [], usage: { completion_tokens: 100, prompt_tokens_details: { cached_tokens: 8000 } } });
+    const bytes = new TextEncoder().encode(text);
+    const stream = new ReadableStream({ start(controller) {
+        for (let i = 0; i < bytes.length; i += 2) controller.enqueue(bytes.slice(i, i + 2));
+        controller.close();
+    } });
+    const result = await consumeOpenAIStream(stream);
+    assert.equal(result.content, '你好');
+    assert.equal(result.usage.prompt_tokens_details.cache_creation_tokens, 500);
+    assert.equal(result.usage.completion_tokens, 100);
+});
+
 test('stream parser preserves content and usage', async () => {
     const seen = [];
     const result = await consumeOpenAIStream(sseStream([

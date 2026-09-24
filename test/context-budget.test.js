@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { composeContext, measureMessages, normalizeUsage, estimateCost, readConfig, createBudgetObserver } = require('../context-budget');
 
 const rates = { input: 5, read: 0.5, write: 6.25, output: 25, usdToCny: 7 };
+const { mergeUsage, cacheState, usageEvidence } = require('../context-budget');
 const usage = { input_tokens: 300, cache_read_input_tokens: 8000, cache_creation_input_tokens: 300, output_tokens: 150 };
 
 test('projection preserves roles, images, tool pairs and cache flags without mutating inputs', () => {
@@ -39,7 +40,7 @@ test('missing, invalid or inconsistent accounting is unknown, not free', () => {
 test('passive observation is on by default and explicit off disables it', () => {
     assert.equal(readConfig({}).enabled, true);
     assert.equal(readConfig({ CONTEXT_BUDGET_MODE: 'off' }).enabled, false);
-    assert.deepEqual(readConfig({ CONTEXT_BUDGET_RATES_JSON: 'bad' }).rates, {});
+    assert.deepEqual(readConfig({ CONTEXT_BUDGET_RATES_JSON: 'bad' }).rates, readConfig({}).rates);
     const observer = createBudgetObserver({ endpoint: 'https://example.test', model: 'test', config: readConfig({ CONTEXT_BUDGET_MODE: 'off' }), log() { assert.fail('disabled'); } });
     observer.context({}); observer.response(observer.request({}), usage);
 });
@@ -73,4 +74,33 @@ test('pricing is scoped to exact provider and model; broken logging cannot break
     assert.equal(events.at(-1).estimatedCost, null);
     const broken = createBudgetObserver({ endpoint: 'https://example.test', model: 'opus', config, log() { throw Error('log failed'); } });
     assert.doesNotThrow(() => broken.response(broken.request({ messages: [] }), usage));
+});
+
+test('AIHubMix cache creation aliases and explicit zeros differ from absent fields', () => {
+    const chat = { prompt_tokens: 8600, completion_tokens: 150,
+        prompt_tokens_details: { cached_tokens: 8000, cache_creation_tokens: 300 } };
+    assert.deepEqual(normalizeUsage(chat), normalizeUsage(usage));
+    assert.equal(cacheState(normalizeUsage(chat)), 'hit');
+    assert.equal(cacheState(normalizeUsage({ ...usage, cache_read_input_tokens: 0 })), 'written');
+    assert.equal(cacheState(normalizeUsage({ ...usage, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 })), 'no_cache');
+    assert.equal(cacheState(normalizeUsage({ prompt_tokens: 25149, completion_tokens: 763 })), 'unknown');
+    assert.equal(normalizeUsage({ prompt_cache_miss_tokens: 100 }).write, null);
+    assert.equal(normalizeUsage({ cache_creation: { ephemeral_5m_input_tokens: 200, ephemeral_1h_input_tokens: 100 } }).write, 300);
+    assert.equal(JSON.stringify(usageEvidence({ ...chat, secret: 'SECRET' })).includes('SECRET'), false);
+});
+
+test('usage merging preserves partial details and replaces counters without summing', () => {
+    const initial = { prompt_tokens: 8600, prompt_tokens_details: { cached_tokens: 8000, cache_creation_tokens: 300 } };
+    const merged = mergeUsage(initial, { completion_tokens: 150, prompt_tokens: null,
+        prompt_tokens_details: { cached_tokens: 8000, cache_creation_tokens: null } });
+    assert.deepEqual(normalizeUsage(merged), normalizeUsage(usage));
+    assert.equal(initial.completion_tokens, undefined);
+});
+
+test('default prices cover exact AIHubMix Opus ids and allow explicit overrides', () => {
+    const config = readConfig({});
+    assert.deepEqual(config.rates['aihubmix.com|claude-opus-4-6-think'], rates);
+    assert.equal(config.rates['other.test|claude-opus-4-6-think'], undefined);
+    assert.equal(config.rates['aihubmix.com|claude-opus-4-6-unknown'], undefined);
+    assert.equal(readConfig({ CONTEXT_BUDGET_RATES_JSON: JSON.stringify({ 'aihubmix.com|claude-opus-4-6-think': null }) }).rates['aihubmix.com|claude-opus-4-6-think'], null);
 });

@@ -13,7 +13,8 @@ const { promisify } = require('util');
 const nodeFetch = require('node-fetch');
 const { createCodexBridge } = require('./codex-bridge');
 const { consumeOpenAIStream } = require('./streaming-chat');
-const { composeContext, createBudgetObserver, readConfig: readContextBudgetConfig } = require('./context-budget');
+const { composeContext, createBudgetObserver, mergeUsage, readConfig: readContextBudgetConfig } = require('./context-budget');
+const { prepareCachedRequest, supportsBlockCache, cacheAdapterStatus } = require('./provider-cache');
 const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
 const { extractDailyStateUpdates, stripLeakedStateUpdates, shouldCuratePersistentState } = require('./daily-state-curator');
 const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-merge');
@@ -608,10 +609,15 @@ app.use((req, res, next) => {
 
 // 内存日志环缓冲区 — 捕获 console 输出到 HTTP 可查
 const _consoleRing = [];
+const _budgetConsoleRing = [];
 const _CONSOLE_RING_MAX = 200;
 function _ringPush(level, ...args) {
     const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
     _consoleRing.push({ t: new Date().toISOString(), l: level, m: msg });
+    if (msg.startsWith('[ContextBudget]')) {
+        _budgetConsoleRing.push(_consoleRing[_consoleRing.length - 1]);
+        if (_budgetConsoleRing.length > 1000) _budgetConsoleRing.shift();
+    }
     if (_consoleRing.length > _CONSOLE_RING_MAX) _consoleRing.shift();
 }
 const _origConsole = { log: console.log, error: console.error, warn: console.warn };
@@ -7960,12 +7966,13 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             toolRound++;
             const roundLabel = `第${toolRound}轮`;
             console.log(`🔧 [工具] ${roundLabel}请求（${enabledTools.length}个工具）...`);
-            const budgetCall = contextBudget.request(toolBody);
-            const toolResponse = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(toolBody) });
+            const toolWireBody = prepareCachedRequest(apiUrl, toolBody, { historyEnd: bodyMessages.indexOf(contextParts.currentMessage) - 1 });
+            const budgetCall = contextBudget.request(toolWireBody);
+            const toolResponse = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(toolWireBody) });
 
             if (!toolResponse.ok) {
                 const errStatus = toolResponse.status;
-                if (errStatus === 400 || errStatus === 422) {
+                if ((errStatus === 400 || errStatus === 422) && !supportsBlockCache(apiUrl, body.model)) {
                     console.log(`🔧 [工具] 模型不支持FC(${errStatus})，降级`);
                     break;
                 }
@@ -8114,15 +8121,16 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             delete body.tools; delete body.tool_choice;
         }
 
-        const finalBudgetCall = contextBudget.request(body);
-        const response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(body) });
+        const finalWireBody = prepareCachedRequest(apiUrl, body, { historyEnd: body.messages.indexOf(contextParts.currentMessage) - 1 });
+        const finalBudgetCall = contextBudget.request(finalWireBody);
+        const response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(finalWireBody) });
         if (!response.ok) {
             const errText = await response.text();
             if (isStreamMode) { res.write(`data: [ERROR]${errText.substring(0,500)}\n\n`); res.end(); return; }
             return res.status(response.status).json({ error: "模型报错：" + errText });
         }
 
-        console.log(`📊 [Cache:via-stream] mode=${cacheMode2} 流式路径暂未解析 usage (response body 已 stream)`);
+        console.log(`📊 [Cache:via-stream] mode=${cacheMode2} 用量以 ContextBudget 记录为准`);
         if (response?.headers) console.log('📦 [UpstreamUsage:stream] headers:', { 'x-ratelimit-limit': response.headers.get('x-ratelimit-limit'), 'x-ratelimit-remaining': response.headers.get('x-ratelimit-remaining') });
         // 流式与非流式处理
         if (isStreamMode) {
@@ -8139,14 +8147,15 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
             while (true) {
                 const { done, value } = await reader.read();
-                if (done) break;
-                sseBuffer += decoder.decode(value, { stream: true });
+                sseBuffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+                // Some providers omit the trailing newline on the final usage event.
+                if (done && sseBuffer) sseBuffer += '\n';
                 const lines = sseBuffer.split('\n');
                 sseBuffer = lines.pop();
 
                 for (const line of lines) {
-                    if (!line.startsWith('data: ')) { res.write(line + '\n'); continue; }
-                    const dataStr = line.substring(6).trim();
+                    if (!line.startsWith('data:')) { res.write(line + '\n'); continue; }
+                    const dataStr = line.substring(5).trim();
                     if (dataStr === '[DONE]') {
                         // Never flush a partial internal tag at stream end. The
                         // complete response is parsed below and the plan is
@@ -8161,7 +8170,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                     }
                     let parsed; try { parsed = JSON.parse(dataStr); } catch(e) { res.write(line + '\n'); continue; }
                     if (parsed.usage) {
-                        budgetStreamUsage = { ...budgetStreamUsage, ...parsed.usage };
+                        budgetStreamUsage = mergeUsage(budgetStreamUsage, parsed.usage);
                         contextBudget.response(finalBudgetCall, budgetStreamUsage);
                     }
                     const delta = parsed.choices?.[0]?.delta;
@@ -8218,6 +8227,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                         }
                     }
                 }
+                if (done) break;
             }
             if (sseBuffer.trim()) res.write(sseBuffer + '\n');
             res.end();
@@ -8671,7 +8681,7 @@ app.get('/debug-console', (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '需要管理密码' });
     const filter = (req.query.filter || '').toLowerCase();
     const n = parseInt(req.query.n) || 100;
-    let entries = _consoleRing.slice(-n);
+    let entries = (filter.includes('contextbudget') ? _budgetConsoleRing : _consoleRing).slice(-n);
     if (filter) entries = entries.filter(e => {
         try { return e.m.toLowerCase().includes(filter); } catch(_) { return e.m.includes(req.query.filter || ''); }
     });
@@ -8679,8 +8689,18 @@ app.get('/debug-console', (req, res) => {
 });
 
 app.get('/api/context-budget/status', (req, res) => {
-    if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '需要管理密码' });
+    if (!process.env.MEMORY_PASSWORD || req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: '需要管理密码' });
     const config = readContextBudgetConfig();
+    let latestCache = null;
+    for (let i = _budgetConsoleRing.length - 1; i >= 0; i--) {
+        try {
+            const event = JSON.parse(_budgetConsoleRing[i].m.slice('[ContextBudget] '.length));
+            if (event.event !== 'usage') continue;
+            latestCache = { at: _budgetConsoleRing[i].t, host: event.host, model: event.model,
+                state: event.cacheState || 'unknown', usage: event.usage, estimatedCost: event.estimatedCost };
+            break;
+        } catch (_) {}
+    }
     res.set('Cache-Control', 'no-store');
     res.json({
         enabled: config.enabled,
@@ -8688,6 +8708,8 @@ app.get('/api/context-budget/status', (req, res) => {
         targetCny: config.targetCny,
         historyTokens: config.historyTokens,
         pricedRoutes: Object.keys(config.rates || {}),
+        cacheAdapter: cacheAdapterStatus(),
+        latestCache,
     });
 });
 
@@ -9505,14 +9527,19 @@ app.post('/api/web-chat', async (req, res) => {
 
                     const roundLabel = `第${8 - webMaxRounds}轮`;
                     console.log(`🔧 [web-chat工具] ${roundLabel}请求...`);
-                    const webBudgetCall = webContextBudget.request(toolFetchBody);
+                    const webToolWireBody = prepareCachedRequest(baseUrl, toolFetchBody, { historyEnd: apiMessages.indexOf(webContextParts.currentMessage) - 1 });
+                    const webBudgetCall = webContextBudget.request(webToolWireBody);
                     const toolRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                        body: JSON.stringify(toolFetchBody)
+                        body: JSON.stringify(webToolWireBody)
                     });
 
                     if (!toolRes.ok) {
+                        if (supportsBlockCache(baseUrl, webModelName)) {
+                            resolve({ text: '【大脑报错】' + await toolRes.text(), thinking: '' });
+                            return;
+                        }
                         if (toolRes.status === 400 || toolRes.status === 422) {
                             console.log(`🔧 [web-chat工具] 模型不支持FC(${toolRes.status})，降级`);
                             break;
@@ -9573,11 +9600,12 @@ app.post('/api/web-chat', async (req, res) => {
                     console.log(`🔧 [web-chat工具压缩] ${toolResults.length}段 → ${truncated.length}字符`);
                 }
 
-                const webFinalBudgetCall = webContextBudget.request(fetchBody);
+                const webFinalWireBody = prepareCachedRequest(baseUrl, fetchBody, { historyEnd: fetchBody.messages.indexOf(webContextParts.currentMessage) - 1 });
+                const webFinalBudgetCall = webContextBudget.request(webFinalWireBody);
                 const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                    body: JSON.stringify(fetchBody)
+                    body: JSON.stringify(webFinalWireBody)
                 });
 
                 if (!aiRes.ok) {

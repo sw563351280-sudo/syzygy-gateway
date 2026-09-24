@@ -1740,12 +1740,14 @@ async function loadRawLogs() {
     const filter = document.getElementById('logFilterInput')?.value || '';
     const url = '/debug-console?n=200&pwd=' + encodeURIComponent(pwd) + (filter ? '&filter=' + encodeURIComponent(filter) : '');
     const statusEl = document.getElementById('contextBudgetStatus');
+    const cacheEl = document.getElementById('contextCacheStatus');
     try {
         const [logResponse, statusResponse] = await Promise.all([
             fetch(url, { cache: 'no-store' }),
             fetch('/api/context-budget/status?pwd=' + encodeURIComponent(pwd), { cache: 'no-store' })
         ]);
         const data = await logResponse.json();
+        if (!logResponse.ok) throw new Error(data.error || '日志读取失败');
         const pre = document.getElementById('logOutput');
         if (!pre) return;
         pre.innerHTML = ''; // 清空后逐行用 textContent 追加，避免 XSS
@@ -1760,6 +1762,8 @@ async function loadRawLogs() {
         });
         pre.scrollTop = pre.scrollHeight;
         const status = await statusResponse.json().catch(() => ({}));
+        if (cacheEl) cacheEl.textContent = statusResponse.ok ? formatCacheStatus(status)
+            : '缓存状态不可用：请检查管理密码及服务是否更新。此检查不调用模型。';
         if (statusEl) {
             if (!statusResponse.ok) statusEl.textContent = '费用观测：状态不可用';
             else {
@@ -1770,8 +1774,9 @@ async function loadRawLogs() {
                 statusEl.style.color = status.enabled ? (priced ? '#27ae60' : '#e67e22') : '#e74c3c';
             }
         }
-    } catch (_) {
+    } catch (error) {
         if (statusEl) { statusEl.textContent = '费用观测：连接失败'; statusEl.style.color = '#e74c3c'; }
+        if (cacheEl) cacheEl.textContent = '状态读取失败：' + error.message + '。无需发送聊天来检查。';
     }
 }
 let _logFilterTimer = null;

@@ -1,4 +1,5 @@
 'use strict';
+const { mergeUsage } = require('./context-budget');
 
 function mergeToolCallDeltas(target, deltas) {
     for (const delta of deltas || []) {
@@ -46,7 +47,7 @@ async function consumeOpenAIStream(stream, onChunk = null) {
         try { parsed = JSON.parse(payload); } catch (_) { return; }
         if (parsed.id) result.id = parsed.id;
         if (parsed.model) result.model = parsed.model;
-        if (parsed.usage) result.usage = parsed.usage;
+        if (parsed.usage) result.usage = mergeUsage(result.usage, parsed.usage);
 
         const choice = parsed.choices?.[0];
         const delta = choice?.delta || {};

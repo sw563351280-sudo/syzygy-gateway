@@ -392,6 +392,7 @@
                 <label><input type="checkbox" id="logAutoRefresh" onchange="toggleLogAutoRefresh()"> 自动刷新</label>
                 <span id="contextBudgetStatus" style="margin-left:auto;font-size:0.82rem;color:#888">费用观测：检查中…</span>
             </div>
+            <p id="contextCacheStatus" style="font-size:0.85rem;white-space:pre-line" aria-live="polite">缓存状态：检查中（不调用模型）…</p>
             <pre id="logOutput" class="console-log-output"></pre>
         </div>
     </div>
@@ -598,7 +599,8 @@
 
 <script src="clipboard-images.js?v=1"></script>
 <script src="thinking-parser.js?v=1"></script>
-<script src="script.js?v=78"></script>
+<script src="context-cache-status.js?v=1"></script>
+<script src="script.js?v=79"></script>
 <script src="music-player.js?v=3" defer></script>
         <div id="msgContextMenu" class="msg-context-menu" role="menu" aria-label="消息操作" hidden></div>
 
