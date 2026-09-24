@@ -1,7 +1,9 @@
 'use strict';
 
 const { randomUUID } = require('node:crypto');
-const { inspectCacheRequest } = require('./provider-cache');
+const { inspectCacheRequest, supportsBlockCache } = require('./provider-cache');
+const { createToolSchemaTracker } = require('./tool-schema-cache');
+const toolSchemaTracker = createToolSchemaTracker();
 
 // Input projection only. Never edits persisted messages or summary cursors.
 function composeContext({ systemMessage, summaryMessages = [], historyMessages = [], currentMessage }) {
@@ -118,7 +120,7 @@ function readConfig(env = process.env) {
     };
 }
 
-function createBudgetObserver({ endpoint, model, config = readConfig(), log = value => console.log('[ContextBudget]', JSON.stringify(value)) }) {
+function createBudgetObserver({ endpoint, model, conversationId = null, config = readConfig(), log = value => console.log('[ContextBudget]', JSON.stringify(value)) }) {
     const noop = { context() {}, request() { return null; }, response() {}, finish() {} };
     if (!config.enabled) return noop;
     let host;
@@ -161,7 +163,11 @@ function createBudgetObserver({ endpoint, model, config = readConfig(), log = va
             const callModel = source.model || model;
             const kind = source.kind === 'summary' ? 'summary' : 'chat';
             calls.set(id, { cost: null, host: callHost, model: callModel, kind });
+            const toolSchema = kind === 'chat' && supportsBlockCache(source.endpoint || endpoint, callModel)
+                ? { ...toolSchemaTracker.compare([callHost, callModel, conversationId || turnId], body.tools || []),
+                    scope: conversationId ? 'conversation' : 'turn' } : null;
             emit({ event: 'request', call: id, kind, callHost, callModel, turn: totals(), estimatesOnly: true,
+                toolSchema,
                 messages: measureMessages(body.messages),
                 toolTokens: estimateText(JSON.stringify(body.tools || [])),
                 toolCount: (body.tools || []).length,

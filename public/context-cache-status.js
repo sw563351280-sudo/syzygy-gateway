@@ -14,6 +14,13 @@
             lines.push('最近摘要：' + (states[status.latestSummary.state] || '状态未知') + ' · ' + status.latestSummary.at);
         }
         const last = status.latestCache;
+        if (status.latestToolSchema) {
+            const tools = status.latestToolSchema;
+            const scope = tools.scope === 'conversation' ? '同会话上次请求' : '本轮上次请求';
+            const label = tools.state === 'first' ? '暂无可比较记录'
+                : tools.state === 'stable' ? '定义一致' : `发生变化（增加 ${tools.added}、移除 ${tools.removed}、定义修改 ${tools.definitionsChanged}）`;
+            lines.push(`工具缓存检查（${tools.model || '当前模型'}）：${tools.count} 个工具，${tools.state === 'first' ? label : '与' + scope + '相比' + label}。这不是实际命中证明。`);
+        }
         const ledger = status.costLedger;
         if (ledger?.latest) {
             const turn = ledger.latest.turn;

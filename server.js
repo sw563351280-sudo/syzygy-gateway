@@ -7471,7 +7471,8 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             userPreview: ''
         });
         let body = req.body;
-        const contextBudget = observeContextBudget({ endpoint: resolveApiUrl(req.path), model: body.model || '' }, res);
+        const contextBudget = observeContextBudget({ endpoint: resolveApiUrl(req.path), model: body.model || '',
+            conversationId: typeof body.contextProtocol?.sessionId === 'string' ? body.contextProtocol.sessionId : null }, res);
         const contextProtocol = body.contextProtocol;
         delete body.contextProtocol; // Gateway-only metadata must never reach a provider.
         const noMemory = req.headers['x-no-memory'] === 'true';
@@ -8762,6 +8763,15 @@ app.get('/api/context-budget/status', (req, res) => {
     const config = readContextBudgetConfig();
     let latestCache = null;
     let latestSummary = null;
+    let latestToolSchema = null;
+    for (let i = _budgetConsoleRing.length - 1; i >= 0; i--) {
+        try {
+            const event = JSON.parse(_budgetConsoleRing[i].m.slice('[ContextBudget] '.length));
+            if (event.event === 'request' && event.toolSchema) {
+                latestToolSchema = { at: _budgetConsoleRing[i].t, host: event.callHost, model: event.callModel, ...event.toolSchema }; break;
+            }
+        } catch (_) {}
+    }
     for (let i = _budgetConsoleRing.length - 1; i >= 0; i--) {
         try {
             const event = JSON.parse(_budgetConsoleRing[i].m.slice('[ContextBudget] '.length));
@@ -8787,6 +8797,7 @@ app.get('/api/context-budget/status', (req, res) => {
         cacheAdapter: cacheAdapterStatus(),
         contextOptimization: rollingContextCapabilities(),
         latestSummary,
+        latestToolSchema,
         costLedger: costLedger.snapshot(),
         latestCache,
     });

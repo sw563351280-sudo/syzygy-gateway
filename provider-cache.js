@@ -1,4 +1,5 @@
 'use strict';
+const { stableToolSchema } = require('./tool-schema-cache');
 
 // AIHubMix documents content-block cache_control on Chat Completions:
 // https://docs.aihubmix.com/en/practices/prompt-caching
@@ -25,6 +26,7 @@ function prepareCachedRequest(endpoint, body, { historyEnd = -1, enabled = true 
         delete tool.cache_control;
         if (tool.function) delete tool.function.cache_control;
     }
+    if (Array.isArray(result.tools)) result.tools = stableToolSchema(result.tools);
     function mark(index) {
         const message = result.messages?.[index];
         if (!message || !['system', 'user', 'assistant'].includes(message.role)) return false;
