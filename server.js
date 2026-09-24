@@ -17,6 +17,7 @@ const { composeContext, createBudgetObserver, mergeUsage, readConfig: readContex
 const { prepareCachedRequest, supportsBlockCache, cacheAdapterStatus } = require('./provider-cache');
 const { createRollingContext, fileStore, createSummarizer } = require('./rolling-context');
 const { budgetDynamicParts } = require('./dynamic-budget');
+const { createCostLedger } = require('./cost-ledger');
 const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./todo-utils');
 const { extractDailyStateUpdates, stripLeakedStateUpdates, shouldCuratePersistentState } = require('./daily-state-curator');
 const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-merge');
@@ -727,6 +728,16 @@ function getModelPromptConfig(modelName) {
 // 持久化计数器与目录初始化
 // ==========================================
 const DATA_DIR = path.join(__dirname, 'data');
+const costLedger = createCostLedger({ filename: path.join(DATA_DIR, 'context-cost-ledger.json') });
+function observeContextBudget(options, response) {
+    const observer = createBudgetObserver({ ...options, log: event => {
+        try { costLedger.record(event); } catch (_) {}
+        console.log('[ContextBudget]', JSON.stringify(event));
+    } });
+    response.once('finish', () => observer.finish(response.statusCode >= 400 ? 'failed' : 'completed'));
+    response.once('close', () => observer.finish('interrupted'));
+    return observer;
+}
 function rollingContextCapabilities() {
     return { version: 1, rollingSummary: Boolean(process.env.CONTEXT_SUMMARY_API_KEY || process.env.DREAM_API_KEY || process.env.ROUTER_API_KEY),
         thresholdTokens: readContextBudgetConfig().historyTokens, recentTailTokens: 1500, dynamicSoftTokens: 3000 };
@@ -7460,6 +7471,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             userPreview: ''
         });
         let body = req.body;
+        const contextBudget = observeContextBudget({ endpoint: resolveApiUrl(req.path), model: body.model || '' }, res);
         const contextProtocol = body.contextProtocol;
         delete body.contextProtocol; // Gateway-only metadata must never reach a provider.
         const noMemory = req.headers['x-no-memory'] === 'true';
@@ -7826,7 +7838,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 return { ...message, _contextId: `import:${digest}:${occurrence}` };
             });
             projectedHistory = await rollingContext.project(
-                [contextProtocol.sessionId, resolveApiUrl(req.path), body.model], identified);
+                [contextProtocol.sessionId, resolveApiUrl(req.path), body.model], identified, contextBudget);
         }
         const hasProjectedSummary = typeof projectedHistory[0]?.content === 'string'
             && projectedHistory[0].content.startsWith('[System reference: Conversation history summary]\n');
@@ -7860,7 +7872,6 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
 
 
         const apiUrl = resolveApiUrl(req.path);
-        const contextBudget = createBudgetObserver({ endpoint: apiUrl, model: body.model || '' });
         contextBudget.context(contextParts);
 
         
@@ -8760,8 +8771,8 @@ app.get('/api/context-budget/status', (req, res) => {
     for (let i = _budgetConsoleRing.length - 1; i >= 0; i--) {
         try {
             const event = JSON.parse(_budgetConsoleRing[i].m.slice('[ContextBudget] '.length));
-            if (event.event !== 'usage') continue;
-            latestCache = { at: _budgetConsoleRing[i].t, host: event.host, model: event.model,
+            if (event.event !== 'usage' || event.kind === 'summary') continue;
+            latestCache = { at: _budgetConsoleRing[i].t, host: event.callHost || event.host, model: event.callModel || event.model,
                 state: event.cacheState || 'unknown', usage: event.usage, estimatedCost: event.estimatedCost };
             break;
         } catch (_) {}
@@ -8776,6 +8787,7 @@ app.get('/api/context-budget/status', (req, res) => {
         cacheAdapter: cacheAdapterStatus(),
         contextOptimization: rollingContextCapabilities(),
         latestSummary,
+        costLedger: costLedger.snapshot(),
         latestCache,
     });
 });
@@ -9552,7 +9564,7 @@ app.post('/api/web-chat', async (req, res) => {
                 const webContextParts = { systemMessage: webSystemMsg, historyMessages,
                     currentMessage: { role: 'user', content: finalUser } };
                 const apiMessages = composeContext(webContextParts);
-                const webContextBudget = createBudgetObserver({ endpoint: baseUrl, model: webModelName });
+                const webContextBudget = observeContextBudget({ endpoint: baseUrl, model: webModelName }, res);
                 webContextBudget.context(webContextParts);
 
                 const wStableHash = require('crypto').createHash('sha256').update(webStableBlock).digest('hex').substring(0,12);

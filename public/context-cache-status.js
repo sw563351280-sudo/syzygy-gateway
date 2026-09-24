@@ -14,6 +14,22 @@
             lines.push('最近摘要：' + (states[status.latestSummary.state] || '状态未知') + ' · ' + status.latestSummary.at);
         }
         const last = status.latestCache;
+        const ledger = status.costLedger;
+        if (ledger?.latest) {
+            const turn = ledger.latest.turn;
+            const money = value => typeof value === 'number' ? '¥' + value.toFixed(4) : '未知';
+            const group = value => !value?.calls ? '未发生调用' : money(value.knownCny) + (value.completeCny ? '' : '（信息不全）');
+            const complete = turn.finished && turn.complete && turn.completeCny && turn.outcome === 'completed';
+            lines.push(`最近一轮${complete ? '完整估算' : '已知小计'}：${money(turn.knownCny)} · ${turn.finished ? (turn.outcome === 'completed' ? '请求已结束' : '请求未正常完成') : '进行中'}`);
+            lines.push(`聊天 ${group(turn.chat)}；摘要 ${group(turn.summary)}。${complete ? '' : '未知部分未计入，不能当作整轮总价。'}`);
+            if (turn.overTarget) lines.push(`已知费用超过参考预算 ¥${turn.targetCny}（只提示，不截断）。`);
+        }
+        if (ledger?.recent?.turns) {
+            const recent = ledger.recent;
+            lines.push(`最近 ${recent.turns} 轮：${recent.completeTurns} 轮信息完整，${recent.incompleteTurns} 轮不完整；摘要调用 ${recent.summaryCalls} 次。`);
+            if (typeof recent.averageCompleteCny === 'number') lines.push(`仅完整轮次平均 ¥${recent.averageCompleteCny.toFixed(4)}／轮（不含不完整轮次，也不是节省率）。`);
+        }
+        if (ledger?.storageError) lines.push('费用记录保存或读取失败，当前汇总可能不完整。');
         if (!last) lines.push('本次服务启动后暂无用量记录，无需为检查配置而发送聊天。');
         else {
             const labels = { hit: '已命中', written: '已写入', no_cache: '本次未读写缓存', unknown: '读写信息不完整，不能判断未命中' };

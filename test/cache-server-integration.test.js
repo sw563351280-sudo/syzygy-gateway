@@ -18,7 +18,7 @@ test('real main projection sends only original history to summarizer and strips 
         newMessages: messages, contextProtocol: { version: 1, sessionId: 'session' }, isOpenClawRequest: false,
         supportsBlockCache: () => true, resolveApiUrl: () => 'https://aihubmix.com/v1', req: { path: '/' },
         rollingContext: { async project(scope, history) { observed = { scope, history }; return history.map(({ role, content }) => ({ role, content })); } },
-        body, systemMsg: { role: 'system', content: 'rules' }, finalUserContent: 'dynamic and latest',
+        body, contextBudget: {}, systemMsg: { role: 'system', content: 'rules' }, finalUserContent: 'dynamic and latest',
         composeContext: require('../context-budget').composeContext,
     });
     assert.equal(observed.history.length, 2);
@@ -106,7 +106,7 @@ test('status endpoint is authenticated and performs no upstream request', () => 
     const end = source.indexOf("app.get('/api/traces'", offset);
     vm.runInNewContext(source.slice(offset, end), {
         app: { get(_url, fn) { handler = fn; } }, process: { env: { MEMORY_PASSWORD: 'test' } },
-        readContextBudgetConfig: () => readConfig({}), cacheAdapterStatus, rollingContextCapabilities: () => ({ version: 1, rollingSummary: true }),
+        readContextBudgetConfig: () => readConfig({}), cacheAdapterStatus, rollingContextCapabilities: () => ({ version: 1, rollingSummary: true }), costLedger: { snapshot: () => ({}) },
         _budgetConsoleRing: [{ t: 'now', m: '[ContextBudget] ' + JSON.stringify({ event: 'usage', host: 'aihubmix.com',
             model: 'claude-opus-4-6-think', cacheState: 'written', usage: { read: 0, write: 8000 } }) }],
         fetch() { assert.fail('no upstream access'); },

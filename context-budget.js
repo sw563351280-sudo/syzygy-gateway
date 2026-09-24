@@ -85,6 +85,12 @@ function normalizeUsage(usage) {
 
 function estimateCost(usage, rates) {
     if (!usage || !rates) return null;
+    // Opt in ONLY when this exact channel bills all input at one flat rate.
+    if (rates.billing === 'flat') {
+        if ([usage.total, usage.output, rates.input, rates.output].some(v => count(v) === null)) return null;
+        const usd = (usage.total * rates.input + usage.output * rates.output) / 1e6;
+        return { usd, cny: count(rates.usdToCny) === null ? null : usd * rates.usdToCny };
+    }
     const fields = { uncached: 'input', read: 'read', write: 'write', output: 'output' };
     let usd = 0;
     for (const [field, rate] of Object.entries(fields)) {
@@ -113,14 +119,29 @@ function readConfig(env = process.env) {
 }
 
 function createBudgetObserver({ endpoint, model, config = readConfig(), log = value => console.log('[ContextBudget]', JSON.stringify(value)) }) {
-    const noop = { context() {}, request() { return null; }, response() {} };
+    const noop = { context() {}, request() { return null; }, response() {}, finish() {} };
     if (!config.enabled) return noop;
     let host;
     try { host = new URL(endpoint).host; } catch (_) { return noop; }
     const turnId = randomUUID();
     const calls = new Map();
     let sequence = 0;
-    const rates = config.rates[`${host}|${model}`];
+    let finished = false, outcome = null;
+    const group = values => {
+        const priced = values.filter(v => v.cost);
+        const cny = priced.filter(v => v.cost.cny !== null);
+        return { calls: values.length, pricedCalls: priced.length, unknownCalls: values.length - priced.length,
+            complete: values.every(v => v.cost !== null), completeCny: values.every(v => v.cost?.cny != null),
+            knownUsd: priced.reduce((s, v) => s + v.cost.usd, 0),
+            knownCny: cny.length ? cny.reduce((s, v) => s + v.cost.cny, 0) : null };
+    };
+    const totals = () => {
+        const values = [...calls.values()], all = group(values);
+        return { ...all, finished, outcome, targetCny: config.targetCny,
+            overTarget: all.knownCny === null ? null : all.knownCny > config.targetCny,
+            chat: group(values.filter(v => v.kind === 'chat')),
+            summary: group(values.filter(v => v.kind === 'summary')) };
+    };
     // Diagnostics must never interrupt a chat, including a failing log sink.
     const emit = event => { try { log({ turnId, host, model, ...event }); } catch (_) {} };
     return {
@@ -133,10 +154,14 @@ function createBudgetObserver({ endpoint, model, config = readConfig(), log = va
                 compactSuggested: history.textTokens >= config.historyTokens,
             });
         },
-        request(body) {
+        request(body, source = {}) {
             const id = ++sequence;
-            calls.set(id, null);
-            emit({ event: 'request', call: id, estimatesOnly: true,
+            let callHost = host;
+            try { if (source.endpoint) callHost = new URL(source.endpoint).host; } catch (_) { callHost = 'unknown'; }
+            const callModel = source.model || model;
+            const kind = source.kind === 'summary' ? 'summary' : 'chat';
+            calls.set(id, { cost: null, host: callHost, model: callModel, kind });
+            emit({ event: 'request', call: id, kind, callHost, callModel, turn: totals(), estimatesOnly: true,
                 messages: measureMessages(body.messages),
                 toolTokens: estimateText(JSON.stringify(body.tools || [])),
                 toolCount: (body.tools || []).length,
@@ -146,19 +171,22 @@ function createBudgetObserver({ endpoint, model, config = readConfig(), log = va
         },
         response(id, rawUsage) {
             if (!calls.has(id)) return;
+            const entry = calls.get(id);
+            const rates = config.rates[`${entry.host}|${entry.model}`];
             const usage = normalizeUsage(rawUsage);
             const cost = estimateCost(usage, rates);
-            calls.set(id, cost);
-            const values = [...calls.values()];
-            const complete = values.every(value => value !== null);
-            const knownUsd = values.reduce((sum, value) => sum + (value?.usd || 0), 0);
-            const knownCny = count(rates?.usdToCny) === null || !values.some(Boolean) ? null : knownUsd * rates.usdToCny;
-            emit({ event: 'usage', call: id, usage, cacheState: cacheState(usage),
+            entry.cost = cost;
+            emit({ event: 'usage', call: id, kind: entry.kind, callHost: entry.host, callModel: entry.model,
+                usage, cacheState: cacheState(usage),
                 usageEvidence: usageEvidence(rawUsage), estimatedCost: cost,
-                turn: { calls: calls.size, pricedCalls: values.filter(Boolean).length, complete,
-                    knownUsd, knownCny, targetCny: config.targetCny,
-                    overTarget: knownCny === null ? null : knownCny > config.targetCny },
+                unknownReason: cost ? null : !rates ? 'price_unconfigured' : 'usage_or_rates_incomplete',
+                turn: totals(),
             });
+        },
+        finish(reason = 'completed') {
+            if (finished) return;
+            finished = true; outcome = reason;
+            if (calls.size) emit({ event: 'turn_finished', turn: totals() });
         },
     };
 }

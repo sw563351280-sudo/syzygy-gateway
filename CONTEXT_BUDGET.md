@@ -14,7 +14,17 @@
 
 前端原有云同步仍只保留最近200条。新归档保留此功能启用后收到的文本版本，不是历史图片备份，也不追溯恢复启用前已丢弃的消息。浏览器重载后可用历史起点若变化，保守地使旧摘要失效重新总结，而不是猜测缺失部分。这会造成一次重建成本；跨进程多实例共享状态文件尚不支持，应由单个Node服务管理该目录。
 
-摘要配置：`CONTEXT_SUMMARY_API_KEY` → `DREAM_API_KEY` → `ROUTER_API_KEY`；默认沿用旧摘要端点 `https://www.msuicode.com/v1/chat/completions`、模型 `gemini-3-flash-preview-thinking`。可用 `CONTEXT_SUMMARY_URL`、`CONTEXT_SUMMARY_MODEL` 覆盖。免费检查仅确认配置存在，不证明供应商可用或有余额。旧 `/api/sync-config` 保存记录时自动生成分段摘要的入口已关闭，旧摘要文件保留。摘要费用单列在 `[ContextBudget] event=summary`，尚未合并到聊天模型的小计，不应把聊天小计当总账单。
+摘要配置：`CONTEXT_SUMMARY_API_KEY` → `DREAM_API_KEY` → `ROUTER_API_KEY`；默认沿用旧摘要端点 `https://www.msuicode.com/v1/chat/completions`、模型 `gemini-3-flash-preview-thinking`。可用 `CONTEXT_SUMMARY_URL`、`CONTEXT_SUMMARY_MODEL` 覆盖。免费检查仅确认配置存在，不证明供应商可用或有余额。旧 `/api/sync-config` 保存记录时自动生成分段摘要的入口已关闭，旧摘要文件保留。
+
+## 聊天与摘要合并记账
+
+摘要调用使用触发它的聊天观察器，共享turnId，kind为summary；主模型及工具轮kind为chat。每次请求分别按其实际host和model查价，不套用主模型单价。摘要即使截断、验证失败或保存失败，也保留已返回的用量；超时、网络失败、缺失单价/用量均标未知，不当成免费。没有触发摘要、复用既有摘要、冷却中或缺少密钥则不会虚增摘要调用。
+
+流式多次usage替换同一调用的账目，不累加重复计数。HTTP响应finish/close标记轮次结束；完整估算还要求所有调用费用、人民币换算均可知。仍在运行、失败、中断或信息缺失，只显示已知小计。后台记忆/主动任务、工具自身收费仍不在本轮范围内，供应商账单才是结算依据。
+
+`data/context-cost-ledger.json`原子替换保存最近500轮数值账目，不保存正文、密钥或URL参数。原始日志顶部展示最近一轮聊天/摘要拆分、预算提示和最近100轮汇总；平均值仅使用正常结束且计价完整的轮次，同时显示排除的轮数，不冒充全量平均或节省率。重启前未完成的记录标中断。读取损坏或写盘失败明确提示，不覆盖损坏文件。此前没有记录的历史费用不能追溯补算。
+
+摘要供应商单价尚无默认值，需要在`CONTEXT_BUDGET_RATES_JSON`里按准确host|model配置。若渠道明确全部输入采用同一单价，可显式使用`billing:"flat"`，并提供input、output、usdToCny；此时不要求供应商返回缓存拆分。不要为能出数字而假定flat计费；缓存分档渠道保持原来的input/read/write/output配置。单价未核实前，摘要计数与用量仍会记录，金额保留未知。
 
 ## 动态资料预算
 
@@ -67,7 +77,7 @@ AIHubMix Claude 普通聊天的关系状态、心情快照、生活碎屑三组�
 - `context`：固定提示、摘要、历史、当前消息含动态资料的粗估文本 token；尚不单独拆分末条消息中的 RAG 和真实用户发言。
 - `request`：实际发出前的消息文本粗估和工具 schema 粗估；图片只计块数，不把 base64 长度误算成文本 token。未覆盖多模态 token 和协议开销，不能当精确账单。
 - `usage`：上游返回的真实计数字段，以及按配置价格计算的估算费用。Anthropic 原生 input_tokens 不含缓存，Chat Completions prompt_tokens 包含缓存。reasoning 不再次加到 completion_tokens 上。
-- `turn.knownUsd/knownCny`：当前已知模型请求费用小计。`complete=false` 表示有请求尚未返回完整可计价信息，不能把小计当整轮费用；即使 true 也只是截至当前已发出的请求，不代表后续不会再调用。
+- `turn.knownUsd/knownCny`：当前已知聊天及摘要请求费用小计，chat/summary为拆分。`complete=false` 表示存在无法计价的调用；`completeCny=false`还可能表示缺少汇率。只有finished、complete、completeCny均为true且outcome=completed，才能显示本轮范围内的完整估算。
 
 缺失缓存读写字段、单价或 usage 时，费用为 null；不把未知当零。不将 DeepSeek cache miss 当缓存创建。AIHubMix Claude 流式请求添加 stream_options.include_usage，并合并分段 usage；仍不能保证上游提供完整字段。日志的 cacheState 区分 hit、written、no_cache（明确的双零）、unknown（缺失），usageEvidence 只保留数字证据。request.cacheRequest 列出实际发送的断点位置，不包含正文。网络错误/中断可能留下仅有 request 的记录。后台摘要、记忆处理、主动任务、图片工具费用和 Keeper 不包含在聊天小计中。
 
