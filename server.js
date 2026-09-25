@@ -7840,13 +7840,19 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             });
             projectedHistory = await rollingContext.project(
                 [contextProtocol.sessionId, resolveApiUrl(req.path), body.model], identified, contextBudget, contextProtocol.prefix);
+        } else if (!isOpenClawRequest) {
+            // The browser's window is not sufficient: cross-platform history is
+            // appended afterwards. Apply the same limit to the final merged history.
+            projectedHistory = projectedHistory.slice(-30);
         }
         const hasProjectedSummary = typeof projectedHistory[0]?.content === 'string'
             && projectedHistory[0].content.startsWith('[System reference: Conversation history summary]\n');
         const contextParts = { systemMessage: systemMsg,
             summaryMessages: hasProjectedSummary ? projectedHistory.slice(0, 2) : [],
             historyMessages: hasProjectedSummary ? projectedHistory.slice(2) : projectedHistory,
-            currentMessage: { role: 'user', content: finalUserContent } };
+            currentMessage: { role: 'user', content: finalUserContent },
+            historySource: { receivedMessages: incomingMessages.length,
+                mergedHistoryMessages: newMessages.length, projectedMessages: projectedHistory.length } };
         const bodyMessages = composeContext(contextParts);
         body.messages = bodyMessages;
 
@@ -8764,6 +8770,13 @@ app.get('/api/context-budget/status', (req, res) => {
     let latestCache = null;
     let latestSummary = null;
     let latestToolSchema = null;
+    let latestContext = null;
+    for (let i = _budgetConsoleRing.length - 1; i >= 0; i--) {
+        try {
+            const event = JSON.parse(_budgetConsoleRing[i].m.slice('[ContextBudget] '.length));
+            if (event.event === 'context') { latestContext = { at: _budgetConsoleRing[i].t, ...event }; break; }
+        } catch (_) {}
+    }
     for (let i = _budgetConsoleRing.length - 1; i >= 0; i--) {
         try {
             const event = JSON.parse(_budgetConsoleRing[i].m.slice('[ContextBudget] '.length));
@@ -8797,6 +8810,7 @@ app.get('/api/context-budget/status', (req, res) => {
         cacheAdapter: cacheAdapterStatus(),
         contextOptimization: rollingContextCapabilities(),
         latestSummary,
+        latestContext,
         latestToolSchema,
         costLedger: costLedger.snapshot(),
         latestCache,

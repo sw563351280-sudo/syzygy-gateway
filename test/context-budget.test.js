@@ -7,6 +7,21 @@ const rates = { input: 5, read: 0.5, write: 6.25, output: 25, usdToCny: 7 };
 const { mergeUsage, cacheState, usageEvidence } = require('../context-budget');
 const usage = { input_tokens: 300, cache_read_input_tokens: 8000, cache_creation_input_tokens: 300, output_tokens: 150 };
 
+test('history diagnostics count actual projected text without exposing contents', () => {
+    const events = [];
+    const observer = createBudgetObserver({ endpoint: 'https://example.com/v1', model: 'test', log: e => events.push(e) });
+    observer.context({ historyMessages: [{ role: 'user', content: 'PRIVATE' },
+        { role: 'assistant', content: 'reply' }], summaryMessages: [],
+        historySource: { receivedMessages: 31, mergedHistoryMessages: 50, projectedMessages: 30 } });
+    const context = events.find(e => e.event === 'context');
+    assert.equal(context.historyDetail.count, 2);
+    assert.equal(context.historyDetail.characters, 12);
+    assert.equal(context.historyDetail.longest[0].characters, 7);
+    assert.equal(context.summaryCharacters, 0);
+    assert.equal(context.historySource.mergedHistoryMessages, 50);
+    assert.equal(JSON.stringify(context).includes('PRIVATE'), false);
+});
+
 test('projection preserves roles, images, tool pairs and cache flags without mutating inputs', () => {
     const parts = { systemMessage: { role: 'system', content: 'rules', cache_control: { type: 'ephemeral' } },
         historyMessages: [{ role: 'assistant', content: null, tool_calls: [{ id: 'a' }] }, { role: 'tool', tool_call_id: 'a', content: 'result' }],

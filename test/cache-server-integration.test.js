@@ -16,7 +16,7 @@ test('real main projection sends only original history to summarizer and strips 
     let observed;
     const body = { model: 'claude-opus-4-6' };
     await vm.runInNewContext(`(async () => { ${source.slice(begin, end)} })()`, {
-        newMessages: messages, contextProtocol: { version: 1, sessionId: 'session', prefix }, isOpenClawRequest: false,
+        newMessages: messages, incomingMessages: messages, contextProtocol: { version: 1, sessionId: 'session', prefix }, isOpenClawRequest: false,
         supportsBlockCache: () => true, resolveApiUrl: () => 'https://aihubmix.com/v1', req: { path: '/' },
         rollingContext: { async project(scope, history, observer, proof) { observed = { scope, history, proof }; return history.map(({ role, content }) => ({ role, content })); } },
         body, contextBudget: {}, systemMsg: { role: 'system', content: 'rules' }, finalUserContent: 'dynamic and latest',
@@ -28,6 +28,26 @@ test('real main projection sends only original history to summarizer and strips 
     assert.equal(JSON.stringify(body).includes('_contextRevision'), false);
     assert.equal(observed.proof, prefix);
     assert.equal(body.messages.at(-1).content, 'dynamic and latest');
+});
+
+test('non-AIHubMix final history caps cross-platform additions and preserves current question', async () => {
+    const begin = source.indexOf('let projectedHistory =');
+    const end = source.indexOf('body.messages = bodyMessages;', begin) + 'body.messages = bodyMessages;'.length;
+    const all = Array.from({ length: 50 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: 'message ' + i }));
+    for (const n of [0, 12, 30, 50]) {
+        const messages = all.slice(0, n), body = { model: '[反重力] claude-opus-4-6-thinking' };
+        const systemMsg = { role: 'system', content: 'rules' };
+        await vm.runInNewContext(`(async () => { ${source.slice(begin, end)} })()`, {
+            newMessages: messages, incomingMessages: all.slice(0, 31), contextProtocol: undefined, isOpenClawRequest: false,
+            supportsBlockCache: () => false, body, systemMsg, finalUserContent: 'current question',
+            composeContext: require('../context-budget').composeContext,
+            rollingContext: { project() { assert.fail('other providers must not summarize'); } },
+        });
+        // Under the original 30-message limit the payload is byte-for-byte the
+        // pre-cache assembly: system + history + current user, without a summary.
+        assert.equal(JSON.stringify(body.messages), JSON.stringify([systemMsg, ...messages.slice(-30), { role: 'user', content: 'current question' }]));
+        assert.equal(body.messages.length, Math.min(n, 30) + 2);
+    }
 });
 
 test('saving frontend state cannot invoke legacy paid summary generation', () => {

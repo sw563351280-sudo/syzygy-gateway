@@ -147,9 +147,16 @@ function createBudgetObserver({ endpoint, model, conversationId = null, config =
     // Diagnostics must never interrupt a chat, including a failing log sink.
     const emit = event => { try { log({ turnId, host, model, ...event }); } catch (_) {} };
     return {
-        context({ systemMessage, summaryMessages = [], historyMessages = [], currentMessage }) {
+        context({ systemMessage, summaryMessages = [], historyMessages = [], currentMessage, historySource }) {
             const history = measureMessages(historyMessages);
+            const textLength = m => typeof m?.content === 'string' ? m.content.length
+                : (m?.content || []).reduce((n, b) => n + (typeof b.text === 'string' ? b.text.length : 0), 0);
             emit({ event: 'context', estimatesOnly: true,
+                historySource,
+                historyDetail: { count: historyMessages.length, characters: historyMessages.reduce((n, m) => n + textLength(m), 0),
+                    longest: historyMessages.map((m, index) => ({ index, role: m.role, characters: textLength(m),
+                        textTokens: measureMessages([m]).textTokens })).sort((a, b) => b.characters - a.characters).slice(0, 3) },
+                summaryCharacters: summaryMessages.reduce((n, m) => n + textLength(m), 0),
                 stable: measureMessages([systemMessage].filter(Boolean)),
                 summary: measureMessages(summaryMessages), history,
                 currentWithDynamic: measureMessages([currentMessage].filter(Boolean)),

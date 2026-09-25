@@ -15,6 +15,14 @@
             if (status.latestSummary.fallbackCount) lines.push('摘要失败保护：本轮最多发送最近 ' + status.latestSummary.fallbackCount + ' 条历史，避免超长原文请求。');
         }
         const last = status.latestCache;
+        const context = status.latestContext;
+        if (context?.historyDetail) {
+            const d = context.historyDetail, s = context.historySource;
+            lines.push(`最近上下文（${context.host} / ${context.model} · ${context.at}）：历史 ${d.count} 条 / ${d.characters} 字符，摘要含包装 ${context.summaryCharacters} 字符。`);
+            if (s) lines.push(`消息数量：接收 ${s.receivedMessages} 条（含本轮），合并后历史 ${s.mergedHistoryMessages} 条，投影后 ${s.projectedMessages} 条（含摘要）。`);
+            lines.push(`本地粗估 token：固定 ${context.stable.textTokens} / 历史 ${context.history.textTokens} / 摘要 ${context.summary.textTokens} / 本轮与动态 ${context.currentWithDynamic.textTokens}。不是上游精确计数。`);
+            lines.push('最长历史：' + d.longest.map(m => `第 ${m.index + 1} 条 ${m.role} ${m.characters} 字符`).join('；'));
+        }
         if (status.latestToolSchema) {
             const tools = status.latestToolSchema;
             const scope = tools.scope === 'conversation' ? '同会话上次请求' : '本轮上次请求';
