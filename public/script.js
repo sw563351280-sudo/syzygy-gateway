@@ -3050,7 +3050,8 @@ async function sendChat(options = {}) {
 
     // Send original available history to our gateway; it archives and projects it.
     // Other channels keep their existing window. No provider receives these IDs.
-    const useRollingContext = await canUseRollingContext(currentSup.url, selectedModel, fetch);
+    const retainedImages = ChatWindowContext.imageWindow(session.messages, getActiveVersion);
+    const useRollingContext = !isWorkroomSession(session) && !retainedImages.size && await canUseRollingContext(currentSup.url, selectedModel, fetch);
     let historyStorage;
     try { historyStorage = window.sessionStorage; } catch (_) {}
 var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedChatHistory(session.messages.slice(0, -1), session.id,
@@ -3080,12 +3081,16 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
     } else if (isWorkroomSession(session) && m.speaker === 'shenwang') {
         safeContent = '[沈望（你此前的发言）]\n' + safeContent;
     }
-    return { role: historyRole, content: safeContent, ...(useRollingContext ? { _contextId: m._id, _contextRevision: ContextContinuity.revisionOf(m, getActiveVersion) } : {}) };
+    return { role: historyRole, content: ChatWindowContext.retainImages(safeContent, m, retainedImages, getActiveVersion), ...(useRollingContext ? { _contextId: m._id, _contextRevision: ContextContinuity.revisionOf(m, getActiveVersion) } : {}) };
 });
 
 
     // 最后一条用 userContent（包含你刚重写的完美图片数组）
     historyMsgs.push({ role: 'user', content: userContent });
+    if (isWorkroomSession(session)) {
+        historyMsgs = ChatWindowContext.workroomHistory(session.messages, chatSessions.find(s => s.id === 'main')?.messages || [], getActiveVersion, legacyMessagePlain, fmtTsTag);
+        historyMsgs[historyMsgs.length - 1] = { role: 'user', content: userContent };
+    }
 
         let apiUrl = '/v1/chat/completions';
         const viaMatch = currentSup.url.match(/\/via\/(\w+)\//);
@@ -3104,6 +3109,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         const reqBody = {
             model: selectedModel,
             ...(useRollingContext ? { contextProtocol: { version: 1, sessionId: session.id, prefix: session.contextPrefix || null } } : {}),
+            activeChatId: session.id,
             messages: historyMsgs,
             stream: isStream,
             useCrossplatform: !isWorkroomSession(session) && localStorage.getItem('syzygy_crossplatform') !== 'false'
@@ -4766,9 +4772,18 @@ async function regenerateSend(aiMsgIndex) {
     let reSilenceTimer = null;
     const modelEl = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
-    const useRollingContext = await canUseRollingContext(currentSup.url, selectedModel, fetch);
-    var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; c=legacyMessagePlain(c); if(typeof c==='string'&&(m.role==='user'||useRollingContext))c=fmtTsTag(v.fullTime)+stripDisplayTimestamp(c); if(useRollingContext&&!m._id)m._id=crypto.randomUUID(); return {role:m.role,content:c,...(useRollingContext?{_contextId:m._id,_contextRevision:ContextContinuity.revisionOf(m,getActiveVersion)}:{})}; });
+    const regenerationMessages = session.messages.slice(0, aiMsgIndex);
+    const retainedImages = ChatWindowContext.imageWindow(regenerationMessages, getActiveVersion);
+    const useRollingContext = !isWorkroomSession(session) && !retainedImages.size && await canUseRollingContext(currentSup.url, selectedModel, fetch);
+    var historyMsgs = regenerationMessages.map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; c=legacyMessagePlain(c); if(typeof c==='string'&&(m.role==='user'||useRollingContext))c=fmtTsTag(v.fullTime)+stripDisplayTimestamp(c); if(useRollingContext&&!m._id)m._id=crypto.randomUUID(); return {role:m.role,content:ChatWindowContext.retainImages(c,m,retainedImages,getActiveVersion),...(useRollingContext?{_contextId:m._id,_contextRevision:ContextContinuity.revisionOf(m,getActiveVersion)}:{})}; });
     if (!useRollingContext && historyMsgs.length > 30) historyMsgs = historyMsgs.slice(-30);
+    if (isWorkroomSession(session)) {
+        historyMsgs = ChatWindowContext.workroomHistory(regenerationMessages, chatSessions.find(s => s.id === 'main')?.messages || [], getActiveVersion, legacyMessagePlain, fmtTsTag);
+        const last = historyMsgs[historyMsgs.length - 1];
+        const reminder = '【共创工作区】你是沈望，Codex 是另一位协作者，不要替他发言或假装执行。\n';
+        if (last && Array.isArray(last.content)) last.content.unshift({ type: 'text', text: reminder });
+        else if (last) last.content = reminder + last.content;
+    }
     try {
         let apiUrl = '/v1/chat/completions';
         const viaMatch = currentSup.url.match(/\/via\/(\w+)\//);
@@ -4781,7 +4796,7 @@ async function regenerateSend(aiMsgIndex) {
         const isStream = streamToggle ? streamToggle.checked : true;
         const reTimeout = useRollingContext ? 135000 : 90000;
         const reController=new AbortController(); reSilenceTimer=setTimeout(()=>reController.abort(),reTimeout); function reReset(){clearTimeout(reSilenceTimer);reSilenceTimer=setTimeout(()=>reController.abort(),reTimeout)}
-        const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream,...(useRollingContext?{contextProtocol:{version:1,sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
+        const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream,activeChatId:session.id,useCrossplatform:!isWorkroomSession(session)&&localStorage.getItem('syzygy_crossplatform')!=='false',...(useRollingContext?{contextProtocol:{version:1,sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
         if (!response.ok) { clearTimeout(reSilenceTimer); const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         let fullReply='', thinkContent='';
         var toolCallRecords = [];

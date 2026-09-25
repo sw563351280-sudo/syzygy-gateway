@@ -12,6 +12,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const nodeFetch = require('node-fetch');
 const { createCodexBridge } = require('./codex-bridge');
+const { pruneWireImages } = require('./public/chat-window-context');
 const { consumeOpenAIStream } = require('./streaming-chat');
 const { composeContext, createBudgetObserver, mergeUsage, readConfig: readContextBudgetConfig } = require('./context-budget');
 const { prepareCachedRequest, supportsBlockCache, cacheAdapterStatus } = require('./provider-cache');
@@ -7494,7 +7495,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         let currentUserMsgText = "";
 
         if (body.messages) {
-    cleanMessages = body.messages
+    cleanMessages = pruneWireImages(body.messages)
         .filter(msg => msg.role !== 'system' && msg.role !== 'tool')
         .map((msg, i, arr) => {
             const sanitizedContent = sanitizeOpenClawContent(msg.content);
@@ -7505,11 +7506,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 const { tool_calls, ...clean } = msg;
                 return clean;
             }
-            // 清除历史用户消息里的 base64 图片（保留最后一条当前消息的图片）
-            if (msg.role === 'user' && Array.isArray(msg.content)) {
-                const isLastUser = !arr.slice(i + 1).some(m => m.role === 'user');
-                if (!isLastUser) return { ...msg, content: msg.content.filter(p => p.type !== 'image_url') };
-            }
+            // Image blocks were bounded to the current and previous human turn above.
             if (msg.role === 'user' && typeof msg.content === 'string' && msg.content.includes('data:image')) {
                 const isLastUser = !arr.slice(i + 1).some(m => m.role === 'user');
                 if (!isLastUser) return { ...msg, content: '（发送了图片）' };
@@ -7863,6 +7860,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
                 mergedHistoryMessages: newMessages.length, projectedMessages: projectedHistory.length } };
         const bodyMessages = composeContext(contextParts);
         body.messages = bodyMessages;
+        delete body.activeChatId; // Local window selector, not a provider parameter.
 
         // === 调试日志 ===
         const stableHash = require('crypto').createHash('sha256').update(systemMsg.content).digest('hex').substring(0, 12);
