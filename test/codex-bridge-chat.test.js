@@ -73,6 +73,42 @@ test('snapshot preserves long replies and approvals after event log truncation',
     } finally { child.kill(); }
 });
 
+test('settings refresh each turn and completed work is recorded without browser clients', async () => {
+    const child = createFakeChatProcess();
+    let instruction = '设定一';
+    const captured = [];
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child,
+        getInstructions: () => instruction,
+        onTurnComplete: (task, status) => { captured.push({ text: task.replySnapshot.text, status }); return { id: 'record-1', title: '工作记录' }; }
+    });
+    const started = bridge.startTask({ prompt: '检查' });
+    const task = bridge.taskById(started.id);
+    try {
+        await waitFor(() => task.status === 'running');
+        assert.match(child.writes.find(m => m.method === 'turn/start').params.input[0].text, /设定一/);
+        child.stdout.write(JSON.stringify({ method: 'item/agentMessage/delta', params: { delta: '检查结果' } }) + '\n');
+        child.stdout.write(JSON.stringify({ method: 'turn/completed', params: { turn: { status: 'completed' } } }) + '\n');
+        await waitFor(() => captured.length === 1);
+        assert.equal(captured[0].text, '检查结果');
+        instruction = '设定二';
+        bridge.sendClientCommand(task, { type: 'followup', text: '继续' });
+        await waitFor(() => task.turnId === 'turn-2');
+        assert.match(child.writes.filter(m => m.method === 'turn/start')[1].params.input[0].text, /设定二/);
+    } finally { child.kill(); }
+});
+
+test('journal write failure is visible and does not change the completed task result', async () => {
+    const child = createFakeChatProcess();
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child, onTurnComplete: () => { throw new Error('disk full'); } });
+    const task = bridge.taskById(bridge.startTask({ prompt: '检查' }).id);
+    try {
+        await waitFor(() => task.status === 'running');
+        child.stdout.write(JSON.stringify({ method: 'turn/completed', params: { turn: { status: 'completed' } } }) + '\n');
+        await waitFor(() => task.status === 'completed');
+        assert.ok(task.events.some(event => event.method === 'codex/work-record-error' && event.params.message === 'disk full'));
+    } finally { child.kill(); }
+});
+
 test('completed Codex task stays alive and starts a follow-up turn on the same thread', async () => {
     const child = createFakeChatProcess();
     const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });

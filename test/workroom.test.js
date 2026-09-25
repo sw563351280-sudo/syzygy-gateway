@@ -31,6 +31,11 @@ test('Codex avatar is distinct and has an accessible label', () => {
     assert.match(run("workroomSpeakerHTML('codex')"), /&gt;_/);
     assert.doesNotMatch(run("workroomSpeakerHTML('shenwang')"), /workroom-codex-avatar/);
 });
+test('structured work records are hidden from live and saved chat text', () => {
+    const { run } = setup();
+    assert.equal(run("workroomVisibleReply('完成。<work_record>{\"title\":\"修复\"}</work_record>')"), '完成。');
+    assert.equal(run("workroomVisibleReply('完成。<work_record>{')"), '完成。');
+});
 
 test('snapshot replay is idempotent and uses stable message IDs', () => {
     const { room, context } = setup();

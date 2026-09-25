@@ -46,6 +46,16 @@ function buildCodexEnv() {
 
 function createCodexBridge(options = {}) {
     const spawnProcess = options.spawn || spawn;
+    const turnInput = (text, images) => buildTurnInput(options.getInstructions ? options.getInstructions() + '\n\n【本轮消息】\n' + text : text, images);
+    function recordTurn(task, status) {
+        if (!options.onTurnComplete) return;
+        try {
+            const record = options.onTurnComplete(task, status);
+            if (record) addEvent(task, 'codex/work-record-saved', { id: record.id, title: record.title });
+        } catch (error) {
+            addEvent(task, 'codex/work-record-error', { message: String(error.message || '工作记录保存失败') });
+        }
+    }
     const config = {
         enabled: process.env.CODEX_ENABLED !== 'false',
         bin: process.env.CODEX_BIN || 'codex',
@@ -272,6 +282,9 @@ function createCodexBridge(options = {}) {
             ...extra
         };
         task.events.push(event);
+        if (method === 'codex/started') task.didWork = false;
+        if (method.startsWith('item/commandExecution') || method.startsWith('item/fileChange')
+            || (['item/started', 'item/completed'].includes(method) && ['commandExecution', 'fileChange'].includes(params.item?.type))) task.didWork = true;
         // Preserve the reply independently of the bounded diagnostic event log.
         if (method === 'codex/started') task.replySnapshot = { turnId: params.turnId, text: '', status: 'running' };
         if (method === 'item/agentMessage/delta' && task.replySnapshot) task.replySnapshot.text += String(params.delta || params.text || '');
@@ -299,6 +312,7 @@ function createCodexBridge(options = {}) {
         task.input = null;
         task.error = shortText(message, 1000) || 'Codex 任务失败';
         addEvent(task, 'codex/error', { message: task.error });
+        recordTurn(task, 'failed');
         if (activeTaskId === task.id) activeTaskId = null;
         try { task.proc?.kill(); } catch (_) {}
     }
@@ -308,6 +322,7 @@ function createCodexBridge(options = {}) {
         if (task.timeout) clearTimeout(task.timeout);
         task.timeout = null;
         task.status = status;
+        recordTurn(task, status);
         task.error = error ? shortText(error, 1000) : task.error;
         if (activeTaskId === task.id) activeTaskId = null;
         broadcastState(task);
@@ -633,7 +648,7 @@ function createCodexBridge(options = {}) {
             id: crypto.randomUUID(),
             status: 'starting',
             prompt: displayPrompt,
-            input: buildTurnInput(prompt, images),
+            input: turnInput(prompt, images),
             model: /^[a-zA-Z0-9._-]{1,80}$/.test(input.model || '') ? input.model : config.model,
             effort,
             mode,
@@ -683,6 +698,7 @@ function createCodexBridge(options = {}) {
         if (payload.type === 'followup') {
             const text = shortText(payload.text, MAX_PROMPT_LENGTH).trim();
             const images = normalizeImages(payload.images);
+            const input = turnInput(text, images);
             if (!text && images.length === 0) throw new Error('请输入内容或添加图片');
             if (!task.threadId || !task.proc || task.proc.stdin.destroyed) throw new Error('这个 Codex 对话已经休眠，请新建对话');
             if (!['completed', 'interrupted'].includes(task.status)) throw new Error('请等当前回复结束后再继续');
@@ -700,7 +716,7 @@ function createCodexBridge(options = {}) {
                 id: `followup-${Date.now()}`,
                 params: {
                     threadId: task.threadId,
-                    input: buildTurnInput(text, images),
+                    input,
                     cwd: task.cwd,
                     model: task.model,
                     effort: task.effort,

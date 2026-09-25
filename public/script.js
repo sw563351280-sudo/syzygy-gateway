@@ -951,12 +951,15 @@ function goView(viewId) {
     if (viewId !== 'dev' && document.body.classList.contains('codex-chat-mode')) devSetCodexImmersive(false);
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
     const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', dev:'sec-dev', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state', ledger:'sec-ledger' };
+    map['codex-settings'] = 'sec-codex-settings';
+    map['work-records'] = 'sec-work-records';
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
     const metaTheme = document.getElementById('theme-color-meta');
     if (metaTheme) metaTheme.setAttribute('content', viewId === 'chat' ? '#EFF6FD' : '#E8EFF7');
     const VIEWS = ['home','chat','data','favorites','dev','console','flo','calendar','album','state','ledger'];
+    VIEWS.push('codex-settings', 'work-records');
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);
     if (viewId === 'chat') { setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300); fetchPulseStatus(); }
@@ -967,6 +970,8 @@ function goView(viewId) {
     if (viewId === 'flo') floRender();
     if (viewId === 'calendar') calRender();
     if (viewId === 'ledger') ledgerRender();
+    if (viewId === 'codex-settings') codexSettingsLoad();
+    if (viewId === 'work-records') codexRecordsLoad();
     if (viewId === 'album') { albumInitMonthFilter(); albumLoad(); }
     if (viewId === 'state') stateRender();
     if (document.body.classList.contains('neu-mode')) neuUpdateNav();
@@ -3394,6 +3399,10 @@ function workroomSpeakerHTML(speaker) {
     return '<div class="workroom-speaker workroom-speaker-' + (speaker === 'jiangyu' ? 'jiangyu' : 'shenwang') + '">' + (speaker === 'jiangyu' ? '江鱼' : '沈望') + '</div>';
 }
 
+function workroomVisibleReply(text) {
+    return String(text || '').replace(/<work_record>[\s\S]*?(?:<\/work_record>|$)/g, '').trim();
+}
+
 function workroomSetCodexStatus(text, active = false) {
     const label = document.getElementById('workroomCodexStatus');
     const bar = document.getElementById('workroomCodexBar');
@@ -3462,7 +3471,7 @@ function workroomEnsureLiveBubble() {
 function workroomUpdateLiveReply() {
     const bubble = workroomEnsureLiveBubble();
     const content = bubble?.querySelector('.md-content');
-    if (content) content.innerHTML = workroomCodexReply ? renderMarkdown(workroomCodexReply) + '<span class="typing-cursor"></span>' : '<span class="loading-indicator">Codex 正在分析并执行…</span>';
+    if (content) content.innerHTML = workroomVisibleReply(workroomCodexReply) ? renderMarkdown(workroomVisibleReply(workroomCodexReply)) + '<span class="typing-cursor"></span>' : '<span class="loading-indicator">Codex 正在分析并执行…</span>';
     const win = document.getElementById('chatWindow');
     if (win) win.scrollTop = win.scrollHeight;
 }
@@ -3484,7 +3493,7 @@ function workroomShowApproval(event) {
 function workroomSaveCodexReply(status = 'completed') {
     const room = ensureWorkroomSession();
     if (workroomCodexSavedForTurn || !workroomCodexTurnId) return;
-    const clean = String(workroomCodexReply || '').trim();
+    const clean = workroomVisibleReply(workroomCodexReply) || (workroomCodexReply.includes('<work_record>') ? '本轮工作已结束，工作记录的保存状态请查看工作记录页。' : '');
     const messageId = 'codex:' + room.codexTaskId + ':' + workroomCodexTurnId;
     if (clean && !room.messages.some(message => message._id === messageId)) {
         room.messages.push({
@@ -3514,6 +3523,15 @@ function workroomHandleCodexEvent(event) {
     if (!event) return;
     const method = event.method || '';
     const params = event.params || {};
+    if (method === 'codex/work-record-saved') {
+        workroomSetCodexStatus('工作记录已保存 · 沈望可按需查询', false);
+        return;
+    }
+    if (method === 'codex/work-record-error') {
+        workroomSetCodexStatus('工作记录未保存', false);
+        toast(params.message || '工作记录保存失败');
+        return;
+    }
     if (method.includes('requestApproval') || method === 'applyPatchApproval' || method === 'execCommandApproval') {
         workroomShowApproval(event);
         return;

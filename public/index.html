@@ -104,6 +104,7 @@
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6D93B5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="8" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="12" cy="17" r="2.5"/><path d="m8.2 9.3 2.6 5.2M15.8 9.3l-2.6 5.2M8.5 8h7"/></svg>
                 <span>共创工作区</span>
             </div>
+            <button class="neu-card neu-grid-card" onclick="goView('work-records')" aria-label="打开 Codex 工作记录"><span aria-hidden="true">▤</span><span>工作记录</span></button>
             <div class="neu-card neu-grid-card" onclick="goView('dev');setTimeout(devOpenCodex,0)" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();goView('dev');setTimeout(devOpenCodex,0)}" aria-label="打开 Codex 开发对话">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4,17 10,11 4,5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
                 <span>Codex</span>
@@ -170,6 +171,8 @@
             </select>
         </label>
         <button class="workroom-new-thread" type="button" onclick="workroomStartNewCodexThread()">新线程</button>
+        <button class="workroom-new-thread" type="button" onclick="goView('codex-settings')">设定</button>
+        <button class="workroom-new-thread" type="button" onclick="goView('work-records')">工作记录</button>
     </div>
     <div id="workroomCodexApproval" class="workroom-codex-approval" hidden>
         <strong>Codex 请求确认</strong>
@@ -477,6 +480,28 @@
     </div>
 </div>
 
+<div class="section" id="sec-codex-settings">
+    <div class="view-topbar"><button class="view-back" onclick="openWorkroom()" aria-label="返回工作区">←</button><span class="view-title">Codex 设定</span></div>
+    <form class="codex-page-content" onsubmit="codexSettingsSave(event)">
+        <h2><span class="workroom-codex-avatar" aria-hidden="true">&gt;_</span> 小屋里的技术伙伴</h2>
+        <p>写下你希望 Codex 如何交流、如何参与讨论。这份设定只影响小屋里的 Codex，不改变沈望的设定，也不扩大执行权限。</p>
+        <label for="codexSettingsPrompt">自定义 prompt（最多 6000 字符）</label>
+        <textarea id="codexSettingsPrompt" maxlength="6000" disabled></textarea>
+        <div class="codex-page-actions"><button id="codexSettingsSave" type="submit" disabled>保存设定</button><button type="button" onclick="codexSettingsReset()">填入默认设定</button></div>
+        <p id="codexSettingsStatus" class="codex-page-status" role="status"></p>
+    </form>
+</div>
+<div class="section" id="sec-work-records">
+    <div class="view-topbar"><button class="view-back" onclick="goView('home')" aria-label="返回首页">←</button><span class="view-title">工作记录 · Codex</span></div>
+    <div class="codex-page-content">
+        <p>Codex 留下的工作小结。你可以对沈望说「查一下 Codex 的工作记录」，让他按需了解进展。</p>
+        <form class="codex-record-filters" onsubmit="event.preventDefault();codexRecordsLoad()"><input id="codexRecordsQuery" maxlength="200" aria-label="搜索工作记录" placeholder="搜索标题、内容、验证结果…"><input id="codexRecordsDate" type="date" aria-label="按北京时间筛选日期"><button type="submit">查询 / 刷新</button></form>
+        <p id="codexRecordsStatus" class="codex-page-status" role="status"></p>
+        <div id="codexRecordsList"></div>
+        <button id="codexRecordsMore" hidden onclick="codexRecordsLoad(false)">加载更多</button>
+    </div>
+</div>
+
 <!-- 💰 共同账本 -->
 <div class="section" id="sec-ledger">
     <div class="view-topbar ledger-topbar">
@@ -626,7 +651,9 @@
 <script src="context-cache-status.js?v=6"></script>
 <script src="context-continuity.js?v=1"></script>
 <script src="cache-history.js?v=3"></script>
-<script src="script.js?v=83"></script>
+<link rel="stylesheet" href="workroom-pages.css?v=1">
+<script src="workroom-pages.js?v=1"></script>
+<script src="script.js?v=84"></script>
 <script src="music-player.js?v=3" defer></script>
         <div id="msgContextMenu" class="msg-context-menu" role="menu" aria-label="消息操作" hidden></div>
 

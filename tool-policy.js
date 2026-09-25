@@ -44,6 +44,7 @@ function requestedBuiltinToolNames(text) {
     // Music tools only prepare a card/read state, never autoplay. Keep them
     // available for voluntary song gifts and short follow-ups such as "好".
     const names = new Set(['music_search_and_play', 'music_current_session']);
+    if (/工作记录|开发记录|工作日志|开发进度|codex|看看记录|查查记录/i.test(value)) names.add('query_work_records');
 
     if (/https?:\/\//i.test(value)) names.add('fetch_txt');
     if (/html|网页源码|页面结构/i.test(value)) names.add('fetch_html');

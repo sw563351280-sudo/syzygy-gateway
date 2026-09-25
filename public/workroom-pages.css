@@ -1,0 +1,14 @@
+.codex-page-content { width: min(100%, 760px); margin: 0 auto; padding: 20px 18px 100px; box-sizing: border-box; color: #39556b; }
+.codex-page-content p { line-height: 1.7; }
+.codex-page-content textarea, .codex-page-content input { box-sizing: border-box; max-width: 100%; padding: 12px; border: 1px solid #c1d3df; border-radius: 12px; background: #f8fbff; color: #29445a; font: inherit; }
+.codex-page-content textarea { display: block; width: 100%; min-height: 260px; margin: 12px 0; resize: vertical; line-height: 1.7; }
+.codex-page-content button { padding: 10px 15px; border: 1px solid #bbcfdf; border-radius: 12px; color: #365d75; background: #f1f7fd; cursor: pointer; }
+.codex-page-content button:disabled { opacity: .5; cursor: wait; }
+.codex-page-actions, .codex-record-filters { display: flex; flex-wrap: wrap; gap: 9px; margin: 12px 0; }
+.codex-record-filters input { flex: 1 1 140px; min-width: 0; }
+.codex-record-card { margin: 16px 0; padding: 20px; border: 1px solid #d0dfeb; border-radius: 18px; background: #f6faff; box-shadow: 0 5px 20px #365d750a; overflow-wrap: anywhere; }
+.codex-record-card time, .codex-record-card small { font-size: 11px; color: #647d90; }
+.codex-record-card h3 { margin: 10px 0; }
+.codex-record-card h4 { margin: 16px 0 5px; font-size: 12px; color: #5d8194; }
+.codex-record-card p { margin: 0; white-space: pre-wrap; font-size: 14px; }
+.codex-page-status { font-size: 12px; color: #667f92; }
