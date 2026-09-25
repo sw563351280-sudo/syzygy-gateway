@@ -3012,6 +3012,122 @@ body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar,
 body.neu-mode #sec-chat.active { background: transparent !important; }
 body.neu-mode #sec-chat .chat-main-header { background: rgba(232, 239, 247, .52); }
 body.neu-mode #sec-chat .chat-bottom-bar { background: rgba(232, 239, 247, .78) !important; }
+
+/* 江鱼 · 沈望 · Codex 共创工作区 */
+.workroom-switch-btn {
+    border: 1px solid rgba(111, 151, 190, .24);
+    border-radius: 999px;
+    padding: 6px 11px;
+    background: rgba(235, 244, 252, .72);
+    color: #56738e;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .08em;
+}
+.workroom-codex-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 7px;
+    padding: 7px 10px;
+    border: 1px solid rgba(90, 135, 178, .18);
+    border-radius: 12px;
+    background: rgba(225, 239, 251, .55);
+    color: #607a91;
+    font-size: 12px;
+}
+.workroom-codex-bar[hidden], .workroom-codex-approval[hidden] { display: none !important; }
+.workroom-codex-state { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.workroom-codex-state i {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #96aaba;
+    box-shadow: 0 0 0 4px rgba(119, 153, 183, .1);
+}
+.workroom-codex-bar.is-active .workroom-codex-state i {
+    background: #5d9bc9;
+    box-shadow: 0 0 0 4px rgba(80, 151, 205, .14);
+    animation: corePulse 1.5s ease-in-out infinite;
+}
+.workroom-codex-bar label { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+.workroom-codex-bar select {
+    max-width: 126px;
+    border: 0;
+    border-radius: 8px;
+    padding: 4px 6px;
+    background: rgba(255,255,255,.72);
+    color: #536d84;
+    font-size: 11px;
+}
+.workroom-codex-bar select:disabled { opacity: .62; }
+.workroom-new-thread {
+    border: 0;
+    border-radius: 8px;
+    padding: 4px 7px;
+    background: rgba(255,255,255,.7);
+    color: #607a91;
+    font-size: 11px;
+    white-space: nowrap;
+}
+.workroom-codex-approval {
+    margin-bottom: 8px;
+    padding: 10px 12px;
+    border: 1px solid rgba(205, 145, 73, .28);
+    border-radius: 12px;
+    background: rgba(255, 246, 228, .9);
+    color: #705b45;
+    font-size: 12px;
+}
+.workroom-codex-approval p { margin: 5px 0 8px; white-space: pre-wrap; }
+.workroom-codex-approval button {
+    margin: 0 5px 3px 0;
+    border: 1px solid rgba(153, 119, 77, .22);
+    border-radius: 8px;
+    padding: 5px 8px;
+    background: rgba(255,255,255,.75);
+    color: inherit;
+}
+.workroom-codex-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    flex: 0 0 26px;
+    margin-right: 7px;
+    border-radius: 9px;
+    background: #193d3b;
+    border: 1px solid #84cfb8;
+    color: #c6ffeb;
+    font: 700 13px/1 monospace;
+    vertical-align: middle;
+    letter-spacing: -1px;
+}
+
+.workroom-speaker {
+    margin-bottom: 5px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .14em;
+    opacity: .62;
+}
+.workroom-speaker-jiangyu { text-align: right; }
+.msg-row.is-codex { align-items: flex-start; }
+.msg.sys.codex {
+    border-color: rgba(86, 143, 191, .2) !important;
+    background: linear-gradient(135deg, rgba(228, 241, 252, .88), rgba(240, 246, 252, .74)) !important;
+    box-shadow: 0 5px 22px rgba(75, 119, 158, .08) !important;
+}
+.workroom-speaker-codex { color: #4f84ad; opacity: 1; }
+.workroom-speaker-shenwang { color: #8a6d91; }
+
+@media (max-width: 640px) {
+    .workroom-codex-bar { align-items: flex-start; flex-wrap: wrap; }
+    .workroom-codex-state { padding-top: 4px; }
+    .workroom-codex-bar select { max-width: 112px; }
+}
 body.neu-mode #sec-favorites .fav-filter-panel { background: rgba(237, 244, 251, .62); }
 body.neu-mode #sec-favorites .fav-card {
   background: rgba(239, 245, 251, .7);

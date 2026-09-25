@@ -50,6 +50,29 @@ function createFakeChatProcess() {
     return child;
 }
 
+test('snapshot preserves long replies and approvals after event log truncation', async () => {
+    const child = createFakeChatProcess();
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
+    const started = bridge.startTask({ prompt: '检查', mode: 'workspaceWrite' });
+    const task = bridge.taskById(started.id);
+    try {
+        await waitFor(() => task.status === 'running');
+        child.stdout.write(JSON.stringify({ id: 0, method: 'item/commandExecution/requestApproval', params: { command: ['git', 'status'] } }) + '\n');
+        for (let i = 0; i < 550; i++) child.stdout.write(JSON.stringify({ method: 'item/agentMessage/delta', params: { delta: 'x' } }) + '\n');
+        await waitFor(() => task.replySnapshot?.text.length === 550);
+        const ws = new EventEmitter();
+        ws.readyState = 1;
+        const sent = [];
+        ws.send = value => sent.push(JSON.parse(value));
+        bridge.attachSocket(ws, task.id);
+        assert.equal(sent[0].reply.text.length, 550);
+        assert.equal(sent[0].reply.turnId, 'turn-1');
+        assert.equal(sent[0].approvals[0].params.requestId, 0);
+        assert.equal(sent[0].task.canFollowup, true);
+        assert.equal(sent[0].events.length, 120);
+    } finally { child.kill(); }
+});
+
 test('completed Codex task stays alive and starts a follow-up turn on the same thread', async () => {
     const child = createFakeChatProcess();
     const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });

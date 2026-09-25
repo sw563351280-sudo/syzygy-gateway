@@ -244,6 +244,7 @@ function createCodexBridge(options = {}) {
             error: task.error || null,
             usage: task.usage || null,
             pendingApproval: task.pending.size > 0,
+            canFollowup: Boolean(task.proc && !task.proc.killed && !task.proc.stdin.destroyed),
             eventCount: task.events.length
         };
     }
@@ -271,6 +272,14 @@ function createCodexBridge(options = {}) {
             ...extra
         };
         task.events.push(event);
+        // Preserve the reply independently of the bounded diagnostic event log.
+        if (method === 'codex/started') task.replySnapshot = { turnId: params.turnId, text: '', status: 'running' };
+        if (method === 'item/agentMessage/delta' && task.replySnapshot) task.replySnapshot.text += String(params.delta || params.text || '');
+        if (method === 'turn/completed' && task.replySnapshot) task.replySnapshot.status = params.turn?.status || 'completed';
+        if (method === 'codex/error' && task.replySnapshot) {
+            task.replySnapshot.status = 'failed';
+            task.replySnapshot.text += '\n【Codex 异常】' + (params.message || '任务失败');
+        }
         if (task.events.length > MAX_EVENTS) task.events.splice(0, task.events.length - MAX_EVENTS);
         task.updatedAt = event.at;
         broadcast(task, { type: 'codex_event', taskId: task.id, event });
@@ -745,7 +754,11 @@ function createCodexBridge(options = {}) {
             return ws.close(1008, 'Unknown task');
         }
         task.clients.add(ws);
-        sendSocket(ws, { type: 'codex_snapshot', task: publicTask(task), events: task.events.slice(-120) });
+        sendSocket(ws, {
+            type: 'codex_snapshot', task: publicTask(task), events: task.events.slice(-120),
+            reply: task.replySnapshot || null,
+            approvals: Array.from(task.pending.values(), request => ({ method: request.method, params: { ...request.params, requestId: request.id } }))
+        });
         ws.on('message', (raw) => {
             try {
                 sendClientCommand(task, JSON.parse(raw.toString()));

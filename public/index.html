@@ -100,6 +100,10 @@
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h4"/><path d="M5 3v18"/></svg>
                 <span>账本</span>
             </div>
+            <div class="neu-card neu-grid-card" onclick="openWorkroom()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openWorkroom()}" aria-label="打开江鱼、沈望和 Codex 的共创工作区">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6D93B5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="8" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="12" cy="17" r="2.5"/><path d="m8.2 9.3 2.6 5.2M15.8 9.3l-2.6 5.2M8.5 8h7"/></svg>
+                <span>共创工作区</span>
+            </div>
             <div class="neu-card neu-grid-card" onclick="goView('dev');setTimeout(devOpenCodex,0)" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();goView('dev');setTimeout(devOpenCodex,0)}" aria-label="打开 Codex 开发对话">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4,17 10,11 4,5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
                 <span>Codex</span>
@@ -133,6 +137,7 @@
         <span id="chatViewTitle">通讯 · 主频道</span>
     </button>
     <div class="chat-floating-actions">
+        <button class="workroom-switch-btn" onclick="toggleWorkroom()" title="切换共创工作区" aria-label="切换共创工作区">共创</button>
         <button class="chat-rename-topbar-btn" onclick="renameChatWindow()" title="重命名频道" aria-label="重命名频道">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20l4.2-1 10.9-10.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/><path d="m14.8 6.4 2.8 2.8"/></svg>
         </button>
@@ -156,6 +161,25 @@
                 </div>
 
                 <div class="chat-bottom-bar">
+    <div id="workroomCodexBar" class="workroom-codex-bar" hidden>
+        <div class="workroom-codex-state"><i></i><span id="workroomCodexStatus">Codex 待命</span></div>
+        <label>权限
+            <select id="workroomCodexMode">
+                <option value="workspaceWrite" selected>可修改工作区</option>
+                <option value="readOnly">只读讨论</option>
+            </select>
+        </label>
+        <button class="workroom-new-thread" type="button" onclick="workroomStartNewCodexThread()">新线程</button>
+    </div>
+    <div id="workroomCodexApproval" class="workroom-codex-approval" hidden>
+        <strong>Codex 请求确认</strong>
+        <p id="workroomCodexApprovalText"></p>
+        <div>
+            <button type="button" onclick="workroomApproveCodex('accept')">允许本次</button>
+            <button type="button" onclick="workroomApproveCodex('acceptForSession')">本会话允许</button>
+            <button type="button" onclick="workroomApproveCodex('decline')">拒绝</button>
+        </div>
+    </div>
     <div class="chat-model-row">
         <div class="chat-model-control">
             <div class="model-icon-wrap" id="modelIconWrap"></div>
