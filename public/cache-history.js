@@ -1,8 +1,7 @@
 'use strict';
 (function (root) {
-    // Keep the existing minimum context. Move the start only once the bounded
-    // allowance is exhausted. Store an ID, never a second copy of conversation.
-    function selectCacheHistory(messages, anchorId, minimum = 30, allowance = 8) {
+    // Default to the user's original 30-message window, without extra history.
+    function selectCacheHistory(messages, anchorId, minimum = 30, allowance = 0) {
         const found = anchorId ? messages.findIndex(m => m._id === anchorId) : -1;
         const remaining = found < 0 ? 0 : messages.length - found;
         const reuse = remaining >= minimum && remaining <= minimum + allowance;

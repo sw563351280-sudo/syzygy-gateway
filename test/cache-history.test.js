@@ -21,7 +21,7 @@ test('history prefix stays identical during append then rotates within a bound',
     let anchor;
     const starts = [];
     for (let count = 100; count <= 120; count += 2) {
-        const result = selectCacheHistory(all.slice(0, count), anchor);
+        const result = selectCacheHistory(all.slice(0, count), anchor, 30, 8);
         anchor = result.anchorId;
         starts.push(anchor);
         assert.ok(result.messages.length >= 30 && result.messages.length <= 38);
@@ -32,7 +32,7 @@ test('history prefix stays identical during append then rotates within a bound',
 
 test('storage cap, deletion, versions, restart and absent IDs never resurrect old content', () => {
     const all = messages(210);
-    const original = selectCacheHistory(all.slice(0, 200));
+    const original = selectCacheHistory(all.slice(2, 202));
     assert.equal(selectCacheHistory(all.slice(2, 202), original.anchorId).anchorId, original.anchorId);
     const edited = all.slice(2, 202).map(m => m._id === original.anchorId ? { ...m, content: 'edited' } : m);
     assert.equal(selectCacheHistory(edited, original.anchorId).messages[0].content, 'edited');
@@ -47,7 +47,7 @@ test('scope is provider/model/session specific; inaccessible storage safely fall
     const storage = { getItem: k => map.get(k), setItem: (k, v) => map.set(k, v), removeItem: k => map.delete(k) };
     const route = '/via/aihubmix/v1/chat/completions', model = 'claude-opus-4-6-think';
     cachedChatHistory(messages(100), 'a', route, model, storage);
-    assert.equal(cachedChatHistory(messages(102), 'a', route, model, storage).length, 32);
+    assert.equal(cachedChatHistory(messages(102), 'a', route, model, storage).length, 30);
     assert.equal(cachedChatHistory(messages(102), 'b', route, model, storage).length, 30);
     assert.equal(cachedChatHistory(messages(102), 'a', route, 'claude-sonnet-4-6', storage).length, 30);
     assert.equal(cachedChatHistory(messages(102), 'a', '/via/other/v1', model, storage).length, 30);
@@ -58,7 +58,7 @@ test('scope is provider/model/session specific; inaccessible storage safely fall
 test('actual wire cache prefix survives next turn while dynamic suffix changes', () => {
     const all = messages(102);
     const first = selectCacheHistory(all.slice(0, 100));
-    const second = selectCacheHistory(all, first.anchorId);
+    const second = selectCacheHistory(all, first.anchorId, 30, 8);
     function wire(history, dynamic) {
         return prepareCachedRequest('https://aihubmix.com/v1/chat/completions', {
             model: 'claude-opus-4-6', messages: [{ role: 'system', content: 'fixed' }, ...history.map(({ role, content }) => ({ role, content })), { role: 'user', content: dynamic }],

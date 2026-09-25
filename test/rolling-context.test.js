@@ -60,18 +60,18 @@ test('request failures and invalid IDs never discard context', async () => {
     assert.deepEqual(await f.context.project('a', duplicate), plain(duplicate));
 });
 
-test('summary failure and cooldown fail closed to the newest 40 messages', async () => {
+test('summary failure and cooldown send only the newest 30 messages', async () => {
     const f = fixture({ threshold: 1, summarize: async () => { throw Error('summary unavailable'); } });
     const input = raw(100);
     const first = await f.context.project('safe-fallback', input);
-    assert.equal(first.length, 40);
-    assert.deepEqual(first.slice().map(m => m.content), plain(input.slice(-40)).map(m => m.content));
+    assert.equal(first.length, 30);
+    assert.deepEqual(first.slice().map(m => m.content), plain(input.slice(-30)).map(m => m.content));
     assert.equal(f.events.at(-1).state, 'failed');
-    assert.equal(f.events.at(-1).fallbackCount, 40);
+    assert.equal(f.events.at(-1).fallbackCount, 30);
     const second = await f.context.project('safe-fallback', input.concat({ _contextId: 'id-100', role: 'user', content: 'new' }));
-    assert.equal(second.length, 40);
+    assert.equal(second.length, 30);
     assert.equal(f.events.at(-1).state, 'cooldown');
-    assert.equal(f.events.at(-1).fallbackCount, 40);
+    assert.equal(f.events.at(-1).fallbackCount, 30);
 });
 
 test('corrupt coverage without usable summary fails open without calling a model', async () => {

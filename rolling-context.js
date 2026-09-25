@@ -40,7 +40,7 @@ function fileStore(directory) {
 }
 
 function createRollingContext({ store, summarize, threshold = 12000, tailTokens = 1500,
-    summaryTokens = 1800, cooldownMs = 300000, fallbackTailMessages = 40,
+    summaryTokens = 1800, cooldownMs = 300000, fallbackTailMessages = 30,
     now = Date.now, log = () => {} }) {
     const queues = new Map();
     const emit = event => { try { log({ event: 'summary', ...event }); } catch (_) {} };

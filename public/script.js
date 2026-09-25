@@ -4314,7 +4314,7 @@ async function regenerateSend(aiMsgIndex) {
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
     const useRollingContext = await canUseRollingContext(currentSup.url, selectedModel, fetch);
     var historyMsgs = session.messages.slice(0, aiMsgIndex).map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; c=legacyMessagePlain(c); if(typeof c==='string'&&(m.role==='user'||useRollingContext))c=fmtTsTag(v.fullTime)+stripDisplayTimestamp(c); if(useRollingContext&&!m._id)m._id=crypto.randomUUID(); return {role:m.role,content:c,...(useRollingContext?{_contextId:m._id,_contextRevision:ContextContinuity.revisionOf(m,getActiveVersion)}:{})}; });
-    if (!useRollingContext && historyMsgs.length > 50) historyMsgs = historyMsgs.slice(-50);
+    if (!useRollingContext && historyMsgs.length > 30) historyMsgs = historyMsgs.slice(-30);
     try {
         let apiUrl = '/v1/chat/completions';
         const viaMatch = currentSup.url.match(/\/via\/(\w+)\//);
