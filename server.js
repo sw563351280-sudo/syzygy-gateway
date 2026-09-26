@@ -602,7 +602,9 @@ app.use((req, res, next) => {
     res.status(401).json({ error: '未认证，请先登录' });
 });
 
-app.use(express.static('public'));
+app.use(express.static('public', { setHeaders(res, filename) {
+    if (filename.endsWith(path.sep + 'index.html')) res.setHeader('Cache-Control', 'no-store');
+} }));
 
 app.use((req, res, next) => {
     if (req.method !== 'GET' || req.path.includes('api') || req.path.includes('chat') || req.path.includes('completions') || req.path.includes('via')) {

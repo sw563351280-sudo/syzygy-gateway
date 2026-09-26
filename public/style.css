@@ -3014,6 +3014,7 @@ body.neu-mode #sec-chat .chat-main-header { background: rgba(232, 239, 247, .52)
 body.neu-mode #sec-chat .chat-bottom-bar { background: rgba(232, 239, 247, .78) !important; }
 
 /* 江鱼 · 沈望 · Codex 共创工作区 */
+#workroomSettingsTop[hidden] { display: none !important; }
 .workroom-switch-btn {
     border: 1px solid rgba(111, 151, 190, .24);
     border-radius: 999px;
@@ -3026,6 +3027,7 @@ body.neu-mode #sec-chat .chat-bottom-bar { background: rgba(232, 239, 247, .78) 
 }
 .workroom-codex-bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
@@ -3063,6 +3065,7 @@ body.neu-mode #sec-chat .chat-bottom-bar { background: rgba(232, 239, 247, .78) 
 }
 .workroom-codex-bar select:disabled { opacity: .62; }
 .workroom-new-thread {
+    flex-shrink: 0;
     border: 0;
     border-radius: 8px;
     padding: 4px 7px;
