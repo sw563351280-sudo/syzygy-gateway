@@ -13,6 +13,7 @@ const { promisify } = require('util');
 const nodeFetch = require('node-fetch');
 const { createCodexBridge } = require('./codex-bridge');
 const { pruneWireImages } = require('./public/chat-window-context');
+const { extractThinkingFromContent } = require('./public/thinking-parser');
 const { consumeOpenAIStream } = require('./streaming-chat');
 const { composeContext, createBudgetObserver, mergeUsage, readConfig: readContextBudgetConfig } = require('./context-budget');
 const { prepareCachedRequest, supportsBlockCache, cacheAdapterStatus } = require('./provider-cache');
@@ -4293,7 +4294,9 @@ function normalizeConversationMessages(messages = [], limit = 15, maxChars = Inf
         if (!message || !['user', 'assistant', 'ai'].includes(message.role)) continue;
         const rawContent = typeof message.content === 'string' ? message.content : '';
         if (!rawContent || rawContent.includes('<gateway_volatile_context>')) continue;
-        let content = (compactWhitespace ? rawContent.replace(/\s+/g, ' ') : rawContent).trim();
+        // 剥离思考链（```thinking 围栏 / <thinking> 标签），避免历史回灌时把推理重新喂进上下文
+        const cleanedContent = extractThinkingFromContent(rawContent).visibleContent;
+        let content = (compactWhitespace ? cleanedContent.replace(/\s+/g, ' ') : cleanedContent).trim();
         if (!content) continue;
         if (includeTimestamp) {
             const rawTimestamp = message.created_at || message.createdAt || message.timestamp
