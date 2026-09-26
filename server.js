@@ -7484,6 +7484,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             conversationId: typeof body.contextProtocol?.sessionId === 'string' ? body.contextProtocol.sessionId : null }, res);
         const contextProtocol = body.contextProtocol;
         delete body.contextProtocol; // Gateway-only metadata must never reach a provider.
+        const workroomDiscussion = body.activeChatId === 'syzygy-workroom';
         const noMemory = req.headers['x-no-memory'] === 'true';
         const sourceTabId = req.headers['x-tab-id'] || null;
         const sourceMessageId = req.headers['x-message-id'] || null;
@@ -7916,6 +7917,10 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             }
         }
         let filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
+        if (workroomDiscussion) {
+            const readTools = new Set(['query_work_records', 'check_ledger', 'query_ledger', 'search_transcript', 'check_environment', 'check_phone', 'read_diary']);
+            filteredTools = filteredTools.filter(tool => readTools.has(tool.function?.name));
+        }
         if (isOpenClawRequest && !forceToolChoice) {
             // 微信聊天仍保持精简，但不能清空被明确请求或感知规则触发的
             // 只读工具；否则账本、手机等日常感官永远无法被调用。

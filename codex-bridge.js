@@ -409,6 +409,7 @@ function createCodexBridge(options = {}) {
     function handleServerRequest(task, message) {
         const method = String(message.method || '');
         if (method.includes('requestApproval') || method === 'applyPatchApproval' || method === 'execCommandApproval') {
+            if (task.source === 'workroom' && task.mode === 'readOnly') return failTask(task, '讨论模式不能申请执行权限；需要修改请点击让 Codex 开工');
             task.pending.set(String(message.id), message);
             addEvent(task, method, { requestId: message.id, ...(message.params || {}) });
             return;
@@ -638,17 +639,20 @@ function createCodexBridge(options = {}) {
     function startTask(input = {}) {
         if (!config.enabled) throw new Error('Codex Bridge 已被禁用');
         if (activeTaskId) throw new Error('当前已有 Codex 任务运行中，请先等待或中断它');
+        const isWorkroom = input.source === 'workroom';
+        const executing = isWorkroom && input.workroomAction === 'execute';
         const prompt = shortText(input.prompt, MAX_PROMPT_LENGTH).trim();
         const images = normalizeImages(input.images);
         if (!prompt && images.length === 0) throw new Error('请输入问题或添加图片');
         const displayPrompt = prompt || `（发送了 ${images.length} 张图片）`;
-        const mode = input.mode === 'workspaceWrite' ? 'workspaceWrite' : 'readOnly';
+        const mode = isWorkroom ? (executing ? 'workspaceWrite' : 'readOnly') : input.mode === 'workspaceWrite' ? 'workspaceWrite' : 'readOnly';
         const effort = ['low', 'medium', 'high', 'xhigh'].includes(input.effort) ? input.effort : 'medium';
         const task = {
             id: crypto.randomUUID(),
             status: 'starting',
             prompt: displayPrompt,
-            input: turnInput(prompt, images),
+            input: turnInput(prompt + (isWorkroom && !executing ? '\n【服务端讨论约束】本轮未点击开工，只能讨论或只读检查。不得修改、部署、推送，也不得通过外部工具绕过只读限制。' : ''), images),
+            source: isWorkroom ? 'workroom' : 'dev',
             model: /^[a-zA-Z0-9._-]{1,80}$/.test(input.model || '') ? input.model : config.model,
             effort,
             mode,
@@ -682,6 +686,7 @@ function createCodexBridge(options = {}) {
 
     function sendClientCommand(task, payload) {
         if (!task || !payload || typeof payload !== 'object') throw new Error('无效的 Codex 指令');
+        if (task.source === 'workroom' && ['steer', 'followup'].includes(payload.type)) throw new Error('工作区每轮需通过发送或开工入口创建独立权限会话');
         if (payload.type === 'interrupt') {
             if (task.threadId && task.turnId) write(task, { method: 'turn/interrupt', id: `interrupt-${Date.now()}`, params: { threadId: task.threadId, turnId: task.turnId } });
             return;

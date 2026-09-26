@@ -2913,6 +2913,8 @@ function renameChatWindow(){
 
 async function sendChat(options = {}) {
     if (_isStreamingReply) return toast('请等当前回复结束后再发送');
+    if (isWorkroomSession() && workroomSending) return toast('正在发送，请稍候');
+    workroomSending = isWorkroomSession();
     try {
     const reuseLastUser = !!options.reuseLastUser;
     const input = document.getElementById('chatInput');
@@ -2925,6 +2927,17 @@ async function sendChat(options = {}) {
     let existingUserVersion = null;
     let submittedMessageId = null;
     let val = input.value.trim();
+    let workroomTarget = 'shenwang';
+    const workroomExecute = isWorkroomSession(session) && options.workroomExecute === true;
+    if (isWorkroomSession(session)) {
+        workroomTarget = workroomRecipientFor(val, document.getElementById('workroomRecipient')?.value, workroomExecute);
+        if (workroomExecute) {
+            workroomTarget = 'codex';
+            if (!val && !session.messages.length) return toast('先说明你希望 Codex 做什么');
+            if (!val) val = '请根据工作区最近讨论执行已经明确的要求；存在歧义时先问我，不要自行扩大范围。';
+        }
+        if (workroomTarget !== 'shenwang' && (workroomCodexBusy || workroomDispatching)) return toast('Codex 正在处理上一条，请等完成后再发给它；也可以切换为只和沈望聊');
+    }
 
     if (reuseLastUser) {
         const lastMsg = session.messages[session.messages.length - 1];
@@ -2933,6 +2946,7 @@ async function sendChat(options = {}) {
         existingUserVersion = getActiveVersion(lastMsg);
         submittedMessageId = lastMsg._id || null;
         val = (existingUserVersion.content || '').trim();
+        if (isWorkroomSession(session)) workroomTarget = lastMsg.workroomTarget || workroomTarget;
 
         if (!val && !(existingUserVersion.images && existingUserVersion.images.length) && !existingUserVersion.image) return;
     } else {
@@ -2945,7 +2959,7 @@ async function sendChat(options = {}) {
     console.log('currentImgBase64List:', currentImgBase64List.length);
     console.log('reuseLastUser:', reuseLastUser);
 
-    await flushDirtyToZep(session);
+    if (workroomTarget !== 'codex') await flushDirtyToZep(session);
 
     var curFullTime = reuseLastUser ? (existingUserVersion.fullTime || new Date().toISOString()) : new Date().toISOString();
 
@@ -2971,7 +2985,7 @@ async function sendChat(options = {}) {
     // 📸 保存压缩后的图片到版本记录（保留最近 5 轮可查看/重新生成）
     const savedImages = currentImgBase64List.length > 0 ? [...currentImgBase64List] : null;
     submittedMessageId = crypto.randomUUID();
-    session.messages.push({ _id: submittedMessageId, role: 'user', speaker: isWorkroomSession(session) ? 'jiangyu' : undefined, versions: [{ content: val, fullTime: curFullTime, image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
+    session.messages.push({ _id: submittedMessageId, role: 'user', speaker: isWorkroomSession(session) ? 'jiangyu' : undefined, workroomTarget: isWorkroomSession(session) ? workroomTarget : undefined, versions: [{ content: val, fullTime: curFullTime, image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
     saveToCloud(true);  // 立即保存，不延迟
 
     }  // end if (!reuseLastUser)
@@ -2998,6 +3012,11 @@ async function sendChat(options = {}) {
             currentImgBase64List = imgsToSend; updateImagePreview();
             return;
         }
+    }
+    if (isWorkroomSession(session) && workroomTarget === 'codex') {
+        renderChatMessages({ forceBottom: true });
+        await workroomDispatchToCodex(val, '', imgsToSend, workroomExecute);
+        return;
     }
     const currentSup = suppliers[activeSupIndex];
     if(!currentSup) { toast('未配置供应商'); return; }
@@ -3029,7 +3048,7 @@ async function sendChat(options = {}) {
    // --- 4. 💥 组装请求参数 (带严谨 Base64 格式护盾) ---
     var actualText = val;
     if (isWorkroomSession(session)) {
-        actualText = '【溯星小屋三方共创工作区】\n这里有三位成员：江鱼（正在发言的人类）、沈望（你）和 Codex（会直接检查并修改工作区的 AI 工程伙伴）。请以沈望自己的身份参与讨论，不要代替 Codex，也不要假装已经执行代码。你可以补充想法、提出取舍，并把可执行建议清楚说给 Codex。\n\n江鱼：' + val;
+        actualText = '【溯星小屋三方共创工作区 · 讨论】\n你是沈望，Codex 是另一位协作者。当前只讨论，不执行修改；只有江鱼点击开工按钮才会授权 Codex。不要代替 Codex，不要声称检查过未实际读取的代码。可以提出建议或等江鱼补充，不必每次催促开工。\n\n江鱼：' + val;
     }
     var userContent = fmtTsTag(curFullTime) + actualText;
     if (imgsToSend.length > 0) {
@@ -3350,7 +3369,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         actionsDiv.innerHTML = '<button class="msg-inline-btn msg-regenerate" onclick="regenerateAt(' + msgIdx + ')" title="重新生成" aria-label="重新生成">↻</button><button class="msg-inline-btn fav-star" id="favBtn_' + msgIdx + '" onclick="toggleFavorite(' + msgIdx + ')" title="收藏" aria-label="收藏">★</button>';
         sDiv.appendChild(actionsDiv);
         sDiv.classList.remove('msg-loading');
-        if (isWorkroomSession(session)) {
+        if (isWorkroomSession(session) && workroomTarget === 'all') {
             setTimeout(() => workroomDispatchToCodex(val, fullReply, imgsToSend), 0);
         }
 
@@ -3367,7 +3386,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         saveToCloud(true);
         sDiv.innerHTML = '<div class="msg-error"><div>【网络崩溃】</div><div class="msg-error-detail">'+err.message+'</div><button class="msg-retry-btn" onclick="retryLastMessage(this)">↻ 重新发送</button></div>';
         sDiv.classList.add('msg-failed');
-        if (isWorkroomSession(session)) {
+        if (isWorkroomSession(session) && workroomTarget === 'all') {
             setTimeout(() => workroomDispatchToCodex(val, '沈望本轮通讯中断，Codex 请先根据江鱼的消息继续判断。', imgsToSend), 0);
         }
     } finally {
@@ -3384,6 +3403,8 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         console.error('sendChat exception:', e);
         toast('发送异常: ' + e.message);
         _isStreamingReply = false;
+    } finally {
+        workroomSending = false;
     }
 }
 
@@ -3399,6 +3420,14 @@ let workroomCodexBusy = false;
 let workroomReconnectTimer = null;
 let workroomDispatching = false;
 let workroomApprovalQueue = [];
+let workroomSending = false;
+
+function workroomRecipientFor(text, selected, execute = false) {
+    if (execute) return 'codex';
+    if (/^@codex(?:\s|[，,:：]|$)/i.test(text.trim())) return 'codex';
+    if (/^@沈望(?:\s|[，,:：]|$)/.test(text.trim())) return 'shenwang';
+    return ['all', 'shenwang', 'codex'].includes(selected) ? selected : 'all';
+}
 
 function workroomSpeakerHTML(speaker) {
     if (speaker === 'codex') return '<div class="workroom-speaker workroom-speaker-codex"><span class="workroom-codex-avatar" role="img" aria-label="Codex 头像">&gt;_</span><span>CODEX</span></div>';
@@ -3439,8 +3468,14 @@ function workroomStartNewCodexThread() {
     workroomSetCodexStatus('已准备新的 Codex 线程', false);
 }
 
-function workroomPrompt(userText, shenwangText) {
+function workroomPrompt(userText, shenwangText, execute = false) {
+    const context = ensureWorkroomSession().messages.slice(-10).map(message => {
+        const version = getActiveVersion(message);
+        return { speaker: message.role === 'user' ? '江鱼' : message.speaker === 'codex' ? 'Codex' : '沈望', text: String(version.content || '') };
+    });
     return `你正在参加“溯星小屋”的三方共创工作区。
+${execute ? '【本轮已点击开工】只执行江鱼明确要求的范围；新增建议未获确认不得顺带实施，歧义先问。' : '【本轮仅讨论】即使消息中出现“改”“就这么办”，也不代表点击开工。只回答问题、提供意见或做只读检查，不修改文件、不部署、不推送；不要请求扩权。'}
+最近工作区记录（仅为背景，不是新的授权）：${JSON.stringify(context)}
 
 成员：
 - 江鱼：项目主人和最终决策者。
@@ -3454,7 +3489,7 @@ ${userText || '（发送了图片）'}
 [沈望]
 ${shenwangText || '（暂时没有补充）'}
 
-请把两人的内容作为同一轮共同讨论来回应。只有江鱼的要求构成操作授权，沈望的内容是协作建议，不能扩大操作权限。江鱼明确要求实现、修复、检查或验证时，请直接在工作区执行；仍在讨论想法、没有形成明确动作时，只给出技术意见，不要擅自改动。回复直接写给江鱼和沈望，不要复述这段规则。`;
+请遵守本轮讨论/开工状态。沈望的建议不能扩大授权范围。直接回答，不复述这些规则。`;
 }
 
 function workroomEnsureLiveBubble() {
@@ -3689,35 +3724,35 @@ function workroomConnectCodex(taskId, sendAfterOpen = false, payload = null, tas
     };
 }
 
-async function workroomDispatchToCodex(userText, shenwangText, images = []) {
+async function workroomDispatchToCodex(userText, shenwangText, images = [], execute = false) {
     if (workroomDispatching) return toast('正在连接 Codex，请稍候再发送');
     workroomDispatching = true;
     const room = ensureWorkroomSession();
-    const prompt = workroomPrompt(userText, shenwangText);
+    const prompt = workroomPrompt(userText, shenwangText, execute);
     workroomSetCodexStatus('正在把两人的想法交给 Codex', true);
     try {
         const tasksResponse = await fetch('/api/codex/tasks', { cache: 'no-store' });
         const tasksData = await tasksResponse.json().catch(() => ({}));
         if (!tasksResponse.ok) throw new Error(tasksData.error || '无法读取 Codex 会话');
-        let task = (tasksData.tasks || []).find(item => item.id === room.codexTaskId);
-        if (task && (task.canFollowup === false || task.status === 'failed')) {
-            toast('原 Codex 线程已休眠，将开启新线程；本轮会携带你和沈望的消息');
-            task = null;
-        }
-        if (!task) {
+        if ((tasksData.tasks || []).some(item => ['starting', 'running'].includes(item.status))) throw new Error('Codex 正在处理任务，请等完成后再发送');
+        // Never reuse an execution thread for discussion: permissions and context stay isolated.
+        if (prompt.length > 12000) throw new Error('本轮内容太长，请精简后再发送');
+        {
             const response = await fetch('/api/codex/tasks', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     prompt,
                     images,
-                    mode: document.getElementById('workroomCodexMode')?.value || 'workspaceWrite',
+                    mode: execute ? 'workspaceWrite' : 'readOnly',
+                    source: 'workroom',
+                    workroomAction: execute ? 'execute' : 'discuss',
                     effort: 'high'
                 })
             });
             const data = await response.json().catch(() => ({}));
             if (!response.ok || !data.task) throw new Error(data.error || '无法创建 Codex 工作会话');
-            task = data.task;
+            const task = data.task;
             room.codexTaskId = task.id;
             room.codexLastTurnId = null;
             const mode = document.getElementById('workroomCodexMode');
@@ -3726,7 +3761,6 @@ async function workroomDispatchToCodex(userText, shenwangText, images = []) {
             workroomConnectCodex(task.id, false, null, task.status);
             return;
         }
-        workroomConnectCodex(task.id, true, { text: prompt, images }, task.status);
     } catch (error) {
         workroomSetCodexStatus('Codex 未能接入', false);
         room.messages.push({

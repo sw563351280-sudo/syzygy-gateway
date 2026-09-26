@@ -109,6 +109,32 @@ test('journal write failure is visible and does not change the completed task re
     } finally { child.kill(); }
 });
 
+test('workroom discussion cannot inherit requested write mode or elevate through approval', async () => {
+    const child = createFakeChatProcess();
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
+    const started = bridge.startTask({ prompt: '修改这里', source: 'workroom', mode: 'workspaceWrite' });
+    const task = bridge.taskById(started.id);
+    try {
+        await waitFor(() => task.status === 'running');
+        assert.equal(started.mode, 'readOnly');
+        assert.equal(child.writes.find(m => m.method === 'turn/start').params.sandboxPolicy.type, 'readOnly');
+        assert.throws(() => bridge.sendClientCommand(task, { type: 'steer', text: '继续改' }), /独立权限/);
+        child.stdout.write(JSON.stringify({ id: 99, method: 'item/commandExecution/requestApproval', params: {} }) + '\n');
+        await waitFor(() => task.status === 'failed');
+        assert.equal(task.pending.size, 0);
+    } finally { child.kill(); }
+});
+
+test('explicit workroom execute creates a write-enabled task', async () => {
+    const child = createFakeChatProcess();
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
+    const task = bridge.startTask({ prompt: '修改这里', source: 'workroom', workroomAction: 'execute' });
+    try {
+        await waitFor(() => bridge.taskById(task.id).status === 'running');
+        assert.equal(task.mode, 'workspaceWrite');
+    } finally { child.kill(); }
+});
+
 test('completed Codex task stays alive and starts a follow-up turn on the same thread', async () => {
     const child = createFakeChatProcess();
     const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });

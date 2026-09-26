@@ -164,12 +164,15 @@
                 <div class="chat-bottom-bar">
     <div id="workroomCodexBar" class="workroom-codex-bar" hidden>
         <div class="workroom-codex-state"><i></i><span id="workroomCodexStatus">Codex 待命</span></div>
-        <label>权限
-            <select id="workroomCodexMode">
-                <option value="workspaceWrite" selected>可修改工作区</option>
-                <option value="readOnly">只读讨论</option>
+        <label>发给
+            <select id="workroomRecipient" aria-label="选择谁回复">
+                <option value="all">一起聊</option>
+                <option value="shenwang">沈望</option>
+                <option value="codex">Codex</option>
             </select>
         </label>
+        <button class="workroom-new-thread" type="button" onclick="sendChat({workroomExecute:true})">让 Codex 开工</button>
+        <small>普通发送只讨论 · 点开工才修改</small>
         <button class="workroom-new-thread" type="button" onclick="workroomStartNewCodexThread()">新线程</button>
         <button class="workroom-new-thread" type="button" onclick="goView('codex-settings')">设定</button>
         <button class="workroom-new-thread" type="button" onclick="goView('work-records')">工作记录</button>
@@ -654,7 +657,7 @@
 <link rel="stylesheet" href="workroom-pages.css?v=1">
 <script src="workroom-pages.js?v=1"></script>
 <script src="chat-window-context.js?v=1"></script>
-<script src="script.js?v=85"></script>
+<script src="script.js?v=86"></script>
 <script src="music-player.js?v=3" defer></script>
         <div id="msgContextMenu" class="msg-context-menu" role="menu" aria-label="消息操作" hidden></div>
 

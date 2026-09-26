@@ -17,6 +17,7 @@ function setup() {
     const context = vm.createContext({
         console, crypto: require('node:crypto'), WORKROOM_ID: 'room', activeChatId: 'main',
         ensureWorkroomSession: () => room, document: { getElementById: () => null },
+        getActiveVersion: message => message.versions?.[0] || message,
         saveToCloud() {}, renderChatMessages() {}, toast() {}, renderMarkdown: text => text,
         location: { protocol: 'https:', host: 'example.test' }, WebSocket: Socket,
         setTimeout(fn) { timers.push(fn); return timers.length; }, clearTimeout() {}
@@ -30,6 +31,60 @@ test('Codex avatar is distinct and has an accessible label', () => {
     assert.match(run("workroomSpeakerHTML('codex')"), /aria-label="Codex 头像"/);
     assert.match(run("workroomSpeakerHTML('codex')"), /&gt;_/);
     assert.doesNotMatch(run("workroomSpeakerHTML('shenwang')"), /workroom-codex-avatar/);
+});
+test('recipient selection and mentions are independent of execute permission', () => {
+    const { context } = setup();
+    assert.equal(context.workroomRecipientFor('你好', 'shenwang'), 'shenwang');
+    assert.equal(context.workroomRecipientFor('@Codex 你觉得呢', 'all'), 'codex');
+    assert.equal(context.workroomRecipientFor('@沈望 看看', 'codex'), 'shenwang');
+    assert.equal(context.workroomRecipientFor('就这么改吧', 'all'), 'all');
+    assert.equal(context.workroomRecipientFor('执行', 'shenwang', true), 'codex');
+});
+test('sending only to Codex bypasses Shenwang and needs no chat provider', async () => {
+    const { context, room, run } = setup();
+    const elements = {
+        chatInput: { value: '@Codex 这段逻辑对吗' },
+        workroomRecipient: { value: 'all' },
+        chatWindow: { appendChild() {}, scrollHeight: 0, scrollTop: 0 }
+    };
+    context.document = { getElementById: id => elements[id] || null, createElement: () => ({ innerHTML: '', appendChild() {} }) };
+    context._isStreamingReply = false;
+    context.getActiveSession = () => room;
+    context.isWorkroomSession = () => true;
+    context.currentImgBase64List = [];
+    context.clearImage = () => {};
+    context.flushDirtyToZep = () => { throw new Error('should not touch Shenwang'); };
+    context.suppliers = []; // a direct Codex question must not require a Shenwang supplier
+    const calls = [];
+    context.workroomDispatchToCodex = async (...args) => calls.push(args);
+    const sendSource = source.slice(source.indexOf('async function sendChat(options = {})'), source.indexOf('// ==================== 江鱼 · 沈望 · Codex 共创工作区'));
+    vm.runInContext(sendSource, context);
+    await context.sendChat();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], '@Codex 这段逻辑对吗');
+    assert.equal(calls[0][3], false);
+    assert.equal(room.messages[0].workroomTarget, 'codex');
+    assert.equal(run('workroomSending'), false);
+});
+test('normal dispatch always creates read-only tasks even after an execution task', async () => {
+    const { context, room } = setup();
+    room.messages.push({ role: 'assistant', speaker: 'shenwang', content: '先确认方案' });
+    const requests = [];
+    context.fetch = async (_url, options = {}) => {
+        if (options.method === 'POST') {
+            requests.push(JSON.parse(options.body));
+            return { ok: true, json: async () => ({ task: { id: 'fresh', status: 'starting' } }) };
+        }
+        return { ok: true, json: async () => ({ tasks: [{ id: 'task-1', mode: 'workspaceWrite', status: 'completed' }] }) };
+    };
+    await context.workroomDispatchToCodex('就这么改吧', '', []);
+    assert.equal(requests[0].mode, 'readOnly');
+    assert.equal(requests[0].workroomAction, 'discuss');
+    assert.match(requests[0].prompt, /本轮仅讨论/);
+    assert.match(requests[0].prompt, /先确认方案/);
+    await context.workroomDispatchToCodex('把按钮改蓝', '', [], true);
+    assert.equal(requests[1].mode, 'workspaceWrite');
+    assert.equal(requests[1].workroomAction, 'execute');
 });
 test('structured work records are hidden from live and saved chat text', () => {
     const { run } = setup();
