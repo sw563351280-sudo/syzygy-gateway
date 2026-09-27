@@ -26,6 +26,20 @@ function setup() {
     return { room, context, sockets, timers, run: code => vm.runInContext(code, context) };
 }
 
+test('status light tracks running snapshots and turns off when completed', () => {
+    const { context } = setup();
+    const label = { textContent: '' };
+    let lit = false;
+    const bar = { classList: { toggle(_name, active) { lit = active; } } };
+    context.document.getElementById = id => ({ workroomCodexStatus: label, workroomCodexBar: bar })[id] || null;
+    context.workroomHandleCodexMessage({ type: 'codex_snapshot', task: { id: 'task-1', status: 'running' }, events: [] });
+    assert.equal(lit, true);
+    assert.match(label.textContent, /正在工作/);
+    context.workroomHandleCodexMessage({ type: 'codex_snapshot', task: { id: 'task-1', status: 'completed' }, events: [] });
+    assert.equal(lit, false);
+    assert.match(label.textContent, /待命/);
+});
+
 test('Codex avatar is distinct and has an accessible label', () => {
     const { run } = setup();
     assert.match(run("workroomSpeakerHTML('codex')"), /aria-label="Codex 头像"/);

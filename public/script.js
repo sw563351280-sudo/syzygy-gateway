@@ -2925,6 +2925,7 @@ function workroomHandleCodexMessage(message) {
     if (message.type === 'codex_snapshot') {
         const configLabel = document.getElementById('workroomCodexConfig');
         if (configLabel && message.task?.model) {
+            configLabel.hidden = false;
             const effortName = { low: '低', medium: '中', high: '高', xhigh: '极高' }[message.task.effort] || message.task.effort || '未知';
             configLabel.textContent = '最近任务：' + message.task.model + ' · 思考：' + effortName;
         }
