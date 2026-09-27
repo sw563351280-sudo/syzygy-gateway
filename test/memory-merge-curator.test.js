@@ -22,6 +22,8 @@ test('memory merge curator uses Flash-compatible JSON and retries without respon
     assert.equal(result.action, 'update');
     assert.equal(result.target_id, 'old');
     assert.equal(requests[0].model, 'gemini-3-flash-preview');
+    assert.equal(requests[0].max_tokens, 2000);
+    assert.equal(requests[1].max_tokens, 2000);
     assert.ok(requests[0].response_format);
     assert.equal(requests[1].response_format, undefined);
     assert.match(requests[0].messages[0].content, /我=沈望、她=江鱼/);

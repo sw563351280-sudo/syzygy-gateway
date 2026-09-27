@@ -40,7 +40,7 @@ async function decideMemoryWrite(options) {
     if (!fetchImpl || !apiKey) return { action: 'review', target_id: null, content: incoming.content, tags: incoming.tags, reason: '缺少审稿模型配置', confidence: 0 };
     const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs);
     const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${String(apiKey).replace(/^Bearer\s+/i, '')}` };
-    const body = { model, messages: buildMessages(incoming, candidates), response_format: { type: 'json_object' }, temperature: 0, max_tokens: 500 };
+    const body = { model, messages: buildMessages(incoming, candidates), response_format: { type: 'json_object' }, temperature: 0, max_tokens: 2000 };
     const request = value => fetchImpl(endpoint, { method: 'POST', headers, body: JSON.stringify(value), signal: controller.signal });
     try {
         let response = await request(body);
