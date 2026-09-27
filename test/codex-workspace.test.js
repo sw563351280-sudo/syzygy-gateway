@@ -41,6 +41,14 @@ test('model settings survive restart, migrate old settings and reject invalid up
     assert.throws(() => restored.saveSettings({ prompt: '', model: '', effort: 'bogus' }));
     assert.equal(restored.settings().effort, 'low');
 });
+test('saved prompt survives missing primary file and stale pages cannot overwrite it', t => {
+    const { store, directory } = fixture(t);
+    const saved = store.saveSettings({ prompt: '不要丢失', expectedUpdatedAt: null });
+    assert.throws(() => store.saveSettings({ prompt: '旧页面', expectedUpdatedAt: null }), /其他页面更新/);
+    fs.unlinkSync(path.join(directory, 'codex-settings.json'));
+    assert.equal(createCodexWorkspace(directory).settings().prompt, '不要丢失');
+    assert.equal(store.settings().updatedAt, saved.updatedAt);
+});
 
 test('records survive restart, deduplicate by turn and preserve failed status', t => {
     const { store, directory } = fixture(t);

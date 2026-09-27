@@ -2,33 +2,52 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const path = require('node:path');
 const vm = require('node:vm');
-
-test('settings UI loads and saves model and effort together with the prompt', async () => {
-    const elements = new Map();
-    const requests = [];
-    const document = { getElementById(id) {
-        if (!elements.has(id)) elements.set(id, { value: '', disabled: false, textContent: '' });
+function fixture(version = 2) {
+    const elements = new Map(), storage = new Map(), requests = [];
+    const document = { createElement: () => ({}), getElementById(id) {
+        if (!elements.has(id)) elements.set(id, { value: '', disabled: false, textContent: '', options: [],
+            replaceChildren() { this.options = []; }, appendChild(option) { this.options.push(option); } });
         return elements.get(id);
     } };
-    const context = vm.createContext({ document, fetch: async (url, options) => {
+    const localStorage = { getItem: key => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
+    let saved = { prompt: '原设定', model: 'custom-model', effort: 'low', updatedAt: null };
+    const context = vm.createContext({ document, localStorage, fetch: async (url, options) => {
         requests.push({ url, options });
-        return { ok: true, json: async () => ({
-            settings: { prompt: '原设定', model: 'custom-model', effort: 'low' },
-            defaultPrompt: '默认设定', defaultModel: 'server-model'
-        }) };
+        if (options.method === 'PUT') saved = { ...JSON.parse(options.body), updatedAt: 'new' };
+        return { ok: true, json: async () => url.endsWith('/models') ? { models: [{
+            model: 'custom-model', displayName: 'Custom Model', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'high' }]
+        }] } : { version, settings: saved, defaultPrompt: '默认设定', defaultModel: 'custom-model' } };
     } });
-    vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/workroom-pages.js'), 'utf8'), context);
+    vm.runInContext(fs.readFileSync(require.resolve('../public/workroom-pages.js'), 'utf8'), context);
+    return { context, document, storage, requests };
+}
+test('picker loads real model capabilities and saves settings with revision', async () => {
+    const { context, document, requests, storage } = fixture();
     await context.codexSettingsLoad();
     assert.equal(document.getElementById('codexSettingsModel').value, 'custom-model');
-    assert.equal(document.getElementById('codexSettingsEffort').value, 'low');
-    assert.equal(document.getElementById('codexSettingsModel').disabled, false);
-    document.getElementById('codexSettingsModel').value = 'next-model';
-    document.getElementById('codexSettingsEffort').value = 'xhigh';
+    assert.equal(document.getElementById('codexSettingsEffort').options.length, 2);
+    document.getElementById('codexSettingsEffort').value = 'high';
     await context.codexSettingsSave({ preventDefault() {} });
-    assert.deepEqual(JSON.parse(requests[1].options.body), { prompt: '原设定', model: 'next-model', effort: 'xhigh' });
-    context.codexSettingsReset();
-    assert.equal(document.getElementById('codexSettingsModel').value, '');
-    assert.equal(document.getElementById('codexSettingsEffort').value, 'high');
+    assert.deepEqual(JSON.parse(requests[2].options.body), { prompt: '原设定', model: 'custom-model', effort: 'high', expectedUpdatedAt: null });
+    assert.equal(storage.has('syzygy.codex-settings.draft.v1'), false);
+    assert.equal(storage.has('syzygy.codex-settings.saved.v1'), true);
+    assert.match(document.getElementById('codexSettingsStatus').textContent, /已保存/);
+});
+test('refresh preserves unsaved draft and restoration is explicit', async () => {
+    const { context, document } = fixture();
+    await context.codexSettingsLoad();
+    document.getElementById('codexSettingsPrompt').value = '没写完的设定';
+    context.codexSettingsDraft();
+    await context.codexSettingsLoad();
+    assert.equal(document.getElementById('codexSettingsPrompt').value, '原设定');
+    assert.equal(document.getElementById('codexSettingsRestore').hidden, false);
+    context.codexSettingsRestoreDraft();
+    assert.equal(document.getElementById('codexSettingsPrompt').value, '没写完的设定');
+});
+test('old backend cannot claim successful settings load', async () => {
+    const { context, document } = fixture(1);
+    await context.codexSettingsLoad();
+    assert.equal(document.getElementById('codexSettingsSave').disabled, true);
+    assert.match(document.getElementById('codexSettingsStatus').textContent, /尚未更新/);
 });

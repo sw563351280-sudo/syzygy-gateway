@@ -477,6 +477,9 @@ function createCodexBridge(options = {}) {
     let usagePromise = null;
     let accountStatusPromise = null;
 
+    const readModels = require('./codex-models').createModelReader({
+        spawn: spawnProcess, bin: config.bin, cwd: config.cwd, env: buildCodexEnv
+    });
     function readAccountStatus() {
         if (!config.enabled) return Promise.resolve({ ok: false, error: 'Codex Bridge 已禁用' });
         if (accountStatusPromise) return accountStatusPromise;
@@ -648,7 +651,7 @@ function createCodexBridge(options = {}) {
         const displayPrompt = prompt || `（发送了 ${images.length} 张图片）`;
         const mode = isWorkroom ? (executing ? 'workspaceWrite' : 'readOnly') : input.mode === 'workspaceWrite' ? 'workspaceWrite' : 'readOnly';
         const selection = isWorkroom && options.getTaskSettings ? options.getTaskSettings() : input;
-        const effort = ['low', 'medium', 'high', 'xhigh'].includes(selection.effort) ? selection.effort : 'medium';
+        const effort = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(selection.effort) ? selection.effort : 'medium';
         const task = {
             id: crypto.randomUUID(),
             status: 'starting',
@@ -812,6 +815,7 @@ function createCodexBridge(options = {}) {
         listTasks() { return order.slice().reverse().map(id => publicTask(tasks.get(id))).filter(Boolean); },
         startTask,
         readAccountUsage,
+        readModels,
         readAccountStatus,
         loginStatus,
         startDeviceLogin,

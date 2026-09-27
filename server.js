@@ -11158,6 +11158,11 @@ app.get('/api/codex/account', async (req, res) => {
         res.status(503).json({ ok: false, error: String(error.message || '无法读取 Codex 账号状态') });
     }
 });
+app.get('/api/codex/models', async (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try { res.json({ models: await codexBridge.readModels(), defaultModel: codexBridge.status().model }); }
+    catch (error) { res.status(503).json({ error: error.message }); }
+});
 app.get('/api/codex/usage', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {

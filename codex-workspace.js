@@ -25,19 +25,25 @@ function createCodexWorkspace(directory) {
         } finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
     }
     function settings() {
-        const value = read(settingsFile, { prompt: DEFAULT_PROMPT, updatedAt: null });
+        const value = read(settingsFile, null) || read(settingsFile + '.backup', { prompt: DEFAULT_PROMPT, updatedAt: null });
         if (typeof value.prompt !== 'string') throw new Error('Codex 设定文件损坏，请检查服务器文件');
         return { ...value, model: value.model || '', effort: value.effort || 'high' };
     }
     function saveSettings(value) {
         if (typeof value?.prompt !== 'string' || value.prompt.length > 6000) throw new Error('设定必须是文字，最多 6000 字符');
         const previous = settings();
+        if (Object.hasOwn(value, 'expectedUpdatedAt') && value.expectedUpdatedAt !== (previous.updatedAt || null)) {
+            const error = new Error('设定已在其他页面更新。你的草稿已保留，请重新打开设定后核对再保存。');
+            error.status = 409;
+            throw error;
+        }
         const model = value.model === undefined ? previous.model : value.model;
         const effort = value.effort === undefined ? previous.effort : value.effort;
         if (typeof model !== 'string' || (model !== '' && !/^[a-zA-Z0-9._-]{1,80}$/.test(model))) throw new Error('模型名称只能包含字母、数字、点、下划线和短横线，最多 80 字符');
-        if (!['low', 'medium', 'high', 'xhigh'].includes(effort)) throw new Error('请选择有效的思考程度');
-        const result = { prompt: value.prompt.trim(), model, effort, updatedAt: new Date().toISOString() };
+        if (!['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(effort)) throw new Error('请选择有效的思考程度');
+        const result = { prompt: value.prompt.trim(), model, effort, updatedAt: new Date(Math.max(Date.now(), (Date.parse(previous.updatedAt) || 0) + 1)).toISOString() };
         write(settingsFile, result);
+        write(settingsFile + '.backup', result);
         return result;
     }
     function allRecords() {
@@ -98,12 +104,12 @@ function workspaceRouter(store) {
     const router = require('express').Router();
     router.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
     router.get('/settings', (_req, res) => {
-        try { res.json({ settings: store.settings(), defaultPrompt: DEFAULT_PROMPT, defaultModel: process.env.CODEX_MODEL || 'gpt-5.6-terra' }); }
+        try { res.json({ version: 2, settings: store.settings(), defaultPrompt: DEFAULT_PROMPT, defaultModel: process.env.CODEX_MODEL || 'gpt-5.6-terra' }); }
         catch (error) { res.status(500).json({ error: error.message }); }
     });
     router.put('/settings', (req, res) => {
-        try { res.json({ settings: store.saveSettings(req.body) }); }
-        catch (error) { res.status(400).json({ error: error.message }); }
+        try { res.json({ version: 2, settings: store.saveSettings(req.body) }); }
+        catch (error) { res.status(error.status || 400).json({ error: error.message }); }
     });
     router.get('/work-records', (req, res) => {
         try { res.json(store.query(req.query)); }

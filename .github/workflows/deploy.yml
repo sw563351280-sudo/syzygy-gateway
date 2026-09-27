@@ -72,7 +72,7 @@ jobs:
               find /tmp/syzygy_backup -type f | while read f; do
                 rel=$(echo "$f" | sed "s|^/tmp/syzygy_backup/||")
                 case "$rel" in
-                  server.js|model_prompts.json|public/index.html|public/style.css|public/script.js|public/manifest.json|music*.js|tool-policy.js|public/music-player.*|tools/music-api/*)
+                  server.js|model_prompts.json|public/index.html|public/style.css|public/script.js|public/manifest.json|codex-*.js|public/workroom-pages.*|public/chat-window-context.js|music*.js|tool-policy.js|public/music-player.*|tools/music-api/*)
                     echo "  ⏭️ 跳过: $rel (以仓库发布版本为准)" ;;
                   *)
                     cp "$f" "/opt/syzygy/$rel"
