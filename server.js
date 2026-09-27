@@ -25,6 +25,7 @@ const { extractDailyStateUpdates, stripLeakedStateUpdates, shouldCuratePersisten
 const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-merge');
 const { decideMemoryWrite } = require('./memory-merge-curator');
 const memoryCuratorDiagnostics = require('./memory-curator-diagnostics');
+const memoryFlowStatus = require('./memory-flow-status');
 const { canonical: canonicalMemoryText, extractSaveMemoryTag: parseMemoryTag, isRecentCrumbDuplicate: sameCrumb } = require('./memory-write-utils');
 const { activeMemoryEvents, publicMemoryEvent, readMemoryEvents, receiveMemoryEvent, updateMemoryEvent } = require('./memory-events');
 const { applyDecision: applyRelationshipDecision, curateRelationshipMemory, emptyRelationshipStore, looksRelationshipRelevant, memorySignature, normalizeStore: normalizeRelationshipStore, removeMemoryEvidence: removeRelationshipMemoryEvidence } = require('./relationship-reflections');
@@ -2981,12 +2982,12 @@ async function processLongTermMemoryEvent(event, tr = null) {
 
     let decision;
     try {
-        decision = await decideMemoryWrite({
+        decision = await memoryFlowStatus.observe('merge', curatorConfig, () => decideMemoryWrite({
             fetchImpl: fetch,
             ...curatorConfig,
             incoming,
             candidates,
-        });
+        }));
     } catch (error) {
         return holdMemoryEvent(event, 'pending', `审查器失败：${error.message}`, null, candidates, tr);
     }
@@ -3096,7 +3097,7 @@ async function processRelationshipReflectionMemory(memory, tr = null) {
 
     const config = relationshipReflectionModelConfig();
     if (!config.apiKey) throw new Error('未配置关系复盘模型');
-    const decision = await curateRelationshipMemory({ fetchImpl: fetch, ...config, memory, store });
+    const decision = await memoryFlowStatus.observe('relationship', config, () => curateRelationshipMemory({ fetchImpl: fetch, ...config, memory, store }));
     const applied = applyRelationshipDecision(store, memory, decision);
     if (!applied.changed) return applied;
     saveRelationshipReflections(applied.store);
@@ -3137,7 +3138,7 @@ async function processRealityEventMemory(memory, tr = null) {
     if (store.processed[memory.id]?.signature === memorySignature(memory)) return null;
     const config = realityEventModelConfig();
     if (!config.apiKey) throw new Error('未配置现实事件整理模型');
-    const decision = await curateRealityMemory({ fetchImpl: fetch, ...config, memory, store });
+    const decision = await memoryFlowStatus.observe('reality', config, () => curateRealityMemory({ fetchImpl: fetch, ...config, memory, store }));
     const applied = applyRealityDecision(store, memory, decision);
     if (!applied.changed) return applied;
     saveRealityEvents(applied.store);
@@ -10202,7 +10203,10 @@ app.post('/api/reality-events/backfill', (req, res) => {
     res.status(202).json({ success: true, backfill: { ..._realityBackfill, running: true } });
 });
 
-app.use('/api/memory-curator-diagnostics', memoryCuratorDiagnostics.router(fetch));
+app.use('/api/memory-curator-diagnostics', memoryCuratorDiagnostics.router(fetch, memoryCuratorDiagnostics.configuration, () => memoryFlowStatus.snapshot({
+    merge: memoryCuratorDiagnostics.configuration(), relationship: relationshipReflectionModelConfig(),
+    reality: realityEventModelConfig(), events: loadMemoryEvents()
+})));
 app.get('/api/memory-events', (req, res) => {
     const includeCompleted = req.query.include_completed === '1';
     const events = loadMemoryEvents().sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));

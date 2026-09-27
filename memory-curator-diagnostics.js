@@ -64,11 +64,14 @@ async function diagnose(config, fetchImpl) {
             error: error.name === 'AbortError' ? '请求超过 20 秒，已停止' : redact(error.message, config) };
     }
 }
-function router(fetchImpl, getConfig = configuration) {
+function router(fetchImpl, getConfig = configuration, getFlow = () => null) {
     const result = require('express').Router();
     let running = false, nextAllowed = 0;
     result.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
-    result.get('/', (_req, res) => res.json(publicConfiguration(getConfig())));
+    result.get('/', (_req, res) => {
+        try { res.json({ ...publicConfiguration(getConfig()), flow: getFlow() }); }
+        catch (_) { res.status(500).json({ error: '无法读取记忆流程状态' }); }
+    });
     result.post('/', async (_req, res) => {
         if (running || Date.now() < nextAllowed) return res.status(429).json({ error: '请等待当前测试完成，间隔 30 秒后再试' });
         running = true; nextAllowed = Date.now() + 30000;
