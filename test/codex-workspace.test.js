@@ -26,6 +26,22 @@ test('settings persist, allow clearing and reject oversized or non-text prompts'
     store.saveSettings({ prompt: '' });
     assert.equal(store.settings().prompt, '');
 });
+test('model settings survive restart, migrate old settings and reject invalid updates', t => {
+    const { store, directory } = fixture(t);
+    fs.writeFileSync(path.join(directory, 'codex-settings.json'), JSON.stringify({ prompt: '旧设定' }));
+    assert.equal(store.settings().model, '');
+    assert.equal(store.settings().effort, 'high');
+    store.saveSettings({ prompt: '旧设定', model: 'custom-model', effort: 'low' });
+    const restored = createCodexWorkspace(directory);
+    assert.equal(restored.settings().model, 'custom-model');
+    assert.equal(restored.settings().effort, 'low');
+    restored.saveSettings({ prompt: '仅改提示词' });
+    assert.equal(restored.settings().model, 'custom-model');
+    assert.throws(() => restored.saveSettings({ prompt: '', model: '--bad model', effort: 'low' }));
+    assert.throws(() => restored.saveSettings({ prompt: '', model: '', effort: 'bogus' }));
+    assert.equal(restored.settings().effort, 'low');
+});
+
 test('records survive restart, deduplicate by turn and preserve failed status', t => {
     const { store, directory } = fixture(t);
     const record = store.capture(task(), 'completed');

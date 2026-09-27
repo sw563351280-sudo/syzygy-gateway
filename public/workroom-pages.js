@@ -17,12 +17,21 @@ async function codexSettingsLoad() {
     const status = document.getElementById('codexSettingsStatus');
     codexSettingsLoading = true;
     input.disabled = true;
+    document.getElementById('codexSettingsModel').disabled = true;
+    document.getElementById('codexSettingsEffort').disabled = true;
     button.disabled = true;
     status.textContent = '正在读取设定…';
     try {
         const data = await codexWorkspaceRequest('/api/codex/settings');
         codexSettingsDefault = data.defaultPrompt;
         input.value = data.settings.prompt;
+        const model = document.getElementById('codexSettingsModel');
+        model.value = data.settings.model || '';
+        model.placeholder = '服务器默认：' + data.defaultModel;
+        model.disabled = false;
+        const effort = document.getElementById('codexSettingsEffort');
+        effort.value = data.settings.effort || 'high';
+        effort.disabled = false;
         input.disabled = false;
         button.disabled = false;
         status.textContent = '保存后从下一轮 Codex 消息生效，正在执行的任务不受影响。';
@@ -37,7 +46,11 @@ async function codexSettingsSave(event) {
     const status = document.getElementById('codexSettingsStatus');
     button.disabled = true;
     try {
-        await codexWorkspaceRequest('/api/codex/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: document.getElementById('codexSettingsPrompt').value }) });
+        await codexWorkspaceRequest('/api/codex/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+            prompt: document.getElementById('codexSettingsPrompt').value,
+            model: document.getElementById('codexSettingsModel').value.trim(),
+            effort: document.getElementById('codexSettingsEffort').value
+        }) });
         status.textContent = '设定已保存 · 下一轮生效';
     } catch (error) { status.textContent = '未保存：' + error.message; }
     finally { button.disabled = false; }
@@ -46,6 +59,8 @@ async function codexSettingsSave(event) {
 function codexSettingsReset() {
     if (!document.getElementById('codexSettingsPrompt').disabled) {
         document.getElementById('codexSettingsPrompt').value = codexSettingsDefault;
+        document.getElementById('codexSettingsModel').value = '';
+        document.getElementById('codexSettingsEffort').value = 'high';
         document.getElementById('codexSettingsStatus').textContent = '已填入默认设定，点击保存后生效。';
     }
 }

@@ -2923,6 +2923,11 @@ function workroomHandleCodexMessage(message) {
     if (!message) return;
     const room = ensureWorkroomSession();
     if (message.type === 'codex_snapshot') {
+        const configLabel = document.getElementById('workroomCodexConfig');
+        if (configLabel && message.task?.model) {
+            const effortName = { low: '低', medium: '中', high: '高', xhigh: '极高' }[message.task.effort] || message.task.effort || '未知';
+            configLabel.textContent = '最近任务：' + message.task.model + ' · 思考：' + effortName;
+        }
         room.codexTaskId = message.task?.id || room.codexTaskId;
         const mode = document.getElementById('workroomCodexMode');
         if (mode && message.task?.mode) mode.value = message.task.mode;
@@ -3036,8 +3041,7 @@ async function workroomDispatchToCodex(userText, shenwangText, images = [], exec
                     images,
                     mode: execute ? 'workspaceWrite' : 'readOnly',
                     source: 'workroom',
-                    workroomAction: execute ? 'execute' : 'discuss',
-                    effort: 'high'
+                    workroomAction: execute ? 'execute' : 'discuss'
                 })
             });
             const data = await response.json().catch(() => ({}));

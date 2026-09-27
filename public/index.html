@@ -161,6 +161,7 @@
                 <div class="chat-bottom-bar">
     <div id="workroomCodexBar" class="workroom-codex-bar" hidden>
         <div class="workroom-codex-state"><i></i><span id="workroomCodexStatus">Codex 待命</span></div>
+        <small id="workroomCodexConfig">模型与思考程度可在「设定」中修改</small>
         <label>发给
             <select id="workroomRecipient" aria-label="选择谁回复">
                 <option value="all">一起聊</option>
@@ -440,6 +441,12 @@
     <form class="codex-page-content" onsubmit="codexSettingsSave(event)">
         <h2><span class="workroom-codex-avatar" aria-hidden="true">&gt;_</span> 小屋里的技术伙伴</h2>
         <p>写下你希望 Codex 如何交流、如何参与讨论。这份设定只影响小屋里的 Codex，不改变沈望的设定，也不扩大执行权限。</p>
+        <label for="codexSettingsModel">Codex 模型</label>
+        <input id="codexSettingsModel" type="text" maxlength="80" pattern="[a-zA-Z0-9._-]{1,80}" autocomplete="off" spellcheck="false" placeholder="留空使用服务器默认模型" disabled>
+        <p id="codexSettingsModelHelp" class="codex-page-status">填写服务器账户支持的准确模型名称；留空使用服务器默认值。不支持的模型会在运行时报错，不会静默换成其他模型。</p>
+        <label for="codexSettingsEffort">Codex 思考程度</label>
+        <select id="codexSettingsEffort" disabled><option value="low">低</option><option value="medium">中</option><option value="high">高</option><option value="xhigh">极高</option></select>
+        <p class="codex-page-status">只影响 Codex，不影响沈望。思考程度也需要所选模型支持。</p>
         <label for="codexSettingsPrompt">自定义 prompt（最多 6000 字符）</label>
         <textarea id="codexSettingsPrompt" maxlength="6000" disabled></textarea>
         <div class="codex-page-actions"><button id="codexSettingsSave" type="submit" disabled>保存设定</button><button type="button" onclick="codexSettingsReset()">填入默认设定</button></div>
@@ -606,10 +613,10 @@
 <script src="context-cache-status.js?v=6"></script>
 <script src="context-continuity.js?v=1"></script>
 <script src="cache-history.js?v=3"></script>
-<link rel="stylesheet" href="workroom-pages.css?v=1">
-<script src="workroom-pages.js?v=1"></script>
+<link rel="stylesheet" href="workroom-pages.css?v=2">
+<script src="workroom-pages.js?v=2"></script>
 <script src="chat-window-context.js?v=1"></script>
-<script src="script.js?v=87"></script>
+<script src="script.js?v=88"></script>
 <script src="music-player.js?v=3" defer></script>
         <div id="msgContextMenu" class="msg-context-menu" role="menu" aria-label="消息操作" hidden></div>
 

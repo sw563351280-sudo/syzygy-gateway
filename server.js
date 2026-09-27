@@ -11144,7 +11144,7 @@ const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 
 // Codex Bridge — 仅在已登录的浏览器会话中开放，凭证留在服务器环境中
-const codexBridge = createCodexBridge({ cwd: __dirname, getInstructions: codexWorkspace.instructions, onTurnComplete: codexWorkspace.capture });
+const codexBridge = createCodexBridge({ cwd: __dirname, getInstructions: codexWorkspace.instructions, getTaskSettings: codexWorkspace.settings, onTurnComplete: codexWorkspace.capture });
 app.get('/api/codex/status', (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json(codexBridge.status());

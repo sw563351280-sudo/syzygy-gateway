@@ -245,6 +245,7 @@ function createCodexBridge(options = {}) {
             status: task.status,
             prompt: task.prompt,
             model: task.model,
+            effort: task.effort,
             mode: task.mode,
             cwd: task.cwd,
             createdAt: task.createdAt,
@@ -646,14 +647,15 @@ function createCodexBridge(options = {}) {
         if (!prompt && images.length === 0) throw new Error('请输入问题或添加图片');
         const displayPrompt = prompt || `（发送了 ${images.length} 张图片）`;
         const mode = isWorkroom ? (executing ? 'workspaceWrite' : 'readOnly') : input.mode === 'workspaceWrite' ? 'workspaceWrite' : 'readOnly';
-        const effort = ['low', 'medium', 'high', 'xhigh'].includes(input.effort) ? input.effort : 'medium';
+        const selection = isWorkroom && options.getTaskSettings ? options.getTaskSettings() : input;
+        const effort = ['low', 'medium', 'high', 'xhigh'].includes(selection.effort) ? selection.effort : 'medium';
         const task = {
             id: crypto.randomUUID(),
             status: 'starting',
             prompt: displayPrompt,
             input: turnInput(prompt + (isWorkroom && !executing ? '\n【服务端讨论约束】本轮未点击开工，只能讨论或只读检查。不得修改、部署、推送，也不得通过外部工具绕过只读限制。' : ''), images),
             source: isWorkroom ? 'workroom' : 'dev',
-            model: /^[a-zA-Z0-9._-]{1,80}$/.test(input.model || '') ? input.model : config.model,
+            model: /^[a-zA-Z0-9._-]{1,80}$/.test(selection.model || '') ? selection.model : config.model,
             effort,
             mode,
             cwd: config.cwd,

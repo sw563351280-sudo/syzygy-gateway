@@ -50,6 +50,24 @@ function createFakeChatProcess() {
     return child;
 }
 
+test('workroom model and effort reach Codex and later edits do not alter an active task', async () => {
+    const child = createFakeChatProcess();
+    let settings = { model: 'custom-model', effort: 'low' };
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child, getTaskSettings: () => settings });
+    const started = bridge.startTask({ prompt: '检查', source: 'workroom', model: 'ignored', effort: 'high' });
+    try {
+        await waitFor(() => child.writes.find(row => row.method === 'turn/start'));
+        const turn = child.writes.find(row => row.method === 'turn/start');
+        assert.equal(turn.params.model, 'custom-model');
+        assert.equal(turn.params.effort, 'low');
+        assert.equal(started.model, 'custom-model');
+        assert.equal(started.effort, 'low');
+        settings = { model: 'next-model', effort: 'high' };
+        assert.equal(bridge.taskById(started.id).model, 'custom-model');
+        assert.equal(bridge.taskById(started.id).effort, 'low');
+    } finally { child.kill(); }
+});
+
 test('snapshot preserves long replies and approvals after event log truncation', async () => {
     const child = createFakeChatProcess();
     const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
