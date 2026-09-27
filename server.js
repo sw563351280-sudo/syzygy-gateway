@@ -24,6 +24,7 @@ const { normalizeTodos, partitionActiveTodos, buildTodoPrompt } = require('./tod
 const { extractDailyStateUpdates, stripLeakedStateUpdates, shouldCuratePersistentState } = require('./daily-state-curator');
 const { bigramSimilarity, mergeMemoryRevision, tagOverlap } = require('./memory-merge');
 const { decideMemoryWrite } = require('./memory-merge-curator');
+const memoryCuratorDiagnostics = require('./memory-curator-diagnostics');
 const { canonical: canonicalMemoryText, extractSaveMemoryTag: parseMemoryTag, isRecentCrumbDuplicate: sameCrumb } = require('./memory-write-utils');
 const { activeMemoryEvents, publicMemoryEvent, readMemoryEvents, receiveMemoryEvent, updateMemoryEvent } = require('./memory-events');
 const { applyDecision: applyRelationshipDecision, curateRelationshipMemory, emptyRelationshipStore, looksRelationshipRelevant, memorySignature, normalizeStore: normalizeRelationshipStore, removeMemoryEvidence: removeRelationshipMemoryEvidence } = require('./relationship-reflections');
@@ -2974,16 +2975,15 @@ async function processLongTermMemoryEvent(event, tr = null) {
         return holdMemoryEvent(event, 'pending', '正式记忆写入失败', null, candidates, tr);
     }
 
-    const key = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
+    const curatorConfig = memoryCuratorDiagnostics.configuration();
+    const key = curatorConfig.apiKey;
     if (!key) return holdMemoryEvent(event, 'pending', '未配置记忆审查模型', null, candidates, tr);
 
     let decision;
     try {
         decision = await decideMemoryWrite({
             fetchImpl: fetch,
-            apiKey: key,
-            endpoint: process.env.MEMORY_MERGE_URL || process.env.DAILY_CURATOR_URL || 'https://www.msuicode.com/v1/chat/completions',
-            model: process.env.MEMORY_MERGE_MODEL || 'gemini-3-flash-preview',
+            ...curatorConfig,
             incoming,
             candidates,
         });
@@ -10202,6 +10202,7 @@ app.post('/api/reality-events/backfill', (req, res) => {
     res.status(202).json({ success: true, backfill: { ..._realityBackfill, running: true } });
 });
 
+app.use('/api/memory-curator-diagnostics', memoryCuratorDiagnostics.router(fetch));
 app.get('/api/memory-events', (req, res) => {
     const includeCompleted = req.query.include_completed === '1';
     const events = loadMemoryEvents().sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));

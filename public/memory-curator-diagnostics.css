@@ -1,0 +1,5 @@
+.memory-diagnostic { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.45); }
+.memory-diagnostic summary { cursor: pointer; font-size: 13px; color: var(--blue); font-weight: 600; }
+.memory-diagnostic p { color: var(--muted); font-size: 12px; line-height: 1.7; }
+.memory-diagnostic pre { margin: 12px 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.8; font-family: inherit; max-height: 320px; overflow: auto; }
+.memory-diagnostic button:disabled { opacity: .5; cursor: wait; }
