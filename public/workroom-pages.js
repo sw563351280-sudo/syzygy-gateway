@@ -117,16 +117,16 @@ async function codexSettingsLoad() {
 }
 
 async function codexSettingsSave(event) {
-    event.preventDefault();
+    event?.preventDefault();
     if (codexSettingsLoading) return;
     codexSettingsDraft();
+    const values = codexSettingsValues();
     codexSettingsLoading = true;
     const button = document.getElementById('codexSettingsSave');
     const status = document.getElementById('codexSettingsStatus');
     button.disabled = true;
     for (const id of ['codexSettingsPrompt', 'codexSettingsModel', 'codexSettingsEffort']) document.getElementById(id).disabled = true;
     try {
-        const values = codexSettingsValues();
         const data = await codexWorkspaceRequest('/api/codex/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...values, expectedUpdatedAt: codexSettingsRevision }) });
         if (data.version !== 2 || data.settings?.prompt !== values.prompt.trim() || data.settings?.model !== values.model || data.settings?.effort !== values.effort) throw new Error('服务器没有确认完整设定，草稿已保留');
         codexSettingsRevision = data.settings.updatedAt;
