@@ -2665,15 +2665,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
 
     } catch (err) {
         clearTimeout(silenceTimer);
-        // 写入失败占位消息到 session，保证 re-render 不丢
-        const failMsg = {
-            _id: crypto.randomUUID(),
-            role: 'assistant',
-            versions: [{ content: '【发送失败】' + err.message, fullTime: new Date().toISOString(), time: new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}), model: selectedModel, _failed: true }],
-            activeVersion: 0, _failed: true
-        };
-        getLiveSession(sessionId).messages.push(failMsg);
-        saveToCloud(true);
+        recordChatTransportFailure(session, sessionId, err.message, selectedModel);
         sDiv.innerHTML = '<div class="msg-error"><div>【网络崩溃】</div><div class="msg-error-detail">'+err.message+'</div><button class="msg-retry-btn" onclick="retryLastMessage(this)">↻ 重新发送</button></div>';
         sDiv.classList.add('msg-failed');
         if (isWorkroomSession(session) && workroomTarget === 'all') {
@@ -2711,6 +2703,24 @@ let workroomReconnectTimer = null;
 let workroomDispatching = false;
 let workroomApprovalQueue = [];
 let workroomSending = false;
+
+function recordChatTransportFailure(session, sessionId, message, model) {
+    // 工作区的网络/供应商故障属于运行状态，不写成沈望的正式发言。
+    if (isWorkroomSession(session)) {
+        toast('沈望本轮通讯中断：' + message);
+        return false;
+    }
+    // 私聊维持原有可重试的失败占位记录。
+    getLiveSession(sessionId).messages.push({
+        _id: crypto.randomUUID(),
+        role: 'assistant',
+        versions: [{ content: '【发送失败】' + message, fullTime: new Date().toISOString(), time: new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}), model, _failed: true }],
+        activeVersion: 0,
+        _failed: true
+    });
+    saveToCloud(true);
+    return true;
+}
 
 function workroomRecipientFor(text, selected, execute = false) {
     if (execute) return 'codex';
@@ -2759,7 +2769,17 @@ function workroomStartNewCodexThread() {
 }
 
 function workroomPrompt(userText, shenwangText, execute = false) {
-    const context = ensureWorkroomSession().messages.slice(-10).map(message => {
+    const messages = ensureWorkroomSession().messages;
+    let currentTurnStart = messages.length;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (messages[index]?.role === 'user') {
+            currentTurnStart = index;
+            break;
+        }
+    }
+    // 当前江鱼消息以及紧随其后的沈望回复会在“本轮对话”单独给出，
+    // 不再重复塞进背景记录。
+    const context = messages.slice(0, currentTurnStart).slice(-10).map(message => {
         const version = getActiveVersion(message);
         return { speaker: message.role === 'user' ? '江鱼' : message.speaker === 'codex' ? 'Codex' : '沈望', text: String(version.content || '') };
     });
@@ -2850,6 +2870,31 @@ function workroomSaveCodexReply(status = 'completed') {
     if (activeChatId === WORKROOM_ID) renderChatMessages({ forceBottom: true });
 }
 
+function workroomDiscardCodexReply() {
+    workroomCodexReply = '';
+    workroomCodexTurnId = null;
+    workroomCodexSavedForTurn = false;
+    workroomCodexLiveBubble = null;
+    document.getElementById('workroomCodexApproval')?.setAttribute('hidden', '');
+    if (activeChatId === WORKROOM_ID) renderChatMessages({ forceBottom: true });
+}
+
+function workroomRecoverStaleCodexTask(taskId) {
+    const room = ensureWorkroomSession();
+    if (room.codexTaskId === taskId) {
+        room.codexTaskId = null;
+        room.codexLastTurnId = null;
+        saveToCloud(true);
+    }
+    workroomCodexSocketTaskId = null;
+    workroomApprovalQueue = [];
+    workroomCodexApprovalId = null;
+    workroomDiscardCodexReply();
+    const mode = document.getElementById('workroomCodexMode');
+    if (mode) mode.disabled = false;
+    workroomSetCodexStatus('旧会话已自动清理，可继续发送', false);
+}
+
 function workroomHandleCodexEvent(event) {
     if (!event) return;
     const method = event.method || '';
@@ -2907,15 +2952,15 @@ function workroomHandleCodexEvent(event) {
     }
     if (method === 'turn/completed') {
         const status = params.turn?.status || 'completed';
-        workroomSaveCodexReply(status);
+        if (status === 'failed') workroomDiscardCodexReply();
+        else workroomSaveCodexReply(status);
         workroomSetCodexStatus(status === 'failed' ? 'Codex 执行失败' : 'Codex 已完成', false);
         return;
     }
     if (method === 'codex/error' || method === 'codex/protocol-error') {
-        if (!workroomCodexTurnId) workroomCodexTurnId = 'failed-' + Date.now();
-        if (!workroomCodexReply) workroomCodexReply = '【Codex 连接异常】' + (params.message || '任务未完成');
-        workroomSaveCodexReply('failed');
+        workroomDiscardCodexReply();
         workroomSetCodexStatus('Codex 连接异常', false);
+        toast(params.message || 'Codex 任务未完成');
     }
 }
 
@@ -2944,9 +2989,12 @@ function workroomHandleCodexMessage(message) {
             if (reply.status === 'running') {
                 workroomSetCodexStatus('Codex 正在工作', true);
                 workroomUpdateLiveReply();
+            } else if (reply.status === 'failed') {
+                workroomDiscardCodexReply();
+                workroomSetCodexStatus('Codex 执行失败', false);
             } else {
                 workroomSaveCodexReply(reply.status);
-                workroomSetCodexStatus(reply.status === 'failed' ? 'Codex 执行失败' : 'Codex 已完成', false);
+                workroomSetCodexStatus('Codex 已完成', false);
             }
             (message.approvals || []).forEach(workroomShowApproval);
             return;
@@ -2971,11 +3019,13 @@ function workroomHandleCodexMessage(message) {
         workroomSetCodexStatus('Codex 执行失败', false);
     }
     if (message.type === 'codex_error') {
-        workroomCodexReply = '【Codex 连接异常】' + (message.error || '无法继续任务');
-        workroomCodexTurnId = 'error-' + crypto.randomUUID();
-        workroomCodexSavedForTurn = false;
-        workroomSaveCodexReply('failed');
+        if (message.code === 'TASK_NOT_FOUND') {
+            workroomRecoverStaleCodexTask(message.taskId || workroomCodexSocketTaskId);
+            return;
+        }
+        workroomDiscardCodexReply();
         workroomSetCodexStatus('Codex 连接异常', false);
+        toast(message.error || 'Codex 无法继续任务');
     }
 }
 
@@ -3010,7 +3060,7 @@ function workroomConnectCodex(taskId, sendAfterOpen = false, payload = null, tas
         if (workroomCodexSocket !== socket) return;
         workroomCodexSocket = null;
         if (event.code === 1008) {
-            workroomSetCodexStatus('Codex 会话已失效，请新建线程', false);
+            workroomRecoverStaleCodexTask(taskId);
             return;
         }
         workroomSetCodexStatus('Codex 已断线，正在重连', workroomCodexBusy);
@@ -3058,16 +3108,7 @@ async function workroomDispatchToCodex(userText, shenwangText, images = [], exec
         }
     } catch (error) {
         workroomSetCodexStatus('Codex 未能接入', false);
-        room.messages.push({
-            _id: crypto.randomUUID(),
-            role: 'assistant',
-            speaker: 'codex',
-            versions: [{ content: '【Codex 未能接入】' + error.message, fullTime: new Date().toISOString(), model: 'codex', _failed: true }],
-            activeVersion: 0,
-            _failed: true
-        });
-        saveToCloud(true);
-        if (activeChatId === WORKROOM_ID) renderChatMessages({ forceBottom: true });
+        toast('Codex 未能接入：' + error.message);
     } finally {
         workroomDispatching = false;
     }

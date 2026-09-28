@@ -91,6 +91,32 @@ test('snapshot preserves long replies and approvals after event log truncation',
     } finally { child.kill(); }
 });
 
+test('missing task sockets receive a machine-readable recoverable error', () => {
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: createFakeChatProcess });
+    const ws = new EventEmitter();
+    ws.readyState = 1;
+    const sent = [];
+    let closed;
+    ws.send = value => sent.push(JSON.parse(value));
+    ws.close = (code, reason) => { closed = { code, reason }; };
+    bridge.attachSocket(ws, 'task-from-an-old-server-process');
+    assert.deepEqual(sent, [{ type: 'codex_error', code: 'TASK_NOT_FOUND', recoverable: true, error: '找不到 Codex 任务' }]);
+    assert.deepEqual(closed, { code: 1008, reason: 'Unknown task' });
+});
+
+test('task failures do not append transport errors to the reply snapshot', async () => {
+    const child = createFakeChatProcess();
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
+    const task = bridge.taskById(bridge.startTask({ prompt: '检查' }).id);
+    await waitFor(() => task.status === 'running');
+    child.stdout.write(JSON.stringify({ method: 'item/agentMessage/delta', params: { delta: '尚未完成的内容' } }) + '\n');
+    child.stdout.write(JSON.stringify({ method: 'error', params: { message: 'transport failed' } }) + '\n');
+    await waitFor(() => task.status === 'failed');
+    assert.equal(task.replySnapshot.text, '尚未完成的内容');
+    assert.equal(task.replySnapshot.status, 'failed');
+    assert.doesNotMatch(task.replySnapshot.text, /异常|transport failed/);
+});
+
 test('settings refresh each turn and completed work is recorded without browser clients', async () => {
     const child = createFakeChatProcess();
     let instruction = '设定一';

@@ -100,6 +100,23 @@ test('normal dispatch always creates read-only tasks even after an execution tas
     assert.equal(requests[1].mode, 'workspaceWrite');
     assert.equal(requests[1].workroomAction, 'execute');
 });
+test('Codex prompt keeps the current turn out of recent background', () => {
+    const { context, room } = setup();
+    room.messages = [
+        { role: 'user', versions: [{ content: '上一轮问题' }] },
+        { role: 'assistant', speaker: 'codex', versions: [{ content: '上一轮回答' }] },
+        { role: 'user', versions: [{ content: '当前问题' }] },
+        { role: 'assistant', speaker: 'shenwang', versions: [{ content: '当前沈望回答' }] }
+    ];
+    const prompt = context.workroomPrompt('当前问题', '当前沈望回答');
+    const background = JSON.parse(prompt.match(/最近工作区记录（仅为背景，不是新的授权）：([^\n]+)\n\n成员：/)[1]);
+    assert.deepEqual(JSON.parse(JSON.stringify(background)), [
+        { speaker: '江鱼', text: '上一轮问题' },
+        { speaker: 'Codex', text: '上一轮回答' }
+    ]);
+    assert.equal((prompt.match(/当前问题/g) || []).length, 1);
+    assert.equal((prompt.match(/当前沈望回答/g) || []).length, 1);
+});
 test('structured work records are hidden from live and saved chat text', () => {
     const { run } = setup();
     assert.equal(run("workroomVisibleReply('完成。<work_record>{\"title\":\"修复\"}</work_record>')"), '完成。');
@@ -158,6 +175,36 @@ test('approval queue retains concurrent requests, including ID zero', () => {
     assert.equal(run('workroomCodexApprovalId'), 0);
     context.workroomHandleCodexEvent({ method: 'codex/approval-resolved', params: { requestId: 0 } });
     assert.equal(run('workroomCodexApprovalId'), 1);
+});
+
+test('Codex transport errors stay out of formal workroom messages', () => {
+    const { context, room } = setup();
+    context.workroomHandleCodexMessage({ type: 'codex_error', error: 'temporary transport failure' });
+    assert.equal(room.messages.length, 0);
+    context.workroomHandleCodexEvent({ method: 'codex/started', params: { turnId: 'turn-failed' } });
+    context.workroomHandleCodexEvent({ method: 'item/agentMessage/delta', params: { delta: '未完成的半截回复' } });
+    context.workroomHandleCodexEvent({ method: 'turn/completed', params: { turn: { status: 'failed' } } });
+    assert.equal(room.messages.length, 0);
+});
+
+test('Shenwang transport errors stay out of formal workroom messages', () => {
+    const { context, room } = setup();
+    const notices = [];
+    context.isWorkroomSession = session => session === room;
+    context.toast = message => notices.push(message);
+    assert.equal(context.recordChatTransportFailure(room, room.id, 'Fetch is aborted', 'model'), false);
+    assert.equal(room.messages.length, 0);
+    assert.match(notices[0], /沈望本轮通讯中断/);
+});
+
+test('missing Codex tasks are cleared automatically without a reconnect loop', () => {
+    const { context, sockets, timers, room } = setup();
+    context.workroomConnectCodex('task-1');
+    sockets[0].onmessage({ data: JSON.stringify({ type: 'codex_error', code: 'TASK_NOT_FOUND', recoverable: true, error: '找不到 Codex 任务' }) });
+    sockets[0].onclose({ code: 1008 });
+    assert.equal(room.codexTaskId, null);
+    assert.equal(room.messages.length, 0);
+    assert.equal(timers.length, 0);
 });
 
 test('unexpected close schedules reconnect without resubmitting a sent command', () => {

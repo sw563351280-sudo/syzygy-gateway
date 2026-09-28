@@ -292,7 +292,6 @@ function createCodexBridge(options = {}) {
         if (method === 'turn/completed' && task.replySnapshot) task.replySnapshot.status = params.turn?.status || 'completed';
         if (method === 'codex/error' && task.replySnapshot) {
             task.replySnapshot.status = 'failed';
-            task.replySnapshot.text += '\n【Codex 异常】' + (params.message || '任务失败');
         }
         if (task.events.length > MAX_EVENTS) task.events.splice(0, task.events.length - MAX_EVENTS);
         task.updatedAt = event.at;
@@ -776,7 +775,7 @@ function createCodexBridge(options = {}) {
     function attachSocket(ws, taskId) {
         const task = taskById(taskId);
         if (!task) {
-            sendSocket(ws, { type: 'codex_error', error: '找不到 Codex 任务' });
+            sendSocket(ws, { type: 'codex_error', code: 'TASK_NOT_FOUND', recoverable: true, error: '找不到 Codex 任务' });
             return ws.close(1008, 'Unknown task');
         }
         task.clients.add(ws);
