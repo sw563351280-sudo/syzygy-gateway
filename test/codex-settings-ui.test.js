@@ -36,8 +36,8 @@ test('picker loads real model capabilities and saves settings with revision', as
 });
 test('settings save button cannot trigger native form navigation', () => {
     const html = fs.readFileSync(require.resolve('../public/index.html'), 'utf8');
-    assert.match(html, /id="codexSettingsForm"[^>]*onsubmit="event\.preventDefault\(\);codexSettingsSave\(\)"/);
-    assert.match(html, /id="codexSettingsSave" type="button" onclick="codexSettingsSave\(\)"/);
+    assert.match(html, /id="codexSettingsForm"[^>]*onsubmit="event\.preventDefault\(\);window\.codexSettingsSave\(\)"/);
+    assert.match(html, /id="codexSettingsSave" type="button" onclick="window\.codexSettingsSave\(\)"/);
 });
 test('refresh preserves unsaved draft and restoration is explicit', async () => {
     const { context, document } = fixture();

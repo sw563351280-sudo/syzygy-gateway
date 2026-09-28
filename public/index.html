@@ -441,7 +441,7 @@
 
 <div class="section" id="sec-codex-settings">
     <div class="view-topbar"><button class="view-back" onclick="openWorkroom()" aria-label="返回工作区">←</button><span class="view-title">Codex 设定</span></div>
-    <form id="codexSettingsForm" class="codex-page-content codex-settings-card" onsubmit="event.preventDefault();codexSettingsSave()">
+    <form id="codexSettingsForm" class="codex-page-content codex-settings-card" onsubmit="event.preventDefault();window.codexSettingsSave()">
         <h2><span class="workroom-codex-avatar" aria-hidden="true">&gt;_</span> 小屋里的技术伙伴</h2>
         <p>写下你希望 Codex 如何交流、如何参与讨论。这份设定只影响小屋里的 Codex，不改变沈望的设定，也不扩大执行权限。</p>
         <label for="codexSettingsModel">Codex 模型</label>
@@ -452,7 +452,7 @@
         <p class="codex-page-status">只影响 Codex，不影响沈望。思考程度也需要所选模型支持。</p>
         <label for="codexSettingsPrompt">自定义 prompt（最多 6000 字符）</label>
         <textarea id="codexSettingsPrompt" maxlength="6000" oninput="codexSettingsDraft()" disabled></textarea>
-        <div class="codex-page-actions"><button id="codexSettingsSave" type="button" onclick="codexSettingsSave()" disabled>保存设定</button><button id="codexSettingsRestore" type="button" hidden onclick="codexSettingsRestoreDraft()">恢复草稿</button><button type="button" onclick="codexSettingsReset()">填入默认设定</button></div>
+        <div class="codex-page-actions"><button id="codexSettingsSave" type="button" onclick="window.codexSettingsSave()" disabled>保存设定</button><button id="codexSettingsRestore" type="button" hidden onclick="codexSettingsRestoreDraft()">恢复草稿</button><button type="button" onclick="codexSettingsReset()">填入默认设定</button></div>
         <p id="codexSettingsStatus" class="codex-page-status" role="status"></p>
     </form>
 </div>
@@ -617,7 +617,7 @@
 <script src="context-continuity.js?v=1"></script>
 <script src="cache-history.js?v=3"></script>
 <link rel="stylesheet" href="workroom-pages.css?v=3">
-<script src="workroom-pages.js?v=4"></script>
+<script src="workroom-pages.js?v=5"></script>
 <script src="chat-window-context.js?v=1"></script>
 <script src="script.js?v=89"></script>
 <script src="music-player.js?v=3" defer></script>
