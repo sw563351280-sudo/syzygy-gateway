@@ -735,7 +735,9 @@ function getModelPromptConfig(modelName) {
 // ==========================================
 const DATA_DIR = path.join(__dirname, 'data');
 const { createCodexWorkspace, workspaceRouter } = require('./codex-workspace');
+const { createWorkroomTranscriptArchive, recentWorkroomMessages } = require('./workroom-transcripts');
 const codexWorkspace = createCodexWorkspace(DATA_DIR);
+const workroomTranscriptArchive = createWorkroomTranscriptArchive(path.join(DATA_DIR, 'workroom-transcripts'));
 app.use('/api/codex', workspaceRouter(codexWorkspace));
 const costLedger = createCostLedger({ filename: path.join(DATA_DIR, 'context-cost-ledger.json') });
 function observeContextBudget(options, response) {
@@ -10918,6 +10920,9 @@ const CONFIG_FILE = path.join(DATA_DIR, 'web_config.json');
 app.get('/api/sync-config', (req, res) => {
     if (fs.existsSync(CONFIG_FILE)) {
         const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+        // The dated VPS archive owns full workroom history. The browser receives
+        // only the latest 50 complete rounds so opening the room stays light.
+        workroomTranscriptArchive.archive(cfg.chatSessions || []);
         // 🛡️ 过滤历史遗留的兜底脏消息（"数据加载失败"假消息）
         if (cfg.chatSessions) {
             for (const s of cfg.chatSessions) {
@@ -10936,6 +10941,9 @@ app.get('/api/sync-config', (req, res) => {
                 if (s.messages.length !== before) {
                     console.log(`🛡️ [GET] 过滤 ${before - s.messages.length} 条兜底脏消息 (会话 ${s.id})`);
                     fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+                }
+                if (s.id === 'syzygy-workroom' || s.type === 'codex-workroom') {
+                    s.messages = recentWorkroomMessages(s.messages, 50);
                 }
             }
         }
@@ -10994,11 +11002,17 @@ app.post('/api/sync-config', (req, res) => {
             return res.json({ success: false, _version: serverVersion, _rejected: true, message: '空数据写入被拒绝，请刷新页面' });
         }
         const newVersion = serverVersion + 1;
+        workroomTranscriptArchive.archive(sanitizedChatSessions);
+        const storedChatSessions = sanitizedChatSessions.map(session => (
+            session.id === 'syzygy-workroom' || session.type === 'codex-workroom'
+                ? { ...session, messages: recentWorkroomMessages(session.messages, 50) }
+                : session
+        ));
         const data = {
             ...(existingData || {}),
             _version: newVersion,
             suppliers: suppliers || [],
-            chatSessions: sanitizedChatSessions,
+            chatSessions: storedChatSessions,
             activeSupIndex: activeSupIndex || 0,
             activeChatId: activeChatId || 'main'
         };

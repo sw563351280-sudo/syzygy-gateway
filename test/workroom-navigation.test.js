@@ -18,6 +18,11 @@ test('settings has an explicit top entry and toolbar wraps outside mobile media 
     const rule = css.match(/\.workroom-codex-bar\s*\{([^}]+)\}/)[1];
     assert.match(rule, /flex-wrap:\s*wrap/);
 });
+test('workroom composer removes thread menu and exposes TT memory drawer', () => {
+    assert.doesNotMatch(html, /workroomStartNewCodexThread|workroom-more|workroomCodexConfig|普通发送只讨论/);
+    assert.match(html, /goView\('tt-memories'\)/);
+    assert.match(html, /id="sec-tt-memories"/);
+});
 test('top settings button is shown in workroom and hidden in private chat', () => {
     let active = true;
     const top = { hidden: true };

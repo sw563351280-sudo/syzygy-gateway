@@ -105,6 +105,7 @@
                 <span>共创工作区</span>
             </div>
             <button class="neu-card neu-grid-card" onclick="goView('work-records')" aria-label="打开 Codex 工作记录"><span aria-hidden="true">▤</span><span>工作记录</span></button>
+            <button class="neu-card neu-grid-card" onclick="goView('tt-memories')" aria-label="打开 TT 的小抽屉"><span aria-hidden="true">◇</span><span>TT 的小抽屉</span></button>
         </div>
 
         <div class="neu-bottom-nav">
@@ -170,13 +171,7 @@
             </select>
         </label>
         <button class="workroom-new-thread workroom-execute" type="button" onclick="sendChat({workroomExecute:true})">让 Codex 开工 <span aria-hidden="true">↗</span></button>
-        <details class="workroom-more"><summary aria-label="更多工作区操作">•••</summary><div class="workroom-more-menu">
-        <button class="workroom-new-thread" type="button" onclick="workroomStartNewCodexThread()">新线程</button>
-        <button class="workroom-new-thread" type="button" onclick="goView('codex-settings')">设定</button>
-        <button class="workroom-new-thread" type="button" onclick="goView('work-records')">工作记录</button>
-        </div></details>
         </div>
-        <div class="workroom-meta"><small id="workroomCodexConfig" hidden></small><small>普通发送只讨论 · 开工才修改</small></div>
     </div>
     <div id="workroomCodexApproval" class="workroom-codex-approval" hidden>
         <strong>Codex 请求确认</strong>
@@ -466,6 +461,14 @@
         <button id="codexRecordsMore" hidden onclick="codexRecordsLoad(false)">加载更多</button>
     </div>
 </div>
+<div class="section" id="sec-tt-memories">
+    <div class="view-topbar"><button class="view-back" onclick="goView('home')" aria-label="返回首页">←</button><span class="view-title">TT 的小抽屉</span></div>
+    <main class="codex-page-content tt-memory-page">
+        <div class="tt-memory-intro"><span class="workroom-codex-avatar" aria-hidden="true">&gt;_</span><div><h2>我选择带着往前走的东西</h2><p>这里和沈望的记忆、Codex 工作记录彼此独立。现在先把抽屉和存储边界安好；以后由 TT 在完整回复成功后写入。</p></div></div>
+        <p id="ttMemoriesStatus" class="codex-page-status" role="status">正在打开抽屉…</p>
+        <div id="ttMemoriesGroups" class="tt-memory-groups"></div>
+    </main>
+</div>
 
 <!-- 💰 共同账本 -->
 <div class="section" id="sec-ledger">
@@ -616,10 +619,10 @@
 <script src="context-cache-status.js?v=6"></script>
 <script src="context-continuity.js?v=1"></script>
 <script src="cache-history.js?v=3"></script>
-<link rel="stylesheet" href="workroom-pages.css?v=3">
-<script src="workroom-pages.js?v=5"></script>
+<link rel="stylesheet" href="workroom-pages.css?v=4">
+<script src="workroom-pages.js?v=6"></script>
 <script src="chat-window-context.js?v=1"></script>
-<script src="script.js?v=90"></script>
+<script src="script.js?v=91"></script>
 <script src="music-player.js?v=3" defer></script>
         <div id="msgContextMenu" class="msg-context-menu" role="menu" aria-label="消息操作" hidden></div>
 

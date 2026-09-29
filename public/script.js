@@ -952,13 +952,14 @@ function goView(viewId) {
     const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', dev:'sec-dev', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state', ledger:'sec-ledger' };
     map['codex-settings'] = 'sec-codex-settings';
     map['work-records'] = 'sec-work-records';
+    map['tt-memories'] = 'sec-tt-memories';
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
     const metaTheme = document.getElementById('theme-color-meta');
     if (metaTheme) metaTheme.setAttribute('content', viewId === 'chat' ? '#EFF6FD' : '#E8EFF7');
     const VIEWS = ['home','chat','data','favorites','dev','console','flo','calendar','album','state','ledger'];
-    VIEWS.push('codex-settings', 'work-records');
+    VIEWS.push('codex-settings', 'work-records', 'tt-memories');
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);
     if (viewId === 'chat') { setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300); fetchPulseStatus(); }
@@ -971,6 +972,7 @@ function goView(viewId) {
     if (viewId === 'ledger') ledgerRender();
     if (viewId === 'codex-settings') codexSettingsLoad();
     if (viewId === 'work-records') codexRecordsLoad();
+    if (viewId === 'tt-memories') ttMemoriesLoad();
     if (viewId === 'album') { albumInitMonthFilter(); albumLoad(); }
     if (viewId === 'state') stateRender();
     if (document.body.classList.contains('neu-mode')) neuUpdateNav();
@@ -2087,8 +2089,8 @@ function renderChatMessages(options = {}){
     const session = getActiveSession();
     if(!session || !session.messages) return;
 
-    // 手机端限制渲染最近 30 条，防止大量长消息 DOM 触发 Safari 崩溃
-    const msgs = session.messages.slice(-30);
+    // 私聊保留原有轻量窗口；工作区按完整轮次展示最近 50 轮。
+    const msgs = isWorkroomSession(session) ? workroomMessagesByRounds(session.messages, 50) : session.messages.slice(-30);
     msgs.forEach((m, subIndex) => {
         const index = session.messages.length - msgs.length + subIndex;
 
@@ -2746,26 +2748,20 @@ function workroomSetCodexStatus(text, active = false) {
     workroomCodexBusy = Boolean(active);
 }
 
-function workroomStartNewCodexThread() {
-    if (workroomCodexBusy) return toast('请等 Codex 完成本轮后再新建线程');
-    const room = ensureWorkroomSession();
-    clearTimeout(workroomReconnectTimer);
-    if (workroomCodexSocket) workroomCodexSocket.close();
-    workroomCodexSocket = null;
-    workroomCodexSocketTaskId = null;
-    room.codexTaskId = null;
-    room.codexLastTurnId = null;
-    workroomCodexTurnId = null;
-    workroomCodexReply = '';
-    workroomCodexSavedForTurn = false;
-    workroomCodexLiveBubble = null;
-    workroomApprovalQueue = [];
-    workroomCodexApprovalId = null;
-    document.getElementById('workroomCodexApproval')?.setAttribute('hidden', '');
-    const mode = document.getElementById('workroomCodexMode');
-    if (mode) mode.disabled = false;
-    saveToCloud(true);
-    workroomSetCodexStatus('已准备新的 Codex 线程', false);
+function workroomMessagesByRounds(messages, limit, beforeIndex = messages.length, maxChars = Infinity) {
+    const source = messages.slice(0, beforeIndex);
+    const starts = [];
+    source.forEach((message, index) => { if (message?.role === 'user') starts.push(index); });
+    if (!starts.length) return source;
+    const firstRound = Math.max(0, starts.length - limit);
+    let selected = source.slice(starts[firstRound]);
+    let selectedRound = firstRound;
+    const chars = rows => rows.reduce((sum, message) => sum + String(getActiveVersion(message).content || '').length, 0);
+    while (selectedRound < starts.length - 1 && chars(selected) > maxChars) {
+        selectedRound += 1;
+        selected = source.slice(starts[selectedRound]);
+    }
+    return selected;
 }
 
 function workroomPrompt(userText, shenwangText, execute = false) {
@@ -2779,7 +2775,7 @@ function workroomPrompt(userText, shenwangText, execute = false) {
     }
     // 当前江鱼消息以及紧随其后的沈望回复会在“本轮对话”单独给出，
     // 不再重复塞进背景记录。
-    const context = messages.slice(0, currentTurnStart).slice(-10).map(message => {
+    const context = workroomMessagesByRounds(messages, 10, currentTurnStart, 8000).map(message => {
         const version = getActiveVersion(message);
         return { speaker: message.role === 'user' ? '江鱼' : message.speaker === 'codex' ? 'Codex' : '沈望', text: String(version.content || '') };
     });
@@ -2968,12 +2964,6 @@ function workroomHandleCodexMessage(message) {
     if (!message) return;
     const room = ensureWorkroomSession();
     if (message.type === 'codex_snapshot') {
-        const configLabel = document.getElementById('workroomCodexConfig');
-        if (configLabel && message.task?.model) {
-            configLabel.hidden = false;
-            const effortName = { low: '低', medium: '中', high: '高', xhigh: '极高' }[message.task.effort] || message.task.effort || '未知';
-            configLabel.textContent = '最近任务：' + message.task.model + ' · 思考：' + effortName;
-        }
         room.codexTaskId = message.task?.id || room.codexTaskId;
         const mode = document.getElementById('workroomCodexMode');
         if (mode && message.task?.mode) mode.value = message.task.mode;

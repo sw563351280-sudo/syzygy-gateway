@@ -190,3 +190,47 @@ async function codexRecordsLoad(reset = true) {
         status.textContent = data.total ? '共 ' + data.total + ' 条 · 内容由 Codex 自报，请留意验证情况' : '还没有符合条件的工作记录。Codex 实际处理任务后会写在这里。';
     } catch (error) { if (request === codexRecordsRequest) status.textContent = error.message; }
 }
+
+async function ttMemoriesLoad() {
+    const status = document.getElementById('ttMemoriesStatus');
+    const container = document.getElementById('ttMemoriesGroups');
+    status.textContent = '正在打开抽屉…';
+    try {
+        const data = await codexWorkspaceRequest('/api/codex/memories');
+        const groups = [
+            ['core', '不会忘的'], ['jiangyu', '关于江鱼'], ['home', '小屋里的事'],
+            ['collaboration', '协作默契'], ['tentative', '暂时这样想']
+        ];
+        container.replaceChildren();
+        for (const [key, title] of groups) {
+            const section = document.createElement('section');
+            section.className = 'tt-memory-group';
+            const heading = document.createElement('h3');
+            heading.textContent = title;
+            section.appendChild(heading);
+            const rows = (data.memories || []).filter(row => row.category === key && row.status !== 'deleted');
+            if (!rows.length) {
+                const empty = document.createElement('p');
+                empty.className = 'tt-memory-empty';
+                empty.textContent = '还没有放进来的纸条。';
+                section.appendChild(empty);
+            } else {
+                for (const row of rows) {
+                    const card = document.createElement('article');
+                    card.className = 'tt-memory-card';
+                    const content = document.createElement('p');
+                    content.textContent = row.content;
+                    const meta = document.createElement('small');
+                    meta.textContent = [row.kind, row.updatedAt && new Date(row.updatedAt).toLocaleDateString('zh-CN')].filter(Boolean).join(' · ');
+                    card.append(content, meta);
+                    section.appendChild(card);
+                }
+            }
+            container.appendChild(section);
+        }
+        status.textContent = (data.memories || []).length ? `共 ${(data.memories || []).length} 条记忆` : '抽屉已经安好，目前还是空的。';
+    } catch (error) {
+        status.textContent = '小抽屉暂时打不开：' + error.message;
+        container.replaceChildren();
+    }
+}

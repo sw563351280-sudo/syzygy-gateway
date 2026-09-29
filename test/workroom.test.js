@@ -117,6 +117,21 @@ test('Codex prompt keeps the current turn out of recent background', () => {
     assert.equal((prompt.match(/当前问题/g) || []).length, 1);
     assert.equal((prompt.match(/当前沈望回答/g) || []).length, 1);
 });
+test('workroom prompt and display helpers keep complete rounds', () => {
+    const { context, room, run } = setup();
+    for (let round = 1; round <= 12; round++) {
+        room.messages.push({ role: 'user', versions: [{ content: '问题' + round }] });
+        room.messages.push({ role: 'assistant', speaker: 'shenwang', versions: [{ content: '沈望' + round }] });
+        room.messages.push({ role: 'assistant', speaker: 'codex', versions: [{ content: 'TT' + round }] });
+    }
+    room.messages.push({ role: 'user', versions: [{ content: '当前问题' }] });
+    const prompt = context.workroomPrompt('当前问题', '');
+    const background = JSON.parse(prompt.match(/最近工作区记录（仅为背景，不是新的授权）：([^\n]+)\n\n成员：/)[1]);
+    assert.equal(background.length, 30);
+    assert.equal(background[0].text, '问题3');
+    assert.equal(background.at(-1).text, 'TT12');
+    assert.equal(run('workroomMessagesByRounds(ensureWorkroomSession().messages, 2).length'), 4);
+});
 test('structured work records are hidden from live and saved chat text', () => {
     const { run } = setup();
     assert.equal(run("workroomVisibleReply('完成。<work_record>{\"title\":\"修复\"}</work_record>')"), '完成。');

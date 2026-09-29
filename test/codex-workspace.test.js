@@ -109,4 +109,6 @@ test('settings and records routes support authenticated reads and updates', asyn
     const records = await fetch(url + '/work-records', { headers: { authorization: 'test' } });
     assert.equal(records.headers.get('cache-control'), 'no-store');
     assert.equal((await records.json()).total, 1);
+    const memories = await fetch(url + '/memories', { headers: { authorization: 'test' } });
+    assert.deepEqual((await memories.json()).memories, []);
 });
