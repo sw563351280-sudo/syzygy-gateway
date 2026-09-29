@@ -4,11 +4,19 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: syzygy-production-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     if: ${{ !contains(github.event.head_commit.message, '[skip deploy]') }}
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Verify Codex deployment coordination on Linux
+        run: node --test test/codex-deployment-lock.test.js test/codex-bridge-chat.test.js
+
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
@@ -23,6 +31,14 @@ jobs:
             set -e
             # 不启用 shell trace，避免把令牌或运行时信息写入 Actions 日志。
             cd /opt/syzygy || exit 1
+
+            # Wait BEFORE changing files; hold the lock through restart and health check.
+            # The running bridge holds this same lock until it has saved the reply.
+            # Never unlink the lock file (all processes must share the same inode).
+            mkdir -p data
+            exec 9>>data/codex-deployment.lock
+            echo "Waiting for the current Codex reply to finish before deployment..."
+            flock --exclusive --wait 1500 9 || { echo "Codex is still busy; deployment deferred. Rerun after the turn finishes."; exit 1; }
 
             # 备份沈望在VPS上修改的文件
             mkdir -p /tmp/syzygy_backup
@@ -274,7 +290,19 @@ jobs:
             sh /opt/syzygy/tools/music-api/deploy.sh
 
             echo "🔍 [Deploy] 重启服务..."
-            (systemctl restart syzygy.service && sleep 2 && journalctl -u syzygy.service --no-pager -n 5) || echo "⚠️ restart may have failed"
+            systemctl restart syzygy.service
+            healthy=false
+            for attempt in $(seq 1 30); do
+              if systemctl is-active --quiet syzygy.service && curl --fail --silent --max-time 3 https://syrenth.uk/health > /dev/null; then
+                healthy=true
+                break
+              fi
+              sleep 2
+            done
+            if [ "$healthy" != true ]; then
+              echo "Service did not recover after deployment"
+              exit 1
+            fi
             echo "=== DEPLOY OK ==="
             echo ""
             echo "🔐 SensorLogger 令牌已保存在 VPS，不在 CI 日志中输出。"

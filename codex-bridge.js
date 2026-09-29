@@ -2,6 +2,7 @@ const { spawn } = require('child_process');
 const readline = require('readline');
 const crypto = require('crypto');
 const path = require('path');
+const { acquireDeploymentLock } = require('./codex-deployment-lock');
 
 const MAX_TASKS = 30;
 const MAX_EVENTS = 500;
@@ -46,6 +47,7 @@ function buildCodexEnv() {
 
 function createCodexBridge(options = {}) {
     const spawnProcess = options.spawn || spawn;
+    const acquireTurnLease = options.acquireTurnLease || (() => acquireDeploymentLock(options.deploymentLockPath));
     const turnInput = (text, images) => buildTurnInput(options.getInstructions ? options.getInstructions() + '\n\n【本轮消息】\n' + text : text, images);
     function recordTurn(task, status) {
         if (!options.onTurnComplete) return;
@@ -315,6 +317,8 @@ function createCodexBridge(options = {}) {
         recordTurn(task, 'failed');
         if (activeTaskId === task.id) activeTaskId = null;
         try { task.proc?.kill(); } catch (_) {}
+        task.releaseDeploymentLock?.();
+        task.releaseDeploymentLock = null;
     }
 
     function finishTask(task, status, error = null) {
@@ -326,6 +330,9 @@ function createCodexBridge(options = {}) {
         task.error = error ? shortText(error, 1000) : task.error;
         if (activeTaskId === task.id) activeTaskId = null;
         broadcastState(task);
+        // Persist the result and broadcast completion before allowing deployment.
+        task.releaseDeploymentLock?.();
+        task.releaseDeploymentLock = null;
         if (task.idleTimeout) clearTimeout(task.idleTimeout);
         task.idleTimeout = setTimeout(() => {
             task.idleTimeout = null;
@@ -674,6 +681,7 @@ function createCodexBridge(options = {}) {
             timeout: null,
             idleTimeout: null
         };
+        task.releaseDeploymentLock = acquireTurnLease();
         tasks.set(task.id, task);
         order.push(task.id);
         activeTaskId = task.id;
@@ -712,6 +720,7 @@ function createCodexBridge(options = {}) {
             if (!task.threadId || !task.proc || task.proc.stdin.destroyed) throw new Error('这个 Codex 对话已经休眠，请新建对话');
             if (!['completed', 'interrupted'].includes(task.status)) throw new Error('请等当前回复结束后再继续');
             if (activeTaskId && activeTaskId !== task.id) throw new Error('当前有另一个 Codex 对话正在运行');
+            task.releaseDeploymentLock = acquireTurnLease();
             if (task.idleTimeout) clearTimeout(task.idleTimeout);
             task.idleTimeout = null;
             task.status = 'starting';
@@ -720,23 +729,28 @@ function createCodexBridge(options = {}) {
             task.timeout = setTimeout(() => failTask(task, 'Codex 任务超时'), config.timeoutMs);
             const displayText = text || `（发送了 ${images.length} 张图片）`;
             addEvent(task, 'codex/user-message', { text: displayText, imageCount: images.length });
-            write(task, {
-                method: 'turn/start',
-                id: `followup-${Date.now()}`,
-                params: {
-                    threadId: task.threadId,
-                    input,
-                    cwd: task.cwd,
-                    model: task.model,
-                    effort: task.effort,
-                    approvalPolicy: approvalPolicy(task.mode),
-                    sandboxPolicy: task.mode === 'workspaceWrite'
-                        ? { type: 'workspaceWrite', writableRoots: [task.cwd], networkAccess: config.networkAccess }
-                        : { type: 'readOnly', access: { type: 'fullAccess' } },
-                    summary: 'concise',
-                    personality: 'friendly'
-                }
-            });
+            try {
+                write(task, {
+                    method: 'turn/start',
+                    id: `followup-${Date.now()}`,
+                    params: {
+                        threadId: task.threadId,
+                        input,
+                        cwd: task.cwd,
+                        model: task.model,
+                        effort: task.effort,
+                        approvalPolicy: approvalPolicy(task.mode),
+                        sandboxPolicy: task.mode === 'workspaceWrite'
+                            ? { type: 'workspaceWrite', writableRoots: [task.cwd], networkAccess: config.networkAccess }
+                            : { type: 'readOnly', access: { type: 'fullAccess' } },
+                        summary: 'concise',
+                        personality: 'friendly'
+                    }
+                });
+            } catch (error) {
+                failTask(task, error.message);
+                throw error;
+            }
             broadcastState(task);
             return;
         }

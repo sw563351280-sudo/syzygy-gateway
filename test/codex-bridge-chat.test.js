@@ -283,3 +283,50 @@ test('Codex image input only accepts bounded image data URLs', () => {
         /输入问题或添加图片/
     );
 });
+
+
+test('deployment lease covers persistence and is reacquired for followup', async () => {
+    const child = createFakeChatProcess();
+    let held = false;
+    let acquired = 0;
+    let released = 0;
+    let captured = 0;
+    const bridge = createCodexBridge({ spawn: () => child,
+        acquireTurnLease: () => {
+            assert.equal(held, false);
+            held = true; acquired++;
+            return () => { assert.equal(held, true); held = false; released++; };
+        },
+        onTurnComplete: () => { assert.equal(held, true, 'record must be persisted before unlocking'); captured++; }
+    });
+    const started = bridge.startTask({ prompt: 'push' });
+    const task = bridge.taskById(started.id);
+    try {
+        await waitFor(() => task.status === 'running');
+        assert.equal(held, true);
+        child.stdout.write(JSON.stringify({ method: 'turn/completed', params: { turn: { id: task.turnId, status: 'completed' } } }) + '\n');
+        await waitFor(() => task.status === 'completed');
+        assert.equal(held, false);
+        assert.equal(captured, 1);
+        bridge.sendClientCommand(task, { type: 'followup', text: 'continue' });
+        await waitFor(() => task.status === 'running');
+        assert.equal(held, true);
+        child.kill();
+        await waitFor(() => task.status === 'failed');
+        assert.equal(held, false);
+        assert.equal(acquired, 2);
+        assert.equal(released, 2);
+    } finally { child.kill(); }
+});
+
+test('deployment blocks new tasks before spawn and spawn failure releases lease', () => {
+    const blocked = createCodexBridge({ acquireTurnLease: () => { throw new Error('deploying'); }, spawn: () => { throw new Error('must not spawn'); } });
+    assert.throws(() => blocked.startTask({ prompt: 'hello' }), /deploying/);
+    assert.equal(blocked.status().activeTaskId, null);
+    let releases = 0;
+    const broken = createCodexBridge({ acquireTurnLease: () => () => releases++, spawn: () => { throw new Error('spawn failed'); } });
+    const task = broken.startTask({ prompt: 'hello' });
+    assert.equal(task.status, 'failed');
+    assert.equal(releases, 1);
+    assert.equal(broken.status().activeTaskId, null);
+});

@@ -95,7 +95,7 @@ function createCodexWorkspace(directory) {
         write(recordsFile, rows);
         return row;
     }
-    function instructions() { return '【Codex 当前设定】\n' + settings().prompt + '\n\n' + RECORD_RULES; }
+    function instructions() { return '【Codex 当前设定】\n' + settings().prompt + '\n\n' + RECORD_RULES + '\n\n【自动部署说明】推送到 main 会触发自动发布。发布会等本轮回复结束并保存结果后再更新和重启小屋。确认推送结果后请结束本轮回复，不要在本轮等待发布完成（例如 gh run watch），否则发布也会等待你。不要自行重启小屋服务或跳过部署保护。推送成功和上线成功需分别报告；未验证上线时明确说明发布尚待完成。'; }
     function describe(args) {
         const result = query({ ...args, limit: Math.min(5, Number(args?.limit) || 3) });
         if (!result.records.length) return '没有符合条件的 Codex 工作记录。';
