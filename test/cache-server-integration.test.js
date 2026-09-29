@@ -30,7 +30,7 @@ test('real main projection sends only original history to summarizer and strips 
     assert.equal(body.messages.at(-1).content, 'dynamic and latest');
 });
 
-test('non-AIHubMix final history caps cross-platform additions and preserves current question', async () => {
+test('non-AIHubMix final history caps merged history and preserves current question', async () => {
     const begin = source.indexOf('let projectedHistory =');
     const end = source.indexOf('body.messages = bodyMessages;', begin) + 'body.messages = bodyMessages;'.length;
     const all = Array.from({ length: 50 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: 'message ' + i }));

@@ -18,7 +18,7 @@
         if (mobileUA || touchDevice) document.documentElement.classList.add('is-mobile-device');
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=97">
+    <link rel="stylesheet" href="style.css?v=98">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body class="neu-mode">
@@ -84,10 +84,6 @@
                 <span>星渡</span>
             </div>
             <!-- 状态入口已合并到日历页，不再单独展示 -->
-            <div class="neu-card neu-grid-card" onclick="goView('data')">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-                <span>中枢</span>
-            </div>
             <div class="neu-card neu-grid-card" onclick="goView('album')">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>
                 <span>相册</span>
@@ -115,9 +111,6 @@
             <div class="neu-nav-item" data-nav="chat" data-label="通讯" onclick="goView('chat')">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
             </div>
-            <div class="neu-nav-item" data-nav="data" data-label="中枢" onclick="goView('data')">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-            </div>
             <div class="neu-nav-item" data-nav="dev" data-label="开发中枢" onclick="goView('dev')" title="开发中枢">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,17 10,11 4,5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
             </div>
@@ -135,8 +128,7 @@
         <span id="chatViewTitle">通讯 · 主频道</span>
     </button>
     <div class="chat-floating-actions">
-        <button id="workroomSettingsTop" class="workroom-switch-btn" hidden onclick="goView('codex-settings')" title="Codex 设定" aria-label="打开 Codex 设定"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 3-.7 2.4-2.4.9L3.8 8l1.1 2.3v3.4L3.8 16l2.1 1.7 2.4.9L9 21h6l.7-2.4 2.4-.9 2.1-1.7-1.1-2.3v-3.4L20.2 8l-2.1-1.7-2.4-.9L15 3Z"/><circle cx="12" cy="12" r="3"/></svg></button>
-        <button class="workroom-switch-btn" onclick="toggleWorkroom()" title="切换共创工作区" aria-label="切换共创工作区">共创</button>
+        <button id="chatSettingsTop" class="workroom-switch-btn" onclick="openActiveChatSettings()" title="沈望设定" aria-label="打开沈望设定"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 3-.7 2.4-2.4.9L3.8 8l1.1 2.3v3.4L3.8 16l2.1 1.7 2.4.9L9 21h6l.7-2.4 2.4-.9 2.1-1.7-1.1-2.3v-3.4L20.2 8l-2.1-1.7-2.4-.9L15 3Z"/><circle cx="12" cy="12" r="3"/></svg></button>
         <button class="chat-rename-topbar-btn" onclick="renameChatWindow()" title="重命名频道" aria-label="重命名频道">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20l4.2-1 10.9-10.9a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/><path d="m14.8 6.4 2.8 2.8"/></svg>
         </button>
@@ -230,48 +222,42 @@
             </div>
         </div></div>
 
-    <div class="section" id="sec-data">
-        <div class="page-floating-topbar" id="dataTopbar">
-            <button class="page-home-pill" onclick="goView('home')" aria-label="返回首页">
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
-                <span>中枢</span>
-            </button>
-        </div>
-        <div style="text-align:center;color:var(--dim);font-size:0.78em;font-style:italic;padding:10px 0 0;">供应商调控 · 数据维护 · 灵魂移植</div>
-
-        <details class="glass data-config-panel" id="supplierConfigPanel">
-            <summary class="data-config-summary">
-                <span><b>供应商配置</b><small>点击展开</small></span>
-                <i aria-hidden="true"></i>
-            </summary>
-            <div class="data-config-body">
-            <div class="supplier-add-form">
-                <input type="text" id="supName" placeholder="名称" style="padding: 10px; border-radius: 8px; border: 1px solid var(--glass-border); background: rgba(0,0,0,0.2); color: white;">
-                <input type="text" id="supUrl" placeholder="API Base URL " style="padding: 10px; border-radius: 8px; border: 1px solid var(--glass-border); background: rgba(0,0,0,0.2); color: white;">
-                <input type="text" id="supKey" placeholder="填入 API Key " style="width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--glass-border); background: rgba(0,0,0,0.2); color: white; box-shadow: 0 0 0px 1000px rgba(0,0,0,0) inset;">
-                <button onclick="addSupplier()" style="padding: 10px; border-radius: 8px; background: #4CAF50; color: white; border: none;">确认添加</button>
+    <div class="section" id="sec-shen-settings">
+        <div class="view-topbar"><button class="view-back" onclick="openCommunication()" aria-label="返回通讯小屋">←</button><span class="view-title">沈望设定</span></div>
+        <form id="shenSettingsForm" class="codex-page-content codex-settings-card shen-settings-card" onsubmit="event.preventDefault();shenSettingsSave()">
+            <h2>小屋里的沈望</h2>
+            <p>这里管理通讯小屋使用的设定。A/B 两版都保存在服务器；保存后，选中的版本会从下一条消息开始生效。</p>
+            <div class="shen-prompt-switch" role="radiogroup" aria-label="选择启用的 Prompt 版本">
+                <button id="shenPromptTabA" type="button" role="radio" onclick="shenSettingsSelect('A')">A 版</button>
+                <button id="shenPromptTabB" type="button" role="radio" onclick="shenSettingsSelect('B')">B 版</button>
             </div>
-            <div id="supplierList"></div>
+            <section id="shenPromptPanelA" class="shen-prompt-panel">
+                <label for="shenSettingsPromptA">A 版 Prompt</label>
+                <textarea id="shenSettingsPromptA" maxlength="50000" oninput="shenSettingsDraft()" disabled></textarea>
+            </section>
+            <section id="shenPromptPanelB" class="shen-prompt-panel" hidden>
+                <label for="shenSettingsPromptB">B 版 Prompt</label>
+                <textarea id="shenSettingsPromptB" maxlength="50000" oninput="shenSettingsDraft()" disabled></textarea>
+            </section>
+            <div class="codex-page-actions">
+                <button id="shenSettingsSave" type="button" onclick="shenSettingsSave()" disabled>保存并启用 A 版</button>
+                <button id="shenSettingsRestore" type="button" hidden onclick="shenSettingsRestoreDraft()">恢复未保存草稿</button>
+                <button type="button" onclick="shenSettingsCopyToOther()">复制到另一版</button>
             </div>
-        </details>
-
-        <div class="glass">
-            <div style="background:rgba(255,255,255,0.03);padding:12px;border-radius:8px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.08);"><label style="display:flex;align-items:center;gap:10px;cursor:pointer;color:white;font-size:0.85em;"><input type="checkbox" id="crossPlatformToggle" checked onchange="toggleCrossPlatform(this.checked)"><span>🌐 跨平台记忆注入</span></label><div style="color:#888;font-size:0.72em;margin-top:4px;margin-left:26px;">新窗口/跨平台自动补充上下文</div></div>
-            <p style="color:#e53935; font-size:0.85em; margin-bottom:16px; border-left:2px solid #e53935; padding-left:10px; letter-spacing:1px;">灵魂存储与记忆维护</p>
-            <div class="data-row" style="display: flex; flex-direction: column; gap: 10px;">
-                <button onclick="exportData()" style="padding: 10px; border-radius: 8px; background: rgba(255,255,255,0.1); border: 1px solid var(--glass-border); color: white;">✦ 提取灵魂（导出本地备份）</button>
-                <button onclick="if(confirm('确定要重置本地缓存吗？\\n这会清空你配置的API Key和聊天侧边栏，但不会影响云端记忆。'))resetAll()" style="padding: 10px; border-radius: 8px; background: transparent; border: 1px solid rgba(229,57,53,0.3); color: #e53935;">⚠ 重置本地缓存</button>
-            </div>
-        </div>
-
-        <div class="glass" style="text-align:center; padding:16px;">
-            <div class="stats-bar" style="color: #aaa;">
-                <span id="diaryCount" style="color: white; font-weight: bold;">0</span> 篇日记 ·
-                <span id="memCount" style="color: white; font-weight: bold;">∞</span> 条记忆
-            </div>
-        </div>
+            <p id="shenSettingsStatus" class="codex-page-status" role="status"></p>
+            <details class="shen-supplier-panel">
+                <summary>供应商与模型接口</summary>
+                <p>通讯小屋发送给沈望时使用的模型接口。API Key 仍随小屋配置保存在服务器。</p>
+                <div class="supplier-add-form">
+                    <input type="text" id="supName" placeholder="名称">
+                    <input type="url" id="supUrl" placeholder="API Base URL">
+                    <input type="password" id="supKey" placeholder="API Key" autocomplete="off">
+                    <button type="button" onclick="addSupplier()">添加供应商</button>
+                </div>
+                <div id="supplierList"></div>
+            </details>
+        </form>
     </div>
-
 
 <div class="section" id="sec-favorites">
     <div class="page-floating-topbar">
@@ -619,10 +605,11 @@
 <script src="context-cache-status.js?v=6"></script>
 <script src="context-continuity.js?v=1"></script>
 <script src="cache-history.js?v=3"></script>
-<link rel="stylesheet" href="workroom-pages.css?v=4">
+<link rel="stylesheet" href="workroom-pages.css?v=5">
 <script src="workroom-pages.js?v=6"></script>
+<script src="shen-settings-page.js?v=1"></script>
 <script src="chat-window-context.js?v=1"></script>
-<script src="script.js?v=91"></script>
+<script src="script.js?v=92"></script>
 <script src="music-player.js?v=3" defer></script>
         <div id="msgContextMenu" class="msg-context-menu" role="menu" aria-label="消息操作" hidden></div>
 

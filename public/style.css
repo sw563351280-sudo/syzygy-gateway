@@ -858,43 +858,11 @@ body.neu-mode .device-panel-head span,body.neu-mode .device-panel-foot,body.neu-
 body.neu-mode .device-refresh { color:#3ba99d; background:#E8EFF7; border:0; box-shadow:3px 3px 6px rgba(163,177,198,.28),-3px -3px 6px rgba(255,255,255,.7); }
 body.neu-mode .device-card { background:#E8EFF7; border:0; box-shadow:inset 3px 3px 7px rgba(163,177,198,.23),inset -3px -3px 7px rgba(255,255,255,.72); }
 body.neu-mode .device-card-copy strong { color:#40536b; }
-
-/* 中枢也属于浅蓝模式：旧的 glass 卡片不能再保留夜间深灰底。 */
-body.neu-mode #sec-data > .glass:not(.device-panel) {
-    background:#E8EFF7 !important;
-    border:none !important;
-    color:#52657d;
-    box-shadow:7px 7px 14px rgba(163,177,198,.32),-7px -7px 14px rgba(255,255,255,.68) !important;
-}
-body.neu-mode #sec-data > .glass:not(.device-panel) > p {
-    color:#5A8FCA !important;
-    border-color:#63d6c5 !important;
-}
-body.neu-mode #sec-data input[type="text"] {
-    background:#E8EFF7 !important;
-    border:0 !important;
-    color:#40536b !important;
-    box-shadow:inset 3px 3px 7px rgba(163,177,198,.35),inset -3px -3px 7px rgba(255,255,255,.72) !important;
-}
-body.neu-mode #sec-data input[type="text"]::placeholder { color:#91a1b3 !important; }
-body.neu-mode #sec-data > .glass:not(.device-panel) div[style*="background"] {
-    background:#E8EFF7 !important;
-    border:0 !important;
-    box-shadow:inset 3px 3px 7px rgba(163,177,198,.22),inset -3px -3px 7px rgba(255,255,255,.68) !important;
-}
 body.neu-mode #supplierList > div {
     background:#E8EFF7 !important;
     border:0 !important;
     box-shadow:inset 2px 2px 5px rgba(163,177,198,.20),inset -2px -2px 5px rgba(255,255,255,.68) !important;
 }
-body.neu-mode #sec-data .sup-name { color:#40536b !important; }
-body.neu-mode #sec-data .sup-url { color:#7188a3 !important; overflow-wrap:anywhere; }
-body.neu-mode #sec-data .sup-edit-btn { background:#E8EFF7; border:0; color:#7188a3; box-shadow:2px 2px 5px rgba(163,177,198,.28),-2px -2px 5px rgba(255,255,255,.68); }
-body.neu-mode #sec-data .sup-edit-btn:hover { color:#5A8FCA; background:#E8EFF7; }
-body.neu-mode #sec-data button[style*="background: #4CAF50"] { background:#63bfb4 !important; color:#fff !important; box-shadow:4px 4px 8px rgba(92,161,153,.24) !important; }
-body.neu-mode #sec-data button[style*="rgba(255,255,255,0.1)"] { background:#E8EFF7 !important; border:0 !important; color:#52657d !important; box-shadow:3px 3px 7px rgba(163,177,198,.28),-3px -3px 7px rgba(255,255,255,.7) !important; }
-body.neu-mode #sec-data .stats-bar { color:#8395aa !important; }
-body.neu-mode #sec-data .stats-bar span { color:#40536b !important; }
 
 /* ============ 白天模式适配 ============ */
 
@@ -1292,15 +1260,6 @@ body{padding-bottom:0!important}
 .home-card{min-height:140px;padding:28px 20px;transition:all .3s ease}
 .home-card:hover{transform:translateY(-4px);border-color:var(--card-accent,rgba(201,169,97,0.4));box-shadow:0 8px 30px rgba(0,0,0,0.3)}
 }
-
-/* ═══ 白天模式：聊天区 ═══ */
-
-/* ═══ 中枢输入框美化 ═══ */
-#sec-data input[type="text"]{padding:10px 14px;border-radius:8px;border:1px solid rgba(201,169,97,0.15);background:rgba(0,0,0,0.2);color:var(--cream);font-family:inherit;font-size:.88em;outline:none;transition:border-color .2s,box-shadow .2s;letter-spacing:.5px}
-#sec-data input[type="text"]:focus{border-color:rgba(201,169,97,0.4);box-shadow:0 0 0 2px rgba(201,169,97,0.06)}
-#sec-data input[type="text"]::placeholder{color:var(--dim);font-style:italic}
-#sec-data button{font-family:inherit;cursor:pointer;transition:all .2s;letter-spacing:1px}
-#sec-data button:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,0.2)}
 #supplierList>div{background:rgba(201,169,97,0.04);border:1px solid rgba(201,169,97,0.1);border-radius:8px;padding:10px 14px;transition:border-color .2s}
 #supplierList>div:hover{border-color:rgba(201,169,97,0.25)}
 
@@ -1761,19 +1720,6 @@ body.neu-mode .ver-label { color: #A0AEC0; }
 body.neu-mode .msg-inline-btn { border-color: rgba(90, 143, 202, 0.22); color: #5A8FCA; background: rgba(255,255,255,0.42); box-shadow: 2px 2px 5px rgba(163,177,198,.16), -1px -1px 3px rgba(255,255,255,.65); }
 body.neu-mode .msg-inline-btn:hover { color: #fff; border-color: #5A8FCA; background: #5A8FCA; box-shadow: 2px 3px 7px rgba(90,143,202,.24); }
 body.neu-mode .fav-star { color: #d49a3c; }
-
-/* ── 数据区输入框 ── */
-body.neu-mode #sec-data input[type="text"] {
-    background: #E8EFF7;
-    box-shadow: inset 3px 3px 6px rgba(163, 177, 198, 0.4), inset -3px -3px 6px rgba(255, 255, 255, 0.6);
-    border: none;
-    color: #2D3748;
-    border-radius: 10px;
-}
-body.neu-mode #sec-data input[type="text"]:focus {
-    box-shadow: inset 2px 2px 4px rgba(163, 177, 198, 0.3), inset -2px -2px 4px rgba(255, 255, 255, 0.5), 0 0 0 2px rgba(90, 143, 202, 0.15);
-    outline: none;
-}
 
 /* ── Markdown 内容 ── */
 body.neu-mode .md-content code { background: rgba(90, 143, 202, 0.06); color: #5A8FCA; }
@@ -2947,14 +2893,14 @@ body.neu-mode #sec-console{
 html { background: #E8EFF7; }
 html:has(body.view-chat) { background: #EFF6FD; }
 
-body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album) {
+body.neu-mode :is(#sec-chat, #sec-favorites, #sec-flo, #sec-calendar, #sec-state, #sec-album) {
   position: relative;
   isolation: isolate;
   min-height: 100dvh;
   /* 页面本体必须透明，统一底色由 body 提供，星图层才能铺在内容下方。 */
   background: transparent !important;
 }
-body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album)::before {
+body.neu-mode :is(#sec-chat, #sec-favorites, #sec-flo, #sec-calendar, #sec-state, #sec-album)::before {
   content: '';
   position: fixed;
   inset: 0;
@@ -2968,7 +2914,7 @@ body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar,
   mix-blend-mode: screen;
   filter: sepia(.15) saturate(.68) hue-rotate(165deg);
 }
-body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album) > * {
+body.neu-mode :is(#sec-chat, #sec-favorites, #sec-flo, #sec-calendar, #sec-state, #sec-album) > * {
   position: relative;
   z-index: 1;
 }
@@ -2998,23 +2944,14 @@ body.neu-mode #sec-album {
   --celestial-page-size: cover;
   --celestial-page-opacity: .17;
 }
-body.neu-mode #sec-data {
-  --celestial-page-art: url('assets/celestial-data.jpg');
-  --celestial-page-position: center;
-  --celestial-page-size: cover;
-  --celestial-page-opacity: .17;
-}
 
 /* 顶栏和内容保持可读，但让各自的星象能从空隙与卡片下轻轻透出来。 */
-body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album) .view-topbar {
+body.neu-mode :is(#sec-chat, #sec-favorites, #sec-flo, #sec-calendar, #sec-state, #sec-album) .view-topbar {
   background: rgba(232, 239, 247, .74) !important;
 }
 body.neu-mode #sec-chat.active { background: transparent !important; }
 body.neu-mode #sec-chat .chat-main-header { background: rgba(232, 239, 247, .52); }
 body.neu-mode #sec-chat .chat-bottom-bar { background: rgba(232, 239, 247, .78) !important; }
-
-/* 江鱼 · 沈望 · Codex 共创工作区 */
-#workroomSettingsTop[hidden] { display: none !important; }
 .workroom-switch-btn {
     border: 1px solid rgba(111, 151, 190, .24);
     border-radius: 999px;
@@ -3137,8 +3074,6 @@ body.neu-mode #sec-favorites .fav-card {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
-body.neu-mode #sec-data > .glass:not(.device-panel),
-body.neu-mode #sec-data .device-panel { background: rgba(237, 244, 251, .72) !important; }
 body.neu-mode #sec-flo .flo-summary,
 body.neu-mode #sec-flo .flo-history-card,
 body.neu-mode #sec-calendar .cal-inline-card,
@@ -3159,7 +3094,7 @@ body.neu-mode {
   --celestial-soft: rgba(237, 244, 251, .48);
 }
 
-body.neu-mode :is(#sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state) :is(
+body.neu-mode :is(#sec-favorites, #sec-flo, #sec-calendar, #sec-state) :is(
   .fav-filter-panel,
   .fav-card,
   .glass,
@@ -3175,12 +3110,6 @@ body.neu-mode :is(#sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state
   backdrop-filter: blur(4px) saturate(106%);
   -webkit-backdrop-filter: blur(4px) saturate(106%);
 }
-body.neu-mode #sec-data > .glass:not(.device-panel),
-body.neu-mode #sec-data .device-panel {
-  background: var(--celestial-card) !important;
-}
-
-body.neu-mode #sec-data > .glass:not(.device-panel) div[style*="background"],
 body.neu-mode :is(.chat-image-preview, .think-box, .fav-think-box, .md-content pre, .mailbox-container, .capsule-result) {
   background: var(--celestial-soft) !important;
 }
@@ -3223,7 +3152,7 @@ body.neu-mode :is(.cal-detail-card, .album-detail-card) {
     --celestial-reader: rgba(237, 244, 251, .31);
     --celestial-soft: rgba(237, 244, 251, .23);
   }
-  body.neu-mode :is(#sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state) :is(
+  body.neu-mode :is(#sec-favorites, #sec-flo, #sec-calendar, #sec-state) :is(
     .fav-filter-panel,
     .fav-card,
     .glass,
@@ -3244,12 +3173,10 @@ body.neu-mode :is(.cal-detail-card, .album-detail-card) {
 }
 
 @media (max-width: 600px) {
-  body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album)::before {
+  body.neu-mode :is(#sec-chat, #sec-favorites, #sec-flo, #sec-calendar, #sec-state, #sec-album)::before {
     opacity: calc(var(--celestial-page-opacity, .075) + .035);
   }
   body.neu-mode #sec-favorites .fav-card,
-  body.neu-mode #sec-data > .glass:not(.device-panel),
-  body.neu-mode #sec-data .device-panel,
   body.neu-mode #sec-flo .flo-summary,
   body.neu-mode #sec-flo .flo-history-card,
   body.neu-mode #sec-calendar .cal-inline-card,
@@ -3261,7 +3188,7 @@ body.neu-mode :is(.cal-detail-card, .album-detail-card) {
 }
 
 /* 顶部三段统一：PWA 状态栏、功能顶栏和页面底幕共用同一块灰蓝天空。 */
-body.neu-mode :is(#sec-chat, #sec-favorites, #sec-data, #sec-flo, #sec-calendar, #sec-state, #sec-album) .view-topbar {
+body.neu-mode :is(#sec-chat, #sec-favorites, #sec-flo, #sec-calendar, #sec-state, #sec-album) .view-topbar {
   background: rgba(237, 244, 251, .68) !important;
   border-bottom-color: rgba(255, 255, 255, .2);
   box-shadow: none;
@@ -3373,7 +3300,7 @@ body.neu-mode #sec-chat > .chat-floating-topbar {
 }
 
 /* 中枢 / 收藏夹 / Flo：与通讯页共用 iOS 式悬浮标题控件。 */
-body.neu-mode :is(#sec-data, #sec-favorites, #sec-flo, #sec-dev) {
+body.neu-mode :is(#sec-favorites, #sec-flo, #sec-dev) {
   padding-top: calc(env(safe-area-inset-top, 0px) + 72px) !important;
 }
 .page-floating-topbar {
@@ -3390,7 +3317,7 @@ body.neu-mode :is(#sec-data, #sec-favorites, #sec-flo, #sec-dev) {
   transform: translateX(-50%);
   pointer-events: none;
 }
-body.neu-mode :is(#sec-data, #sec-favorites, #sec-flo, #sec-dev) > .page-floating-topbar {
+body.neu-mode :is(#sec-favorites, #sec-flo, #sec-dev) > .page-floating-topbar {
   position: fixed !important;
   z-index: 120 !important;
 }
@@ -4217,42 +4144,6 @@ body.neu-mode #sec-chat .chat-tool-item input[type="checkbox"]:focus-visible { o
   #sec-dev.codex-chat-open .dev-codex-composer .dev-primary-action,
   #sec-dev.codex-chat-open .dev-codex-composer .dev-secondary-action { min-width: 70px; padding: 0 11px; }
 }
-
-/* 中枢供应商配置：低频设置默认折叠，展开后保持紧凑。 */
-body.neu-mode #sec-data > .data-config-panel {
-  padding: 0 !important;
-  overflow: hidden;
-}
-.data-config-summary {
-  min-height: 54px;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px;
-  list-style: none;
-  cursor: pointer;
-  user-select: none;
-}
-.data-config-summary::-webkit-details-marker { display: none; }
-.data-config-summary:focus { outline: none; }
-.data-config-summary:focus-visible { box-shadow: inset 0 0 0 2px rgba(90, 143, 202, .22); }
-.data-config-summary > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.data-config-summary b { color: #526b87; font-size: .84rem; font-weight: 500; letter-spacing: .01em; }
-.data-config-summary small { color: #8a9bb0; font-size: .66rem; }
-.data-config-summary i {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  border-right: 1.5px solid #7188a3;
-  border-bottom: 1.5px solid #7188a3;
-  transform: rotate(45deg) translate(-2px, -2px);
-  transition: transform .2s ease;
-}
-.data-config-panel[open] .data-config-summary { border-bottom: 1px solid rgba(255, 255, 255, .46); }
-.data-config-panel[open] .data-config-summary i { transform: rotate(225deg) translate(-1px, -1px); }
-.data-config-body { padding: 14px 16px 16px; }
 .supplier-add-form {
   display: grid;
   grid-template-columns: minmax(0, .75fr) minmax(0, 1.25fr);
@@ -4277,31 +4168,6 @@ body.neu-mode #sec-data > .data-config-panel {
   border-radius: 12px;
 }
 #supplierList > .supplier-card > div:first-child { min-width: 0; }
-body.neu-mode #sec-data .sup-name {
-  overflow: hidden;
-  font-size: .8rem;
-  font-weight: 500;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-body.neu-mode #sec-data .sup-url {
-  overflow: hidden;
-  margin-top: 3px;
-  font-size: .66rem;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  overflow-wrap: normal;
-}
-body.neu-mode #sec-data :is(.sup-edit-btn, .sup-del-btn) {
-  min-height: 28px;
-  margin: 0;
-  padding: 3px 8px;
-  border-radius: 8px;
-  font-size: .66rem;
-  letter-spacing: 0;
-}
 #supplierList > .supplier-edit-row {
   margin-bottom: 0 !important;
   padding: 10px !important;

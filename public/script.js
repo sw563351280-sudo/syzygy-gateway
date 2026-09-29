@@ -138,7 +138,6 @@ function connectWebSocket() {
 }
 function handleWSMessage(msg) {
     switch (msg.type) {
-        case 'new_message': handleCrossPlatformMessage(msg); break;
         case 'dream_done': handleDreamDone(msg); break;
         case 'memory_saved':
         case 'memory_updated': handleMemorySaved(msg); break;
@@ -198,43 +197,6 @@ function stripTransportTimePrefix(content) {
   return stripDisplayTimestamp(content);
 }
 
-function tailHasContent(session, content, lookback) {
-  const target = normForDedup(stripTransportTimePrefix(content));
-  if (!target) return false;
-  const msgs = session.messages || [];
-  for (let i = msgs.length - 1, n = 0; i >= 0 && n < (lookback || 6); i--, n++) {
-    const m = msgs[i];
-    const v = (typeof getActiveVersion === 'function') ? getActiveVersion(m) : m;
-    const cands = [v.content, m.content, (m.segments || v.segments || []).join('')];
-    for (const c of cands) {
-      if (typeof c === 'string' && normForDedup(stripTransportTimePrefix(c)) === target) return true;
-    }
-  }
-  return false;
-}
-
-function handleCrossPlatformMessage(msg) {
-    const mainSession = chatSessions.find(s => s.id === 'main');
-    if (!mainSession) return;
-
-    // 避免回灌重复：本地尾巴里已有同内容就跳过
-    const uc = stripTransportTimePrefix(msg.user?.content);
-    const ac = String(msg.assistant?.content || '');
-    if ((uc && tailHasContent(mainSession, uc)) ||
-        (ac && tailHasContent(mainSession, ac))) {
-      console.log('[cross-platform] 本地已有同内容，跳过回灌');
-      return;
-    }
-
-    if (uc) mainSession.messages.push({ _id: 'cp_' + (msg.fullTime || Date.now()), role: 'user', versions: [{ content: uc, fullTime: msg.fullTime || new Date().toISOString(), _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
-    if (ac) mainSession.messages.push({ _id: 'cp_' + (msg.fullTime || Date.now()) + '_a', role: 'assistant', versions: [{ content: ac, fullTime: msg.fullTime || new Date().toISOString(), model: msg.assistant.model || '', _crossPlatform: true }], activeVersion: 0, _crossPlatform: true });
-    // The sender owns the canonical save.  Persisting this temporary websocket
-    // preview races the source device and turns one turn into two cloud copies.
-    setTimeout(() => resyncAndMerge('ws-message'), 1500);
-    if (activeChatId === 'main') renderChatMessages();
-    const preview = legacyMessagePlain(msg.assistant?.content || '').substring(0, 30);
-    if (preview) toast('⊹ 沈望在别处说了："' + preview + (preview.length >= 30 ? '…' : '') + '"');
-}
 function handleDreamDone(msg) { toast('🌙 沈望做了个梦：' + (msg.summary || '整理完成')); }
 function handleMemorySaved(msg) { toast('💎 沈望悄悄记住了什么…'); }
 
@@ -534,19 +496,19 @@ function messagesEquivalentForSync(a, b) {
   return msgKey(a) === msgKey(b) || isNearDuplicateAssistant(a, b);
 }
 
-/* 丢弃服务端回声：id 为空或以 cp_ 开头，且内容已在亲手写的消息里出现过 */
+/* 丢弃无 ID 的服务端回声，避免覆盖浏览器已经保存的同一条消息。 */
 function dropServerEchoes(msgs) {
   const authored = new Set();
   for (var i = 0; i < msgs.length; i++) {
     var m = msgs[i];
     var id = String(m._id || m.id || '');
-    if (!id || id.indexOf('cp_') === 0) continue;
+    if (!id) continue;
     var t = normMsgText(m);
     if (t) authored.add(m.role + '|' + t);
   }
   return msgs.filter(function (m) {
     var id = String(m._id || m.id || '');
-    var isEcho = !id || id.indexOf('cp_') === 0 || m._crossPlatform;
+    var isEcho = !id;
     if (!isEcho) return true;
     var t = normMsgText(m);
     if (t && authored.has(m.role + '|' + t)) {
@@ -602,8 +564,8 @@ function mergeMessageLists(serverMsgs, localMsgs) {
             const current = out[duplicateIndex];
             const currentId = String(current._id || current.id || '');
             const incomingId = String(m._id || m.id || '');
-            const currentCanonical = currentId && !currentId.startsWith('cp_') && !current._crossPlatform;
-            const incomingCanonical = incomingId && !incomingId.startsWith('cp_') && !m._crossPlatform;
+            const currentCanonical = Boolean(currentId);
+            const incomingCanonical = Boolean(incomingId);
             const currentScore = messageRichness(current) + getVersionCount(current);
             const incomingScore = messageRichness(m) + getVersionCount(m);
             if ((!currentCanonical && incomingCanonical) || incomingScore > currentScore) out[duplicateIndex] = m;
@@ -949,7 +911,8 @@ function toast(msg){
 
 function goView(viewId) {
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    const map = { home:'sec-home', chat:'sec-chat', data:'sec-data', favorites:'sec-favorites', dev:'sec-dev', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state', ledger:'sec-ledger' };
+    const map = { home:'sec-home', chat:'sec-chat', favorites:'sec-favorites', dev:'sec-dev', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state', ledger:'sec-ledger' };
+    map['shen-settings'] = 'sec-shen-settings';
     map['codex-settings'] = 'sec-codex-settings';
     map['work-records'] = 'sec-work-records';
     map['tt-memories'] = 'sec-tt-memories';
@@ -958,8 +921,8 @@ function goView(viewId) {
     target.classList.add("active"); document.body.dataset.view = viewId;
     const metaTheme = document.getElementById('theme-color-meta');
     if (metaTheme) metaTheme.setAttribute('content', viewId === 'chat' ? '#EFF6FD' : '#E8EFF7');
-    const VIEWS = ['home','chat','data','favorites','dev','console','flo','calendar','album','state','ledger'];
-    VIEWS.push('codex-settings', 'work-records', 'tt-memories');
+    const VIEWS = ['home','chat','favorites','dev','console','flo','calendar','album','state','ledger'];
+    VIEWS.push('shen-settings', 'codex-settings', 'work-records', 'tt-memories');
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);
     if (viewId === 'chat') { setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300); fetchPulseStatus(); }
@@ -970,6 +933,7 @@ function goView(viewId) {
     if (viewId === 'flo') floRender();
     if (viewId === 'calendar') calRender();
     if (viewId === 'ledger') ledgerRender();
+    if (viewId === 'shen-settings') shenSettingsLoad();
     if (viewId === 'codex-settings') codexSettingsLoad();
     if (viewId === 'work-records') codexRecordsLoad();
     if (viewId === 'tt-memories') ttMemoriesLoad();
@@ -1479,7 +1443,6 @@ function go(id, btn){
         /* 保持原样，千万别拆家！ */ 
         forceScrollToChatBottom(); // 💥 核心：切到聊天页的瞬间，强制拉到底部！
     } 
-    if(id === 'data')  { renderSuppliers(); updateCounts(); }
 
     window.scrollTo(0, 0);
 }
@@ -1783,7 +1746,7 @@ async function floDoBackfill() {
 // ═══ 底部导航高亮 ═══
 function neuUpdateNav() {
     const view = document.querySelector('.section.active')?.id || 'sec-home';
-    const map = { 'sec-home': 'home', 'sec-chat': 'chat', 'sec-data': 'data', 'sec-favorites': 'favorites', 'sec-dev': 'dev', 'sec-console': 'dev' };
+    const map = { 'sec-home': 'home', 'sec-chat': 'chat', 'sec-favorites': 'favorites', 'sec-dev': 'dev', 'sec-console': 'dev' };
     const active = map[view] || 'home';
     document.querySelectorAll('.neu-nav-item').forEach(el => {
         el.classList.toggle('active', el.dataset.nav === active);
@@ -1896,15 +1859,24 @@ function openWorkroom() {
     setTimeout(() => document.getElementById('chatInput')?.focus(), 120);
 }
 
-function toggleWorkroom() {
-    if (activeChatId === WORKROOM_ID) switchChatWindow('main');
-    else openWorkroom();
+function openCommunication() {
+    goView('chat');
+    switchChatWindow('main');
+    setTimeout(() => document.getElementById('chatInput')?.focus(), 120);
+}
+
+function openActiveChatSettings() {
+    goView(isWorkroomSession() ? 'codex-settings' : 'shen-settings');
 }
 
 function updateWorkroomChrome() {
     const active = isWorkroomSession();
-    const settingsTop = document.getElementById('workroomSettingsTop');
-    if (settingsTop) settingsTop.hidden = !active;
+    const settingsTop = document.getElementById('chatSettingsTop');
+    if (settingsTop) {
+        const label = active ? 'Codex 设定' : '沈望设定';
+        settingsTop.title = label;
+        settingsTop.setAttribute('aria-label', '打开' + label);
+    }
     const room = active ? ensureWorkroomSession() : null;
     const bar = document.getElementById('workroomCodexBar');
     const input = document.getElementById('chatInput');
@@ -2422,8 +2394,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             ...(useRollingContext ? { contextProtocol: { version: 1, sessionId: session.id, prefix: session.contextPrefix || null } } : {}),
             activeChatId: session.id,
             messages: historyMsgs,
-            stream: isStream,
-            useCrossplatform: !isWorkroomSession(session) && localStorage.getItem('syzygy_crossplatform') !== 'false'
+            stream: isStream
         };
         const payloadText = JSON.stringify(reqBody);
         console.log('[chat payload]', {
@@ -3117,35 +3088,37 @@ function workroomApproveCodex(decision) {
 function renderSuppliers(){
     const list = document.getElementById('supplierList');
     if(!list) return;
-    list.innerHTML = suppliers.map((s, i) => `
-        <div class="supplier-card ${i === activeSupIndex ? 'active-sup' : ''}">
-            <div onclick="setActiveSupplier(${i})" style="cursor:pointer;flex:1;">
-                <div class="sup-name ${i === activeSupIndex ? 'active-name' : ''}">${s.name}</div>
-                <div class="sup-url">${s.url}</div>
-            </div>
-            <button class="sup-edit-btn" onclick="editSupplier(${i})">编辑</button>
-            <button class="sup-del-btn" onclick="deleteSupplier(${i})">删除</button>
+    list.innerHTML = suppliers.map((supplier, index) => {
+        const name = escapeToolHtml(supplier.name);
+        const url = escapeToolHtml(supplier.url);
+        const key = escapeToolHtml(supplier.key);
+        return `
+        <div class="supplier-card ${index === activeSupIndex ? 'active-sup' : ''}">
+            <button type="button" class="supplier-select" onclick="setActiveSupplier(${index})">
+                <span class="sup-name ${index === activeSupIndex ? 'active-name' : ''}">${name}</span>
+                <span class="sup-url">${url}</span>
+            </button>
+            <button type="button" class="sup-edit-btn" onclick="editSupplier(${index})">编辑</button>
+            <button type="button" class="sup-del-btn" onclick="deleteSupplier(${index})">删除</button>
         </div>
-        <div class="supplier-edit-row" id="supEdit-${i}" style="display:none;padding:8px 12px;border-radius:8px;margin-bottom:6px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);">
-            <div style="display:flex;flex-direction:column;gap:6px;">
-                <input id="supEditName-${i}" placeholder="名称" value="${s.name}" style="padding:8px;border-radius:6px;border:1px solid var(--glass-border);background:rgba(0,0,0,0.2);color:white;">
-                <input id="supEditUrl-${i}" placeholder="API Base URL" value="${s.url}" style="padding:8px;border-radius:6px;border:1px solid var(--glass-border);background:rgba(0,0,0,0.2);color:white;">
-                <input id="supEditKey-${i}" placeholder="API Key" value="${s.key}" style="padding:8px;border-radius:6px;border:1px solid var(--glass-border);background:rgba(0,0,0,0.2);color:white;">
-                <div style="display:flex;gap:8px;">
-                    <button onclick="saveEditSupplier(${i})" style="padding:6px 14px;border-radius:6px;background:#4CAF50;color:white;border:none;cursor:pointer;">保存</button>
-                    <button onclick="cancelEditSupplier(${i})" style="padding:6px 14px;border-radius:6px;background:rgba(255,255,255,0.1);color:white;border:1px solid var(--glass-border);cursor:pointer;">取消</button>
-                </div>
+        <div class="supplier-edit-row" id="supEdit-${index}" hidden>
+            <input id="supEditName-${index}" placeholder="名称" value="${name}">
+            <input id="supEditUrl-${index}" type="url" placeholder="API Base URL" value="${url}">
+            <input id="supEditKey-${index}" type="password" placeholder="API Key" value="${key}" autocomplete="off">
+            <div class="supplier-edit-actions">
+                <button type="button" onclick="saveEditSupplier(${index})">保存</button>
+                <button type="button" onclick="cancelEditSupplier(${index})">取消</button>
             </div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 }
 
 function editSupplier(index){
-    document.getElementById('supEdit-' + index).style.display = 'block';
+    document.getElementById('supEdit-' + index).hidden = false;
 }
 
 function cancelEditSupplier(index){
-    document.getElementById('supEdit-' + index).style.display = 'none';
+    document.getElementById('supEdit-' + index).hidden = true;
 }
 
 function saveEditSupplier(index){
@@ -3241,28 +3214,6 @@ async function fetchModels(){
 
 
 
-
-async function updateCounts(){
-    try{
-        const diaryRes = await fetch('/diary-logs'); const diaries = await diaryRes.json();
-        const dc = document.getElementById('diaryCount'); if(dc) dc.innerText = diaries.length;
-    } catch(e){}
-}
-
-async function exportData(){
-    try{
-        const [diaryRes, configRes] = await Promise.all([fetch('/diary-logs'), fetch('/api/sync-config')]);
-        const diaries = await diaryRes.json(); const config = await configRes.json();
-        const exportObj = { exported_at: new Date().toISOString(), diaries, chat_sessions: config.chatSessions, local_suppliers: suppliers };
-        const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `backup.json`; a.click();
-        toast('已下载');
-    } catch(e){ toast('提取失败'); }
-}
-
-function resetAll(){
-    if(confirm('重置缓存？')){ localStorage.clear(); location.reload(); }
-}
 
 // ==================== 视觉与长按交互 ====================
 
@@ -3913,16 +3864,6 @@ function forceScrollToChatBottom() {
     }, 350);
 }
 
-// 🌀 同步沈望的技能模组
-function toggleCrossPlatform(enabled) {
-    localStorage.setItem('syzygy_crossplatform', enabled ? 'true' : 'false');
-    toast(enabled ? '跨平台注入已开启' : '跨平台注入已关闭');
-}
-document.addEventListener('DOMContentLoaded', () => {
-    const toggle = document.getElementById('crossPlatformToggle');
-    if (toggle) toggle.checked = localStorage.getItem('syzygy_crossplatform') !== 'false';
-});
-
 async function legacySyncMcpTools() {
     const listEl = document.getElementById('mcp-tools-list');
     if (!listEl) return;
@@ -4156,7 +4097,7 @@ async function regenerateSend(aiMsgIndex) {
         const isStream = streamToggle ? streamToggle.checked : true;
         const reTimeout = useRollingContext ? 135000 : 90000;
         const reController=new AbortController(); reSilenceTimer=setTimeout(()=>reController.abort(),reTimeout); function reReset(){clearTimeout(reSilenceTimer);reSilenceTimer=setTimeout(()=>reController.abort(),reTimeout)}
-        const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream,activeChatId:session.id,useCrossplatform:!isWorkroomSession(session)&&localStorage.getItem('syzygy_crossplatform')!=='false',...(useRollingContext?{contextProtocol:{version:1,sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
+        const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream,activeChatId:session.id,...(useRollingContext?{contextProtocol:{version:1,sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
         if (!response.ok) { clearTimeout(reSilenceTimer); const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         let fullReply='', thinkContent='';
         var toolCallRecords = [];

@@ -40,7 +40,6 @@
 .tt-memory-card small { color: #7890a3; }
 #sec-chat .chat-floating-actions { gap: 4px !important; padding: 3px; border: 1px solid #ffffff99; border-radius: 24px; background: #e8f0f6aa; backdrop-filter: blur(16px); }
 body.neu-mode #sec-chat .chat-floating-actions > button { flex: 0 0 32px; width: 32px; height: 32px; border: 0; background: transparent; box-shadow: none; font-size: 11px; letter-spacing: 0; white-space: nowrap; }
-#sec-chat .chat-floating-actions > #workroomSettingsTop[hidden] { display: none !important; }
 #sec-chat .chat-home-pill { min-width: 0; flex-shrink: 1; }
 @media (max-width: 520px) {
     .codex-settings-card { margin-top: 18px; padding: 20px 17px; border-radius: 20px; }
@@ -53,4 +52,40 @@ body.neu-mode #sec-chat .chat-floating-actions > button { flex: 0 0 32px; width:
     .tt-memory-group:first-child { grid-column: auto; }
     #sec-chat .chat-floating-actions { gap: 1px !important; }
     body.neu-mode #sec-chat .chat-floating-actions > button { flex-basis: 29px; width: 29px; height: 29px; }
+}
+
+
+/* Shenwang settings: two persistent prompt variants plus provider controls. */
+#sec-shen-settings { min-height: 100dvh; }
+.shen-settings-card { width: min(calc(100% - 32px), 820px); }
+.shen-prompt-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 22px 0 6px; padding: 5px; border-radius: 16px; background: #e4edf5; box-shadow: inset 2px 2px 6px #aab8c333, inset -2px -2px 6px #ffffffaa; }
+.shen-prompt-switch button { border: 0; background: transparent; color: #71869a; }
+.shen-prompt-switch button.active { background: #f7fbff; color: #365d75; box-shadow: 0 5px 15px #4a65731a; }
+.shen-prompt-panel[hidden] { display: none; }
+.shen-settings-card .shen-prompt-panel textarea { min-height: 340px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; }
+.shen-settings-card #shenSettingsSave { background: #476879; color: #fff; border-color: transparent; }
+.shen-supplier-panel { margin-top: 28px; padding: 0 16px 16px; border: 1px solid #d0dfeb; border-radius: 18px; background: #eff6fbb8; }
+.shen-supplier-panel > summary { padding: 16px 0; color: #526b87; cursor: pointer; font-weight: 650; }
+.shen-supplier-panel > p { margin: 0 0 14px; color: #71869a; font-size: 12px; }
+.supplier-add-form { display: grid; grid-template-columns: minmax(0,.72fr) minmax(0,1.28fr); gap: 8px; }
+.supplier-add-form > * { min-width: 0; width: 100%; box-sizing: border-box; }
+.supplier-add-form > button { min-height: 42px; }
+#supplierList { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+#supplierList .supplier-card { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 7px; padding: 9px; border: 1px solid #d5e2ec; border-radius: 13px; background: #f7fbffb8; }
+#supplierList .supplier-card.active-sup { border-color: #82a9bf; box-shadow: inset 3px 0 #638da5; }
+#supplierList .supplier-select { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 3px; border: 0; background: transparent; text-align: left; }
+#supplierList .sup-name { max-width: 100%; overflow: hidden; color: #40536b; font-size: 13px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+#supplierList .sup-name.active-name::after { content: ' · 使用中'; color: #559a91; font-size: 10px; font-weight: 500; }
+#supplierList .sup-url { max-width: 100%; overflow: hidden; color: #7c90a3; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+#supplierList :is(.sup-edit-btn,.sup-del-btn) { padding: 7px 9px; font-size: 11px; }
+#supplierList .sup-del-btn { color: #a96868; }
+#supplierList .supplier-edit-row { display: grid; gap: 8px; padding: 12px; border: 1px solid #d5e2ec; border-radius: 13px; background: #f7fbff99; }
+#supplierList .supplier-edit-row[hidden] { display: none; }
+#supplierList .supplier-edit-row input { width: 100%; }
+.supplier-edit-actions { display: flex; gap: 8px; }
+@media (max-width: 520px) {
+  .shen-settings-card .shen-prompt-panel textarea { min-height: 300px; }
+  .supplier-add-form { grid-template-columns: 1fr; }
+  #supplierList .supplier-card { grid-template-columns: minmax(0,1fr) auto; }
+  #supplierList .sup-del-btn { grid-column: 2; }
 }

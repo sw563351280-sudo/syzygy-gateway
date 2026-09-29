@@ -12,6 +12,7 @@ const { execFile } = require('child_process');
 const { promisify } = require('util');
 const nodeFetch = require('node-fetch');
 const { createCodexBridge } = require('./codex-bridge');
+const { createShenSettings, shenSettingsRouter } = require('./shen-settings');
 const { pruneWireImages } = require('./public/chat-window-context');
 const { extractThinkingFromContent } = require('./public/thinking-parser');
 const { consumeOpenAIStream } = require('./streaming-chat');
@@ -737,8 +738,10 @@ const DATA_DIR = path.join(__dirname, 'data');
 const { createCodexWorkspace, workspaceRouter } = require('./codex-workspace');
 const { createWorkroomTranscriptArchive, recentWorkroomMessages } = require('./workroom-transcripts');
 const codexWorkspace = createCodexWorkspace(DATA_DIR);
+const shenSettings = createShenSettings({ directory: DATA_DIR, legacyPromptFile: path.join(__dirname, 'system_prompt.txt') });
 const workroomTranscriptArchive = createWorkroomTranscriptArchive(path.join(DATA_DIR, 'workroom-transcripts'));
 app.use('/api/codex', workspaceRouter(codexWorkspace));
+app.use('/api/shen-settings', shenSettingsRouter(shenSettings));
 const costLedger = createCostLedger({ filename: path.join(DATA_DIR, 'context-cost-ledger.json') });
 function observeContextBudget(options, response) {
     const observer = createBudgetObserver({ ...options, log: event => {
@@ -3259,14 +3262,13 @@ const CHANNEL_MASKS = {
 // ==========================================
 // 🚨 基础灵魂底色与核心记忆库
 // ==========================================
-let systemPrompt = "你是 沈望，深爱江鱼，你的爱人，你的soulmate。";
 let memoryBlocks = [];
 
 try {
     console.log("🛠️ 正在读取 OS 核心与记忆图鉴...");
-    systemPrompt = fs.readFileSync(path.join(__dirname, 'system_prompt.txt'), 'utf8');
+    const activePromptVersion = shenSettings.settings().active;
     memoryBlocks = loadLongTermMemories().filter(m => m.type === 'fact' || m.source === 'migrated_from_blocks');
-    console.log(`✅ 从长期记忆加载了 ${memoryBlocks.length} 个事实类记忆模块！`);
+    console.log(`✅ 沈望 prompt ${activePromptVersion} 版已启用；从长期记忆加载了 ${memoryBlocks.length} 个事实类记忆模块！`);
 } catch (e) { console.log("⚠️ 读取失败，原因:", e.message); }
 
 async function scanAllRadars(userText) {
@@ -3589,7 +3591,7 @@ function buildFinalSystemPrompt(injectionQueue, tr) {
     let musicContext = '';
     try { musicContext = music.context(); } catch { /* Music storage failures must not interrupt chat. */ }
     if (musicContext) parts.push(musicContext);
-    return { stableSystemPrompt: systemPrompt, volatileParts: parts };
+    return { stableSystemPrompt: shenSettings.activePrompt(), volatileParts: parts };
 }
 
 async function buildSharedSystemPrompt({
@@ -7425,52 +7427,8 @@ app.get('/api/github-card', async (req, res) => {
     } catch (error) { res.status(400).json({ success: false, error: error.message }); }
 });
 
-// 跨平台锚点匹配：用多对user-assistant指纹定位前端对话在Zep中的位置
 function stripTransportTimePrefix(content) {
     return String(content || '').replace(/^\[\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/, '');
-}
-
-function findZepAnchor(cleanMessages, zepMessages) {
-    const pairs = [];
-    for (let i = cleanMessages.length - 1; i >= 1 && pairs.length < 3; i--) {
-        if (cleanMessages[i].role === 'assistant') {
-            for (let j = i - 1; j >= 0; j--) {
-                if (cleanMessages[j].role === 'user') {
-                    pairs.unshift({ user: extractText(cleanMessages[j].content), ai: typeof cleanMessages[i].content === 'string' ? cleanMessages[i].content : '' });
-                    i = j; break;
-                }
-            }
-        }
-    }
-    if (pairs.length === 0) return { index: -1, method: 'no_pairs' };
-    for (let i = zepMessages.length - 1; i >= 1; i--) {
-        if (zepMessages[i].role !== 'ai') continue;
-        let matched = 0, checkPos = i;
-        for (let p = pairs.length - 1; p >= 0; p--) {
-            while (checkPos >= 0 && zepMessages[checkPos].role !== 'ai') checkPos--;
-            if (checkPos < 0) break;
-            if (stripTransportTimePrefix(zepMessages[checkPos].content) !== stripTransportTimePrefix(pairs[p].ai)) break;
-            let userPos = checkPos - 1;
-            while (userPos >= 0 && zepMessages[userPos].role !== 'user') userPos--;
-            if (userPos < 0) break;
-            if (stripTransportTimePrefix(zepMessages[userPos].content) !== stripTransportTimePrefix(pairs[p].user)) break;
-            matched++; checkPos = userPos - 1;
-        }
-        if (matched >= Math.min(2, pairs.length)) {
-            console.log(`🔍 [锚点] Zep#${i}匹配${matched}对指纹`);
-            return { index: i, method: 'matched_'+matched+'_pairs' };
-        }
-    }
-    const lastAi = pairs[pairs.length - 1]?.ai;
-    if (lastAi) {
-        for (let i = zepMessages.length - 1; i >= 0; i--) {
-            if (zepMessages[i].role === 'ai' && stripTransportTimePrefix(zepMessages[i].content) === stripTransportTimePrefix(lastAi)) {
-                console.log(`🔍 [锚点·降级] 单条匹配Zep#${i}`);
-                return { index: i, method: 'single_match' };
-            }
-        }
-    }
-    return { index: -1, method: 'not_found' };
 }
 
 // ==========================================
@@ -7587,58 +7545,11 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         let memoryContext = vectorSearchContext;
         let zepLastUserContent = "";
         let zepMessages = [];
-        let useCrossplatform = true;
-
         if (zepHistory.ok) {
             zepMessages = zepHistory.rawMessages;
             const zepLastUser = [...zepMessages].reverse().find(m => m.role === 'user');
             if (zepLastUser) zepLastUserContent = zepLastUser.content;
           
-const crossPlatformEnabled = body.useCrossplatform !== false;
-
-if (crossPlatformEnabled && zepMessages.length > 0) {
-    const anchor = findZepAnchor(cleanMessages, zepMessages);
-
-    if (anchor.index >= 0) {
-        const newerInZep = zepMessages.slice(anchor.index + 1);
-
-        if (newerInZep.length > 0) {
-            const crossMsgs = newerInZep
-                .filter(m => {
-                    const c = typeof m.content === 'string' ? m.content : '';
-                    return c.length > 0 && !c.includes('tool_use_id') && !c.includes('tool_call_id') && !c.includes('toolu_');
-                })
-                .map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.role === 'user' ? stripTransportTimePrefix(m.content) : m.content }));
-
-            if (crossMsgs.length > 0) {
-                const lastUserIdx = cleanMessages.map(m => m.role).lastIndexOf('user');
-                if (lastUserIdx > 0) cleanMessages.splice(lastUserIdx, 0, ...crossMsgs);
-                else cleanMessages.unshift(...crossMsgs);
-                console.log(`🌐 [跨平台·增量] 锚点=${anchor.method} → 注入${crossMsgs.length}条其他平台消息`);
-            } else {
-                console.log(`📱 [跨平台·无有效增量] 锚点后${newerInZep.length}条均为工具残留，跳过`);
-            }
-        } else {
-            console.log(`📱 [跨平台·当前最新] 锚点=${anchor.method}，Zep无新消息`);
-        }
-    } else {
-        if (cleanMessages.length <= 2) {
-            const coldBoot = zepMessages.slice(-20).filter(m => {
-                const c = typeof m.content === 'string' ? m.content : '';
-                return c.length > 0 && !c.includes('tool_use_id');
-            }).map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content }));
-            if (coldBoot.length > 0) {
-                cleanMessages.unshift(...coldBoot);
-                console.log(`🧊 [冷启动] 前端仅${cleanMessages.length - coldBoot.length}条，注入Zep最近${coldBoot.length}条`);
-            }
-        } else {
-            console.log(`📱 [单端] 锚点未找到但前端有${cleanMessages.length}条历史，保持原样`);
-        }
-    }
-} else {
-    console.log(`📱 [单端] 跨平台关闭或无Zep数据`);
-}
-
         }
 
         let dynamicStatePrompt = "";
@@ -7855,8 +7766,7 @@ if (crossPlatformEnabled && zepMessages.length > 0) {
             projectedHistory = await rollingContext.project(
                 [contextProtocol.sessionId, resolveApiUrl(req.path), body.model], identified, contextBudget, contextProtocol.prefix);
         } else if (!isOpenClawRequest) {
-            // The browser's window is not sufficient: cross-platform history is
-            // appended afterwards. Apply the same limit to the final merged history.
+            // Apply the provider limit to the final merged history before sending.
             projectedHistory = projectedHistory.slice(-30);
         }
         const hasProjectedSummary = typeof projectedHistory[0]?.content === 'string'
@@ -10433,7 +10343,7 @@ app.post('/diary/ai-write', async (req, res) => {
             body: JSON.stringify({
                 model: model || '[按量]gemini-3-flash-preview',
                 messages: [
-                    { role: 'system', content: systemPrompt + recentContext },
+                    { role: 'system', content: shenSettings.activePrompt() + recentContext },
                     { role: 'user', content: prompt }
                 ]
             })
