@@ -87,6 +87,13 @@ async function main() {
             assert.equal(initial.hiddenChatImageLoaded, false);
             assert.equal(external.length, 0);
             for (const endpoint of ['/api/tools-status', '/api/mcp/servers', '/api/toy-status']) assert.equal(requests.includes(endpoint), false);
+            const idleMusicChecks = requests.filter(endpoint => endpoint === '/api/music/status').length;
+            assert.equal(idleMusicChecks, 1, 'music performs one startup recovery check');
+            await sleep(3200);
+            assert.equal(requests.filter(endpoint => endpoint === '/api/music/status').length, idleMusicChecks, 'closed idle music panel must not keep polling');
+            await page.evaluate(() => window.SyzygyMusic.open());
+            await page.waitForFunction(expected => performance.getEntriesByType('resource').filter(entry => entry.name.includes('/api/music/status')).length > expected, {}, idleMusicChecks);
+            await page.evaluate(() => { document.querySelector('#syzygy-music').shadowRoot.querySelector('.panel').hidden = true; });
             await page.evaluate(() => openCommunication());
             await page.waitForSelector('#chatWindow .msg.sys strong');
             assert.equal(await page.evaluate(() => activeChatId), 'main');

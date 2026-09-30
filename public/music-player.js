@@ -380,8 +380,12 @@
     } };
     document.addEventListener('click', e => { const button = e.target.closest('[data-music-song]'); if (button) window.SyzygyMusic.play(button.dataset.musicSong); });
     let refreshing = false;
+    function shouldPollStatus() {
+        const inactiveLocalPlayer = audio.paused && !epoch && !inRoom();
+        return !inactiveLocalPlayer || (!document.hidden && !$('.panel').hidden);
+    }
     setInterval(async () => {
-        if (refreshing || (document.hidden && audio.paused && !epoch)) return;
+        if (refreshing || !shouldPollStatus()) return;
         refreshing = true;
         try { await refresh(); } catch (e) { if (epoch && !audio.paused) passiveStop(); notice('音乐状态连接中断，请稍后重试。', true); }
         finally { refreshing = false; }
