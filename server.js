@@ -737,6 +737,7 @@ function getModelPromptConfig(modelName) {
 const DATA_DIR = path.join(__dirname, 'data');
 const { createCodexWorkspace, workspaceRouter } = require('./codex-workspace');
 const { createWorkroomTranscriptArchive, recentWorkroomMessages } = require('./workroom-transcripts');
+const { DEFAULT_PAGE_SIZE, historyPage, mergePartialSession } = require('./chat-history');
 const codexWorkspace = createCodexWorkspace(DATA_DIR);
 const shenSettings = createShenSettings({ directory: DATA_DIR, legacyPromptFile: path.join(__dirname, 'system_prompt.txt') });
 const workroomTranscriptArchive = createWorkroomTranscriptArchive(path.join(DATA_DIR, 'workroom-transcripts'));
@@ -10827,6 +10828,20 @@ app.delete('/api/photos/:photo_id', (req, res) => {
 // ==========================================
 const CONFIG_FILE = path.join(DATA_DIR, 'web_config.json');
 
+function clientVisibleMessages(messages = []) {
+    return messages.filter(message => {
+        const versions = Array.isArray(message.versions) && message.versions.length ? message.versions : [message];
+        for (const version of versions) {
+            if (typeof version.content === 'string') version.content = stripOpenClawInternalContext(version.content);
+        }
+        const version = versions[message.activeVersion || 0] || versions[0] || message;
+        const content = version?.content || message.content || '';
+        return !contentHasOpenClawInternalContext(content)
+            && String(content).indexOf('数据加载失败，请刷新页面重试') === -1
+            && contentHasVisibleText(content);
+    });
+}
+
 app.get('/api/sync-config', (req, res) => {
     if (fs.existsSync(CONFIG_FILE)) {
         const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
@@ -10834,33 +10849,44 @@ app.get('/api/sync-config', (req, res) => {
         // only the latest 50 complete rounds so opening the room stays light.
         workroomTranscriptArchive.archive(cfg.chatSessions || []);
         // 🛡️ 过滤历史遗留的兜底脏消息（"数据加载失败"假消息）
+        const requestedMainLimit = req.query?.mainLimit === undefined ? 0 : Number.parseInt(req.query.mainLimit, 10);
+        const historyWindows = {};
         if (cfg.chatSessions) {
             for (const s of cfg.chatSessions) {
                 if (!s.messages) continue;
                 const before = s.messages.length;
-                s.messages = s.messages.filter(m => {
-                    const versions = Array.isArray(m.versions) && m.versions.length ? m.versions : [m];
-                    for (const v of versions) {
-                        if (typeof v.content === 'string') v.content = stripOpenClawInternalContext(v.content);
-                    }
-                    const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
-                    const c = (v && v.content) || m.content || '';
-                    if (contentHasOpenClawInternalContext(c)) return false;
-                    return String(c).indexOf('数据加载失败，请刷新页面重试') === -1 && contentHasVisibleText(c);
-                });
+                s.messages = clientVisibleMessages(s.messages);
                 if (s.messages.length !== before) {
                     console.log(`🛡️ [GET] 过滤 ${before - s.messages.length} 条兜底脏消息 (会话 ${s.id})`);
                     // Filter the response only; reads must not rewrite saved conversation state.
                 }
                 if (s.id === 'syzygy-workroom' || s.type === 'codex-workroom') {
                     s.messages = recentWorkroomMessages(s.messages, 50);
+                } else if (s.id === 'main' && Number.isFinite(requestedMainLimit) && requestedMainLimit > 0) {
+                    const page = historyPage(s.messages, s.messages.length, requestedMainLimit);
+                    s.messages = page.messages;
+                    historyWindows[s.id] = { start: page.start, total: page.total, hasMore: page.hasMore, partial: page.start > 0 };
                 }
             }
         }
+        if (Object.keys(historyWindows).length) cfg._historyWindows = historyWindows;
         res.json(cfg);
     } else {
         res.json({ suppliers: [], chatSessions: [] });
     }
+});
+
+app.get('/api/chat-history/:sessionId', (req, res) => {
+    if (!fs.existsSync(CONFIG_FILE)) return res.status(404).json({ error: '聊天记录不存在' });
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+    const session = (cfg.chatSessions || []).find(item => item.id === req.params.sessionId);
+    if (!session) return res.status(404).json({ error: '频道不存在' });
+    if (session.id === 'syzygy-workroom' || session.type === 'codex-workroom') {
+        return res.status(400).json({ error: '共创工作区使用独立档案' });
+    }
+    const messages = clientVisibleMessages(Array.isArray(session.messages) ? session.messages : []);
+    const page = historyPage(messages, req.query.before, req.query.limit || DEFAULT_PAGE_SIZE);
+    res.json({ _version: cfg._version || 0, sessionId: session.id, ...page });
 });
 
 app.post('/api/sync-config', (req, res) => {
@@ -10876,7 +10902,13 @@ app.post('/api/sync-config', (req, res) => {
             return res.json({ success: false, _version: serverVersion, _rejected: true, message: '数据已被较新标签页更新，请刷新页面' });
         }
         const { suppliers, chatSessions, activeSupIndex, activeChatId } = req.body;
-        const sanitizedChatSessions = (chatSessions || []).map(session => ({
+        const requestedHistoryWindows = req.body._historyWindows || {};
+        const hasPartialHistory = Object.values(requestedHistoryWindows).some(window => window?.partial === true);
+        if (hasPartialHistory && (!clientVersion || clientVersion !== serverVersion)) {
+            console.log(`🛡️ [历史窗口] 拒绝版本不一致的局部写入 (client v${clientVersion}, server v${serverVersion})`);
+            return res.json({ success: false, _version: serverVersion, _rejected: true, message: '聊天历史已更新，请重新同步' });
+        }
+        let sanitizedChatSessions = (chatSessions || []).map(session => ({
             ...session,
             messages: (session.messages || []).map(message => {
                 const versions = Array.isArray(message.versions) && message.versions.length ? message.versions : null;
@@ -10889,6 +10921,24 @@ app.post('/api/sync-config', (req, res) => {
                 return !contentHasOpenClawInternalContext(version?.content);
             })
         }));
+        if (hasPartialHistory) {
+            const existingById = new Map((existingData?.chatSessions || []).map(session => {
+                const safeSession = structuredClone(session);
+                safeSession.messages = clientVisibleMessages(Array.isArray(safeSession.messages) ? safeSession.messages : []);
+                return [safeSession.id, safeSession];
+            }));
+            try {
+                sanitizedChatSessions = sanitizedChatSessions.map(session => (
+                    mergePartialSession(existingById.get(session.id), session, requestedHistoryWindows[session.id])
+                ));
+            } catch (error) {
+                if (error.code === 'HISTORY_WINDOW_MISMATCH') {
+                    console.log(`🛡️ [历史窗口] 拒绝边界不匹配的局部写入: ${error.message}`);
+                    return res.json({ success: false, _version: serverVersion, _rejected: true, message: error.message });
+                }
+                throw error;
+            }
+        }
         // 🛡️ 拒绝保存兜底脏状态：会话名为"加载中...（请刷新）"时拒绝写入，防止前端断连后覆盖正常数据
         const dirtySession = sanitizedChatSessions.find(s => (s.name || '').includes('加载中'));
         if (dirtySession) {

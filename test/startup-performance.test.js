@@ -74,8 +74,8 @@ test('sync GET filters and limits the response without rewriting saved conversat
         recentWorkroomMessages, stripOpenClawInternalContext: v => v,
         contentHasOpenClawInternalContext: () => false, contentHasVisibleText: v => Boolean(String(v).trim()),
         app: { get: (_route, callback) => { handler = callback; } } };
-    const begin = server.indexOf("app.get('/api/sync-config'");
-    vm.runInNewContext(server.slice(begin, server.indexOf("app.post('/api/sync-config'", begin)), context);
+    const begin = server.indexOf('function clientVisibleMessages(');
+    vm.runInNewContext(server.slice(begin, server.indexOf("app.get('/api/chat-history/:sessionId'", begin)), context);
     handler({}, { json: value => { response = value; } });
     assert.equal(response.chatSessions[0].messages.length, 100);
     assert.equal(response.chatSessions[1].messages.length, 1);

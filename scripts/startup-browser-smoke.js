@@ -15,11 +15,26 @@ async function main() {
     const app = express(); app.use(express.json());
     const requests = [];
     app.use((req, _res, next) => { if (req.path.startsWith('/api/')) requests.push(req.path); next(); });
-    const messages = [
-        { _id: 'u', role: 'user', content: 'hello', fullTime: '2026-09-30T01:00:00Z' },
-        { _id: 'a', role: 'assistant', content: '**hello** from the fixture', image: '/fixture-image.svg', fullTime: '2026-09-30T01:00:01Z' }
-    ];
-    app.get('/api/sync-config', async (_req, res) => { await sleep(900); res.json({ _version: 1, activeChatId: 'main', suppliers: [{ name: 'fixture', url: 'https://invalid.test/v1', key: 'fixture-key' }], chatSessions: [{ id: 'main', name: 'main', messages }, { id: 'syzygy-workroom', name: 'workroom', messages: [] }] }); });
+    const messages = Array.from({ length: 170 }, (_, index) => ({
+        _id: 'm' + index,
+        role: index % 2 ? 'assistant' : 'user',
+        content: index === 169 ? '**hello** from the fixture' : 'fixture message ' + index,
+        image: index === 169 ? '/fixture-image.svg' : undefined,
+        fullTime: new Date(Date.UTC(2026, 8, 30, 1, 0, index)).toISOString()
+    }));
+    app.get('/api/sync-config', async (req, res) => {
+        await sleep(900);
+        const limit = Math.max(1, Number(req.query.mainLimit) || messages.length);
+        const start = Math.max(0, messages.length - limit);
+        res.json({ _version: 1, activeChatId: 'main', suppliers: [{ name: 'fixture', url: 'https://invalid.test/v1', key: 'fixture-key' }],
+            _historyWindows: { main: { start, total: messages.length, hasMore: start > 0, partial: start > 0 } },
+            chatSessions: [{ id: 'main', name: 'main', messages: messages.slice(start) }, { id: 'syzygy-workroom', name: 'workroom', messages: [] }] });
+    });
+    app.get('/api/chat-history/:sessionId', (req, res) => {
+        const end = Math.max(0, Math.min(messages.length, Number(req.query.before) || messages.length));
+        const start = Math.max(0, end - (Number(req.query.limit) || 80));
+        res.json({ _version: 1, sessionId: req.params.sessionId, messages: messages.slice(start, end), start, end, total: messages.length, hasMore: start > 0 });
+    });
     app.post('/api/sync-config', (_req, res) => res.json({ success: true, _version: 2 }));
     app.get('/api/favorites', async (_req, res) => { await sleep(900); res.json({ favorites: [] }); });
     app.get('/api/todos', (_req, res) => res.json({ active: [], shen: [], fish: [] }));
@@ -75,6 +90,12 @@ async function main() {
             await page.evaluate(() => openCommunication());
             await page.waitForSelector('#chatWindow .msg.sys strong');
             assert.equal(await page.evaluate(() => activeChatId), 'main');
+            assert.equal(await page.evaluate(() => chatSessions.find(session => session.id === 'main').messages.length), 80);
+            await page.evaluate(() => revealEarlierChatMessages());
+            await page.evaluate(() => revealEarlierChatMessages());
+            assert.equal(await page.evaluate(() => chatSessions.find(session => session.id === 'main').messages.length), 160);
+            await page.evaluate(() => revealEarlierChatMessages());
+            assert.equal(await page.evaluate(() => chatSessions.find(session => session.id === 'main').messages.length), 170);
             await page.evaluate(() => openWorkroom());
             assert.equal(await page.evaluate(() => activeChatId), 'syzygy-workroom');
             await page.evaluate(() => openCommunication());

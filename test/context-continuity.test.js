@@ -23,7 +23,7 @@ test('browser module and actual unload saver persist stable IDs and proof withou
     const messages = source(204); delete messages[0]._id;
     const state = { ContextContinuity: window.ContextContinuity, chatSessions: [{ messages }],
         _hasDirtyFallbackState: () => false, structuredClone, crypto: { randomUUID: () => 'assigned' },
-        getActiveVersion: active, suppliers: [], activeSupIndex: 0, activeChatId: 'a', _dataVersion: 1 };
+        getActiveVersion: active, historyWindowsForPayload: () => ({}), suppliers: [], activeSupIndex: 0, activeChatId: 'a', _dataVersion: 1 };
     const payload = JSON.parse(vm.runInNewContext(script.slice(start,end) + '\nbuildSavePayload()', state));
     assert.equal(messages.length, 204);
     assert.equal(messages[0]._id, 'assigned');

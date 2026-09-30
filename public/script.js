@@ -211,6 +211,49 @@ let activeSupIndex = 0;
 let chatSessions = [];
 let activeChatId = 'main';
 const WORKROOM_ID = 'syzygy-workroom';
+const CHAT_HISTORY_INITIAL_LIMIT = 80;
+const CHAT_HISTORY_PAGE_SIZE = 80;
+let _historyWindows = {};
+let _visibleMessageCounts = {};
+let _historyLoading = false;
+
+function syncConfigUrl() {
+    return '/api/sync-config?mainLimit=' + CHAT_HISTORY_INITIAL_LIMIT;
+}
+
+function updateHistoryWindows(windows, reset = false) {
+    if (reset) _historyWindows = {};
+    for (const [sessionId, incoming] of Object.entries(windows || {})) {
+        const next = {
+            start: Math.max(0, Number(incoming.start) || 0),
+            total: Math.max(0, Number(incoming.total) || 0),
+            hasMore: Boolean(incoming.hasMore),
+            partial: Boolean(incoming.partial)
+        };
+        const current = _historyWindows[sessionId];
+        if (!reset && current && current.start < next.start) {
+            next.start = current.start;
+            next.hasMore = current.start > 0;
+            next.partial = current.start > 0;
+        }
+        _historyWindows[sessionId] = next;
+    }
+}
+
+function historyWindowsForPayload(clone) {
+    const payload = {};
+    for (const session of clone || []) {
+        const state = _historyWindows[session.id];
+        if (!state) continue;
+        const original = chatSessions.find(item => item.id === session.id);
+        const originalLength = Array.isArray(original?.messages) ? original.messages.length : 0;
+        const clonedLength = Array.isArray(session.messages) ? session.messages.length : 0;
+        const droppedByCap = Math.max(0, originalLength - clonedLength);
+        const start = Math.max(0, state.start + droppedByCap);
+        if (start > 0) payload[session.id] = { start, total: state.total, partial: true };
+    }
+    return payload;
+}
 
 function ensureWorkroomSession() {
     let room = chatSessions.find(session => session.id === WORKROOM_ID);
@@ -239,9 +282,10 @@ function isWorkroomSession(session = getActiveSession()) {
 let _dataVersion = 0;
 async function syncFromCloud() {
     try {
-        const r = await fetch('/api/sync-config');
+        const r = await fetch(syncConfigUrl());
         const data = await r.json();
         _dataVersion = data._version || 0;
+        updateHistoryWindows(data._historyWindows, true);
 
         suppliers = (data.suppliers && data.suppliers.length) ? data.suppliers : [{ name: "默认接口", url: "https://api.dzzi.ai/v1", key: "" }];
         chatSessions = (data.chatSessions && data.chatSessions.length) ? data.chatSessions : [{ id: 'main', name: '主频道', messages: [] }];
@@ -637,7 +681,7 @@ async function resyncAndMerge(reason) {
     _syncing = true;
     _syncingPromise = (async () => {
     try {
-        const r = await fetch('/api/sync-config', { cache: 'no-store' });
+        const r = await fetch(syncConfigUrl(), { cache: 'no-store' });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const data = await r.json();
         const serverSessions = data.chatSessions || [];
@@ -653,13 +697,16 @@ async function resyncAndMerge(reason) {
             serverMessages.forEach(function (m) {
                 if (!localMessages.some(function (local) { return messagesEquivalentForSync(local, m); })) serverAdded++;
             });
-            localMessages.forEach(function (m) {
-                if (!serverMessages.some(function (server) { return messagesEquivalentForSync(server, m); })) localOnly++;
-            });
+            if (!data._historyWindows?.[ss.id]?.partial) {
+                localMessages.forEach(function (m) {
+                    if (!serverMessages.some(function (server) { return messagesEquivalentForSync(server, m); })) localOnly++;
+                });
+            }
         });
 
         chatSessions = mergeSessionLists(serverSessions, chatSessions);
         _dataVersion = data._version || 0;
+        updateHistoryWindows(data._historyWindows, false);
 
         for (const s of chatSessions) {
             if (!s.messages) continue;
@@ -750,7 +797,7 @@ async function _doSave() {
     }
 
     // 3. 构造 payload
-    var payloadObj = { suppliers: suppliers, chatSessions: clone, activeSupIndex: activeSupIndex, activeChatId: activeChatId, _version: _dataVersion };
+    var payloadObj = { suppliers: suppliers, chatSessions: clone, activeSupIndex: activeSupIndex, activeChatId: activeChatId, _version: _dataVersion, _historyWindows: historyWindowsForPayload(clone) };
     var payloadText = JSON.stringify(payloadObj);
     var payloadBytes = new Blob([payloadText]).size;
 
@@ -2059,14 +2106,15 @@ function renderChatMessages(options = {}){
     if (!document.getElementById('sec-chat')?.classList.contains('active')) return;
     const win = document.getElementById('chatWindow');
     if(!win) return;
-    const shouldStickToBottom = Boolean(options.forceBottom) || isChatNearBottom(win);
+    const shouldStickToBottom = Boolean(options.forceBottom) || (!options.preserveScroll && isChatNearBottom(win));
     const scrollAnchor = shouldStickToBottom ? null : captureChatScrollAnchor(win);
     win.innerHTML = '';
     const session = getActiveSession();
     if(!session || !session.messages) return;
 
-    // 私聊保留原有轻量窗口；工作区按完整轮次展示最近 50 轮。
-    const msgs = isWorkroomSession(session) ? workroomMessagesByRounds(session.messages, 50) : session.messages.slice(-30);
+    // 私聊默认保留轻量窗口；向上翻时逐页扩大。工作区仍按完整轮次展示最近 50 轮。
+    const visibleCount = _visibleMessageCounts[session.id] || 30;
+    const msgs = isWorkroomSession(session) ? workroomMessagesByRounds(session.messages, 50) : session.messages.slice(-visibleCount);
     msgs.forEach((m, subIndex) => {
         const index = session.messages.length - msgs.length + subIndex;
 
@@ -3807,9 +3855,58 @@ function ensureChatScrollGestureTracking(win) {
     if (!win || win.dataset.scrollGestureTracking === 'true') return;
     win.dataset.scrollGestureTracking = 'true';
     const markGesture = () => { _chatScrollGestureVersion += 1; };
+    let historyTimer = null;
+    win.addEventListener('scroll', () => {
+        if (win.scrollTop > 36 || document.body.dataset.view !== 'chat') return;
+        clearTimeout(historyTimer);
+        historyTimer = setTimeout(() => revealEarlierChatMessages(), 100);
+    }, { passive: true });
     win.addEventListener('wheel', markGesture, { passive: true });
     win.addEventListener('touchmove', markGesture, { passive: true });
     win.addEventListener('pointerdown', markGesture, { passive: true });
+}
+
+async function revealEarlierChatMessages() {
+    if (_historyLoading || _isStreamingReply || document.body.dataset.view !== 'chat') return;
+    const session = getActiveSession();
+    if (!session || isWorkroomSession(session)) return;
+    const shown = _visibleMessageCounts[session.id] || 30;
+    if (shown < session.messages.length) {
+        _visibleMessageCounts[session.id] = Math.min(session.messages.length, shown + CHAT_HISTORY_PAGE_SIZE);
+        renderChatMessages({ preserveScroll: true });
+        return;
+    }
+    const state = _historyWindows[session.id];
+    if (!state?.hasMore || state.start <= 0) return;
+    _historyLoading = true;
+    try {
+        const response = await fetch('/api/chat-history/' + encodeURIComponent(session.id)
+            + '?before=' + encodeURIComponent(state.start) + '&limit=' + CHAT_HISTORY_PAGE_SIZE, { cache: 'no-store' });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        if (data._version !== _dataVersion) {
+            await resyncAndMerge('history-version-change');
+            toast('聊天记录刚刚更新，请再向上翻一次');
+            return;
+        }
+        for (const message of data.messages || []) normalizeMessageVersionFields(message);
+        const beforeLength = session.messages.length;
+        session.messages = mergeMessageLists(data.messages || [], session.messages);
+        const added = Math.max(0, session.messages.length - beforeLength);
+        _historyWindows[session.id] = {
+            start: Math.max(0, Number(data.start) || 0),
+            total: Math.max(session.messages.length, Number(data.total) || 0),
+            hasMore: Boolean(data.hasMore),
+            partial: Number(data.start) > 0
+        };
+        _visibleMessageCounts[session.id] = Math.min(session.messages.length, shown + Math.max(added, CHAT_HISTORY_PAGE_SIZE));
+        renderChatMessages({ preserveScroll: true });
+    } catch (error) {
+        console.error('[history] 加载更早消息失败:', error.message);
+        toast('更早的聊天暂时没有加载出来');
+    } finally {
+        _historyLoading = false;
+    }
 }
 
 function captureChatScrollAnchor(win) {
@@ -5096,7 +5193,7 @@ function buildSavePayload() {
         ContextContinuity.trimContextWindow(s, getActiveVersion);
         for (var mi = 0; mi < s.messages.length; mi++) { delete s.messages[mi]._zepDirty; }
     }
-    return JSON.stringify({ suppliers: suppliers, chatSessions: clone, activeSupIndex: activeSupIndex, activeChatId: activeChatId, _version: _dataVersion });
+    return JSON.stringify({ suppliers: suppliers, chatSessions: clone, activeSupIndex: activeSupIndex, activeChatId: activeChatId, _version: _dataVersion, _historyWindows: historyWindowsForPayload(clone) });
 }
 
 document.addEventListener('visibilitychange', function () {
