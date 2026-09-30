@@ -18,7 +18,9 @@ test('legacy Codex UI and executable client are removed while shared features re
 });
 
 test('home owns the two room entrances and chat toolbar has no room switch', () => {
-    assert.ok(html.includes(`onclick="goView('chat')"`));
+    assert.ok(html.includes(`onclick="openCommunication()"`));
+    assert.doesNotMatch(html, /data-label="通讯" onclick="goView\('chat'\)"/);
+    assert.match(script, /viewId === 'chat' && activeChatId !== 'main'/);
     assert.ok(html.includes('onclick="openWorkroom()"'));
     assert.ok(html.includes('id="chatSettingsTop"') && html.includes('onclick="openActiveChatSettings()"'));
     assert.doesNotMatch(html, /toggleWorkroom|id="sec-data"|goView('data')/);

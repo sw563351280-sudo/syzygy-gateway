@@ -910,6 +910,7 @@ function toast(msg){
 }
 
 function goView(viewId) {
+    if (viewId === 'chat' && activeChatId !== 'main') switchChatWindow('main');
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
     const map = { home:'sec-home', chat:'sec-chat', favorites:'sec-favorites', dev:'sec-dev', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state', ledger:'sec-ledger' };
     map['shen-settings'] = 'sec-shen-settings';
