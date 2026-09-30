@@ -10850,7 +10850,7 @@ app.get('/api/sync-config', (req, res) => {
                 });
                 if (s.messages.length !== before) {
                     console.log(`🛡️ [GET] 过滤 ${before - s.messages.length} 条兜底脏消息 (会话 ${s.id})`);
-                    fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
+                    // Filter the response only; reads must not rewrite saved conversation state.
                 }
                 if (s.id === 'syzygy-workroom' || s.type === 'codex-workroom') {
                     s.messages = recentWorkroomMessages(s.messages, 50);

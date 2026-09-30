@@ -926,7 +926,7 @@ function goView(viewId) {
     VIEWS.push('shen-settings', 'codex-settings', 'work-records', 'tt-memories');
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);
-    if (viewId === 'chat') { setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300); fetchPulseStatus(); }
+    if (viewId === 'chat') { renderChatMessages(); setTimeout(() => { forceScrollToChatBottom && forceScrollToChatBottom(); }, 300); fetchPulseStatus(); }
     if (viewId === 'home') { updateDays && updateDays(); if (document.body.classList.contains('neu-mode')) neuInitHome(); }
     if (viewId === 'favorites') loadAndRenderFavorites();
     if (viewId === 'dev') devRefreshOverview();
@@ -2054,6 +2054,9 @@ function createThinkingMarker(thinking) {
 
 function renderChatMessages(options = {}){
     if (_isStreamingReply) { _renderDeferred = true; return; }
+    // Build messages, images and link cards only when the conversation is visible.
+    // goView('chat') renders the latest state on entry.
+    if (!document.getElementById('sec-chat')?.classList.contains('active')) return;
     const win = document.getElementById('chatWindow');
     if(!win) return;
     const shouldStickToBottom = Boolean(options.forceBottom) || isChatNearBottom(win);
@@ -3671,6 +3674,9 @@ function enforceNeuTheme() {
 window.addEventListener('DOMContentLoaded', enforceNeuTheme);
 
 async function startSystem() {
+    updateDays();
+    document.body.dataset.view = "home";
+    if (document.body.classList.contains('neu-mode')) neuInitHome();
     await syncFromCloud();
     try {
         await loadFavCache();
@@ -3678,9 +3684,6 @@ async function startSystem() {
     } catch (e) {
         console.warn('[favorites] 初始收藏状态加载失败:', e.message);
     }
-    updateDays();
-    document.body.dataset.view = "home";
-    if (document.body.classList.contains('neu-mode')) neuInitHome();
 }
 startSystem();
 
@@ -3865,77 +3868,7 @@ function forceScrollToChatBottom() {
     }, 350);
 }
 
-async function legacySyncMcpTools() {
-    const listEl = document.getElementById('mcp-tools-list');
-    if (!listEl) return;
-    try {
-        const res = await fetch('/api/tools-status');
-        const data = await res.json();
-        const tools = data.tools || {};
-        if (Object.keys(tools).length === 0) {
-            listEl.innerHTML = '<div style=”color:#888;text-align:center;padding:10px;font-size:0.8em;”>暂无可用技能</div>';
-            return;
-        }
-        listEl.innerHTML = Object.entries(tools).map(([name, enabled]) => {
-            const desc = { fetch_txt: '读取网页纯文本', fetch_html: '读取网页原始HTML', fetch_json: '读取JSON接口' }[name] || '';
-            return '<div style=”display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.05);padding:8px 12px;border-radius:8px;border:1px solid rgba(79,195,247,0.2);”>' +
-                '<div><span style=”color:#4fc3f7;”>' + (enabled ? '☑' : '☐') + '</span> <span style=”color:white;font-size:0.85em;”>' + name + '</span> <span style=”color:#888;font-size:0.7em;”>' + desc + '</span></div>' +
-                '<button onclick=”toggleToolUI(\'' + name + '\')” style=”padding:3px 10px;border-radius:6px;border:none;cursor:pointer;font-size:0.75em;background:' + (enabled ? '#e8f5e9' : '#ffebee') + ';color:' + (enabled ? '#2e7d32' : '#c62828') + ';”>' + (enabled ? '✅' : '❌') + '</button>' +
-            '</div>';
-        }).join('');
-        const allOn = Object.values(tools).every(v => v);
-        const toggle = document.getElementById('toolsMasterToggle');
-        if (toggle) toggle.checked = allOn;
-
-        // 追加 MCP Server 状态
-        try {
-            const mcpRes = await fetch('/api/mcp/servers');
-            const mcpData = await mcpRes.json();
-            let mcpHtml = '<div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.1);font-size:0.75em;color:#888;">🔌 外部 MCP Server</div>';
-            if (mcpData.servers && mcpData.servers.length > 0) {
-                mcpData.servers.forEach(s => {
-                    const dot = s.status === 'connected' ? '🟢' : s.status === 'failed' ? '🔴' : '🟡';
-                    mcpHtml += '<div style="display:flex;justify-content:space-between;padding:2px 4px;"><span>' + dot + ' ' + s.name + '</span><span style="font-size:0.85em;">' + s.tools.length + ' tools</span></div>';
-                });
-            } else {
-                mcpHtml += '<div style="padding:2px 4px;opacity:0.6;">⚪ 未连接（内置工具已够用）</div>';
-            }
-            listEl.innerHTML += mcpHtml;
-        } catch(e) {}
-    } catch (e) {
-        listEl.innerHTML = '<div style="color:#ff5252;">模组同步失败</div>';
-    }
-}
-async function toggleToolUI(name) { await fetch('/api/tools-toggle?tool=' + name, { method: 'POST' }); syncMcpTools(); }
 async function toggleAllToolsUI() { await fetch('/api/tools-toggle', { method: 'POST' }); syncMcpTools(); }
-
-async function legacyRefreshToyConnectionStatus() {
-    const el = document.getElementById('toyConnectionStatus');
-    if (!el) return;
-    const label = el.querySelector('.chat-toy-status-label');
-    el.className = 'chat-toy-status is-checking';
-    if (label) label.textContent = '啵啵贝 · 检查中';
-    try {
-        const res = await fetch('/api/toy-status');
-        const data = await res.json();
-        const state = data.state || 'unknown';
-        const labels = {
-            connected: '啵啵贝 · 已连接',
-            disconnected: '啵啵贝 · 未连接',
-            connecting: '啵啵贝 · 连接中',
-            unavailable: '啵啵贝 · 未配置',
-            error: '啵啵贝 · 读取失败',
-            unknown: '啵啵贝 · 状态未知'
-        };
-        el.className = 'chat-toy-status is-' + state;
-        if (label) label.textContent = labels[state] || labels.unknown;
-        el.title = data.message || labels[state] || labels.unknown;
-    } catch (e) {
-        el.className = 'chat-toy-status is-error';
-        if (label) label.textContent = '啵啵贝 · 读取失败';
-        el.title = '无法读取连接状态';
-    }
-}
 
 async function syncMcpTools() {
     const listEl = document.getElementById('mcp-tools-list');
@@ -3990,11 +3923,14 @@ async function refreshToyConnectionStatus() {
     }
 }
 
+let devicePanelRefreshing = false;
 async function refreshDevicePanel() {
-    await Promise.all([syncMcpTools(), refreshToyConnectionStatus()]);
+    if (document.hidden || document.body.dataset.view !== 'dev' || devicePanelRefreshing) return;
+    devicePanelRefreshing = true;
+    try { await Promise.all([syncMcpTools(), refreshToyConnectionStatus()]); }
+    finally { devicePanelRefreshing = false; }
 }
 
-refreshDevicePanel();
 setInterval(refreshDevicePanel, 30000);
 
 // ═══ 版本翻页 + 编辑 + 重新生成 + 延迟Zep ═══

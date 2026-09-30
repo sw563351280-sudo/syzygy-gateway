@@ -21,6 +21,11 @@ jobs:
       - name: Sync frontend files without restarting the service
         shell: bash
         run: |
+          # Upload only the two new, version-controlled Markdown assets before index.html.
+          ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key root@46.250.248.31 \
+            "mkdir -p /opt/syzygy/public/vendor"
+          scp -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key \
+            public/vendor/marked.min.js public/vendor/marked.LICENSE.md root@46.250.248.31:/opt/syzygy/public/vendor/
           scp -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key \
             public/style.css public/index.html public/script.js public/manifest.json root@46.250.248.31:/opt/syzygy/public/
           ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key root@46.250.248.31 \

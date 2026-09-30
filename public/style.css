@@ -12,8 +12,6 @@
     src: url('./fonts/GreatVibes-Regular.ttf') format('truetype');
     font-display: swap;
 }
-/* 3. 引入谷歌的英文手写体 Caveat */
-@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@500&display=swap');
 
 /* ============================================
    溯星手账 · 星墨美学系统
