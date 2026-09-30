@@ -335,9 +335,10 @@ app.post('/api/logout', (req, res) => {
 // ==========================================
 // 健康检查
 // ==========================================
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
     try {
-        const d = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'web_config.json'), 'utf8'));
+        const d = await webConfigStore.readShared();
+        if (!d) throw new Error('web_config.json 不存在');
         const ms = d.chatSessions[0].messages;
         const last = ms[ms.length-1];
         const v = (last.versions||[{}])[last.activeVersion||0]||{};
@@ -738,6 +739,7 @@ const DATA_DIR = path.join(__dirname, 'data');
 const { createCodexWorkspace, workspaceRouter } = require('./codex-workspace');
 const { createWorkroomTranscriptArchive, recentWorkroomMessages } = require('./workroom-transcripts');
 const { DEFAULT_PAGE_SIZE, historyPage, mergePartialSession } = require('./chat-history');
+const { createWebConfigStore } = require('./web-config-store');
 const codexWorkspace = createCodexWorkspace(DATA_DIR);
 const shenSettings = createShenSettings({ directory: DATA_DIR, legacyPromptFile: path.join(__dirname, 'system_prompt.txt') });
 const workroomTranscriptArchive = createWorkroomTranscriptArchive(path.join(DATA_DIR, 'workroom-transcripts'));
@@ -1965,15 +1967,12 @@ async function generateDailyNoteIfNeeded(recentMessages) {
     let msgs = (recentMessages || []).slice(-50);
     if (msgs.length === 0) {
         try {
-            const configPath = path.join(DATA_DIR, 'web_config.json');
-            if (fs.existsSync(configPath)) {
-                const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-                const mainS = (config.chatSessions || []).find(s => s.id === 'main');
-                msgs = (mainS?.messages || []).slice(-50).map(m => {
-                    const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
-                    return { role: m.role, content: typeof v.content === 'string' ? v.content : '' };
-                });
-            }
+            const config = await webConfigStore.readShared();
+            const mainS = (config?.chatSessions || []).find(s => s.id === 'main');
+            msgs = (mainS?.messages || []).slice(-50).map(m => {
+                const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
+                return { role: m.role, content: typeof v.content === 'string' ? v.content : '' };
+            });
         } catch(e) {}
     }
 
@@ -4342,12 +4341,10 @@ async function loadZepConversationHistory(lastn = 30) {
     }
 }
 
-function loadWebConfigConversationHistory(lastn = 30) {
+async function loadWebConfigConversationHistory(lastn = 30) {
     try {
-        const configPath = path.join(DATA_DIR, 'web_config.json');
-        if (!fs.existsSync(configPath)) return [];
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        const main = (config.chatSessions || []).find(session => session.id === 'main');
+        const config = await webConfigStore.readShared();
+        const main = (config?.chatSessions || []).find(session => session.id === 'main');
         if (!main?.messages?.length) return [];
         return main.messages.slice(-Math.max(1, Number(lastn) || 30) * 2).map(message => {
             const version = getActiveVersionForServer(message);
@@ -4429,7 +4426,7 @@ async function runPrivateJournalReflection(revision) {
         }
 
         const history = await loadZepConversationHistory(PRIVATE_JOURNAL_REFLECTION_MESSAGES);
-        const sourceMessages = history.ok ? history.rawMessages : loadWebConfigConversationHistory(PRIVATE_JOURNAL_REFLECTION_MESSAGES);
+        const sourceMessages = history.ok ? history.rawMessages : await loadWebConfigConversationHistory(PRIVATE_JOURNAL_REFLECTION_MESSAGES);
         const messages = normalizeConversationMessages(sourceMessages, PRIVATE_JOURNAL_REFLECTION_MESSAGES, 700, true, true);
         if (messages.length < 4 || revision !== privateJournalReflectionRevision) return;
 
@@ -4912,9 +4909,8 @@ async function updateUserProfile() {
     console.log('🖼️ [用户画像] 开始更新...');
     try {
         // 从本地聊天记录读取
-        const configPath = path.join(DATA_DIR, 'web_config.json');
-        if (!fs.existsSync(configPath)) return console.log('🖼️ [用户画像] 无本地数据');
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        const config = await webConfigStore.readShared();
+        if (!config) return console.log('🖼️ [用户画像] 无本地数据');
         const mainS = (config.chatSessions || []).find(s => s.id === 'main');
         const allMsgs = (mainS?.messages || []).slice(-40);
         if (allMsgs.length < 4) return console.log('🖼️ [用户画像] 对话不足，跳过');
@@ -5397,7 +5393,7 @@ async function generateProactiveMessage(wakeup = {}) {
     });
     // Always merge the persisted web chat tail. Zep can be healthy yet still
     // lag one turn behind; reading the local JSON costs no model tokens.
-    const fallbackMessages = loadWebConfigConversationHistory(Math.max(30, WAKE_RECENT_MESSAGES));
+    const fallbackMessages = await loadWebConfigConversationHistory(Math.max(30, WAKE_RECENT_MESSAGES));
     const selectedHistory = selectRecentWakeHistory(usableZepMessages, fallbackMessages, WAKE_RECENT_MESSAGES);
     const recentMsgs = normalizeConversationMessages(selectedHistory.messages, WAKE_RECENT_MESSAGES, WAKE_MESSAGE_CHARS, true, false)
         .map((message, index) => {
@@ -5533,7 +5529,7 @@ ${NEXT_WAKE_OUTPUT_INSTRUCTION}`;
             }
             const part = parsed.parts[index];
             console.log(`💌 [主动消息 ${index + 1}/${parsed.parts.length}] ${part}`);
-            const delivery = deliverProactiveMessage(part);
+            const delivery = await deliverProactiveMessage(part);
             if (!delivery.ok) {
                 deliveryFailure = delivery.reason;
                 break;
@@ -5568,71 +5564,76 @@ ${NEXT_WAKE_OUTPUT_INSTRUCTION}`;
         return { error: _proactiveLastError };
     }
 }
-function insertProactiveToConfig(content, messageId = `proactive_${crypto.randomUUID()}`) {
+async function insertProactiveToConfig(content, messageId = `proactive_${crypto.randomUUID()}`) {
     try {
-        const configPath = path.join(DATA_DIR, 'web_config.json');
-        if (!fs.existsSync(configPath)) return;
-        // 增量修改，不整体覆盖：只 push 消息 + 版本号 +1
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        const mainS = (config.chatSessions||[]).find(s => s.id === 'main');
-        if (!mainS) return;
-        if (!mainS.messages) mainS.messages = [];
         const fullTime = new Date().toISOString();
-        mainS.messages.push({ _id: messageId, role:'assistant', versions:[{ content, fullTime, time: new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Shanghai'}), model:'proactive' }], activeVersion:0 });
-        if (mainS.messages.length > 200) mainS.messages = mainS.messages.slice(-200);
-        config._version = (config._version || 0) + 1;
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-        const after = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        console.log('✅ [proactive] v' + config._version + ' msgs=' + ((after.chatSessions||[]).find(s => s.id==='main')||{}).messages?.length + ' [Proactive]');
-        return { id: messageId, fullTime };
-    } catch(e) { console.error('❌ [proactive] write failed:', e.message); return null; }
+        const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' });
+        const outcome = await webConfigStore.transaction(config => {
+            if (!config) return { commit: false, value: null };
+            const main = (config.chatSessions || []).find(session => session.id === 'main');
+            if (!main) return { commit: false, value: null };
+            if (!Array.isArray(main.messages)) main.messages = [];
+            main.messages.push({
+                _id: messageId,
+                role: 'assistant',
+                versions: [{ content, fullTime, time, model: 'proactive' }],
+                activeVersion: 0
+            });
+            config._version = (config._version || 0) + 1;
+            return { data: config, value: { id: messageId, fullTime, version: config._version, messageCount: main.messages.length } };
+        });
+        if (!outcome.committed || !outcome.value) return null;
+        console.log(`✅ [proactive] v${outcome.value.version} msgs=${outcome.value.messageCount} [Proactive]`);
+        return { id: outcome.value.id, fullTime: outcome.value.fullTime };
+    } catch (error) {
+        console.error('❌ [proactive] write failed:', error.message);
+        return null;
+    }
 }
 
-function dedupePersistedDuplicateMessages() {
+async function dedupePersistedDuplicateMessages() {
     try {
-        const configPath = path.join(DATA_DIR, 'web_config.json');
-        if (!fs.existsSync(configPath)) return 0;
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        const main = (config.chatSessions || []).find(session => session.id === 'main');
-        if (!main?.messages?.length) return 0;
-        const activeVersion = item => item?.versions?.[item.activeVersion || 0] || item?.versions?.[0] || item || {};
-        const normalizedContent = item => String(activeVersion(item).content || item?.content || '').replace(/\s+/g, '');
-        const messageTime = item => {
-            const version = activeVersion(item);
-            const parsed = new Date(version.fullTime || item?.fullTime || item?.createdAt || item?.created_at || 0).getTime();
-            return Number.isFinite(parsed) ? parsed : 0;
-        };
-        const kept = [];
-        let removed = 0;
-        for (const item of main.messages) {
-            const previous = kept[kept.length - 1];
-            const version = activeVersion(item);
-            const previousVersion = activeVersion(previous);
-            const content = normalizedContent(item);
-            const previousContent = normalizedContent(previous);
-            const currentTime = messageTime(item);
-            const previousTime = messageTime(previous);
-            const bothProactive = version.model === 'proactive' && previousVersion.model === 'proactive';
-            const sameNearbyAssistant = previous && item.role === 'assistant' && previous.role === 'assistant' &&
-                content.length > 0 && content === previousContent &&
-                currentTime > 0 && previousTime > 0 && Math.abs(currentTime - previousTime) <= 90 * 1000 &&
-                (bothProactive || content.length >= 16);
-            if (sameNearbyAssistant) { removed++; continue; }
-            kept.push(item);
-        }
-        if (removed) {
+        const outcome = await webConfigStore.transaction(config => {
+            if (!config) return { commit: false, value: 0 };
+            const main = (config.chatSessions || []).find(session => session.id === 'main');
+            if (!main?.messages?.length) return { commit: false, value: 0 };
+            const activeVersion = item => item?.versions?.[item.activeVersion || 0] || item?.versions?.[0] || item || {};
+            const normalizedContent = item => String(activeVersion(item).content || item?.content || '').replace(/\s+/g, '');
+            const messageTime = item => {
+                const version = activeVersion(item);
+                const parsed = new Date(version.fullTime || item?.fullTime || item?.createdAt || item?.created_at || 0).getTime();
+                return Number.isFinite(parsed) ? parsed : 0;
+            };
+            const kept = [];
+            let removed = 0;
+            for (const item of main.messages) {
+                const previous = kept[kept.length - 1];
+                const version = activeVersion(item);
+                const previousVersion = activeVersion(previous);
+                const content = normalizedContent(item);
+                const previousContent = normalizedContent(previous);
+                const currentTime = messageTime(item);
+                const previousTime = messageTime(previous);
+                const bothProactive = version.model === 'proactive' && previousVersion.model === 'proactive';
+                const sameNearbyAssistant = previous && item.role === 'assistant' && previous.role === 'assistant' &&
+                    content.length > 0 && content === previousContent &&
+                    currentTime > 0 && previousTime > 0 && Math.abs(currentTime - previousTime) <= 90 * 1000 &&
+                    (bothProactive || content.length >= 16);
+                if (sameNearbyAssistant) { removed++; continue; }
+                kept.push(item);
+            }
+            if (!removed) return { commit: false, value: 0 };
             main.messages = kept;
             config._version = (config._version || 0) + 1;
-            fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-            console.log(`🧹 [消息去重] 清理了 ${removed} 条相邻重复回复`);
-        }
-        return removed;
+            return { data: config, value: removed };
+        });
+        if (outcome.value) console.log(`🧹 [消息去重] 清理了 ${outcome.value} 条相邻重复回复`);
+        return outcome.value || 0;
     } catch (error) {
         console.log(`🧹 [主动消息] 去重失败: ${error.message}`);
         return 0;
     }
 }
-
 async function runWakeOpportunity({ source = 'adaptive', care = null, manual = false, expectedGeneration = null, expectedUserMessageId = null, urgency = 'low' } = {}) {
     if (wakeRunning) return { skipped: 'running' };
     const now = new Date();
@@ -6859,7 +6860,7 @@ async function runXhsWalk(force = false) {
                     throw new Error('生成期间聊天恢复，本次不插话');
                 }
                 const content = `${parsed.parts.join('\n')}\n${candidate.url}`;
-                const delivery = deliverProactiveMessage(content);
+                const delivery = await deliverProactiveMessage(content);
                 if (!delivery.ok) throw new Error(delivery.reason || '分享投递失败');
                 await saveAssistantMessagesToZep([content]);
                 shared.push(candidate.id);
@@ -7000,8 +7001,8 @@ async function resolveXhsViaCloud(url) {
     return result.url;
 }
 
-function deliverProactiveMessage(content) {
-    const stored = insertProactiveToConfig(content);
+async function deliverProactiveMessage(content) {
+    const stored = await insertProactiveToConfig(content);
     if (!stored) return { ok: false, reason: '主动消息没有成功写入 web_config.json，未发送给前端。' };
     const barkBody = content.length > 80 ? content.substring(0, 80) + '...' : content;
     fetch(`https://api.day.app/D9kpuZreHXGepYyuesohUZ/${encodeURIComponent('沈望')}/${encodeURIComponent(barkBody)}?icon=https://syrenth.uk/icon-192.png`, { signal: AbortSignal.timeout(10000) }).catch(() => {});
@@ -7679,7 +7680,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         try {
             const liveCtx = await buildLiveStatePrompt();
             let activeChatId = req.body.activeChatId || 'main';
-            try { const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); activeChatId = req.body.activeChatId || cfg.activeChatId || 'main'; } catch(e) {}
+            try { const cfg = await webConfigStore.readShared(); activeChatId = req.body.activeChatId || cfg?.activeChatId || 'main'; } catch(e) {}
             const memCtx = await scanMemoryRadar(currentUserMsgText);
             let txCtx = '';
             const shouldScan = shouldScanTranscript(currentUserMsgText);
@@ -8806,10 +8807,9 @@ app.post('/trigger-dream', async (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     try {
         const targetDate = req.query.date || ''; // YYYY-MM-DD, 可选
-        const configPath3 = path.join(DATA_DIR, 'web_config.json');
         const zepMessages = [];
-        if (fs.existsSync(configPath3)) {
-            const config3 = JSON.parse(fs.readFileSync(configPath3, 'utf8'));
+        const config3 = await webConfigStore.readShared();
+        if (config3) {
             const mainS3 = (config3.chatSessions || []).find(s => s.id === 'main');
             const allMsgs3 = (mainS3?.messages || []);
             const TECH_KW = ['git ','systemctl','curl','exec','stash','pull','push origin','502','Bad Gateway','重启','npm ','Dream','API','token','max_tokens','prompt','response_format','环境变量','ROUTER_KEY','DZZI_KEY','模型','deepseek'];
@@ -9033,12 +9033,11 @@ function classifyMemories(memories) {
     return {memories,total:memories.length,updated:counts.updated,type_counts:counts.type,valence_bucket:counts.valence_bucket};
 }
 
-app.get('/api/chat-dates', (req, res) => {
+app.get('/api/chat-dates', async (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     try {
-        const configPath = path.join(DATA_DIR, 'web_config.json');
-        if (!fs.existsSync(configPath)) return res.json({ dates: [] });
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        const config = await webConfigStore.readShared();
+        if (!config) return res.json({ dates: [] });
         const mainS = (config.chatSessions || []).find(s => s.id === 'main');
         const dates = {};
         for (const m of (mainS?.messages || [])) {
@@ -9129,10 +9128,9 @@ app.get('/api/memory-page-data', async (req, res) => {
     if (req.query.pwd !== process.env.MEMORY_PASSWORD) return res.status(401).json({ error: "密码错误" });
     try {
         // 从本地聊天记录读取时间线
-        const configPath = path.join(DATA_DIR, 'web_config.json');
         let messages = [];
-        if (fs.existsSync(configPath)) {
-            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        const config = await webConfigStore.readShared();
+        if (config) {
             const mainS = (config.chatSessions || []).find(s => s.id === 'main');
             if (mainS?.messages) {
                 messages = mainS.messages.slice(-200).map((m, i) => {
@@ -10827,167 +10825,237 @@ app.delete('/api/photos/:photo_id', (req, res) => {
 // 云端同步：保存配置与聊天
 // ==========================================
 const CONFIG_FILE = path.join(DATA_DIR, 'web_config.json');
+const webConfigStore = createWebConfigStore(CONFIG_FILE);
+let pendingWorkroomArchive = null;
+let workroomArchiveScheduled = false;
+let lastWorkroomArchiveKey = '';
 
-function clientVisibleMessages(messages = []) {
-    return messages.filter(message => {
-        const versions = Array.isArray(message.versions) && message.versions.length ? message.versions : [message];
-        for (const version of versions) {
-            if (typeof version.content === 'string') version.content = stripOpenClawInternalContext(version.content);
-        }
-        const version = versions[message.activeVersion || 0] || versions[0] || message;
-        const content = version?.content || message.content || '';
-        return !contentHasOpenClawInternalContext(content)
-            && String(content).indexOf('数据加载失败，请刷新页面重试') === -1
-            && contentHasVisibleText(content);
-    });
+function workroomArchiveKey(chatSessions = [], version = 0) {
+    const room = chatSessions.find(session => session?.id === 'syzygy-workroom' || session?.type === 'codex-workroom');
+    if (!room) return '';
+    const messages = Array.isArray(room.messages) ? room.messages : [];
+    const last = messages.at(-1) || {};
+    const active = last.versions?.[last.activeVersion || 0] || last.versions?.[0] || last;
+    return [version, messages.length, last._id || last.id || '', active.fullTime || last.fullTime || '', String(active.content || last.content || '').length].join(':');
 }
 
-app.get('/api/sync-config', (req, res) => {
-    if (fs.existsSync(CONFIG_FILE)) {
-        const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-        // The dated VPS archive owns full workroom history. The browser receives
-        // only the latest 50 complete rounds so opening the room stays light.
-        workroomTranscriptArchive.archive(cfg.chatSessions || []);
-        // 🛡️ 过滤历史遗留的兜底脏消息（"数据加载失败"假消息）
+function flushScheduledWorkroomArchive() {
+    const job = pendingWorkroomArchive;
+    pendingWorkroomArchive = null;
+    if (!job) { workroomArchiveScheduled = false; return; }
+    try {
+        workroomTranscriptArchive.archive(job.sessions);
+        lastWorkroomArchiveKey = job.key;
+    } catch (error) {
+        console.error('❌ [workroom archive] 后台归档失败:', error.message);
+    } finally {
+        workroomArchiveScheduled = false;
+        if (pendingWorkroomArchive) {
+            workroomArchiveScheduled = true;
+            setImmediate(flushScheduledWorkroomArchive);
+        }
+    }
+}
+
+function scheduleWorkroomArchive(chatSessions = [], version = 0) {
+    const room = chatSessions.find(session => session?.id === 'syzygy-workroom' || session?.type === 'codex-workroom');
+    if (!room) return;
+    const key = workroomArchiveKey(chatSessions, version);
+    if (!key || key === lastWorkroomArchiveKey || key === pendingWorkroomArchive?.key) return;
+    pendingWorkroomArchive = { key, sessions: [structuredClone(room)] };
+    if (workroomArchiveScheduled) return;
+    workroomArchiveScheduled = true;
+    setImmediate(flushScheduledWorkroomArchive);
+}
+
+function clientVisibleMessage(message) {
+    const versions = Array.isArray(message?.versions) && message.versions.length ? message.versions : [message];
+    const version = versions[message?.activeVersion || 0] || versions[0] || message || {};
+    const content = typeof version.content === 'string' ? stripOpenClawInternalContext(version.content) : (version.content || message?.content || '');
+    return !contentHasOpenClawInternalContext(content)
+        && String(content).indexOf('数据加载失败，请刷新页面重试') === -1
+        && contentHasVisibleText(content);
+}
+
+function cloneClientMessage(message) {
+    const versions = Array.isArray(message?.versions) && message.versions.length ? message.versions : null;
+    if (versions) {
+        return { ...message, versions: versions.map(version => ({
+            ...version,
+            content: typeof version.content === 'string' ? stripOpenClawInternalContext(version.content) : version.content
+        })) };
+    }
+    return {
+        ...message,
+        content: typeof message?.content === 'string' ? stripOpenClawInternalContext(message.content) : message?.content
+    };
+}
+
+function clientVisibleMessages(messages = []) {
+    return messages.filter(clientVisibleMessage).map(cloneClientMessage);
+}
+
+app.get('/api/sync-config', async (req, res) => {
+    try {
+        const storedConfig = await webConfigStore.readShared();
+        if (!storedConfig) return res.json({ suppliers: [], chatSessions: [] });
+        // Archive comparison runs after this request returns. Saves still archive
+        // synchronously before trimming, so full workroom history stays protected.
+        scheduleWorkroomArchive(storedConfig.chatSessions || [], webConfigStore.diagnostics().signature || storedConfig._version || 0);
+        const cfg = {
+            ...storedConfig,
+            chatSessions: (storedConfig.chatSessions || []).map(session => ({ ...session }))
+        };
         const requestedMainLimit = req.query?.mainLimit === undefined ? 0 : Number.parseInt(req.query.mainLimit, 10);
         const historyWindows = {};
         if (cfg.chatSessions) {
-            for (const s of cfg.chatSessions) {
-                if (!s.messages) continue;
-                const before = s.messages.length;
-                s.messages = clientVisibleMessages(s.messages);
-                if (s.messages.length !== before) {
-                    console.log(`🛡️ [GET] 过滤 ${before - s.messages.length} 条兜底脏消息 (会话 ${s.id})`);
-                    // Filter the response only; reads must not rewrite saved conversation state.
+            for (const session of cfg.chatSessions) {
+                if (!session.messages) continue;
+                const before = session.messages.length;
+                const visibleMessages = session.messages.filter(clientVisibleMessage);
+                if (visibleMessages.length !== before) {
+                    console.log(`🛡️ [GET] 过滤 ${before - visibleMessages.length} 条兜底脏消息 (会话 ${session.id})`);
                 }
-                if (s.id === 'syzygy-workroom' || s.type === 'codex-workroom') {
-                    s.messages = recentWorkroomMessages(s.messages, 50);
-                } else if (s.id === 'main' && Number.isFinite(requestedMainLimit) && requestedMainLimit > 0) {
-                    const page = historyPage(s.messages, s.messages.length, requestedMainLimit);
-                    s.messages = page.messages;
-                    historyWindows[s.id] = { start: page.start, total: page.total, hasMore: page.hasMore, partial: page.start > 0 };
+                if (session.id === 'syzygy-workroom' || session.type === 'codex-workroom') {
+                    session.messages = recentWorkroomMessages(visibleMessages, 50).map(cloneClientMessage);
+                } else if (session.id === 'main' && Number.isFinite(requestedMainLimit) && requestedMainLimit > 0) {
+                    const page = historyPage(visibleMessages, visibleMessages.length, requestedMainLimit);
+                    session.messages = page.messages.map(cloneClientMessage);
+                    historyWindows[session.id] = { start: page.start, total: page.total, hasMore: page.hasMore, partial: page.start > 0 };
+                } else {
+                    session.messages = visibleMessages.map(cloneClientMessage);
                 }
             }
         }
         if (Object.keys(historyWindows).length) cfg._historyWindows = historyWindows;
         res.json(cfg);
-    } else {
-        res.json({ suppliers: [], chatSessions: [] });
+    } catch (error) {
+        console.error('❌ [sync-config] 读取失败:', error.message);
+        res.status(500).json({ error: 'LOAD_FAILED', message: error.message });
     }
 });
 
-app.get('/api/chat-history/:sessionId', (req, res) => {
-    if (!fs.existsSync(CONFIG_FILE)) return res.status(404).json({ error: '聊天记录不存在' });
-    const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-    const session = (cfg.chatSessions || []).find(item => item.id === req.params.sessionId);
-    if (!session) return res.status(404).json({ error: '频道不存在' });
-    if (session.id === 'syzygy-workroom' || session.type === 'codex-workroom') {
-        return res.status(400).json({ error: '共创工作区使用独立档案' });
+app.get('/api/chat-history/:sessionId', async (req, res) => {
+    try {
+        const cfg = await webConfigStore.readShared();
+        if (!cfg) return res.status(404).json({ error: '聊天记录不存在' });
+        const session = (cfg.chatSessions || []).find(item => item.id === req.params.sessionId);
+        if (!session) return res.status(404).json({ error: '频道不存在' });
+        if (session.id === 'syzygy-workroom' || session.type === 'codex-workroom') {
+            return res.status(400).json({ error: '共创工作区使用独立档案' });
+        }
+        const messages = (Array.isArray(session.messages) ? session.messages : []).filter(clientVisibleMessage);
+        const page = historyPage(messages, req.query.before, req.query.limit || DEFAULT_PAGE_SIZE);
+        page.messages = page.messages.map(cloneClientMessage);
+        res.json({ _version: cfg._version || 0, sessionId: session.id, ...page });
+    } catch (error) {
+        console.error('❌ [chat-history] 读取失败:', error.message);
+        res.status(500).json({ error: 'LOAD_FAILED', message: error.message });
     }
-    const messages = clientVisibleMessages(Array.isArray(session.messages) ? session.messages : []);
-    const page = historyPage(messages, req.query.before, req.query.limit || DEFAULT_PAGE_SIZE);
-    res.json({ _version: cfg._version || 0, sessionId: session.id, ...page });
 });
 
-app.post('/api/sync-config', (req, res) => {
+app.post('/api/sync-config', async (req, res) => {
     try {
         const rawLen = JSON.stringify(req.body).length;
         console.log('💾 [sync-config] 收到保存请求 payload ' + (rawLen / 1024).toFixed(0) + ' KB');
-        // 版本号保护：拒绝旧标签页覆盖新数据
         const clientVersion = req.body._version || 0;
-        const existingData = fs.existsSync(CONFIG_FILE) ? JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')) : null;
-        const serverVersion = (existingData && existingData._version) ? existingData._version : 0;
-        if (clientVersion > 0 && clientVersion < serverVersion) {
-            console.log(`🛡️ [写保护] 拒绝旧版本写入 (client v${clientVersion} < server v${serverVersion})`);
-            return res.json({ success: false, _version: serverVersion, _rejected: true, message: '数据已被较新标签页更新，请刷新页面' });
-        }
         const { suppliers, chatSessions, activeSupIndex, activeChatId } = req.body;
         const requestedHistoryWindows = req.body._historyWindows || {};
         const hasPartialHistory = Object.values(requestedHistoryWindows).some(window => window?.partial === true);
-        if (hasPartialHistory && (!clientVersion || clientVersion !== serverVersion)) {
-            console.log(`🛡️ [历史窗口] 拒绝版本不一致的局部写入 (client v${clientVersion}, server v${serverVersion})`);
-            return res.json({ success: false, _version: serverVersion, _rejected: true, message: '聊天历史已更新，请重新同步' });
-        }
-        let sanitizedChatSessions = (chatSessions || []).map(session => ({
-            ...session,
-            messages: (session.messages || []).map(message => {
-                const versions = Array.isArray(message.versions) && message.versions.length ? message.versions : null;
-                if (versions) {
-                    return { ...message, versions: versions.map(version => ({ ...version, content: sanitizeOpenClawContent(version.content) })) };
-                }
-                return { ...message, content: sanitizeOpenClawContent(message.content) };
-            }).filter(message => {
-                const version = message.versions?.[message.activeVersion || 0] || message.versions?.[0] || message;
-                return !contentHasOpenClawInternalContext(version?.content);
-            })
-        }));
-        if (hasPartialHistory) {
-            const existingById = new Map((existingData?.chatSessions || []).map(session => {
-                const safeSession = structuredClone(session);
-                safeSession.messages = clientVisibleMessages(Array.isArray(safeSession.messages) ? safeSession.messages : []);
-                return [safeSession.id, safeSession];
-            }));
-            try {
-                sanitizedChatSessions = sanitizedChatSessions.map(session => (
-                    mergePartialSession(existingById.get(session.id), session, requestedHistoryWindows[session.id])
-                ));
-            } catch (error) {
-                if (error.code === 'HISTORY_WINDOW_MISMATCH') {
-                    console.log(`🛡️ [历史窗口] 拒绝边界不匹配的局部写入: ${error.message}`);
-                    return res.json({ success: false, _version: serverVersion, _rejected: true, message: error.message });
-                }
-                throw error;
+        const outcome = await webConfigStore.transaction(existingData => {
+            const serverVersion = existingData?._version || 0;
+            if (clientVersion > 0 && clientVersion < serverVersion) {
+                console.log(`🛡️ [写保护] 拒绝旧版本写入 (client v${clientVersion} < server v${serverVersion})`);
+                return { commit: false, value: { response: { success: false, _version: serverVersion, _rejected: true, message: '数据已被较新标签页更新，请刷新页面' } } };
             }
+            if (hasPartialHistory && (!clientVersion || clientVersion !== serverVersion)) {
+                console.log(`🛡️ [历史窗口] 拒绝版本不一致的局部写入 (client v${clientVersion}, server v${serverVersion})`);
+                return { commit: false, value: { response: { success: false, _version: serverVersion, _rejected: true, message: '聊天历史已更新，请重新同步' } } };
+            }
+            let sanitizedChatSessions = (chatSessions || []).map(session => ({
+                ...session,
+                messages: (session.messages || []).map(message => {
+                    const versions = Array.isArray(message.versions) && message.versions.length ? message.versions : null;
+                    if (versions) {
+                        return { ...message, versions: versions.map(version => ({ ...version, content: sanitizeOpenClawContent(version.content) })) };
+                    }
+                    return { ...message, content: sanitizeOpenClawContent(message.content) };
+                }).filter(message => {
+                    const version = message.versions?.[message.activeVersion || 0] || message.versions?.[0] || message;
+                    return !contentHasOpenClawInternalContext(version?.content);
+                })
+            }));
+            if (hasPartialHistory) {
+                const existingById = new Map((existingData?.chatSessions || []).map(session => {
+                    const safeSession = { ...session };
+                    safeSession.messages = clientVisibleMessages(Array.isArray(session.messages) ? session.messages : []);
+                    return [safeSession.id, safeSession];
+                }));
+                try {
+                    sanitizedChatSessions = sanitizedChatSessions.map(session => (
+                        mergePartialSession(existingById.get(session.id), session, requestedHistoryWindows[session.id])
+                    ));
+                } catch (error) {
+                    if (error.code === 'HISTORY_WINDOW_MISMATCH') {
+                        console.log(`🛡️ [历史窗口] 拒绝边界不匹配的局部写入: ${error.message}`);
+                        return { commit: false, value: { response: { success: false, _version: serverVersion, _rejected: true, message: error.message } } };
+                    }
+                    throw error;
+                }
+            }
+            const dirtySession = sanitizedChatSessions.find(session => (session.name || '').includes('加载中'));
+            if (dirtySession) {
+                console.log(`🛡️ [脏数据] 拒绝保存脏会话 "${dirtySession.name}" (client v${clientVersion})`);
+                return { commit: false, value: { response: { success: false, _version: serverVersion, _rejected: true, message: '检测到脏会话状态，请刷新页面' } } };
+            }
+            const hasDirtyMsg = sanitizedChatSessions.some(session => (session.messages || []).some(message => {
+                const version = message.versions?.[message.activeVersion || 0] || message.versions?.[0] || message;
+                const content = version?.content || message.content || '';
+                return String(content).indexOf('数据加载失败，请刷新页面重试') !== -1;
+            }));
+            if (hasDirtyMsg) {
+                console.log(`🛡️ [脏消息] 拒绝保存含兜底假消息的 payload (client v${clientVersion})`);
+                return { commit: false, value: { response: { success: false, _version: serverVersion, _rejected: true, message: '检测到兜底假消息，请刷新页面' } } };
+            }
+            const hasMain = sanitizedChatSessions.some(session => session.id === 'main' && Array.isArray(session.messages) && session.messages.length > 0);
+            if (!hasMain && existingData?.chatSessions?.some(session => session.id === 'main' && session.messages?.length > 0)) {
+                console.log(`🛡️ [空数据] 拒绝保存空会话覆盖 (client v${clientVersion}, server v${serverVersion})`);
+                return { commit: false, value: { response: { success: false, _version: serverVersion, _rejected: true, message: '空数据写入被拒绝，请刷新页面' } } };
+            }
+            const newVersion = serverVersion + 1;
+            workroomTranscriptArchive.archive(sanitizedChatSessions);
+            const storedChatSessions = sanitizedChatSessions.map(session => (
+                session.id === 'syzygy-workroom' || session.type === 'codex-workroom'
+                    ? { ...session, messages: recentWorkroomMessages(session.messages, 50) }
+                    : session
+            ));
+            const data = {
+                ...(existingData || {}),
+                _version: newVersion,
+                suppliers: suppliers || [],
+                chatSessions: storedChatSessions,
+                activeSupIndex: activeSupIndex || 0,
+                activeChatId: activeChatId || 'main'
+            };
+            return {
+                data,
+                value: {
+                    response: { success: true, _version: newVersion },
+                    archiveSessions: data.chatSessions,
+                    newVersion
+                }
+            };
+        });
+        if (outcome.committed) {
+            if (outcome.value.archiveSessions) lastWorkroomArchiveKey = workroomArchiveKey(outcome.value.archiveSessions, webConfigStore.diagnostics().signature || outcome.value.newVersion);
+            console.log('✅ [sync-config] 写入成功 v' + outcome.value.newVersion + ' 文件 ' + (outcome.fileSize / 1024).toFixed(0) + ' KB  来源: ' + (req.headers['user-agent'] || '?').substring(0,60) + '  ip: ' + (req.ip || '?').substring(0,20));
         }
-        // 🛡️ 拒绝保存兜底脏状态：会话名为"加载中...（请刷新）"时拒绝写入，防止前端断连后覆盖正常数据
-        const dirtySession = sanitizedChatSessions.find(s => (s.name || '').includes('加载中'));
-        if (dirtySession) {
-            console.log(`🛡️ [脏数据] 拒绝保存脏会话 "${dirtySession.name}" (client v${clientVersion})`);
-            return res.json({ success: false, _version: serverVersion, _rejected: true, message: '检测到脏会话状态，请刷新页面' });
-        }
-        // 🛡️ 拒绝含兜底脏消息的 payload（"数据加载失败"假消息）
-        const hasDirtyMsg = sanitizedChatSessions.some(s => (s.messages || []).some(m => {
-            const v = (m.versions && m.versions.length) ? (m.versions[m.activeVersion || 0] || m.versions[0]) : m;
-            const c = (v && v.content) || m.content || '';
-            return String(c).indexOf('数据加载失败，请刷新页面重试') !== -1;
-        }));
-        if (hasDirtyMsg) {
-            console.log(`🛡️ [脏消息] 拒绝保存含兜底假消息的 payload (client v${clientVersion})`);
-            return res.json({ success: false, _version: serverVersion, _rejected: true, message: '检测到兜底假消息，请刷新页面' });
-        }
-        // 🛡️ 拒绝空数据覆盖：main 会话必须存在且有消息（防止 sendBeacon 空 payload 清空数据）
-        const hasMain = sanitizedChatSessions.some(s => s.id === 'main' && Array.isArray(s.messages) && s.messages.length > 0);
-        if (!hasMain && existingData && existingData.chatSessions && existingData.chatSessions.some(s => s.id === 'main' && s.messages && s.messages.length > 0)) {
-            console.log(`🛡️ [空数据] 拒绝保存空会话覆盖 (client v${clientVersion}, server v${serverVersion})`);
-            return res.json({ success: false, _version: serverVersion, _rejected: true, message: '空数据写入被拒绝，请刷新页面' });
-        }
-        const newVersion = serverVersion + 1;
-        workroomTranscriptArchive.archive(sanitizedChatSessions);
-        const storedChatSessions = sanitizedChatSessions.map(session => (
-            session.id === 'syzygy-workroom' || session.type === 'codex-workroom'
-                ? { ...session, messages: recentWorkroomMessages(session.messages, 50) }
-                : session
-        ));
-        const data = {
-            ...(existingData || {}),
-            _version: newVersion,
-            suppliers: suppliers || [],
-            chatSessions: storedChatSessions,
-            activeSupIndex: activeSupIndex || 0,
-            activeChatId: activeChatId || 'main'
-        };
-        fs.writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2));
-        const fileSize = fs.statSync(CONFIG_FILE).size;
-        console.log('✅ [sync-config] 写入成功 v' + newVersion + ' 文件 ' + (fileSize / 1024).toFixed(0) + ' KB  来源: ' + (req.headers['user-agent'] || '?').substring(0,60) + '  ip: ' + (req.ip || '?').substring(0,20));
-        res.json({ success: true, _version: newVersion });
-        // Summary generation belongs to threshold-based chat projection, not every save.
-        // Legacy summaries remain on disk; this path must not initiate paid requests.
-    } catch(e) {
-        console.error('❌ [sync-config] 保存失败:', e.message);
-        res.status(500).json({ error: 'SAVE_FAILED', message: e.message });
+        res.json(outcome.value.response);
+    } catch (error) {
+        console.error('❌ [sync-config] 保存失败:', error.message);
+        res.status(500).json({ error: 'SAVE_FAILED', message: error.message });
     }
 });
-
 app.get('/api/user-state', (req, res) => { res.json({ success: true, user_state: loadUserState() }); });
 
 app.post('/api/user-state', (req, res) => {
@@ -11261,7 +11329,7 @@ server.listen(PORT, () => {
     console.log(`🚀 服务器已启动，端口: ${PORT}`);
     migrateLongTermMemoriesToPermanent();
     loadLastInteraction();
-    dedupePersistedDuplicateMessages();
+    void dedupePersistedDuplicateMessages();
     latestSensorState = loadSensorState();
     if (latestSensorState) console.log('📡 [Sensor] 已加载传感器状态');
     initUserProfile();

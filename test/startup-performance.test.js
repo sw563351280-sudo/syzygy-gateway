@@ -61,25 +61,29 @@ test('device requests run only in visible dev panel and do not overlap', async (
     await context.refreshDevicePanel(); assert.equal(calls, 4);
 });
 
-test('sync GET filters and limits the response without rewriting saved conversations', () => {
+test('sync GET filters and limits the response without rewriting saved conversations', async () => {
     const messages = Array.from({ length: 120 }, (_, i) => ({ _id: 'm' + i, role: i % 2 ? 'assistant' : 'user', content: 'message ' + i }));
     const stored = JSON.stringify({ chatSessions: [
         { id: 'syzygy-workroom', messages },
         { id: 'main', messages: [{ role: 'assistant', content: '数据加载失败，请刷新页面重试' }, { role: 'user', content: 'keep me' }] }
     ] });
     let saved = stored, response, archived, handler, writes = 0;
+    const sharedConfig = JSON.parse(saved);
     const context = { CONFIG_FILE: 'fixture.json', console,
         fs: { existsSync: () => true, readFileSync: () => saved, writeFileSync: (_p, value) => { saved = value; writes++; } },
         workroomTranscriptArchive: { archive: sessions => { archived = JSON.parse(JSON.stringify(sessions)); } },
+        webConfigStore: { readShared: async () => sharedConfig, diagnostics: () => ({ signature: 'fixture' }) }, scheduleWorkroomArchive: sessions => { archived = JSON.parse(JSON.stringify(sessions)); },
         recentWorkroomMessages, stripOpenClawInternalContext: v => v,
         contentHasOpenClawInternalContext: () => false, contentHasVisibleText: v => Boolean(String(v).trim()),
         app: { get: (_route, callback) => { handler = callback; } } };
-    const begin = server.indexOf('function clientVisibleMessages(');
+    const begin = server.indexOf('function clientVisibleMessage(');
     vm.runInNewContext(server.slice(begin, server.indexOf("app.get('/api/chat-history/:sessionId'", begin)), context);
-    handler({}, { json: value => { response = value; } });
+    await handler({}, { status() { return this; }, json: value => { response = value; } });
     assert.equal(response.chatSessions[0].messages.length, 100);
     assert.equal(response.chatSessions[1].messages.length, 1);
     assert.equal(archived[0].messages.length, 120);
+    assert.equal(sharedConfig.chatSessions[0].messages.length, 120, 'response projection must not trim the shared cache');
+    assert.equal(sharedConfig.chatSessions[1].messages.length, 2, 'response filtering must not rewrite the shared cache');
     assert.equal(writes, 0, 'reading data must not persist a trimmed response');
     assert.equal(saved, stored);
 });
