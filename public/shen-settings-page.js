@@ -17,7 +17,7 @@ function shenSettingsValues() {
 }
 
 function shenSettingsSetEnabled(enabled) {
-    ['shenSettingsPromptA', 'shenSettingsPromptB', 'shenSettingsSave'].forEach(id => {
+    ['shenSettingsPromptA', 'shenSettingsPromptB', 'shenSettingsSaveButton'].forEach(id => {
         const element = document.getElementById(id);
         if (element) element.disabled = !enabled;
     });
@@ -34,7 +34,7 @@ function shenSettingsRenderSelection() {
         }
         if (panel) panel.hidden = !selected;
     }
-    const save = document.getElementById('shenSettingsSave');
+    const save = document.getElementById('shenSettingsSaveButton');
     if (save) save.textContent = `保存并启用 ${shenSettingsActive} 版`;
 }
 
@@ -106,7 +106,7 @@ async function shenSettingsLoad() {
 
 async function shenSettingsSave() {
     const status = document.getElementById('shenSettingsStatus');
-    const button = document.getElementById('shenSettingsSave');
+    const button = document.getElementById('shenSettingsSaveButton');
     const values = shenSettingsValues();
     if (!values.prompts.A.trim() || !values.prompts.B.trim()) {
         if (status) status.textContent = 'A/B 两版 Prompt 都需要填写。';

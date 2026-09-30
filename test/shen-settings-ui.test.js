@@ -72,3 +72,8 @@ test('copying a prompt creates an editable other variant without saving', async 
     assert.equal(requests.length, 1);
     assert.match(document.getElementById('shenSettingsStatus').textContent, /保存后才会启用/);
 });
+test('save control cannot shadow the inline save handler', () => {
+    const html = fs.readFileSync(require.resolve('../public/index.html'), 'utf8');
+    assert.match(html, /id="shenSettingsSaveButton"[^>]*onclick="shenSettingsSave\(\)"/);
+    assert.doesNotMatch(html, /id="shenSettingsSave"/);
+});
