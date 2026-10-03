@@ -1059,7 +1059,7 @@ function initializeView(viewId) {
 function goView(viewId) {
     if (viewId === 'chat' && activeChatId !== 'main') switchChatWindow('main');
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    const map = { home:'sec-home', chat:'sec-chat', favorites:'sec-favorites', dev:'sec-dev', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state', ledger:'sec-ledger', 'private-journal':'sec-private-journal' };
+    const map = { home:'sec-home', chat:'sec-chat', favorites:'sec-favorites', dev:'sec-dev', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state', ledger:'sec-ledger', 'private-journal':'sec-private-journal', settings:'sec-app-settings' };
     map['shen-settings'] = 'sec-shen-settings';
     map['codex-settings'] = 'sec-codex-settings';
     map['work-records'] = 'sec-work-records';
@@ -1068,8 +1068,8 @@ function goView(viewId) {
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
     const metaTheme = document.getElementById('theme-color-meta');
-    if (metaTheme) metaTheme.setAttribute('content', viewId === 'chat' ? '#EFF6FD' : (viewId === 'home' && target.classList.contains('home-layout-v2') ? '#7890AA' : '#E8EFF7'));
-    const VIEWS = ['home','chat','favorites','dev','console','flo','calendar','album','state','ledger','private-journal'];
+    if (metaTheme) metaTheme.setAttribute('content', getVisualThemeColor(viewId));
+    const VIEWS = ['home','chat','favorites','dev','console','flo','calendar','album','state','ledger','private-journal','settings'];
     VIEWS.push('shen-settings', 'codex-settings', 'work-records', 'tt-memories');
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);
@@ -1901,18 +1901,35 @@ function neuUpdateNav() {
     });
 }
 
-// ═══ Together 天数 ═══
-const HOME_LAYOUT_KEY = 'syzygy_home_layout';
+// ═══ 全局视觉主题 + Together 天数 ═══
+const VISUAL_THEME_KEY = 'syzygy_visual_theme';
+const LEGACY_HOME_LAYOUT_KEY = 'syzygy_home_layout';
 
-function setHomeLayout(layout, persist = true) {
-    const normalized = layout === 'new' ? 'new' : 'classic';
+function getVisualTheme() {
+    return document.documentElement.dataset.visualTheme === 'new' ? 'new' : 'classic';
+}
+
+function getVisualThemeColor(viewId = document.body?.dataset?.view || 'home') {
+    const isNew = getVisualTheme() === 'new';
+    if (!isNew) return viewId === 'chat' ? '#EFF6FD' : '#E8EFF7';
+    if (viewId === 'home') return '#7890AA';
+    if (viewId === 'dev' || viewId === 'console') return '#101827';
+    return '#DCE8F1';
+}
+
+function applyVisualTheme(theme, persist = true) {
+    const normalized = theme === 'new' ? 'new' : 'classic';
+    const isNew = normalized === 'new';
+    document.documentElement.dataset.visualTheme = normalized;
+    document.body.dataset.visualTheme = normalized;
     const home = document.getElementById('sec-home');
     if (!home) return;
-    const isNew = normalized === 'new';
     home.classList.toggle('home-layout-v2', isNew);
     home.dataset.homeLayout = normalized;
-    home.querySelectorAll('.home-layout-switch [data-home-layout]').forEach(button => {
-        button.setAttribute('aria-pressed', String(button.dataset.homeLayout === normalized));
+    document.querySelectorAll('[data-visual-theme-option]').forEach(button => {
+        const selected = button.dataset.visualThemeOption === normalized;
+        button.setAttribute('aria-pressed', String(selected));
+        button.classList.toggle('is-selected', selected);
     });
     const classicHome = home.querySelector('.neu-home');
     const newHome = document.getElementById('homeV2');
@@ -1934,13 +1951,17 @@ function setHomeLayout(layout, persist = true) {
         }
     }
     if (persist) {
-        try { localStorage.setItem(HOME_LAYOUT_KEY, normalized); } catch (_) {}
+        try {
+            localStorage.setItem(VISUAL_THEME_KEY, normalized);
+            localStorage.setItem(LEGACY_HOME_LAYOUT_KEY, normalized);
+        } catch (_) {}
     }
-    if (document.body.dataset.view === 'home' || home.classList.contains('active')) {
-        const metaTheme = document.getElementById('theme-color-meta');
-        if (metaTheme) metaTheme.setAttribute('content', isNew ? '#7890AA' : '#E8EFF7');
-    }
+    const metaTheme = document.getElementById('theme-color-meta');
+    if (metaTheme) metaTheme.setAttribute('content', getVisualThemeColor());
 }
+
+// 兼容旧缓存页面里可能残留的首页切换调用。
+function setHomeLayout(layout, persist = true) { applyVisualTheme(layout, persist); }
 
 function toggleHomeV2More() {
     const panel = document.getElementById('homeV2More');
@@ -1951,10 +1972,10 @@ function toggleHomeV2More() {
     toggle.innerHTML = panel.hidden ? '···&nbsp; 更多' : '收起&nbsp; ···';
 }
 
-function initHomeLayout() {
+function initVisualTheme() {
     let saved = 'classic';
-    try { saved = localStorage.getItem(HOME_LAYOUT_KEY) || 'classic'; } catch (_) {}
-    setHomeLayout(saved, false);
+    try { saved = localStorage.getItem(VISUAL_THEME_KEY) || localStorage.getItem(LEGACY_HOME_LAYOUT_KEY) || 'classic'; } catch (_) {}
+    applyVisualTheme(saved, false);
 }
 
 function updateDays(){
@@ -1967,7 +1988,7 @@ function updateDays(){
     const homeV2Day = document.getElementById('homeV2DayCount');
     if(homeV2Day) homeV2Day.innerText = diff >= 0 ? diff : '∞';
 }
-initHomeLayout();
+initVisualTheme();
 updateDays();
 
 let hbInterval;
@@ -4019,8 +4040,9 @@ function toggleLightMode() { enforceNeuTheme(); }
 // ==================== 终极点火装置 ====================
 function enforceNeuTheme() {
     document.body.classList.add('neu-mode');
+    document.body.dataset.visualTheme = getVisualTheme();
     const metaTheme = document.getElementById('theme-color-meta');
-    if (metaTheme) metaTheme.setAttribute('content', '#E8EFF7');
+    if (metaTheme) metaTheme.setAttribute('content', getVisualThemeColor());
 }
 
 window.addEventListener('DOMContentLoaded', enforceNeuTheme);
