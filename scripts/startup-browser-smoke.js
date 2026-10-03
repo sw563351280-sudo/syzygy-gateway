@@ -42,6 +42,11 @@ async function main() {
     app.get('/api/period', (_req, res) => res.json({ status: { inPeriod: false }, records: [] }));
     app.get('/api/music/status', (_req, res) => res.json({ csrfToken: 'fixture', configured: false, session: { mode: 'local', state: 'idle', offers: [] } }));
     app.get('/api/music/session', (_req, res) => res.json({ mode: 'local', state: 'idle', offers: [] }));
+    app.get('/api/ledger/overview', (_req, res) => res.json({ success: true, data: { balance_cents: 1234, income_cents: 2000, expense_cents: 766, savings_rate: 62, daily: {}, category_breakdown: [], count: 0, recent: [], previous_expense_cents: 0 } }));
+    app.get('/api/calendar', (_req, res) => res.json({ success: true, data: [] }));
+    app.get('/api/photos', (_req, res) => res.json({ photos: [] }));
+    app.get('/api/user-state', (_req, res) => res.json({ user_state: { slots: {} } }));
+    app.get('/diary-logs', (_req, res) => res.json([]));
     app.post('/api/fetch-models', async (_req, res) => {
         if (modelReplyMode === 'slow-error') {
             await sleep(1400);
@@ -93,6 +98,8 @@ async function main() {
             assert.equal(metrics.hiddenChatRows, 0);
             assert.equal(initial.hiddenChatImageLoaded, false);
             assert.equal(external.length, 0);
+            assert.equal(resources.some(url => url.includes('/home-tools.')), false, 'secondary home tools stay unloaded on startup');
+            assert.equal(await page.evaluate(() => document.querySelector('#starmap')?.dataset.motion), 'animated');
             for (const endpoint of ['/api/tools-status', '/api/mcp/servers', '/api/toy-status']) assert.equal(requests.includes(endpoint), false);
             await page.waitForFunction(() => document.querySelector('#modelSelect')?.value === 'fixture-model');
             modelReplyMode = 'slow-error';
@@ -129,6 +136,24 @@ async function main() {
             await page.setViewport({ width: 393, height: 852, isMobile: true, hasTouch: true });
             await page.evaluate(() => goView('home'));
             assert.equal(await page.evaluate(() => document.querySelector('#sec-home').classList.contains('active')), true);
+            await page.evaluate(() => goView('album'));
+            await page.waitForFunction(() => typeof window.albumLoad === 'function' && document.querySelector('#sec-album')?.getAttribute('aria-busy') === null);
+            assert.equal(await page.evaluate(() => document.querySelector('#sec-album').classList.contains('active')), true);
+            assert.ok(resources.some(url => url.includes('/home-tools.js?v=1')), 'album view loads the secondary script on demand');
+            assert.ok(resources.some(url => url.includes('/home-tools.css?v=1')), 'album view loads the secondary stylesheet on demand');
+            assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#albumGrid')).display), 'grid');
+            await page.evaluate(() => goView('ledger'));
+            await page.waitForFunction(() => document.querySelector('#ledgerBalance')?.textContent === '¥12.34');
+            await page.evaluate(() => goView('calendar'));
+            await page.waitForFunction(() => document.querySelectorAll('#calGrid .cal-cell').length >= 28);
+            await page.evaluate(() => goView('state'));
+            await page.waitForFunction(() => document.querySelector('#stateView')?.textContent === '还没有记录过状态');
+            assert.equal(resources.filter(url => url.includes('/home-tools.js?v=1')).length, 1, 'secondary script loads once across tool pages');
+            assert.equal(resources.filter(url => url.includes('/home-tools.css?v=1')).length, 1, 'secondary stylesheet loads once across tool pages');
+            await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+            await page.waitForFunction(() => document.querySelector('#starmap')?.dataset.motion === 'static');
+            await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+            await page.waitForFunction(() => document.querySelector('#starmap')?.dataset.motion === 'animated');
             console.log('Desktop/mobile navigation, Markdown rendering and on-demand device refresh passed.');
         }
         assert.deepEqual(errors, []);

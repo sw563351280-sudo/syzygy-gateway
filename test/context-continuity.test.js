@@ -36,8 +36,9 @@ test('browser module and actual unload saver persist stable IDs and proof withou
 
 test('an idle hidden page does not write a new cloud version', () => {
     const script = fs.readFileSync(path.join(__dirname, '../public/script.js'), 'utf8');
-    const start = script.indexOf("document.addEventListener('visibilitychange'");
-    const end = script.indexOf('// 统计 sessions', start);
+    const start = script.indexOf("document.addEventListener('visibilitychange', function ()");
+    const end = script.indexOf("window.addEventListener('online'", start);
+    assert.ok(start >= 0 && end > start, 'unload save listener must be extractable');
     const handlers = {};
     let beacons = 0; let backups = 0; let pending = false;
     const context = {
