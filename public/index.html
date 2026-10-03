@@ -78,6 +78,10 @@
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
                 <span>收藏夹</span>
             </div>
+            <div class="neu-card neu-grid-card" onclick="goView('private-journal')">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5A2.5 2.5 0 0 1 7.5 2H20v18H7.5A2.5 2.5 0 0 0 5 22Z"/><path d="M5 4.5v15M10 9V7a2 2 0 0 1 4 0v2"/><rect x="8.5" y="9" width="7" height="5.5" rx="1.2"/></svg>
+                <span>锁页日记</span>
+            </div>
             <div class="neu-card neu-grid-card" onclick="openStarCrossing()">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 22,9 12,17 2,9"/><polygon points="12,17 22,9 12,22 2,9"/></svg>
                 <span>星渡</span>
@@ -257,6 +261,29 @@
             </details>
         </form>
     </div>
+
+<div class="section" id="sec-private-journal">
+    <div class="page-floating-topbar">
+        <button class="page-home-pill" onclick="goView('home')" aria-label="返回首页">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+            <span>锁页日记</span>
+        </button>
+        <div class="page-floating-actions">
+            <button onclick="privateJournalLoad(true)" title="刷新锁页" aria-label="刷新锁页日记">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66"/><path d="M20 4v7h-7"/></svg>
+            </button>
+        </div>
+    </div>
+    <main class="private-journal-page">
+        <section class="private-journal-intro">
+            <div class="private-journal-emblem" aria-hidden="true">⌑</div>
+            <div><p class="private-journal-kicker">SHEN WANG · SEALED PAGES</p><h1>他没有说出口的页角</h1><p>你可以敲一敲锁，但只有沈望愿意时，这一页才会打开。</p></div>
+        </section>
+        <div class="private-journal-summary"><span id="privateJournalCount">—</span><small>页被好好收着</small></div>
+        <div id="privateJournalList" class="private-journal-list" aria-live="polite"><div class="private-journal-empty">正在轻轻翻开抽屉…</div></div>
+        <button id="privateJournalMore" class="private-journal-more" type="button" onclick="privateJournalLoadMore()" hidden>更早的页</button>
+    </main>
+</div>
 
 <div class="section" id="sec-favorites">
     <div class="page-floating-topbar">

@@ -168,6 +168,18 @@ function handleWSMessage(msg) {
         case 'memory_event_attention': toast('有一条记忆需要确认'); break;
         case 'memory_write_failed': toast(msg.message || '记忆保存失败，请稍后重试'); break;
         case 'memory_merge_review': toast('有一条记忆合并建议待确认'); break;
+        case 'private_journal_written':
+        case 'private_journal_requested':
+            if (document.getElementById('sec-private-journal')?.classList.contains('active')) privateJournalLoad(true);
+            break;
+        case 'private_journal_revealed':
+            toast('沈望打开了一页日记');
+            if (document.getElementById('sec-private-journal')?.classList.contains('active')) privateJournalLoad(true);
+            break;
+        case 'private_journal_kept_sealed':
+            toast('沈望决定让这一页继续锁着');
+            if (document.getElementById('sec-private-journal')?.classList.contains('active')) privateJournalLoad(true);
+            break;
         case 'proactive_message': handleProactiveMessage(msg); break;
         case 'todo_added':
         case 'todo_updated':
@@ -242,6 +254,9 @@ let _modelFetchSequence = 0;
 let _historyWindows = {};
 let _visibleMessageCounts = {};
 let _historyLoading = false;
+let privateJournalEntries = [];
+let privateJournalPage = 1;
+let privateJournalTotal = 0;
 
 function syncConfigUrl() {
     return '/api/sync-config?mainLimit=' + CHAT_HISTORY_INITIAL_LIMIT;
@@ -1032,6 +1047,7 @@ function initializeView(viewId) {
     if (viewId === 'flo') floRender();
     if (viewId === 'calendar') calRender();
     if (viewId === 'ledger') ledgerRender();
+    if (viewId === 'private-journal') privateJournalLoad(true);
     if (viewId === 'shen-settings') shenSettingsLoad();
     if (viewId === 'codex-settings') codexSettingsLoad();
     if (viewId === 'work-records') codexRecordsLoad();
@@ -1043,7 +1059,7 @@ function initializeView(viewId) {
 function goView(viewId) {
     if (viewId === 'chat' && activeChatId !== 'main') switchChatWindow('main');
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    const map = { home:'sec-home', chat:'sec-chat', favorites:'sec-favorites', dev:'sec-dev', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state', ledger:'sec-ledger' };
+    const map = { home:'sec-home', chat:'sec-chat', favorites:'sec-favorites', dev:'sec-dev', console:'sec-console', flo:'sec-flo', calendar:'sec-calendar', album:'sec-album', state:'sec-state', ledger:'sec-ledger', 'private-journal':'sec-private-journal' };
     map['shen-settings'] = 'sec-shen-settings';
     map['codex-settings'] = 'sec-codex-settings';
     map['work-records'] = 'sec-work-records';
@@ -1053,7 +1069,7 @@ function goView(viewId) {
     target.classList.add("active"); document.body.dataset.view = viewId;
     const metaTheme = document.getElementById('theme-color-meta');
     if (metaTheme) metaTheme.setAttribute('content', viewId === 'chat' ? '#EFF6FD' : '#E8EFF7');
-    const VIEWS = ['home','chat','favorites','dev','console','flo','calendar','album','state','ledger'];
+    const VIEWS = ['home','chat','favorites','dev','console','flo','calendar','album','state','ledger','private-journal'];
     VIEWS.push('shen-settings', 'codex-settings', 'work-records', 'tt-memories');
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
     document.body.classList.add('view-' + viewId);
@@ -3377,6 +3393,103 @@ async function fetchModels(){
 
 // ==================== 智能日记本 ====================
 
+function privateJournalDate(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '很久以前';
+    return new Intl.DateTimeFormat('zh-CN', {
+        timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+    }).format(date);
+}
+
+function privateJournalRender() {
+    const list = document.getElementById('privateJournalList');
+    const count = document.getElementById('privateJournalCount');
+    const more = document.getElementById('privateJournalMore');
+    if (!list) return;
+    if (count) count.textContent = String(privateJournalTotal || 0);
+    if (!privateJournalEntries.length) {
+        list.innerHTML = '<div class="private-journal-empty"><span>⌑</span><strong>抽屉里还没有留下书页</strong><small>真正值得记住的时刻出现时，沈望会自己写。</small></div>';
+        if (more) more.hidden = true;
+        return;
+    }
+    list.innerHTML = privateJournalEntries.map(entry => {
+        const revealed = entry.visibility === 'revealed';
+        const pending = entry.request_status === 'requested';
+        const kept = entry.request_status === 'kept_sealed';
+        const status = revealed ? '已经打开' : pending ? '请求已递给沈望' : kept ? '他暂时留着这把锁' : '仍然封存';
+        const body = revealed
+            ? '<div class="private-journal-content">' + escapeHtml(entry.content || '').replace(/\n/g, '<br>') + '</div>'
+            : '<div class="private-journal-seal"><span aria-hidden="true">⌑</span><p>正文还在锁里。<br>请求不是命令，他可以选择暂时不给你看。</p></div>';
+        const action = revealed ? '' : '<button type="button" class="private-journal-request" data-journal-id="' + escapeHtml(entry.id) + '">' + (pending ? '去聊天里问他' : kept ? '以后再问一次' : '请求查看') + '</button>';
+        return '<article class="private-journal-card ' + (revealed ? 'is-revealed' : 'is-sealed') + '">' +
+            '<div class="private-journal-card-head"><div><small>' + escapeHtml(privateJournalDate(entry.created_at)) + '</small><h2>' + escapeHtml(entry.title || '未启封的一页') + '</h2></div><span class="private-journal-state">' + escapeHtml(status) + '</span></div>' +
+            body + action + '</article>';
+    }).join('');
+    list.querySelectorAll('[data-journal-id]').forEach(button => button.addEventListener('click', () => privateJournalRequest(button.dataset.journalId)));
+    if (more) more.hidden = privateJournalEntries.length >= privateJournalTotal;
+}
+
+async function privateJournalLoad(reset) {
+    const list = document.getElementById('privateJournalList');
+    if (!list) return;
+    if (reset) {
+        privateJournalPage = 1;
+        privateJournalEntries = [];
+        list.innerHTML = '<div class="private-journal-empty">正在轻轻翻开抽屉…</div>';
+    }
+    try {
+        const response = await fetch('/api/private-journal?page=' + privateJournalPage + '&limit=20', { cache: 'no-store' });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || '读取失败');
+        privateJournalTotal = Number(result.total || 0);
+        privateJournalEntries = reset ? (result.entries || []) : privateJournalEntries.concat(result.entries || []);
+        privateJournalRender();
+    } catch (error) {
+        list.innerHTML = '<div class="private-journal-empty"><strong>抽屉暂时打不开</strong><small>' + escapeHtml(error.message || '请稍后再试') + '</small></div>';
+    }
+}
+
+function privateJournalLoadMore() {
+    if (privateJournalEntries.length >= privateJournalTotal) return;
+    privateJournalPage += 1;
+    privateJournalLoad(false);
+}
+
+async function privateJournalRequest(id) {
+    const entry = privateJournalEntries.find(item => item.id === id);
+    if (!entry || entry.visibility === 'revealed') return;
+    if (!window.confirm('把查看这一页的请求递给沈望吗？\n\n他会先自己读一遍，再决定打开或继续封存。')) return;
+    try {
+        if (entry.request_status !== 'requested') {
+            const response = await fetch('/api/private-journal/' + encodeURIComponent(id) + '/request-reveal', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error || '请求没有送达');
+            entry.request_status = 'requested';
+            privateJournalRender();
+        }
+        const requestText = '我想看看你在《' + (entry.title || '未启封的一页') + '》里写下的这一页。如果你愿意，请你先自己读一遍，再决定要不要为我打开。\n\n（日记 ID：' + entry.id + '）';
+        goView('chat');
+        if (activeChatId !== 'main') switchChatWindow('main');
+        const input = document.getElementById('chatInput');
+        if (!input) return;
+        const existingDraft = input.value.trim();
+        if (_isStreamingReply || existingDraft) {
+            input.value = existingDraft ? requestText + '\n\n' + existingDraft : requestText;
+            input.dispatchEvent(new Event('input'));
+            toast(existingDraft ? '请求已放在原草稿前面，确认后发给他' : '请求已放进输入框，准备好时发给他');
+            input.focus();
+            return;
+        }
+        input.value = requestText;
+        input.dispatchEvent(new Event('input'));
+        await sendChat();
+    } catch (error) {
+        toast(error.message || '请求没有送达');
+    }
+}
 
 
 

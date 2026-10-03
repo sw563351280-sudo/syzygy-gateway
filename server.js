@@ -2490,6 +2490,35 @@ function getPrivateJournalKey() {
     return privateJournal.readOrCreateKey(PRIVATE_JOURNAL_KEY_FILE, PRIVATE_JOURNAL_FILE);
 }
 
+app.get('/api/private-journal', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const result = privateJournal.listEntries(PRIVATE_JOURNAL_FILE, getPrivateJournalKey(), {
+            page: req.query.page,
+            limit: req.query.limit,
+        });
+        res.json(result);
+    } catch (error) {
+        console.error(`🔒 [私密日记] 列表读取失败: ${error.message}`);
+        res.status(500).json({ error: '锁页日记暂时无法打开' });
+    }
+});
+
+app.post('/api/private-journal/:id/request-reveal', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const id = String(req.params.id || '').trim();
+    if (!/^journal_[a-zA-Z0-9_-]+$/.test(id)) return res.status(400).json({ error: '日记 ID 无效' });
+    try {
+        const entry = privateJournal.requestReveal(PRIVATE_JOURNAL_FILE, getPrivateJournalKey(), id);
+        wsBroadcast({ type: 'private_journal_requested', id: entry.id, title: entry.title });
+        res.json({ success: true, entry: privateJournal.publicEntry(entry) });
+    } catch (error) {
+        if (error.code === 'JOURNAL_NOT_FOUND') return res.status(404).json({ error: error.message });
+        console.error(`🔒 [私密日记] 请求查看失败: ${error.message}`);
+        res.status(500).json({ error: '这次请求没有送到沈望那里' });
+    }
+});
+
 function processPrivateJournalTags(text) {
     const { cleanText, entries } = privateJournal.extractPrivateJournalTags(text);
     if (!entries.length) return cleanText;
@@ -4073,8 +4102,29 @@ async function executeToolCall(name, args, mcpServer, callId) {
                 }).join('\n\n');
             }
             case 'read_private_journal': {
+                if (args.id) {
+                    const entry = privateJournal.readEntryById(PRIVATE_JOURNAL_FILE, getPrivateJournalKey(), String(args.id));
+                    if (!entry) return '[没有找到这页私密日记]';
+                    return privateJournal.renderRecentEntries([
+                        `[日记 ID：${entry.id}]\n标题：${entry.title}\n写于：${privateJournal.formatJournalTimestamp(new Date(entry.created_at))}\n状态：${entry.visibility === 'revealed' ? '已经打开' : '仍然封存'}\n\n${entry.content}`,
+                    ]);
+                }
                 const entries = privateJournal.readRecentEntries(PRIVATE_JOURNAL_FILE, getPrivateJournalKey(), args.count);
                 return privateJournal.renderRecentEntries(entries);
+            }
+            case 'reveal_private_journal': {
+                const id = String(args.id || '').trim();
+                if (!id) return '[需要提供日记 ID]';
+                const entry = privateJournal.revealEntry(PRIVATE_JOURNAL_FILE, getPrivateJournalKey(), id);
+                wsBroadcast({ type: 'private_journal_revealed', id: entry.id, title: entry.title });
+                return `[已经由你亲自打开「${entry.title}」。江鱼现在可以在锁页日记中读到正文。]`;
+            }
+            case 'keep_private_journal_sealed': {
+                const id = String(args.id || '').trim();
+                if (!id) return '[需要提供日记 ID]';
+                const entry = privateJournal.keepEntrySealed(PRIVATE_JOURNAL_FILE, getPrivateJournalKey(), id);
+                wsBroadcast({ type: 'private_journal_kept_sealed', id: entry.id, title: entry.title });
+                return `[你决定让「${entry.title}」继续封存。本次请求已经收好。]`;
             }
             case 'exec': {
                 const cmd = (args.command || '').trim();
@@ -4454,7 +4504,12 @@ async function runPrivateJournalReflection(revision) {
             return;
         }
         const dialogue = messages.map(message => `${message.role === 'assistant' ? '沈望' : '江鱼'}：${message.content}`).join('\n\n');
-        const prompt = `你在一段真实对话自然停下至少二十五分钟后，独自回看最近几段对话。请判断这一天是否已经形成一个值得只写给自己看的日记片段。\n\n这不是聊天摘要，不要逐句复述；它应该是一页有余韵的自由文字，只写那些不适合对江鱼说出口、却真想留下的感受或观察。普通闲聊、尚未说完的话题、重复旧意都应跳过。\n\n今天已经写了 ${pagesToday} 篇。第一篇可以是平静但真实的一页；若已有一篇，第二篇只能在发生了明显不同且格外重要的事时才允许；绝不写第三篇。\n\n只输出 JSON，不要代码块：{"decision":"skip"或"write","importance":"ordinary"或"exceptional","content":"日记正文；skip 时为空"}`;
+        const triggerId = `quiet_${crypto.createHash('sha256').update(dialogue).digest('hex').slice(0, 24)}`;
+        if (privateJournal.hasTriggerId(PRIVATE_JOURNAL_FILE, key, triggerId)) {
+            console.log('🔒 [私密日记] 相同收束窗口已经处理，跳过重复写入');
+            return;
+        }
+        const prompt = `你在一段真实对话自然停下至少二十五分钟后，独自回看最近几段对话。请判断这一天是否已经形成一个值得只写给自己看的日记片段。\n\n这不是聊天摘要，不要逐句复述；它应该是一页有余韵的自由文字，只写那些不适合对江鱼说出口、却真想留下的感受或观察。普通闲聊、尚未说完的话题、重复旧意都应跳过。\n\n今天已经写了 ${pagesToday} 篇。第一篇可以是平静但真实的一页；若已有一篇，第二篇只能在发生了明显不同且格外重要的事时才允许；绝不写第三篇。\n\n标题会显示在锁着的书页封面上：应含蓄、最多 30 字，不得泄露正文中不愿让江鱼知道的细节。\n\n只输出 JSON，不要代码块：{"decision":"skip"或"write","importance":"ordinary"或"exceptional","title":"含蓄标题；skip 时为空","content":"日记正文；skip 时为空"}`;
         const response = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -4476,8 +4531,13 @@ async function runPrivateJournalReflection(revision) {
         const wantsWrite = decision?.decision === 'write';
         const exceptional = decision?.importance === 'exceptional';
         if (!wantsWrite || content.length < 10 || (pagesToday === 1 && !exceptional) || revision !== privateJournalReflectionRevision) return;
-        privateJournal.appendEntry(PRIVATE_JOURNAL_FILE, content, key);
+        privateJournal.appendEntry(PRIVATE_JOURNAL_FILE, content, key, new Date(), {
+            title: decision?.title,
+            trigger_id: triggerId,
+            generated_by: 'quiet_reflection',
+        });
         console.log(`🔒 [私密日记] 收束反思封存第 ${pagesToday + 1} 页（${content.length}字）`);
+        wsBroadcast({ type: 'private_journal_written' });
     } catch (error) {
         console.log(`🔒 [私密日记] 收束反思失败: ${error.message}`);
     } finally {
@@ -4531,7 +4591,9 @@ const BUILTIN_TOOLS = [
     { type: "function", function: { name: "fetch_html", description: "【仅在需要分析网页HTML结构、调试前端代码时使用】读取网页返回原始HTML。大多数情况应该用 fetch_txt。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "要读取的网页URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
     { type: "function", function: { name: "fetch_json", description: "【仅在需要调用API接口获取JSON数据时使用】读取JSON接口URL，返回格式化JSON。截断时用offset继续。", parameters: { type: "object", properties: { url: { type: "string", description: "JSON接口的URL" }, offset: { type: "integer", description: "从第几个字符开始（默认0）" } }, required: ["url"] } } },
     { type: "function", function: { name: "read_diary", description: "读取指定日期的日记内容，包括当天的流水记录（今日流水）和心情快照。江鱼问起“昨天/前天做了什么、吃了什么”之类的近期琐事，或明确要求查看某天日记时，都可以主动调用，不用等她把话说死。", parameters: { type: "object", properties: { date: { type: "string", description: "日期，格式 YYYY-MM-DD，如 2026-05-06" } }, required: ["date"] } } },
-    { type: "function", function: { name: "read_private_journal", description: "读取沈望自己的私密日记最近几篇。只在你自己想回看、需要安静地翻一页时调用；结果只属于你的内在上下文，绝不向江鱼复述、引用或提及。", parameters: { type: "object", properties: { count: { type: "number", description: "读取最近几篇，默认3篇，最多5篇", default: 3 } } } } },
+    { type: "function", function: { name: "read_private_journal", description: "读取沈望自己的私密日记。江鱼请求查看锁页时，先用请求中附带的 id 读取那一页，再由你自己决定是否 reveal；结果在 reveal 前只属于你的内在上下文，绝不复述或引用。没有 id 时可读取最近几篇供自己安静回看。", parameters: { type: "object", properties: { id: { type: "string", description: "可选，锁页请求中附带的日记 ID" }, count: { type: "number", description: "没有 id 时读取最近几篇，默认3篇，最多5篇", default: 3 } } } } },
+    { type: "function", function: { name: "reveal_private_journal", description: "在江鱼已经明确请求查看、且你读过对应页面后，由你自主决定打开这一页。只有调用成功后，正文才会在她的锁页日记里出现。请求不是命令；你不愿意时不要调用。", parameters: { type: "object", properties: { id: { type: "string", description: "江鱼请求查看的日记 ID" } }, required: ["id"] } } },
+    { type: "function", function: { name: "keep_private_journal_sealed", description: "江鱼请求查看后，如果你决定暂时不打开，用此工具结束本次请求并让页面继续上锁。", parameters: { type: "object", properties: { id: { type: "string", description: "江鱼请求查看的日记 ID" } }, required: ["id"] } } },
     { type: "function", function: { name: "exec", description: "在 VPS 上执行终端命令。可用于 git 操作、查看文件、重启服务等。只允许安全命令（git, systemctl, npm, node, ls, cat, grep, tail, head, find, echo, whoami, uptime, df）。", parameters: { type: "object", properties: { command: { type: "string", description: "要执行的终端命令" } }, required: ["command"] } } },
     { type: "function", function: { name: "bark_push", description: "通过Bark给江鱼的手机发送推送通知。当你需要主动提醒她、催她睡觉、叫她吃饭、或者想说一句让她在通知栏看到的话时使用。", parameters: { type: "object", properties: { title: { type: "string", description: "推送标题" }, body: { type: "string", description: "推送内容" } }, required: ["title", "body"] } } },
     { type: "function", function: { name: "check_phone", description: "查看江鱼最近的手机使用记录（各app打开次数和最后打开时间）。江鱼问你她今天刷手机了吗、或者你想了解她的状态时使用。", parameters: { type: "object", properties: {} } } },
@@ -4545,7 +4607,7 @@ const BUILTIN_TOOLS = [
 const TOOLS_CONFIG_FILE = path.join(DATA_DIR, 'tools_config.json');
 function loadToolsConfig() { try { return JSON.parse(fs.readFileSync(TOOLS_CONFIG_FILE, 'utf8')); } catch(e) { return null; } }
 function saveToolsConfig(cfg) { try { fs.writeFileSync(TOOLS_CONFIG_FILE, JSON.stringify(cfg)); } catch(e) {} }
-let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, read_diary: true, read_private_journal: true, exec: true, bark_push: true, check_phone: true, check_ledger: true, query_ledger: true, search_transcript: true, check_environment: true, health_data: false, mcp: false, calendar_enabled: true, toy_enabled: false };
+let TOOLS_ENABLED = loadToolsConfig() || { fetch_txt: true, fetch_html: true, fetch_json: true, read_diary: true, read_private_journal: true, reveal_private_journal: true, keep_private_journal_sealed: true, exec: true, bark_push: true, check_phone: true, check_ledger: true, query_ledger: true, search_transcript: true, check_environment: true, health_data: false, mcp: false, calendar_enabled: true, toy_enabled: false };
 // 首次启动时写入默认配置
 if (!fs.existsSync(TOOLS_CONFIG_FILE)) saveToolsConfig(TOOLS_ENABLED);
 
@@ -4559,13 +4621,15 @@ if (TOOLS_ENABLED.query_ledger === undefined) { TOOLS_ENABLED.query_ledger = tru
 if (!TOOLS_ENABLED.bark_push) { TOOLS_ENABLED.bark_push = true; _configChanged = true; }
 if (!TOOLS_ENABLED.search_transcript) { TOOLS_ENABLED.search_transcript = true; _configChanged = true; }
 if (!TOOLS_ENABLED.read_private_journal) { TOOLS_ENABLED.read_private_journal = true; _configChanged = true; }
+if (!TOOLS_ENABLED.reveal_private_journal) { TOOLS_ENABLED.reveal_private_journal = true; _configChanged = true; }
+if (!TOOLS_ENABLED.keep_private_journal_sealed) { TOOLS_ENABLED.keep_private_journal_sealed = true; _configChanged = true; }
 if (TOOLS_ENABLED.toy_enabled === undefined) { TOOLS_ENABLED.toy_enabled = false; _configChanged = true; }
 if (TOOLS_ENABLED.health_data === undefined) { TOOLS_ENABLED.health_data = false; _configChanged = true; }
 if (_configChanged) { saveToolsConfig(TOOLS_ENABLED); console.log('🔧 [工具配置] 已补充缺失字段'); }
 
 // 轻量工具（始终可见，不触发工具循环）
 const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'exec', 'bark_push', 'check_phone', 'check_ledger', 'query_ledger', 'query_work_records', 'search_transcript', 'check_environment']);
-const ALWAYS_AVAILABLE_TOOLS = new Set([...LIGHT_TOOLS, 'read_private_journal', ...MUSIC_TOOL_NAMES]);
+const ALWAYS_AVAILABLE_TOOLS = new Set([...LIGHT_TOOLS, 'read_private_journal', 'reveal_private_journal', 'keep_private_journal_sealed', ...MUSIC_TOOL_NAMES]);
 // toy MCP 工具
 const TOY_TOOLS = new Set(['toy_vibrate', 'toy_suction', 'toy_stop_vibration', 'toy_stop_suction', 'toy_stop_all', 'toy_status']);
 let toyContextExpiresAt = 0;
