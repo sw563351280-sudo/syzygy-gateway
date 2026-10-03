@@ -28,7 +28,7 @@ async function diagnose(config, fetchImpl) {
     const started = Date.now();
     if (!config.apiKey) return { ...publicConfiguration(config), ok: false, attempts, error: '未配置分类密钥', elapsedMs: 0 };
     try {
-        await decideMemoryWrite({ ...config, timeoutMs: 20000,
+        await decideMemoryWrite({ ...config, timeoutMs: 45000,
             incoming: { content: '连接诊断：测试物品是蓝色。', tags: ['连接测试'] },
             candidates: [{ id: 'diagnostic-only', content: '连接诊断：测试物品是红色。', tags: ['连接测试'], similarity: 0.8 }],
             fetchImpl: async (url, options) => {
@@ -61,7 +61,7 @@ async function diagnose(config, fetchImpl) {
         return { ...publicConfiguration(config), ok: true, attempts, elapsedMs: Date.now() - started };
     } catch (error) {
         return { ...publicConfiguration(config), ok: false, attempts, elapsedMs: Date.now() - started,
-            error: error.name === 'AbortError' ? '请求超过 20 秒，已停止' : redact(error.message, config) };
+            error: error.name === 'AbortError' ? '请求超过 45 秒，已停止' : redact(error.message, config) };
     }
 }
 function router(fetchImpl, getConfig = configuration, getFlow = () => null) {

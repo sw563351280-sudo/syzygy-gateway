@@ -36,7 +36,7 @@ function buildMessages(incoming, candidates) {
 }
 
 async function decideMemoryWrite(options) {
-    const { fetchImpl, apiKey, endpoint, model, incoming, candidates, timeoutMs = 20000 } = options || {};
+    const { fetchImpl, apiKey, endpoint, model, incoming, candidates, timeoutMs = 45000 } = options || {};
     if (!fetchImpl || !apiKey) return { action: 'review', target_id: null, content: incoming.content, tags: incoming.tags, reason: '缺少审稿模型配置', confidence: 0 };
     const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs);
     const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${String(apiKey).replace(/^Bearer\s+/i, '')}` };

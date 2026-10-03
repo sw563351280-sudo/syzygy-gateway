@@ -71,7 +71,7 @@
     async function request(test) {
         if (busy) return;
         busy = true; button.disabled = true;
-        output.textContent = test ? '正在测试，最多等待约 20 秒…' : '正在读取实际配置…';
+        output.textContent = test ? '正在测试，最多等待约 45 秒…' : '正在读取实际配置…';
         try {
             const response = await fetch('/api/memory-curator-diagnostics', { method: test ? 'POST' : 'GET', cache: 'no-store' });
             const data = await response.json();
