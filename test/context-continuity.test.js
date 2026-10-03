@@ -33,6 +33,34 @@ test('browser module and actual unload saver persist stable IDs and proof withou
     for (const m of messages.slice(0,4)) hash = C.nextDigest(hash,m._id,C.revisionOf(m,active));
     assert.deepEqual(saved.contextPrefix, { version: 1, count: 4, hash, firstId: 'm4' });
 });
+
+test('an idle hidden page does not write a new cloud version', () => {
+    const script = fs.readFileSync(path.join(__dirname, '../public/script.js'), 'utf8');
+    const start = script.indexOf("document.addEventListener('visibilitychange'");
+    const end = script.indexOf('// 统计 sessions', start);
+    const handlers = {};
+    let beacons = 0; let backups = 0; let pending = false;
+    const context = {
+        document: { hidden: true, addEventListener: (name, handler) => { handlers[name] = handler; } },
+        window: { addEventListener: (name, handler) => { handlers[name] = handler; } },
+        navigator: { sendBeacon: () => { beacons++; return true; } },
+        Blob: class {}, clearTimeout() {}, _saveTimer: null, _savingNow: false,
+        saveLocalBackup: () => { backups++; }, buildSavePayload: () => '{}',
+        hasUnsavedCloudChanges: () => pending, resyncIfStale() {}
+    };
+    vm.runInNewContext(script.slice(start, end), context);
+    handlers.visibilitychange();
+    assert.equal(backups, 1);
+    assert.equal(beacons, 0);
+
+    pending = true;
+    handlers.visibilitychange();
+    assert.equal(beacons, 1);
+
+    context._savingNow = true;
+    handlers.visibilitychange();
+    assert.equal(beacons, 1, 'do not race an in-flight fetch with a duplicate beacon');
+});
 function fixture() {
     const states = new Map(), batches = [], events = [];
     const store = { read: k => structuredClone(states.get(k) || null), write: (k, v) => states.set(k, structuredClone(v)) };

@@ -407,6 +407,9 @@ function cleanupOldImages(session) {
 
 let _saveFailCount = 0;
 let _lastSaveError = '';
+let _saveMutationEpoch = 0;
+let _saveCommittedEpoch = 0;
+function hasUnsavedCloudChanges() { return _saveCommittedEpoch < _saveMutationEpoch; }
 function _showSaveWarning(show, errMsg) {
     let el = document.getElementById('saveWarning');
     if (show) {
@@ -742,10 +745,14 @@ let _loopLocalOnly = 0; let _loopCount = 0;
 
 async function resyncIfStale(reason) {
     if (!mergeSyncEnabled()) return;
-    if (Date.now() - _lastResyncAt < 10000) return;   // 10 秒内不重复拉
+    if (Date.now() - _lastResyncAt < 10000) {
+        if (hasUnsavedCloudChanges()) saveToCloud(true, true);
+        return;   // 10 秒内不重复拉；未保存改动仍继续保存
+    }
     _lastResyncAt = Date.now();
     const res = await resyncAndMerge(reason);
-    if (res && res.localOnly > 0) {
+    const pendingLocalSave = hasUnsavedCloudChanges();
+    if (res && (res.localOnly > 0 || pendingLocalSave)) {
         // 死循环保护：连续 3 次 localOnly 不下降就停止自动保存
         if (res.localOnly >= _loopLocalOnly && _loopLocalOnly > 0) {
             _loopCount++;
@@ -755,7 +762,7 @@ async function resyncIfStale(reason) {
             }
         } else { _loopCount = 0; }
         _loopLocalOnly = res.localOnly;
-        saveToCloud(true);
+        saveToCloud(true, pendingLocalSave);
     }
 }
 
@@ -855,16 +862,20 @@ async function _doSave() {
 let _savingNow = false;
 let _saveQueued = false;
 
-function saveToCloud(immediate) {
+function saveToCloud(immediate, preserveMutationEpoch = false) {
+    if (!preserveMutationEpoch) _saveMutationEpoch++;
     clearTimeout(_saveTimer);
     const doSave = async () => {
+        _saveTimer = null;
         if (_savingNow) { _saveQueued = true; console.log('[save:LOCK] queued'); return; }
+        const targetEpoch = _saveMutationEpoch;
         _savingNow = true;
         try {
             const delays = [1000, 2000, 4000]; // 指数退避
             for (let attempt = 0; attempt <= delays.length; attempt++) {
                 try {
                     await _doSave();
+                    _saveCommittedEpoch = Math.max(_saveCommittedEpoch, targetEpoch);
                     _saveFailCount = 0;
                     _showSaveWarning(false);
                     return; // 成功
@@ -883,7 +894,7 @@ function saveToCloud(immediate) {
             _showSaveWarning(true, lastErr);
         } finally {
             _savingNow = false;
-            if (_saveQueued) { _saveQueued = false; saveToCloud(true); }
+            if (_saveQueued) { _saveQueued = false; saveToCloud(true, true); }
         }
     };
     if (immediate) doSave(); else _saveTimer = setTimeout(doSave, 500);
@@ -5253,7 +5264,11 @@ document.addEventListener('visibilitychange', function () {
     if (!document.hidden) { resyncIfStale('visible'); }
     else {
         saveLocalBackup();
-        if (_savingNow || _dataVersion > 0) {
+        // An idle page must not advance the shared version merely because iOS
+        // hid it. That made open devices continuously stale each other.
+        if (hasUnsavedCloudChanges() && !_savingNow) {
+            clearTimeout(_saveTimer);
+            _saveTimer = null;
             const payload = buildSavePayload();
             if (payload) {
                 try { navigator.sendBeacon('/api/sync-config', new Blob([payload], { type: 'application/json' })); } catch(_) {}
