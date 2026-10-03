@@ -18,7 +18,7 @@
         if (mobileUA || touchDevice) document.documentElement.classList.add('is-mobile-device');
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=100">
+    <link rel="stylesheet" href="style.css?v=101">
 </head>
 <body class="neu-mode">
     <svg id="syzygy-line-svg" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999;"><defs><linearGradient id="syzygy-grad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4fc3f7;stop-opacity:0.8"/><stop offset="100%" style="stop-color:#c9a961;stop-opacity:0.8"/></linearGradient></defs><line id="syzygy-line" x1="0" y1="0" x2="0" y2="0" style="stroke:url(#syzygy-grad);stroke-width:1.5;opacity:0;transition:opacity 0.3s ease-in-out;"/></svg>
@@ -27,6 +27,53 @@
     <div class="toast" id="toast"></div>
 
 <div class="section active" id="sec-home">
+
+    <div class="home-layout-switch" role="group" aria-label="首页版本">
+        <button type="button" data-home-layout="classic" onclick="setHomeLayout('classic')" aria-pressed="true">旧版</button>
+        <button type="button" data-home-layout="new" onclick="setHomeLayout('new')" aria-pressed="false">新版</button>
+    </div>
+
+    <div class="home-v2" id="homeV2" aria-hidden="true">
+        <header class="home-v2-hero">
+            <span class="home-v2-star" aria-hidden="true">✦</span>
+            <div class="home-v2-days"><span id="homeV2DayCount">---</span> days together</div>
+            <span class="home-v2-divider" aria-hidden="true"></span>
+            <p>山河仍在，幸而有你。</p>
+        </header>
+
+        <nav class="home-v2-primary" aria-label="主要入口">
+            <button type="button" class="home-v2-pill" onclick="openCommunication()">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg><span>通讯</span>
+            </button>
+            <button type="button" class="home-v2-pill" onclick="goView('private-journal')">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5A2.5 2.5 0 0 1 7.5 2H20v18H7.5A2.5 2.5 0 0 0 5 22Z"/><path d="M5 4.5v15M10 9V7a2 2 0 0 1 4 0v2"/><rect x="8.5" y="9" width="7" height="5.5" rx="1.2"/></svg><span>锁页日记</span>
+            </button>
+            <button type="button" class="home-v2-pill" onclick="goView('album')">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><span>相册</span>
+            </button>
+            <button type="button" class="home-v2-pill" onclick="goView('ledger')">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h4M5 3v18"/></svg><span>账本</span>
+            </button>
+        </nav>
+
+        <button type="button" class="home-v2-more-toggle" id="homeV2MoreToggle" onclick="toggleHomeV2More()" aria-controls="homeV2More" aria-expanded="false">···&nbsp; 更多</button>
+        <div class="home-v2-more" id="homeV2More" hidden>
+            <button type="button" onclick="goView('favorites')">收藏夹</button>
+            <button type="button" onclick="goView('calendar')">日历</button>
+            <button type="button" onclick="openStarCrossing()">星渡</button>
+            <button type="button" onclick="goView('flo')">Flo</button>
+            <button type="button" onclick="openWorkroom()">共创工作区</button>
+            <button type="button" onclick="goView('work-records')">工作记录</button>
+            <button type="button" onclick="goView('tt-memories')">TT 的小抽屉</button>
+        </div>
+
+        <nav class="home-v2-dock" aria-label="快捷导航">
+            <button type="button" class="active" onclick="goView('home')" aria-label="首页"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M9 22V12h6v10"/></svg><i></i></button>
+            <button type="button" onclick="openCommunication()" aria-label="通讯"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/></svg></button>
+            <button type="button" onclick="goView('favorites')" aria-label="收藏夹"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2.5 3 6 6.5 1-4.7 4.6 1.1 6.4-5.9-3.1-5.9 3.1 1.1-6.4-4.7-4.6 6.5-1Z"/></svg></button>
+            <button type="button" onclick="goView('dev')" aria-label="开发中枢"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 17 6-6-6-6M12 19h8"/></svg></button>
+        </nav>
+    </div>
 
     <div class="neu-home">
 
@@ -636,7 +683,7 @@
 <script src="workroom-pages.js?v=6"></script>
 <script src="shen-settings-page.js?v=2"></script>
 <script src="chat-window-context.js?v=1"></script>
-<script src="script.js?v=97"></script>
+<script src="script.js?v=98"></script>
 <script src="music-player.js?v=4" defer></script>
         <div id="msgContextMenu" class="msg-context-menu" role="menu" aria-label="消息操作" hidden></div>
 

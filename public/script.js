@@ -1068,7 +1068,7 @@ function goView(viewId) {
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
     const metaTheme = document.getElementById('theme-color-meta');
-    if (metaTheme) metaTheme.setAttribute('content', viewId === 'chat' ? '#EFF6FD' : '#E8EFF7');
+    if (metaTheme) metaTheme.setAttribute('content', viewId === 'chat' ? '#EFF6FD' : (viewId === 'home' && target.classList.contains('home-layout-v2') ? '#7890AA' : '#E8EFF7'));
     const VIEWS = ['home','chat','favorites','dev','console','flo','calendar','album','state','ledger','private-journal'];
     VIEWS.push('shen-settings', 'codex-settings', 'work-records', 'tt-memories');
     document.body.classList.remove(...VIEWS.map(v => 'view-' + v));
@@ -1902,6 +1902,61 @@ function neuUpdateNav() {
 }
 
 // ═══ Together 天数 ═══
+const HOME_LAYOUT_KEY = 'syzygy_home_layout';
+
+function setHomeLayout(layout, persist = true) {
+    const normalized = layout === 'new' ? 'new' : 'classic';
+    const home = document.getElementById('sec-home');
+    if (!home) return;
+    const isNew = normalized === 'new';
+    home.classList.toggle('home-layout-v2', isNew);
+    home.dataset.homeLayout = normalized;
+    home.querySelectorAll('.home-layout-switch [data-home-layout]').forEach(button => {
+        button.setAttribute('aria-pressed', String(button.dataset.homeLayout === normalized));
+    });
+    const classicHome = home.querySelector('.neu-home');
+    const newHome = document.getElementById('homeV2');
+    if (classicHome) {
+        classicHome.setAttribute('aria-hidden', String(isNew));
+        classicHome.inert = isNew;
+    }
+    if (newHome) {
+        newHome.setAttribute('aria-hidden', String(!isNew));
+        newHome.inert = !isNew;
+    }
+    if (!isNew) {
+        const more = document.getElementById('homeV2More');
+        const toggle = document.getElementById('homeV2MoreToggle');
+        if (more) more.hidden = true;
+        if (toggle) {
+            toggle.setAttribute('aria-expanded', 'false');
+            toggle.innerHTML = '···&nbsp; 更多';
+        }
+    }
+    if (persist) {
+        try { localStorage.setItem(HOME_LAYOUT_KEY, normalized); } catch (_) {}
+    }
+    if (document.body.dataset.view === 'home' || home.classList.contains('active')) {
+        const metaTheme = document.getElementById('theme-color-meta');
+        if (metaTheme) metaTheme.setAttribute('content', isNew ? '#7890AA' : '#E8EFF7');
+    }
+}
+
+function toggleHomeV2More() {
+    const panel = document.getElementById('homeV2More');
+    const toggle = document.getElementById('homeV2MoreToggle');
+    if (!panel || !toggle) return;
+    panel.hidden = !panel.hidden;
+    toggle.setAttribute('aria-expanded', String(!panel.hidden));
+    toggle.innerHTML = panel.hidden ? '···&nbsp; 更多' : '收起&nbsp; ···';
+}
+
+function initHomeLayout() {
+    let saved = 'classic';
+    try { saved = localStorage.getItem(HOME_LAYOUT_KEY) || 'classic'; } catch (_) {}
+    setHomeLayout(saved, false);
+}
+
 function updateDays(){
     const start = new Date(START_DATE);
     const diff  = Math.floor((new Date() - start) / (1000 * 60 * 60 * 24));
@@ -1909,7 +1964,10 @@ function updateDays(){
     if(dayEl) dayEl.innerText = diff >= 0 ? diff : '∞';
     const neuDay = document.getElementById('neuDayCount');
     if(neuDay) neuDay.innerText = diff >= 0 ? diff : '∞';
+    const homeV2Day = document.getElementById('homeV2DayCount');
+    if(homeV2Day) homeV2Day.innerText = diff >= 0 ? diff : '∞';
 }
+initHomeLayout();
 updateDays();
 
 let hbInterval;
