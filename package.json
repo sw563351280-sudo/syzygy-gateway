@@ -5,11 +5,12 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test test/*.test.js",
+    "test:browser:startup": "node scripts/startup-browser-smoke.js",
     "test:music:browser": "node scripts/music-browser-smoke.js",
     "test:music:live": "node scripts/music-live-probe.js"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0 <25"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",

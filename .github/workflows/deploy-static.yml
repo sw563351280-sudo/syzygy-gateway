@@ -18,15 +18,39 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.CONTABO_SSH_KEY }}
 
+      - name: Build verified static bundle
+        shell: bash
+        run: |
+          mapfile -t static_files < <(grep -Ev '^[[:space:]]*(#|$)' .github/static-assets.txt)
+          test "${#static_files[@]}" -gt 0
+
+          for file in "${static_files[@]}"; do
+            [[ "$file" == public/* ]] || { echo "Static asset escapes public/: $file"; exit 1; }
+            test -f "$file" || { echo "Static asset is missing: $file"; exit 1; }
+          done
+
+          # A new tracked public file must be deliberately added to the manifest.
+          diff -u \
+            <(git ls-files public | sort) \
+            <(printf '%s\n' "${static_files[@]}" | sort)
+
+          bundle_files=()
+          for file in "${static_files[@]}"; do
+            [[ "$file" == public/index.html ]] || bundle_files+=("$file")
+          done
+          tar -czf static-assets.tar.gz -- "${bundle_files[@]}"
+
       - name: Sync frontend files without restarting the service
         shell: bash
         run: |
-          # Upload only the two new, version-controlled Markdown assets before index.html.
+          remote_archive="/tmp/syzygy-static-${GITHUB_SHA}.tar.gz"
+          remote_index="/opt/syzygy/public/.index-${GITHUB_SHA}.html"
+
           ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key root@46.250.248.31 \
-            "mkdir -p /opt/syzygy/public/vendor"
+            "mkdir -p /opt/syzygy/public"
           scp -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key \
-            public/vendor/marked.min.js public/vendor/marked.LICENSE.md root@46.250.248.31:/opt/syzygy/public/vendor/
+            static-assets.tar.gz "root@46.250.248.31:${remote_archive}"
           scp -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key \
-            public/style.css public/index.html public/script.js public/manifest.json root@46.250.248.31:/opt/syzygy/public/
+            public/index.html "root@46.250.248.31:${remote_index}"
           ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key root@46.250.248.31 \
-            "rm -f /opt/syzygy/public/sms-mode.js && test -s /opt/syzygy/public/index.html && test -s /opt/syzygy/public/style.css && test -s /opt/syzygy/public/script.js && test -s /opt/syzygy/public/manifest.json"
+            "set -eu; trap 'rm -f \"${remote_archive}\" \"${remote_index}\"' EXIT; tar --no-same-owner --no-same-permissions -xzf \"${remote_archive}\" -C /opt/syzygy; mv \"${remote_index}\" /opt/syzygy/public/index.html; rm -f /opt/syzygy/public/sms-mode.js; test -s /opt/syzygy/public/index.html; test -s /opt/syzygy/public/style.css; test -s /opt/syzygy/public/script.js; test -s /opt/syzygy/public/home-tools.js; test -s /opt/syzygy/public/workroom-pages.js; test -s /opt/syzygy/public/shen-settings-page.js"

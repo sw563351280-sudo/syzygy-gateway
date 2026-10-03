@@ -1,23 +1,26 @@
 # CLAUDE.md — 溯星小屋记忆系统升级指南
 
-> 📖 详细架构文档见 [ARCHITECTURE.md](./ARCHITECTURE.md) — 包含完整目录结构、代码行号参考、数据流、API端点、前端函数、环境变量等。
+> 📖 当前架构文档见 [docs/current-architecture.md](./docs/current-architecture.md)。旧版 [ARCHITECTURE.md](./ARCHITECTURE.md) 只保留作历史参考。
 
 ## 项目简介
 这是"溯星小屋"（Syzygy Gateway），一个 AI 伴侣聊天系统。
 角色叫"沈望"，用户叫"江鱼"。
-后端是单文件 Node.js + Express（server.js），存储用 JSON 文件，部署在 Contabo VPS。
+后端是 Node.js + Express；`server.js` 负责路由与编排，领域逻辑逐步拆到独立模块。存储使用 JSON 文件，部署在 Contabo VPS。
 
 ## 技术栈
-- 后端：Node.js + Express，全部逻辑在 server.js 里
+- 后端：Node.js 22/24 + Express；路由编排在 server.js，领域逻辑逐步拆到独立模块
 - 存储：JSON 文件（data/ 目录下），不是数据库
 - 向量：SiliconFlow embedding API
 - 对话历史：本地 transcript / web_config.json；Zep 仅作为可选兼容层
-- 前端：public/index.html + script.js + style.css
+- 前端：public/index.html + 主脚本/样式；共创、设置、音乐和次级工具使用独立模块
 - 部署：Contabo VPS（GitHub Actions + SSH + systemd）
 
 ## 关键文件
-- server.js — 全部后端逻辑（记忆存储、搜索、prompt组装、聊天转发）
-- memory_blocks.json — 静态核心记忆（沈望和江鱼的基础设定）
+- server.js — Express 入口、路由及聊天/记忆编排
+- web-config-store.js / chat-history.js — 主聊天配置事务、历史分页与局部合并
+- codex-bridge.js / codex-workspace.js — 共创工作区和 Codex app-server 桥接
+- shen-settings.js — 沈望 A/B prompt 设置
+- data/memory_blocks.json — 静态核心记忆（沈望和江鱼的基础设定）
 - system_prompt.txt — 沈望的人格 prompt
 - public/index.html — 前端页面
 - public/script.js — 前端逻辑
