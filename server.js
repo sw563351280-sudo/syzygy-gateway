@@ -28,7 +28,7 @@ const { decideMemoryWrite } = require('./memory-merge-curator');
 const memoryCuratorDiagnostics = require('./memory-curator-diagnostics');
 const memoryFlowStatus = require('./memory-flow-status');
 const { canonical: canonicalMemoryText, extractSaveMemoryTag: parseMemoryTag, isRecentCrumbDuplicate: sameCrumb } = require('./memory-write-utils');
-const { activeMemoryEvents, publicMemoryEvent, readMemoryEvents, receiveMemoryEvent, updateMemoryEvent } = require('./memory-events');
+const { activeMemoryEvents, autoRetryDue, autoRetryExhausted, nextAutoRetryAt, publicMemoryEvent, readMemoryEvents, receiveMemoryEvent, updateMemoryEvent } = require('./memory-events');
 const { applyDecision: applyRelationshipDecision, curateRelationshipMemory, emptyRelationshipStore, looksRelationshipRelevant, memorySignature, normalizeStore: normalizeRelationshipStore, removeMemoryEvidence: removeRelationshipMemoryEvidence } = require('./relationship-reflections');
 const { activeRelationshipContext, applyRelationshipSignal, extractRelationshipStateTags } = require('./relationship-state');
 const { applyDecision: applyRealityDecision, curateRealityMemory, emptyRealityStore, normalizeStore: normalizeRealityStore, removeMemoryEvidence: removeRealityMemoryEvidence } = require('./reality-events');
@@ -2940,13 +2940,19 @@ function completeMemoryEvent(event, result, decision, tr = null) {
 }
 
 function holdMemoryEvent(event, status, error, decision = null, candidates = [], tr = null) {
+    const exhausted = status === 'pending' && autoRetryExhausted(event);
+    const finalStatus = exhausted ? 'needs_review' : status;
+    const finalError = exhausted
+        ? `自动重试已停止（已尝试${Number(event.attempts || 0)}次）：${error || '记忆整理未完成'}`
+        : error;
     const held = patchStoredMemoryEvent(event, {
-        status,
-        error: error || null,
+        status: finalStatus,
+        error: finalError || null,
+        next_retry_at: finalStatus === 'pending' ? nextAutoRetryAt(event) : null,
         decision,
         candidates: candidates.map(item => ({ id: item.id, content: item.content, tags: item.tags || [], similarity: item.similarity, tag_overlap: item.tag_overlap || 0 })),
     });
-    traceEvent(tr, 'memory_event', status === 'needs_review' ? '记忆事件待确认' : '记忆事件等待重试', { event_id: event.id, reason: error || decision?.reason || '', action: decision?.action || null });
+    traceEvent(tr, 'memory_event', finalStatus === 'needs_review' ? '记忆事件待确认' : '记忆事件等待重试', { event_id: event.id, reason: finalError || decision?.reason || '', action: decision?.action || null });
     wsBroadcast({ type: 'memory_event_attention', event: publicMemoryEvent(held) });
     return null;
 }
@@ -2965,12 +2971,14 @@ async function processLongTermMemoryEvent(event, tr = null) {
         return completeMemoryEvent(event, confirmed, { action: 'same', target_id: exact.id, confidence: 1, reason: '规范化内容完全相同' }, tr);
     }
 
-    let candidates = [];
-    try {
-        candidates = (await retrieveMemoryMergeCandidates(incoming.content, incoming.tags))
-            .filter(item => item.similarity >= 0.5 || item.tag_overlap > 0);
-    } catch (error) {
-        return holdMemoryEvent(event, 'pending', `候选检索失败：${error.message}`, null, [], tr);
+    let candidates = Array.isArray(event.candidates) ? event.candidates.filter(item => item?.id && item?.content) : [];
+    if (!candidates.length) {
+        try {
+            candidates = (await retrieveMemoryMergeCandidates(incoming.content, incoming.tags))
+                .filter(item => item.similarity >= 0.5 || item.tag_overlap > 0);
+        } catch (error) {
+            return holdMemoryEvent(event, 'pending', `候选检索失败：${error.message}`, null, [], tr);
+        }
     }
 
     if (!candidates.length) {
@@ -3189,8 +3197,17 @@ async function retryMemoryEvent(event) {
 
 async function retryPendingMemoryEvents(limit = 10) {
     const staleProcessingBefore = Date.now() - 2 * 60 * 1000;
-    const pending = loadMemoryEvents()
-        .filter(event => ['received', 'pending'].includes(event.status) || (event.status === 'processing' && new Date(event.updated_at).getTime() < staleProcessingBefore))
+    const now = new Date();
+    const events = loadMemoryEvents();
+    for (const event of events) {
+        const retryable = ['received', 'pending'].includes(event.status)
+            || (event.status === 'processing' && new Date(event.updated_at).getTime() < staleProcessingBefore);
+        if (retryable && autoRetryExhausted(event)) {
+            holdMemoryEvent(event, 'pending', event.error || '后台整理多次未完成', event.decision, event.candidates || []);
+        }
+    }
+    const pending = events
+        .filter(event => (['received', 'pending'].includes(event.status) || (event.status === 'processing' && new Date(event.updated_at).getTime() < staleProcessingBefore)) && autoRetryDue(event, now))
         .sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at))
         .slice(0, limit);
     for (const event of pending) {
@@ -10129,7 +10146,7 @@ app.post('/api/memory-events/:id/retry', (req, res) => {
     const event = loadMemoryEvents().find(item => item.id === req.params.id);
     if (!event) return res.status(404).json({ error: '未找到记忆事件' });
     if (event.status === 'completed' || event.status === 'ignored') return res.json({ success: true, event: publicMemoryEvent(event) });
-    const queued = patchStoredMemoryEvent(event, { status: 'pending', error: null });
+    const queued = patchStoredMemoryEvent(event, { status: 'pending', error: null, next_retry_at: null });
     setImmediate(() => retryMemoryEvent(queued).catch(error => console.log(`⚠️ [记忆事件] 手动重试失败: ${error.message}`)));
     res.status(202).json({ success: true, event: publicMemoryEvent(queued) });
 });

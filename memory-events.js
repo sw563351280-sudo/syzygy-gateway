@@ -6,6 +6,26 @@ const path = require('node:path');
 const { canonical } = require('./memory-write-utils');
 
 const ACTIVE_STATUSES = new Set(['received', 'processing', 'pending', 'needs_review']);
+const MAX_AUTO_ATTEMPTS = 10;
+const MINUTE_MS = 60 * 1000;
+const RETRY_DELAYS_MS = [5, 15, 30, 60, 120, 240, 480, 720, 1440].map(minutes => minutes * MINUTE_MS);
+
+function autoRetryExhausted(event, maxAttempts = MAX_AUTO_ATTEMPTS) {
+    return event?.kind === 'long_term' && Number(event?.attempts || 0) >= maxAttempts;
+}
+
+function nextAutoRetryAt(event, now = new Date()) {
+    const attempts = Math.max(1, Number(event?.attempts || 1));
+    const delay = RETRY_DELAYS_MS[Math.min(attempts - 1, RETRY_DELAYS_MS.length - 1)];
+    return new Date(now.getTime() + delay).toISOString();
+}
+
+function autoRetryDue(event, now = new Date()) {
+    if (autoRetryExhausted(event)) return false;
+    if (!event?.next_retry_at) return true;
+    const due = new Date(event.next_retry_at).getTime();
+    return !Number.isFinite(due) || due <= now.getTime();
+}
 
 function eventKey(kind, payload = {}) {
     const messageId = String(payload.source_message_id || '').trim();
@@ -87,6 +107,7 @@ function publicMemoryEvent(event) {
         created_at: event.created_at,
         updated_at: event.updated_at,
         error: event.error || null,
+        next_retry_at: event.next_retry_at || null,
         decision: event.decision || null,
         candidates: event.candidates || [],
         result_id: event.result_id || null,
@@ -99,9 +120,13 @@ function activeMemoryEvents(events) {
 
 module.exports = {
     ACTIVE_STATUSES,
+    MAX_AUTO_ATTEMPTS,
     activeMemoryEvents,
+    autoRetryDue,
+    autoRetryExhausted,
     appendEventSnapshot,
     eventKey,
+    nextAutoRetryAt,
     publicMemoryEvent,
     readMemoryEvents,
     receiveMemoryEvent,

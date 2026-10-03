@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { activeMemoryEvents, readMemoryEvents, receiveMemoryEvent, updateMemoryEvent } = require('../memory-events');
+const { MAX_AUTO_ATTEMPTS, activeMemoryEvents, autoRetryDue, autoRetryExhausted, nextAutoRetryAt, readMemoryEvents, receiveMemoryEvent, updateMemoryEvent } = require('../memory-events');
 
 test('same source message is one durable memory event', t => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'syzygy-memory-events-'));
@@ -41,4 +41,18 @@ test('crumb fallback key deduplicates one day but permits a later-day event', t 
     assert.equal(receiveMemoryEvent(file, 'crumb', { ...crumb, source_at: '2026-09-16T10:00:00Z' }).created, true);
     assert.equal(receiveMemoryEvent(file, 'crumb', { ...crumb, source_at: '2026-09-16T20:00:00Z' }).created, false);
     assert.equal(receiveMemoryEvent(file, 'crumb', { ...crumb, source_at: '2026-09-17T10:00:00Z' }).created, true);
+});
+
+test('automatic memory retries back off and stop after a bounded number of paid attempts', () => {
+    const now = new Date('2026-10-03T01:00:00.000Z');
+    const firstFailure = { kind: 'long_term', status: 'pending', attempts: 1 };
+    assert.equal(nextAutoRetryAt(firstFailure, now), '2026-10-03T01:05:00.000Z');
+    assert.equal(autoRetryDue({ ...firstFailure, next_retry_at: '2026-10-03T01:05:00.000Z' }, now), false);
+    assert.equal(autoRetryDue({ ...firstFailure, next_retry_at: '2026-10-03T00:59:59.000Z' }, now), true);
+
+    const secondFailure = { kind: 'long_term', status: 'pending', attempts: 2 };
+    assert.equal(nextAutoRetryAt(secondFailure, now), '2026-10-03T01:15:00.000Z');
+    assert.equal(autoRetryExhausted({ kind: 'long_term', attempts: MAX_AUTO_ATTEMPTS }), true);
+    assert.equal(autoRetryDue({ kind: 'long_term', status: 'pending', attempts: MAX_AUTO_ATTEMPTS }, now), false);
+    assert.equal(autoRetryDue({ kind: 'crumb', status: 'pending', attempts: MAX_AUTO_ATTEMPTS }, now), true);
 });
