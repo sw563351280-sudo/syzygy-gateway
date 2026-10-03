@@ -213,6 +213,10 @@ let activeChatId = 'main';
 const WORKROOM_ID = 'syzygy-workroom';
 const CHAT_HISTORY_INITIAL_LIMIT = 80;
 const CHAT_HISTORY_PAGE_SIZE = 80;
+const MODEL_LIST_CACHE_KEY = 'syzygy_model_lists_v1';
+const MODEL_LIST_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+const MODEL_LIST_REQUEST_TIMEOUT = 14000;
+let _modelFetchSequence = 0;
 let _historyWindows = {};
 let _visibleMessageCounts = {};
 let _historyLoading = false;
@@ -3205,41 +3209,90 @@ function deleteSupplier(index){
     saveToCloud(); renderSuppliers();
 }
 
+function modelListCacheId(supplier){
+    return String(supplier?.url || '').trim().replace(/\/+$/, '').toLowerCase();
+}
+
+function readCachedModels(supplier){
+    try {
+        const all = JSON.parse(localStorage.getItem(MODEL_LIST_CACHE_KEY) || '{}');
+        const cached = all[modelListCacheId(supplier)];
+        if (!cached || !Array.isArray(cached.models) || !cached.models.length) return [];
+        if (Date.now() - Number(cached.savedAt || 0) > MODEL_LIST_CACHE_MAX_AGE) return [];
+        return cached.models.filter(id => typeof id === 'string' && id);
+    } catch (_) { return []; }
+}
+
+function writeCachedModels(supplier, models){
+    try {
+        const all = JSON.parse(localStorage.getItem(MODEL_LIST_CACHE_KEY) || '{}');
+        all[modelListCacheId(supplier)] = { models, savedAt: Date.now() };
+        const entries = Object.entries(all).sort((a, b) => Number(b[1]?.savedAt || 0) - Number(a[1]?.savedAt || 0)).slice(0, 12);
+        localStorage.setItem(MODEL_LIST_CACHE_KEY, JSON.stringify(Object.fromEntries(entries)));
+    } catch (_) {}
+}
+
+function renderModelOptions(select, modelIds){
+    const currentModel = select.value || localStorage.getItem('preferredModel') || '';
+    select.innerHTML = '';
+    modelIds.forEach(id => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = id;
+        select.appendChild(opt);
+    });
+    if (currentModel && modelIds.includes(currentModel)) select.value = currentModel;
+    else {
+        const defaultOpt = Array.from(select.options).find(opt => opt.value.includes('gemini'));
+        if (defaultOpt) select.value = defaultOpt.value;
+    }
+    onModelChange(select);
+}
+
 async function fetchModels(){
     const select = document.getElementById('modelSelect');
     if(!select) return;
+    const requestSequence = ++_modelFetchSequence;
     const currentSup = suppliers[activeSupIndex];
     if(!currentSup || !currentSup.key){ select.innerHTML = '<option value="">⚠ 请先配置 API Key</option>'; return; }
-    select.innerHTML = '<option value="">⟡ 连接中...</option>';
+    const cachedModels = readCachedModels(currentSup);
+    if (cachedModels.length) {
+        renderModelOptions(select, cachedModels);
+        select.title = '正在后台更新模型列表';
+    } else {
+        select.innerHTML = '<option value="">⟡ 连接中...</option>';
+        select.title = '';
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), MODEL_LIST_REQUEST_TIMEOUT);
     try{
         const r = await fetch('/api/fetch-models', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ baseUrl: currentSup.url, apiKey: currentSup.key })
+            body: JSON.stringify({ baseUrl: currentSup.url, apiKey: currentSup.key }),
+            signal: controller.signal,
         });
-        const data = await r.json();
-        if(data.error){ select.innerHTML = `<option value="">⚠ 报错: ${data.error}</option>`; return; }
+        const data = await r.json().catch(() => ({}));
+        if (requestSequence !== _modelFetchSequence) return;
+        if(!r.ok || data.error) throw new Error(data.error || `HTTP ${r.status}`);
         if(data && data.data && data.data.length){
-            select.innerHTML = '';
-            data.data.forEach(model => {
-                const opt = document.createElement('option'); 
-                opt.value = model.id; 
-                opt.textContent = model.id;
-                select.appendChild(opt);
-            });
-            
-            // 🧠 核心新增：读取刚才记住的模型
-            const savedModel = localStorage.getItem('preferredModel');
-            if (savedModel && Array.from(select.options).some(opt => opt.value === savedModel)) {
-                select.value = savedModel; // 如果有记忆，直接选中
-            } else {
-                // 如果没记忆，默认找个名字里带 gemini 的
-                const defaultOpt = Array.from(select.options).find(opt => opt.value.includes('gemini'));
-                if(defaultOpt) select.value = defaultOpt.value;
-            }
-            onModelChange(select); // 刷新对应的图标
-            
-        } else { select.innerHTML = '<option value="">⚠ 未返回模型</option>'; }
-    } catch(e) { select.innerHTML = '<option value="">⚠ 网络异常</option>'; }
+            const modelIds = data.data.map(model => model?.id).filter(id => typeof id === 'string' && id);
+            if (!modelIds.length) throw new Error('未返回模型');
+            renderModelOptions(select, modelIds);
+            writeCachedModels(currentSup, modelIds);
+            select.title = data.stale ? '显示服务器缓存，模型列表正在后台更新' : '';
+        } else { throw new Error('未返回模型'); }
+    } catch(e) {
+        if (requestSequence !== _modelFetchSequence) return;
+        if (cachedModels.length) {
+            select.title = '模型列表暂时无法更新，当前显示上次成功结果';
+            toast('模型列表更新失败，继续使用上次成功结果');
+        } else {
+            select.innerHTML = `<option value="">⚠ ${e.name === 'AbortError' ? '连接超时' : '模型列表暂时不可用'}</option>`;
+            select.title = e.message || '';
+        }
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 // ==================== 智能日记本 ====================

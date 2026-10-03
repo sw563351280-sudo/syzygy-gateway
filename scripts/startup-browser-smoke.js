@@ -14,6 +14,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function main() {
     const app = express(); app.use(express.json());
     const requests = [];
+    let modelReplyMode = 'success';
     app.use((req, _res, next) => { if (req.path.startsWith('/api/')) requests.push(req.path); next(); });
     const messages = Array.from({ length: 170 }, (_, index) => ({
         _id: 'm' + index,
@@ -41,7 +42,13 @@ async function main() {
     app.get('/api/period', (_req, res) => res.json({ status: { inPeriod: false }, records: [] }));
     app.get('/api/music/status', (_req, res) => res.json({ csrfToken: 'fixture', configured: false, session: { mode: 'local', state: 'idle', offers: [] } }));
     app.get('/api/music/session', (_req, res) => res.json({ mode: 'local', state: 'idle', offers: [] }));
-    app.post('/api/fetch-models', (_req, res) => res.json({ data: [{ id: 'fixture-model' }] }));
+    app.post('/api/fetch-models', async (_req, res) => {
+        if (modelReplyMode === 'slow-error') {
+            await sleep(1400);
+            return res.status(502).json({ error: 'fixture upstream unavailable' });
+        }
+        res.json({ data: [{ id: 'fixture-model' }] });
+    });
     app.use('/api', (_req, res) => res.json({ success: true, tools: {}, servers: [], state: 'disconnected', config: {}, tasks: [], data: [] }));
     app.get('/fixture-image.svg', (_req, res) => res.type('svg').send('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>'));
     if (baseline) for (const [route, file] of [['/', 'public/index.html'], ['/script.js', 'public/script.js'], ['/style.css', 'public/style.css']]) {
@@ -87,8 +94,17 @@ async function main() {
             assert.equal(initial.hiddenChatImageLoaded, false);
             assert.equal(external.length, 0);
             for (const endpoint of ['/api/tools-status', '/api/mcp/servers', '/api/toy-status']) assert.equal(requests.includes(endpoint), false);
+            await page.waitForFunction(() => document.querySelector('#modelSelect')?.value === 'fixture-model');
+            modelReplyMode = 'slow-error';
+            await page.reload({ waitUntil: 'domcontentloaded' });
+            await page.waitForFunction(() => document.querySelector('#modelSelect')?.value === 'fixture-model');
+            assert.equal(await page.evaluate(() => document.querySelector('#modelSelect').title), '正在后台更新模型列表');
+            await sleep(1600);
+            assert.equal(await page.evaluate(() => document.querySelector('#modelSelect').value), 'fixture-model', 'failed refresh keeps the last successful model list');
+            assert.match(await page.evaluate(() => document.querySelector('#modelSelect').title), /上次成功结果/);
+            modelReplyMode = 'success';
             const idleMusicChecks = requests.filter(endpoint => endpoint === '/api/music/status').length;
-            assert.equal(idleMusicChecks, 1, 'music performs one startup recovery check');
+            assert.equal(idleMusicChecks, 2, 'music performs one startup recovery check per page load');
             await sleep(3200);
             assert.equal(requests.filter(endpoint => endpoint === '/api/music/status').length, idleMusicChecks, 'closed idle music panel must not keep polling');
             await page.evaluate(() => window.SyzygyMusic.open());

@@ -65,6 +65,7 @@ const { hasProjectFileIntent, hasToyDeviceIntent, hasToyFollowUpIntent, hasAlbum
 const privateJournal = require('./private-journal');
 const { fetchHealthSummary, healthDataStatus } = require('./health-data');
 const { createMusic, MUSIC_TOOLS, TOOL_NAMES: MUSIC_TOOL_NAMES, environmentRanker } = require('./music');
+const { createModelListCache, fetchModelList } = require('./model-list-cache');
 
 const execFileAsync = promisify(execFile);
 
@@ -9213,6 +9214,16 @@ app.get(['/v1/models', '/via/:platform/v1/models'], async (req, res) => {
 // ==========================================
 // 🚀 通用模型拉取
 // ==========================================
+const MODEL_LIST_TIMEOUT_MS = 12000;
+const modelListCache = createModelListCache({
+    freshMs: 5 * 60 * 1000,
+    maxAgeMs: 24 * 60 * 60 * 1000,
+    maxEntries: 40,
+    onRefreshError(error) {
+        console.warn('[models] 后台刷新失败:', error.message);
+    },
+});
+
 app.post('/api/fetch-models', async (req, res) => {
     const { baseUrl, apiKey } = req.body;
     if (!apiKey) return res.status(400).json({ error: "API Key 不能为空" });
@@ -9227,12 +9238,17 @@ app.post('/api/fetch-models', async (req, res) => {
         } else {
             targetUrl = 'https://www.msuicode.com/v1/models';
         }
-        const response = await fetch(targetUrl, {
-            headers: { 'Authorization': `Bearer ${apiKey}` }
-        });
-        const data = await response.json();
-        res.json(data);
-    } catch (error) { res.status(500).json({ error: "无法连接供应商: " + error.message }); }
+        const cacheKey = crypto.createHash('sha256').update(`${targetUrl}\0${apiKey}`).digest('hex');
+        const result = await modelListCache.get(cacheKey, () => fetchModelList(fetch, {
+            targetUrl,
+            apiKey,
+            timeoutMs: MODEL_LIST_TIMEOUT_MS,
+        }));
+        res.json({ ...result.data, cached: result.cache !== 'miss', stale: result.cache === 'stale' });
+    } catch (error) {
+        const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+        res.status(timedOut ? 504 : 502).json({ error: timedOut ? '供应商响应超时，请稍后再试' : `无法连接供应商: ${error.message}` });
+    }
 });
 
 // ==========================================
