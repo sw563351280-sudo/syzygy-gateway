@@ -2,7 +2,7 @@
 const fs = require('node:fs'), path = require('node:path'), express = require('express'), assert = require('node:assert/strict'), puppeteer = require('puppeteer-core');
 const { WebSocketServer } = require('ws');
 const root = path.join(__dirname, '..');
-const fixture = { date: '2026-10-05', days: 579, nextMilestone: 600, calendarAvailable: true, todos: [{ id: 'shen_fixture', text: '出门散步', owner: 'shen' }], schedules: [{ text: '一起散步', time: '19:30' }], letter: { text: '早点睡。醒来以后，再慢慢告诉我今天发生的事。\n我在。<script>window.injected=true</script>', source: '日历留言', date: '2026-10-04' }, diary: { title: '秋天第一场雨', date: '2026-10-04' }, musicAvailable: true, music: { name: '晚风心里吹', at: Date.now() } };
+const fixture = { date: '2026-10-05', days: 533, nextMilestone: 600, calendarAvailable: true, todos: [{ id: 'shen_fixture', text: '出门散步', owner: 'shen' }], schedules: [{ text: '一起散步', time: '19:30' }], letter: { text: '早点睡。醒来以后，再慢慢告诉我今天发生的事。\n我在。', source: '日历留言', date: '2026-10-04' }, diary: { title: '秋天第一场雨', date: '2026-10-04' }, musicAvailable: true, music: { name: '晚风心里吹', at: Date.now() } };
 async function main() {
     const app = express(); app.use(express.json()); let failMiss = false, failSummary = false; const sent = [];
     app.get('/api/home/summary', (_req,res) => failSummary ? res.status(503).json({ error: '同步失败' }) : res.json(fixture));
@@ -27,11 +27,17 @@ async function main() {
         await page.setViewport({ width:1024,height:900 });
         await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil:'networkidle0' });
         await page.waitForFunction(() => document.querySelector('#seaNote').textContent.includes('早点睡'));
+        await page.evaluate(() => document.fonts.ready);
+        await new Promise(r => setTimeout(r, 200));
+        assert.equal(await page.evaluate(() => document.fonts.check('16px "Sea Serif"')), true, 'Chinese serif font loads locally');
         assert.equal(await page.evaluate(() => window.injected), undefined);
         await page.screenshot({ path: path.join(root,'qa-sea-home-1024.png') });
+        assert.equal(await page.$eval('#seaRecent',e=>e.children.length), 2, 'desktop shows both recent entries when space permits');
         await page.click('#homeV2MoreToggle'); assert.equal(await page.$eval('#seaMoreDialog',d => d.open),true);
         await page.screenshot({ path:path.join(root,'qa-sea-more-1024.png') });
         await page.keyboard.press('Escape'); assert.equal(await page.$eval('#seaMoreDialog',d => d.open),false);
+        fixture.letter.text += '<script>window.injected=true</script>';
+        await page.evaluate(() => SeaHome.refresh(true));
         await page.click('.sea-paperboat'); await page.waitForFunction(() => document.querySelector('#seaLetterDialog').open); assert.match(await page.$eval('#seaLetterText',e=>e.textContent),/早点睡/);
         assert.equal(await page.evaluate(() => window.injected), undefined); await page.keyboard.press('Escape');
         failMiss = true; await page.click('#seaMiss'); await page.waitForFunction(() => document.querySelector('#seaStatus').textContent.includes('暂未送达'));
@@ -45,7 +51,8 @@ async function main() {
         await page.evaluate(() => goView('home'));
         for (const width of [393,320]) {
             await new Promise(r => setTimeout(r, 700));
-            await page.setViewport({ width,height:852 }); await page.screenshot({ path:path.join(root,`qa-sea-home-${width}.png`) });
+            await page.setViewport({ width,height:852 }); await new Promise(r => setTimeout(r,250)); await page.screenshot({ path:path.join(root,`qa-sea-home-${width}.png`) });
+            assert.equal(await page.$eval('#seaRecent',e=>e.children.length), 1, 'small screens rotate recent entries');
             assert.ok(await page.evaluate(() => document.documentElement.scrollWidth<=innerWidth),'no horizontal overflow');
             await page.click('#homeV2MoreToggle'); await page.screenshot({ path:path.join(root,`qa-sea-more-${width}.png`) });
             assert.ok(await page.$eval('#seaMoreDialog',e=>e.scrollWidth<=e.clientWidth),'drawer fits mobile');

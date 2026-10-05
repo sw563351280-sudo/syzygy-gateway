@@ -48,3 +48,6 @@ public/fonts/CormorantGaramond-Italic.ttf
 public/fonts/CormorantGaramond-OFL.txt
 public/home-sea.css
 public/home-sea.js
+public/assets/ice-sea-home-v2.webp
+public/fonts/SeaSerifSC-Regular.woff2
+public/fonts/NotoSerifSC-OFL.txt

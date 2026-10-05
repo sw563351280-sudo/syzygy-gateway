@@ -67,8 +67,9 @@
         const rows = $('seaTodayRows'); rows.replaceChildren();
         $('homeV2DayCount').textContent = data.days;
         const day = new Date(data.date + 'T12:00:00+08:00');
-        rows.append(row('calendar', day.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'long', day: 'numeric', weekday: 'long' }), 'calendar'));
-        rows.append(row('ring', `距 ${data.nextMilestone} 天纪念日 · ${data.nextMilestone - data.days} 天`, 'milestone'));
+        const weekday = day.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' });
+        rows.append(row('calendar', `${day.getUTCMonth() + 1}月${day.getUTCDate()}日 · ${weekday}`, 'calendar'));
+        rows.append(row('ring', `距 ${data.nextMilestone} 天纪念日 · 还有 ${data.nextMilestone - data.days} 天`, 'milestone'));
         rows.append(data.todos.length ? row('todo', `待办 · ${data.todos.length} 项`, 'todos', data.todos.some(t => t.owner === 'shen')) : empty('没什么要赶的，慢慢来。', 'todos'));
         if (data.calendarAvailable) rows.append(data.schedules.length ? row('clock', data.schedules.map(s => [s.time, s.text].filter(Boolean).join(' · ')).join(' / '), 'calendar') : empty('今天没安排，把时间留给你。', 'calendar'));
         $('seaNote').hidden = !data.letter;
@@ -79,13 +80,18 @@
     }
     function renderRecent() {
         clearInterval(recentTimer);
-        const el = $('seaRecent'); el.replaceChildren();
+        const el = $('seaRecent'); el.replaceChildren(); el.classList.remove('is-paired');
         const items = [];
         if (data.music && (data.music.playing || Date.now() - data.music.at < 3 * 86400000)) items.push(row('music', `${data.music.playing ? '正在共听' : '共听'}《${data.music.name}》`, 'music'));
         else if (data.musicAvailable) items.push(empty('很久没一起听歌了，挑一首，我陪你。', 'music'));
         if (data.diary) items.push(row('book', `日记《${data.diary.title}》 · ${String(data.diary.date || '').split('T')[0]}`, 'diary'));
         if (data.photo) items.push(row('photo', `相册 · ${data.photo.title}`, 'album'));
         let i = 0;
+        if (items.length === 2 && matchMedia('(min-width: 700px)').matches) {
+            el.classList.add('is-paired'); el.append(...items);
+            if (el.scrollWidth <= el.clientWidth + 1) return;
+            el.classList.remove('is-paired'); el.replaceChildren();
+        }
         if (items.length) el.append(items[0]);
         // One row at a time: long titles never collide on small screens.
         if (items.length > 1 && isHome() && !document.hidden) recentTimer = setInterval(() => { i = (i + 1) % items.length; el.replaceChildren(items[i]); }, 6500);
@@ -191,6 +197,10 @@
     new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['data-view'] });
     document.addEventListener('visibilitychange', () => { clearInterval(recentTimer); if (!document.hidden) { refresh(true); if (data) renderRecent(); } });
     window.addEventListener('focus', () => refresh());
+    let resizeTimer;
+    window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (data && isHome()) renderRecent(); }, 150); });
+    document.fonts.ready.then(() => { if (data && isHome()) renderRecent(); });
+    document.fonts.addEventListener('loadingdone', () => { if (data && isHome()) renderRecent(); });
     window.SeaHome = { refresh, sync, close: closeDialogs };
     document.addEventListener('DOMContentLoaded', sync);
 })();
