@@ -783,6 +783,16 @@ try {
     music = { router, context: () => '', executeTool: async () => JSON.stringify(unavailable) };
 }
 app.use('/api/music', music.router);
+const { createHomeSea, homeSnapshot } = require('./home-sea');
+const homeSea = createHomeSea({ directory: DATA_DIR, snapshot: async () => {
+    const config = await webConfigStore.readShared();
+    const main = config?.chatSessions?.find(s => s.id === 'main');
+    const messages = clientVisibleMessages(main?.messages || []).map(m => ({ ...m, content: getActiveVersionForServer(m).content || m.content }));
+    let musicData = null;
+    try { musicData = music.store?.read() || null; } catch (_) {}
+    return homeSnapshot({ pages: loadDailyPages(), todos: loadTodos(), diaries: loadDiaries(), photos: loadPhotos(), messages, music: musicData, calendarAvailable: calendarEnabled() });
+} });
+app.use('/api/home', homeSea.router);
 const PRIVATE_JOURNAL_FILE = path.join(DATA_DIR, 'private_journal.enc');
 const PRIVATE_JOURNAL_KEY_FILE = path.join(DATA_DIR, '.private_journal_key');
 const LEDGER_FILE = path.join(DATA_DIR, 'ledger_transactions.json');
@@ -2012,7 +2022,8 @@ ${isPeriod ? '她今天在经期中。' : ''}
 江鱼的近况：${profile?.recent_focus?.content || '无'}
 
 今天的对话：
-${script}`;
+${script}
+${homeSea.context()}`;
 
     try {
         const dreamKey = process.env.DREAM_API_KEY || (process.env.ROUTER_API_KEY || '').replace(/^Bearer\s+/i, '');
@@ -3371,6 +3382,7 @@ function getBeijingTime() {
 }
 
 function buildEnvContext(body) {
+    body += homeSea.context();
     return `\n\n==========\n【系统环境参数实时同步】\n当前真实时间：${getBeijingTime()}\n当前物理位置：中国\n${body}\n==========\n`;
 }
 

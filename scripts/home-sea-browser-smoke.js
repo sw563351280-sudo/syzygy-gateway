@@ -1,0 +1,67 @@
+'use strict';
+const fs = require('node:fs'), path = require('node:path'), express = require('express'), assert = require('node:assert/strict'), puppeteer = require('puppeteer-core');
+const { WebSocketServer } = require('ws');
+const root = path.join(__dirname, '..');
+const fixture = { date: '2026-10-05', days: 579, nextMilestone: 600, calendarAvailable: true, todos: [{ id: 'shen_fixture', text: '出门散步', owner: 'shen' }], schedules: [{ text: '一起散步', time: '19:30' }], letter: { text: '早点睡。醒来以后，再慢慢告诉我今天发生的事。\n我在。<script>window.injected=true</script>', source: '日历留言', date: '2026-10-04' }, diary: { title: '秋天第一场雨', date: '2026-10-04' }, musicAvailable: true, music: { name: '晚风心里吹', at: Date.now() } };
+async function main() {
+    const app = express(); app.use(express.json()); let failMiss = false, failSummary = false; const sent = [];
+    app.get('/api/home/summary', (_req,res) => failSummary ? res.status(503).json({ error: '同步失败' }) : res.json(fixture));
+    app.post('/api/home/miss-you', (req,res) => { sent.push(req.body.id); failMiss ? res.status(503).json({ error: '暂未送达' }) : res.json({ ok: true }); });
+    app.get('/api/sync-config', (_req,res) => res.json({ chatSessions: [], suppliers: [] }));
+    app.get('/api/todos', (_req,res) => res.json({ todos: fixture.todos, active: fixture.todos, shen: fixture.todos, fish: [] }));
+    app.patch('/api/todos/:id', (_req,res) => { fixture.todos = []; res.json({ success: true }); });
+    app.get('/api/music/status', (_req,res) => res.json({ csrfToken: 'fixture', configured: false, session: { state: 'closed', mode: 'local' } }));
+    app.get('/api/calendar', (_req,res) => res.json({ success: true, data: [] }));
+    app.use('/api', (_req,res) => res.json({ success: true, config: {}, data: [], favorites: [], status: {}, records: [] }));
+    app.get('/diary-logs', (_req,res) => res.json([]));
+    app.use(express.static(path.join(root,'public')));
+    const server = app.listen(0,'127.0.0.1'); await new Promise(r => server.once('listening',r));
+    const ws = new WebSocketServer({ server }); let browser;
+    try {
+        const executablePath = ['C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(fs.existsSync);
+        browser = await puppeteer.launch({ executablePath, headless: true, args: ['--mute-audio'] });
+        const page = await browser.newPage(), errors = [];
+        page.on('pageerror', e => errors.push(e.message));
+        await page.setRequestInterception(true); page.on('request', r => r.url().startsWith('http') && !r.url().startsWith('http://127.0.0.1:') ? r.abort() : r.continue());
+        await page.evaluateOnNewDocument(() => localStorage.setItem('syzygy_visual_theme','new'));
+        await page.setViewport({ width:1024,height:900 });
+        await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil:'networkidle0' });
+        await page.waitForFunction(() => document.querySelector('#seaNote').textContent.includes('早点睡'));
+        assert.equal(await page.evaluate(() => window.injected), undefined);
+        await page.screenshot({ path: path.join(root,'qa-sea-home-1024.png') });
+        await page.click('#homeV2MoreToggle'); assert.equal(await page.$eval('#seaMoreDialog',d => d.open),true);
+        await page.screenshot({ path:path.join(root,'qa-sea-more-1024.png') });
+        await page.keyboard.press('Escape'); assert.equal(await page.$eval('#seaMoreDialog',d => d.open),false);
+        await page.click('.sea-paperboat'); await page.waitForFunction(() => document.querySelector('#seaLetterDialog').open); assert.match(await page.$eval('#seaLetterText',e=>e.textContent),/早点睡/);
+        assert.equal(await page.evaluate(() => window.injected), undefined); await page.keyboard.press('Escape');
+        failMiss = true; await page.click('#seaMiss'); await page.waitForFunction(() => document.querySelector('#seaStatus').textContent.includes('暂未送达'));
+        assert.equal(await page.$eval('#seaMissLabel',e=>e.textContent),'想他了');
+        failMiss = false; await page.click('#seaMiss'); await page.waitForFunction(() => document.querySelector('#seaMissLabel').textContent==='已送达');
+        assert.equal(sent[0],sent[1],'failed network retry keeps the same event ID');
+        await page.waitForFunction(() => document.querySelector('#seaMissLabel').textContent==='想他了');
+        await page.click('[data-sea-action="todos"]'); await page.click('#seaTodoList input');
+        await page.waitForFunction(() => document.querySelector('#seaTodoList').textContent.includes('慢慢来')); await page.keyboard.press('Escape');
+        await page.click('[data-sea-action="calendar"]'); await page.waitForFunction(() => document.body.dataset.view==='calendar');
+        await page.evaluate(() => goView('home'));
+        for (const width of [393,320]) {
+            await new Promise(r => setTimeout(r, 700));
+            await page.setViewport({ width,height:852 }); await page.screenshot({ path:path.join(root,`qa-sea-home-${width}.png`) });
+            assert.ok(await page.evaluate(() => document.documentElement.scrollWidth<=innerWidth),'no horizontal overflow');
+            await page.click('#homeV2MoreToggle'); await page.screenshot({ path:path.join(root,`qa-sea-more-${width}.png`) });
+            assert.ok(await page.$eval('#seaMoreDialog',e=>e.scrollWidth<=e.clientWidth),'drawer fits mobile');
+            await page.click('#seaMoreDialog [data-sea-action="settings"]'); await page.waitForFunction(() => document.body.dataset.view==='settings');
+            await page.evaluate(() => { applyVisualTheme('classic'); goView('home'); });
+            assert.equal(await page.$eval('#homeV2',e=>getComputedStyle(e).display),'none');
+            assert.notEqual(await page.$eval('.neu-home',e=>getComputedStyle(e).display),'none');
+            await page.evaluate(() => applyVisualTheme('new')); await page.waitForFunction(() => document.querySelector('#homeV2').classList.contains('sea-active'));
+            assert.equal(await page.$eval('#homeV2DayCount',e=>e.textContent), String(fixture.days), 'theme switch keeps summary and counter consistent');
+        }
+        failSummary = true; await page.evaluate(() => SeaHome.refresh(true));
+        assert.match(await page.$eval('#seaStatus',e=>e.textContent),/重试/); failSummary = false; await page.click('#seaStatus button');
+        await page.waitForFunction(() => !document.querySelector('#seaStatus').textContent);
+        await page.emulateMediaFeatures([{ name:'prefers-reduced-motion',value:'reduce' }]);
+        assert.equal(await page.$eval('.sea-paperboat svg',e=>getComputedStyle(e).animationName),'none');
+        assert.deepEqual(errors,[]); console.log(JSON.stringify({ ok:true, widths:[1024,393,320], checks:['data','dialogs','navigation','miss retry and reset','todo completion','theme rollback','no overflow','reduced motion'], pageErrors:errors }));
+    } finally { await browser?.close(); ws.close(); await new Promise(r=>server.close(r)); }
+}
+main().catch(e=>{ console.error(e); process.exitCode=1; });

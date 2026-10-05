@@ -58,11 +58,14 @@ const starState = { pendingMeteor: false, pendingNebula: false };
     }
     function start(){
         stop();
+        if(document.documentElement.dataset.visualTheme==='new' && (!document.body.dataset.view || document.body.dataset.view==='home')){x.clearRect(0,0,w,h);return}
         if(reducedMotion.matches){draw(false);c.dataset.motion='static';return}
         if(document.hidden)return;
         running=true;c.dataset.motion='animated';frameId=requestAnimationFrame(frame);
     }
     document.addEventListener('visibilitychange',()=>document.hidden?stop():start());
+    new MutationObserver(start).observe(document.documentElement,{attributes:true,attributeFilter:['data-visual-theme']});
+    new MutationObserver(start).observe(document.body,{attributes:true,attributeFilter:['data-view']});
     if(reducedMotion.addEventListener)reducedMotion.addEventListener('change',start);
     else if(reducedMotion.addListener)reducedMotion.addListener(start);
     start();
@@ -1607,6 +1610,7 @@ function egg(pos){}
 
 // ==================== 新拟态首页 ====================
 function neuInitHome() {
+    window.SeaHome?.refresh();
     neuRenderWeek();
     neuRenderTodos();
     neuUpdateNav();
@@ -1650,6 +1654,7 @@ async function neuFetchTodos() {
 }
 
 async function neuRenderTodos() {
+    window.SeaHome?.refresh(true);
     const list = document.getElementById('neuTodoList');
     if (!list) return;
     const data = await neuFetchTodos();
@@ -1912,7 +1917,7 @@ function getVisualTheme() {
 function getVisualThemeColor(viewId = document.body?.dataset?.view || 'home') {
     const isNew = getVisualTheme() === 'new';
     if (!isNew) return viewId === 'chat' ? '#EFF6FD' : '#E8EFF7';
-    if (viewId === 'home') return '#7890AA';
+    if (viewId === 'home') return '#A9C3D8';
     if (viewId === 'dev' || viewId === 'console') return '#101827';
     return '#DCE8F1';
 }
@@ -1941,15 +1946,7 @@ function applyVisualTheme(theme, persist = true) {
         newHome.setAttribute('aria-hidden', String(!isNew));
         newHome.inert = !isNew;
     }
-    if (!isNew) {
-        const more = document.getElementById('homeV2More');
-        const toggle = document.getElementById('homeV2MoreToggle');
-        if (more) more.hidden = true;
-        if (toggle) {
-            toggle.setAttribute('aria-expanded', 'false');
-            toggle.innerHTML = '···&nbsp; 更多';
-        }
-    }
+    window.SeaHome?.sync();
     if (persist) {
         try {
             localStorage.setItem(VISUAL_THEME_KEY, normalized);

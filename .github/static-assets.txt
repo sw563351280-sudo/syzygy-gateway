@@ -43,3 +43,8 @@ public/workroom-pages.css
 public/workroom-pages.js
 public/xhs-walk.html
 public/ximai.ttf
+public/assets/ice-sea-home.webp
+public/fonts/CormorantGaramond-Italic.ttf
+public/fonts/CormorantGaramond-OFL.txt
+public/home-sea.css
+public/home-sea.js

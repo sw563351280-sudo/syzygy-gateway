@@ -8,7 +8,7 @@
     const root = host.attachShadow({ mode: 'open' });
     root.innerHTML = `
       <link rel="stylesheet" href="/music-player.css?v=2">
-      <button class="launcher" aria-label="打开一起听歌">♫ <span>一起听</span></button>
+      <button part="launcher" class="launcher" aria-label="打开一起听歌">♫ <span>一起听</span></button>
       <section class="panel" aria-label="一起听歌" hidden>
         <header><div><small>SHARED LISTENING</small><h2>耳机分你一只。</h2></div><button data-action="hide" aria-label="收起播放器">⌄</button></header>
         <div class="mode"><button data-mode="local">小屋播放器</button><button data-mode="netease-room">网易云一起听</button></div>
