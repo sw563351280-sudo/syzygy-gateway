@@ -27,6 +27,17 @@ async function main() {
         await page.setViewport({ width:1024,height:900 });
         await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil:'networkidle0' });
         await page.waitForFunction(() => document.querySelector('#seaNote').textContent.includes('早点睡'));
+        const cycle = async time => page.evaluate(value => { const saved=Date.now; Date.now=()=>Date.parse(value); SeaCycle.update(); Date.now=saved; }, time);
+        await cycle('2026-10-07T07:00:00+08:00');
+        assert.equal(await page.evaluate(() => document.documentElement.dataset.seaCycle),'day');
+        assert.match(await page.$eval('#sec-home',e=>getComputedStyle(e,'::before').backgroundImage),/ice-sea-home-v2/);
+        await cycle('2026-10-07T18:00:00+08:00');
+        assert.equal(await page.evaluate(() => document.documentElement.dataset.seaCycle),'night');
+        assert.match(await page.$eval('#sec-home',e=>getComputedStyle(e,'::before').backgroundImage),/ice-sea-night-v1/);
+        assert.equal(await page.$eval('.home-v2-hero',e=>getComputedStyle(e).color),'rgb(237, 243, 247)');
+        assert.equal(await page.$eval('#theme-color-meta',e=>e.content),'#081A2D');
+        await page.screenshot({ path:path.join(root,'qa-sea-home-night-1024.png') });
+        await cycle('2026-10-07T07:00:00+08:00');
         await page.evaluate(() => document.fonts.ready);
         await new Promise(r => setTimeout(r, 200));
         assert.equal(await page.evaluate(() => document.fonts.check('16px "Sea Serif"')), true, 'Chinese serif font loads locally');

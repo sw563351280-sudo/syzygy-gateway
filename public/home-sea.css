@@ -4,7 +4,7 @@
 body.neu-mode[data-visual-theme="new"][data-view="home"] #starmap { display: none; }
 body.neu-mode[data-view="home"] #syzygy-music[home-minimal]::part(launcher) { display: none; }
 body.neu-mode #sec-home.home-layout-v2 { box-sizing: border-box; width: 100%; max-width: none; min-height: 100dvh; padding: 0 !important; overflow: hidden auto; background: #9ab6ca; color: #edf6fa; }
-body.neu-mode #sec-home.home-layout-v2::before { background: linear-gradient(180deg,rgba(17,47,70,0) 40%,rgba(10,50,70,.08)), url('assets/ice-sea-home-v2.webp') center 43% / cover no-repeat; opacity: 1; mix-blend-mode: normal; filter: none; }
+body.neu-mode #sec-home.home-layout-v2::before { background: linear-gradient(180deg,rgba(17,47,70,0) 40%,rgba(10,50,70,.08)), var(--sea-home-image, url('assets/ice-sea-home-v2.webp')) center 43% / cover no-repeat; opacity: 1; mix-blend-mode: normal; filter: none; }
 body.neu-mode #sec-home.home-layout-v2::after { content: ''; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 50% 35%, transparent 45%, rgba(13,39,62,.06)); }
 body.neu-mode #sec-home.home-layout-v2 .neu-home { display: none; }
 body.neu-mode #sec-home.home-layout-v2 .home-v2 { display: flex; position: relative; z-index: 1; box-sizing: border-box; flex-direction: column; align-items: center; gap: 44px; width: 100%; min-height: 100dvh; margin: auto; padding: max(88px, 15dvh) 24px max(94px, 10dvh); font-family: 'Sea Serif','Noto Serif SC','Songti SC','SimSun',serif; font-weight: 400; }
@@ -94,6 +94,14 @@ body.sea-modal-open { overflow: hidden !important; }
 .home-v2:not(.sea-active) * { animation-play-state: paused !important; }
 .visual-theme-preview-new { background: url('assets/ice-sea-home-v2.webp') center / cover !important; }
 .visual-theme-preview-new::after { display: none; }
+html[data-sea-cycle="night"] { --sea-home-image: url('assets/ice-sea-night-v1.webp'); }
+html[data-sea-cycle="night"] body.neu-mode #sec-home.home-layout-v2 { background: #081a2d; }
+html[data-sea-cycle="night"] .home-v2 .home-v2-hero { color: #edf3f7; text-shadow: 0 1px 12px rgba(0,0,0,.25); }
+html[data-sea-cycle="night"] .home-v2 .sea-whisper { color: #edf3f7; }
+html[data-sea-cycle="night"] .home-v2 .sea-pill { background: rgba(235,243,250,.06); }
+html[data-sea-cycle="night"] .home-v2 .sea-pill:hover { background: rgba(235,243,250,.13); }
+html[data-sea-cycle="night"] .home-v2 .sea-dialog { background: rgba(10,25,43,.72); }
+html[data-sea-cycle="night"] .visual-theme-preview-new { background-image: url('assets/ice-sea-night-v1.webp') !important; }
 @keyframes sea-bob { 0%,100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-4px) rotate(3deg); } }
 @keyframes sea-rings { 0%,100% { transform: scale(.8); opacity: .2; } 40% { opacity: .35; } 90% { transform: scale(1.4); opacity: .16; } }
 @keyframes sea-beacon { 0%,100% { opacity: .35; } 50% { opacity: .65; } }

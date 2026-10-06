@@ -55,3 +55,7 @@ public/sea-pages.css
 public/sea-pages.js
 public/journal-sea.css
 public/journal-sea.js
+public/assets/ice-sea-night-v1.webp
+public/sea-cycle.js
+public/memory-notes.css
+public/memory-notes.js

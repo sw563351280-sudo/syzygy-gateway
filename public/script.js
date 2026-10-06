@@ -1920,7 +1920,7 @@ function getVisualTheme() {
 function getVisualThemeColor(viewId = document.body?.dataset?.view || 'home') {
     const isNew = getVisualTheme() === 'new';
     if (!isNew) return viewId === 'chat' ? '#EFF6FD' : '#E8EFF7';
-    if (viewId === 'home') return '#A9C3D8';
+    if (viewId === 'home') return document.documentElement.dataset.seaCycle === 'night' ? '#081A2D' : '#A9C3D8';
     if (viewId === 'dev' || viewId === 'console') return '#101827';
     return '#DCE8F1';
 }
@@ -1963,6 +1963,11 @@ function applyVisualTheme(theme, persist = true) {
 
 // 兼容旧缓存页面里可能残留的首页切换调用。
 function setHomeLayout(layout, persist = true) { applyVisualTheme(layout, persist); }
+
+window.addEventListener('sea-cycle-change', () => {
+    const meta = document.getElementById('theme-color-meta');
+    if (meta) meta.setAttribute('content', getVisualThemeColor());
+});
 
 function toggleHomeV2More() {
     const panel = document.getElementById('homeV2More');

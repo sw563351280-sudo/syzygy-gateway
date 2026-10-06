@@ -4,6 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>星渡 · 长期记忆</title>
+  <script>
+    try { const saved=localStorage.getItem('syzygy_visual_theme')||localStorage.getItem('syzygy_home_layout'); document.documentElement.dataset.visualTheme=saved==='new'?'new':'classic'; }
+    catch (_) { document.documentElement.dataset.visualTheme='classic'; }
+  </script>
+  <script src="/memory-notes.js?v=1" defer></script>
   <script src="/memory-curator-diagnostics.js?v=2" defer></script>
   <link rel="stylesheet" href="/memory-curator-diagnostics.css?v=2">
   <style>
@@ -17,6 +22,7 @@
     @media(max-width:480px){main{padding:20px 13px 38px}.hero h2{font-size:25px}.memory-content{font-size:15px}.toolbar{grid-template-columns:1fr}.add{height:42px}.subbar{align-items:flex-start;flex-direction:column}.sort{width:100%;justify-content:flex-start}.memory-card.selecting{padding-left:45px}.mem-check{left:13px}.memory-meta{align-items:flex-start;flex-direction:column}.mem-actions{justify-content:flex-start}.batch-bar{padding:9px 10px;gap:6px;flex-wrap:wrap}.batch-count{width:100%;margin-right:0}.batch-bar button{flex:1;padding:9px 6px;white-space:nowrap}.multi-selecting main{padding-bottom:150px}}
     @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
   </style>
+  <link rel="stylesheet" href="/memory-notes.css?v=1">
 </head>
 <body>
   <header class="top"><a class="back" id="backLink" href="/" aria-label="返回">←</a><div><h1>恒星</h1><p>已经刻下来的事</p></div><nav class="layer-nav"><a class="on" href="#">恒星</a><a id="growthLink" href="#">成长</a><a id="dustLink" href="#">星尘</a><a id="cometLink" href="#">彗星</a></nav></header>
