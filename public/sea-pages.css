@@ -21,7 +21,7 @@ html[data-visual-theme="new"] body.neu-mode .sea-page-shell::before {
   z-index: -1;
   pointer-events: none;
   background: url('assets/ice-sea-home-v2.webp') center 43% / cover no-repeat;
-  filter: saturate(.55);
+  filter: saturate(.9);
 }
 html[data-visual-theme="new"] body.neu-mode[data-sea-page="true"] #starmap,
 html[data-visual-theme="new"] body.neu-mode[data-sea-page="true"] .binding-right,
