@@ -1,0 +1,52 @@
+/* Shared ocean shell. Opt in per page; classic pages keep their own layout. */
+html[data-visual-theme="new"] body.neu-mode .sea-page-shell {
+  --sea-page-ink: #244a65;
+  --sea-page-white: #f0f5f8;
+  --sea-page-glass: rgba(255,255,255,.04);
+  --sea-page-edge: rgba(255,255,255,.2);
+  --sea-page-axis: clamp(24px,9vw,180px);
+  box-sizing: border-box;
+  isolation: isolate;
+  min-height: 100dvh;
+  padding: 0;
+  background: #b1c6d4 !important;
+  color: var(--sea-page-white);
+  font-family: 'Sea Serif','Noto Serif SC','Songti SC','SimSun',serif;
+  animation: none;
+}
+html[data-visual-theme="new"] body.neu-mode .sea-page-shell::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: url('assets/ice-sea-home-v2.webp') center 43% / cover no-repeat;
+  filter: saturate(.55);
+}
+html[data-visual-theme="new"] body.neu-mode[data-sea-page="true"] #starmap,
+html[data-visual-theme="new"] body.neu-mode[data-sea-page="true"] .binding-right,
+html[data-visual-theme="new"] body.neu-mode[data-sea-page="true"] #syzygy-line-svg { display: none; }
+html[data-visual-theme="new"] body.neu-mode[data-sea-page="true"] #syzygy-music::part(launcher) { display: none; }
+.sea-page-nav { position: absolute; top: max(32px,calc(env(safe-area-inset-top,0px) + 20px)); left: var(--sea-page-axis); z-index: 2; }
+.sea-page-shell .sea-page-nav button { color: var(--sea-page-ink); }
+.sea-page-shell button,.sea-page-reader button { font: inherit; color: inherit; -webkit-tap-highlight-color: transparent; cursor: pointer; }
+.sea-page-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 8px 18px; border: 1px solid var(--sea-page-edge,rgba(255,255,255,.2)); border-radius: 24px; background: rgba(239,246,251,.06); box-shadow: none; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); transition: background .18s,transform .18s; }
+.sea-page-button:hover { background: rgba(239,246,251,.12); }
+.sea-page-button:active { transform: translateY(1px); background: rgba(239,246,251,.16); }
+.sea-page-button:disabled { cursor: wait; opacity: .5; }
+.sea-page-icon { display: block; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.sea-page-shell button:focus-visible,.sea-page-reader button:focus-visible { outline: 2px solid #e1f1fa; outline-offset: 4px; }
+.sea-page-reader { box-sizing: border-box; position: fixed; inset: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; border: 0; padding: 0; color: #f0f5f8; background: rgba(19,49,71,.24); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); font-family: 'Sea Serif','Noto Serif SC','Songti SC','SimSun',serif; }
+.sea-page-reader::backdrop { background: rgba(14,36,57,.12); }
+.sea-page-reader-inner { width: min(640px,calc(100% - 48px)); margin: 0 auto; padding: max(32px,calc(env(safe-area-inset-top,0px) + 20px)) 0 max(56px,env(safe-area-inset-bottom,0px)); }
+.sea-page-reader-nav { display: flex; justify-content: flex-start; margin-bottom: 48px; }
+.sea-page-message { padding: 26px 20px; margin: 0; font-size: 14px; line-height: 1.8; text-shadow: 0 1px 5px rgba(12,35,56,.45); }
+.sea-page-message button { margin-top: 12px; }
+@media (max-width: 700px) {
+  html[data-visual-theme="new"] body.neu-mode .sea-page-shell { --sea-page-axis: 20px; }
+  .sea-page-nav { top: max(20px,calc(env(safe-area-inset-top,0px) + 12px)); }
+  .sea-page-reader-inner { width: calc(100% - 40px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sea-page-shell *,.sea-page-reader * { animation: none !important; transition: none !important; }
+}

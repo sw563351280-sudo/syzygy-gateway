@@ -58,7 +58,7 @@ const starState = { pendingMeteor: false, pendingNebula: false };
     }
     function start(){
         stop();
-        if(document.documentElement.dataset.visualTheme==='new' && (!document.body.dataset.view || document.body.dataset.view==='home')){x.clearRect(0,0,w,h);return}
+        if(document.documentElement.dataset.visualTheme==='new' && (!document.body.dataset.view || document.body.dataset.view==='home' || document.body.dataset.seaPage==='true')){x.clearRect(0,0,w,h);return}
         if(reducedMotion.matches){draw(false);c.dataset.motion='static';return}
         if(document.hidden)return;
         running=true;c.dataset.motion='animated';frameId=requestAnimationFrame(frame);
@@ -260,6 +260,8 @@ let _historyLoading = false;
 let privateJournalEntries = [];
 let privateJournalPage = 1;
 let privateJournalTotal = 0;
+let privateJournalLoadRevision = 0;
+let privateJournalLoading = false;
 
 function syncConfigUrl() {
     return '/api/sync-config?mainLimit=' + CHAT_HISTORY_INITIAL_LIMIT;
@@ -1070,6 +1072,7 @@ function goView(viewId) {
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
+    window.SeaJournal?.sync();
     const metaTheme = document.getElementById('theme-color-meta');
     if (metaTheme) metaTheme.setAttribute('content', getVisualThemeColor(viewId));
     const VIEWS = ['home','chat','favorites','dev','console','flo','calendar','album','state','ledger','private-journal','settings'];
@@ -1947,6 +1950,7 @@ function applyVisualTheme(theme, persist = true) {
         newHome.inert = !isNew;
     }
     window.SeaHome?.sync();
+    window.SeaJournal?.sync();
     if (persist) {
         try {
             localStorage.setItem(VISUAL_THEME_KEY, normalized);
@@ -3483,6 +3487,7 @@ function privateJournalRender() {
     const count = document.getElementById('privateJournalCount');
     const more = document.getElementById('privateJournalMore');
     if (!list) return;
+    window.SeaJournal?.render(privateJournalEntries, privateJournalTotal);
     if (count) count.textContent = String(privateJournalTotal || 0);
     if (!privateJournalEntries.length) {
         list.innerHTML = '<div class="private-journal-empty"><span>⌑</span><strong>抽屉里还没有留下书页</strong><small>真正值得记住的时刻出现时，沈望会自己写。</small></div>';
@@ -3509,33 +3514,43 @@ function privateJournalRender() {
 async function privateJournalLoad(reset) {
     const list = document.getElementById('privateJournalList');
     if (!list) return;
+    if (!reset && privateJournalLoading) return;
+    const revision = ++privateJournalLoadRevision;
+    const page = reset ? 1 : privateJournalPage + 1;
+    privateJournalLoading = true;
+    window.SeaJournal?.loading(reset);
     if (reset) {
-        privateJournalPage = 1;
-        privateJournalEntries = [];
         list.innerHTML = '<div class="private-journal-empty">正在轻轻翻开抽屉…</div>';
     }
     try {
-        const response = await fetch('/api/private-journal?page=' + privateJournalPage + '&limit=20', { cache: 'no-store' });
+        const response = await fetch('/api/private-journal?page=' + page + '&limit=20', { cache: 'no-store' });
         const result = await response.json().catch(() => ({}));
+        if (revision !== privateJournalLoadRevision) return;
         if (!response.ok) throw new Error(result.error || '读取失败');
+        privateJournalPage = page;
         privateJournalTotal = Number(result.total || 0);
-        privateJournalEntries = reset ? (result.entries || []) : privateJournalEntries.concat(result.entries || []);
+        const values = Array.isArray(result.entries) ? result.entries : [];
+        privateJournalEntries = [...new Map((reset ? values : privateJournalEntries.concat(values)).map(entry => [entry.id, entry])).values()];
         privateJournalRender();
     } catch (error) {
-        list.innerHTML = '<div class="private-journal-empty"><strong>抽屉暂时打不开</strong><small>' + escapeHtml(error.message || '请稍后再试') + '</small></div>';
+        if (revision !== privateJournalLoadRevision) return;
+        if (reset) list.innerHTML = '<div class="private-journal-empty"><strong>抽屉暂时打不开</strong><small>' + escapeHtml(error.message || '请稍后再试') + '</small></div>';
+        else toast(error.message || '请稍后再试');
+        window.SeaJournal?.error(error.message, reset);
+    } finally {
+        if (revision === privateJournalLoadRevision) privateJournalLoading = false;
     }
 }
 
 function privateJournalLoadMore() {
     if (privateJournalEntries.length >= privateJournalTotal) return;
-    privateJournalPage += 1;
     privateJournalLoad(false);
 }
 
-async function privateJournalRequest(id) {
+async function privateJournalRequest(id, options = {}) {
     const entry = privateJournalEntries.find(item => item.id === id);
     if (!entry || entry.visibility === 'revealed') return;
-    if (!window.confirm('把查看这一页的请求递给沈望吗？\n\n他会先自己读一遍，再决定打开或继续封存。')) return;
+    if (options.confirm !== false && !window.confirm('把查看这一页的请求递给沈望吗？\n\n他会先自己读一遍，再决定打开或继续封存。')) return;
     try {
         if (entry.request_status !== 'requested') {
             const response = await fetch('/api/private-journal/' + encodeURIComponent(id) + '/request-reveal', {

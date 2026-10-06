@@ -51,3 +51,7 @@ public/home-sea.js
 public/assets/ice-sea-home-v2.webp
 public/fonts/SeaSerifSC-Regular.woff2
 public/fonts/NotoSerifSC-OFL.txt
+public/sea-pages.css
+public/sea-pages.js
+public/journal-sea.css
+public/journal-sea.js
