@@ -44,7 +44,8 @@ function createRollingContext({ store, summarize, threshold = 12000, tailTokens 
     now = Date.now, log = () => {} }) {
     const queues = new Map();
     const emit = event => { try { log({ event: 'summary', ...event }); } catch (_) {} };
-    async function run(key, messages, observer, prefix) {
+    async function run(key, messages, observer, prefix, signal) {
+        signal?.throwIfAborted();
         let raw = messages.map(wire);
         if (!validMessages(messages)) { emit({ state: 'invalid_ids', rawCount: messages.length }); return raw; }
         let state;
@@ -100,8 +101,9 @@ function createRollingContext({ store, summarize, threshold = 12000, tailTokens 
             store.write(key, state);
             emit({ state: 'started', batchCount: batch.length, rawTokens: tokens(remaining) });
             let result;
-            try { result = await summarize({ previousSummary: state.summary, messages: batch, observer }); }
+            try { result = await summarize({ previousSummary: state.summary, messages: batch, observer, signal }); signal?.throwIfAborted(); }
             catch (_) {
+                signal?.throwIfAborted();
                 const safe = project(true);
                 emit({ state: 'failed', reason: 'request_failed', fallbackCount: safe.length - (state.summary ? 2 : 0) });
                 return safe;
@@ -122,17 +124,18 @@ function createRollingContext({ store, summarize, threshold = 12000, tailTokens 
                 summaryTokens: tokens([{ content: state.summary }]), usage: usageEvidence(result.usage) });
             return project();
         } catch (_) {
+            signal?.throwIfAborted();
             emit({ state: 'failed', reason: 'storage_failed', rawCount: raw.length });
             return raw.slice(Math.max(0, raw.length - fallbackTailMessages)); // Unknown disk state must never hide the newest input.
         }
     }
     return {
-        async project(scope, messages, observer, prefix = null) {
+        async project(scope, messages, observer, prefix = null, signal = null) {
             const key = fingerprint(scope);
             // Serialize a session so concurrent edits/retries cannot commit out of order.
             // Each request still projects its own snapshot, including edits and deletions.
             const previous = queues.get(key) || Promise.resolve();
-            const pending = previous.catch(() => {}).then(() => run(key, messages, observer, prefix));
+            const pending = previous.catch(() => {}).then(() => run(key, messages, observer, prefix, signal));
             queues.set(key, pending);
             try { return await pending; } finally { if (queues.get(key) === pending) queues.delete(key); }
         },
@@ -142,7 +145,8 @@ function createRollingContext({ store, summarize, threshold = 12000, tailTokens 
 // Reuses the existing independent summarizer configuration. No tools, no retries,
 // and no thinking text substitution. Self-summary/keeper are deliberately separate.
 function createSummarizer({ fetchImpl, endpoint, model, apiKey, timeoutMs = 45000 }) {
-    return async ({ previousSummary, messages, observer }) => {
+    return async ({ previousSummary, messages, observer, signal }) => {
+        signal?.throwIfAborted();
         if (!apiKey) throw Error('summary key unavailable');
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -153,7 +157,7 @@ function createSummarizer({ fetchImpl, endpoint, model, apiKey, timeoutMs = 4500
                     { role: 'user', content: JSON.stringify({ previousSummary, messages }) },
                 ] };
             call = observer?.request(body, { endpoint, model, kind: 'summary' });
-            const response = await fetchImpl(endpoint, { method: 'POST', signal: controller.signal,
+            const response = await fetchImpl(endpoint, { method: 'POST', signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
                 headers: { 'Content-Type': 'application/json', Authorization: apiKey.startsWith('Bearer ') ? apiKey : 'Bearer ' + apiKey },
                 body: JSON.stringify(body) });
             if (!response.ok) throw Error('summary request failed');

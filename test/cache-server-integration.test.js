@@ -19,7 +19,7 @@ test('real main projection sends only original history to summarizer and strips 
         newMessages: messages, incomingMessages: messages, contextProtocol: { version: 1, sessionId: 'session', prefix }, isOpenClawRequest: false,
         supportsBlockCache: () => true, resolveApiUrl: () => 'https://aihubmix.com/v1', req: { path: '/' },
         rollingContext: { async project(scope, history, observer, proof) { observed = { scope, history, proof }; return history.map(({ role, content }) => ({ role, content })); } },
-        body, contextBudget: {}, systemMsg: { role: 'system', content: 'rules' }, finalUserContent: 'dynamic and latest',
+        body, lifecycle: { signal: new AbortController().signal }, contextBudget: {}, systemMsg: { role: 'system', content: 'rules' }, finalUserContent: 'dynamic and latest',
         composeContext: require('../context-budget').composeContext,
     });
     assert.equal(observed.history.length, 2);
@@ -89,6 +89,7 @@ for (const [start, end] of [
     const observed = [], sent = [];
     const observer = { request(value) { observed.push(JSON.stringify(value)); return 1; } };
     const context = { prepareCachedRequest, body, toolBody: body, toolFetchBody: body, fetchBody: body,
+        lifecycle: { signal: new AbortController().signal },
         bodyMessages: messages, apiMessages: messages, contextParts: parts, webContextParts: parts,
         contextBudget: observer, webContextBudget: observer, apiUrl: 'https://aihubmix.com/v1/chat/completions',
         baseUrl: 'https://aihubmix.com/v1', apiHeaders: {}, apiKey: 'test',

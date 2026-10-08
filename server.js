@@ -16,6 +16,7 @@ const { createShenSettings, shenSettingsRouter } = require('./shen-settings');
 const { pruneWireImages } = require('./public/chat-window-context');
 const { extractThinkingFromContent } = require('./public/thinking-parser');
 const { consumeOpenAIStream } = require('./streaming-chat');
+const { createChatRequestLifecycle } = require('./chat-request-lifecycle');
 const { composeContext, createBudgetObserver, mergeUsage, readConfig: readContextBudgetConfig } = require('./context-budget');
 const { prepareCachedRequest, supportsBlockCache, cacheAdapterStatus } = require('./provider-cache');
 const { createRollingContext, fileStore, createSummarizer } = require('./rolling-context');
@@ -4401,10 +4402,10 @@ function normalizeConversationMessages(messages = [], limit = 15, maxChars = Inf
     return normalized.slice(-Math.max(0, Number(limit) || 0));
 }
 
-async function loadZepConversationHistory(lastn = 30) {
+async function loadZepConversationHistory(lastn = 30, signal) {
     if (!ZEP_URL) return { ok: false, rawMessages: [], messages: [] };
     try {
-        const response = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=${Math.max(1, Number(lastn) || 30)}`);
+        const response = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/memory?lastn=${Math.max(1, Number(lastn) || 30)}`, { signal });
         if (!response.ok) return { ok: false, rawMessages: [], messages: [] };
         const data = await response.json();
         const rawMessages = (data.messages || []).filter(message => {
@@ -7531,6 +7532,8 @@ function stripTransportTimePrefix(content) {
 // 🌟 核心聊天接口
 // ==========================================
 app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (req, res) => {
+    const lifecycle = createChatRequestLifecycle(req, res);
+    if (req.body?.stream === true) lifecycle.startStream();
     console.log('🧪 [CacheDebug] ENTER via handler', { routeKey: req.params?.platform, path: req.path, originalUrl: req.originalUrl });
     let _tr = null;
     try {
@@ -7615,6 +7618,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 if (ZEP_URL) {
                     searchRes = await fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}/search`, {
                         method: 'POST',
+                        signal: lifecycle.signal,
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ text: currentUserMsgText, search_scope: "messages", search_type: "similarity", limit: 5 })
                     });
@@ -7633,10 +7637,12 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             } catch(e) {}
         }
 
+        lifecycle.signal.throwIfAborted();
         const [zepHistory, sessionRes] = await Promise.all([
-            loadZepConversationHistory(100),
-            ZEP_URL ? fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`).catch(() => null) : Promise.resolve(null),
+            loadZepConversationHistory(100, lifecycle.signal),
+            ZEP_URL ? fetch(`${ZEP_URL}/api/v1/sessions/${SESSION_ID}`, { signal: lifecycle.signal }).catch(() => null) : Promise.resolve(null),
         ]);
+        lifecycle.signal.throwIfAborted();
 
         let memoryContext = vectorSearchContext;
         let zepLastUserContent = "";
@@ -7860,7 +7866,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 return { ...message, _contextId: `import:${digest}:${occurrence}` };
             });
             projectedHistory = await rollingContext.project(
-                [contextProtocol.sessionId, resolveApiUrl(req.path), body.model], identified, contextBudget, contextProtocol.prefix);
+                [contextProtocol.sessionId, resolveApiUrl(req.path), body.model], identified, contextBudget, contextProtocol.prefix, lifecycle.signal);
         } else if (!isOpenClawRequest) {
             // Apply the provider limit to the final merged history before sending.
             projectedHistory = projectedHistory.slice(-30);
@@ -7967,7 +7973,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         const isStreamMode = body.stream === true;
         moodLog('[MOOD DEBUG] route entered body.stream: ' + body.stream + ' type: ' + typeof body.stream + ' isStream: ' + isStreamMode);
         if (isStreamMode) { moodLog('[MOOD DEBUG] entering STREAM branch'); } else { moodLog('[MOOD DEBUG] entering NON-STREAM branch'); }
-        let streamingSetup = false;
+        let streamingSetup = isStreamMode;
         let toolStreamFullContent = '';
         let toolStreamFullReasoning = '';
         let toolStreamContentBuffer = '';
@@ -8040,6 +8046,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         }
 
         while (maxToolRounds-- > 0 && filteredTools.length > 0) {
+            lifecycle.signal.throwIfAborted();
             if (isStreamMode && !streamingSetup) {
                 res.setHeader('Content-Type', 'text/event-stream');
                 res.setHeader('Cache-Control', 'no-cache');
@@ -8063,7 +8070,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             console.log(`🔧 [工具] ${roundLabel}请求（${enabledTools.length}个工具）...`);
             const toolWireBody = prepareCachedRequest(apiUrl, toolBody, { historyEnd: bodyMessages.indexOf(contextParts.currentMessage) - 1 });
             const budgetCall = contextBudget.request(toolWireBody);
-            const toolResponse = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(toolWireBody) });
+            const toolResponse = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(toolWireBody), signal: lifecycle.signal });
 
             if (!toolResponse.ok) {
                 const errStatus = toolResponse.status;
@@ -8122,11 +8129,13 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 console.log(`🔧 [工具] AI请求调用${curMessage.tool_calls.length}个工具`);
                 body.messages.push({ role: 'assistant', content: curMessage.content || null, tool_calls: curMessage.tool_calls });
                 for (const tc of curMessage.tool_calls) {
+                    lifecycle.signal.throwIfAborted();
                     let fnArgs = {};
                     try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
                     const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name);
                     const startTime = Date.now();
                     const result = await executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null, tc.id);
+                    lifecycle.signal.throwIfAborted();
                     if (tc.function.name === 'write_file' || tc.function.name === 'edit_file') fileModified = true;
                     const elapsed = Date.now() - startTime;
                     if (MUSIC_TOOL_NAMES.includes(tc.function.name)) musicToolRecords.push({ name: tc.function.name, arguments: fnArgs, result, elapsed });
@@ -8218,7 +8227,8 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 
         const finalWireBody = prepareCachedRequest(apiUrl, body, { historyEnd: body.messages.indexOf(contextParts.currentMessage) - 1 });
         const finalBudgetCall = contextBudget.request(finalWireBody);
-        const response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(finalWireBody) });
+        lifecycle.signal.throwIfAborted();
+        const response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(finalWireBody), signal: lifecycle.signal });
         if (!response.ok) {
             const errText = await response.text();
             if (isStreamMode) { res.write(`data: [ERROR]${errText.substring(0,500)}\n\n`); res.end(); return; }
@@ -8239,6 +8249,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             const decoder = new TextDecoder();
             let sseBuffer = ''; let contentBuffer = ''; let isBuffering = false; let lastChunkTemplate = null; let fullAiResponse = ''; let fullReasoning = '';
             let budgetStreamUsage = null;
+            let upstreamCompleted = false;
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -8252,6 +8263,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                     if (!line.startsWith('data:')) { res.write(line + '\n'); continue; }
                     const dataStr = line.substring(5).trim();
                     if (dataStr === '[DONE]') {
+                        upstreamCompleted = true;
                         // Never flush a partial internal tag at stream end. The
                         // complete response is parsed below and the plan is
                         // persisted there, while the tag remains invisible.
@@ -8322,8 +8334,10 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                         }
                     }
                 }
-                if (done) break;
+                if (done || upstreamCompleted) break;
             }
+            if (upstreamCompleted) await reader.cancel().catch(() => {});
+            reader.releaseLock();
             if (sseBuffer.trim()) res.write(sseBuffer + '\n');
             res.end();
 
@@ -8400,10 +8414,21 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
         }
     } catch (error) {
+        if (lifecycle.signal.aborted) {
+            traceEnd(_tr, { ok: false, cancelled: true, error: lifecycle.signal.reason?.message });
+            if (!res.destroyed && !res.writableEnded) {
+                if (res.headersSent) { res.write('data: [ERROR]生成已停止或超时\n\n'); res.end(); }
+                else res.status(408).json({ error: '生成已停止或超时' });
+            }
+            return;
+        }
         traceEnd(_tr, { ok: false, error: error.message });
         _boom.last = { at: new Date().toISOString(), error: error.message, stack: (error.stack || '').substring(0, 600), model: req.body?.model };
         console.error('大门重组异常:', error.stack?.substring(0, 300));
-        res.status(500).json({ error: "大门重组异常：" + error.message });
+        if (res.headersSent) { res.write(`data: [ERROR]${JSON.stringify(error.message)}\n\n`); res.end(); }
+        else res.status(500).json({ error: "大门重组异常：" + error.message });
+    } finally {
+        lifecycle.cleanup();
     }
 });
 

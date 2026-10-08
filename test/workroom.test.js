@@ -63,6 +63,8 @@ test('sending only to Codex bypasses Shenwang and needs no chat provider', async
     };
     context.document = { getElementById: id => elements[id] || null, createElement: () => ({ innerHTML: '', appendChild() {} }) };
     context._isStreamingReply = false;
+    context.activeChatRequest = null;
+    context.finishChatRequest = () => {};
     context.getActiveSession = () => room;
     context.isWorkroomSession = () => true;
     context.currentImgBase64List = [];

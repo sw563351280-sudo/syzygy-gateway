@@ -113,7 +113,6 @@
     });
     document.addEventListener('click',e=>document.querySelectorAll('.notes-menu[open]').forEach(menu=>{if(!menu.contains(e.target))menu.open=false;}));
     document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.notes-menu[open]').forEach(menu=>menu.open=false);});
-    window.addEventListener('storage',e=>{if(e.key==='syzygy_visual_theme'||e.key==='syzygy_home_layout')location.reload();});
     window.MemoryNotes=Object.freeze({fullDate});
     if(ALL_MEMS.length)paint();
 })();

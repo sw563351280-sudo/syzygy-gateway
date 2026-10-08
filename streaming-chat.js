@@ -27,6 +27,7 @@ async function consumeOpenAIStream(stream, onChunk = null) {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let completed = false;
     const result = {
         id: '',
         model: '',
@@ -41,10 +42,12 @@ async function consumeOpenAIStream(stream, onChunk = null) {
         const line = rawLine.replace(/\r$/, '');
         if (!line.startsWith('data:')) return;
         const payload = line.slice(5).trim();
-        if (!payload || payload === '[DONE]') return;
+        if (payload === '[DONE]') { completed = true; return; }
+        if (!payload) return;
 
         let parsed;
         try { parsed = JSON.parse(payload); } catch (_) { return; }
+        if (parsed.error) throw new Error(parsed.error.message || String(parsed.error));
         if (parsed.id) result.id = parsed.id;
         if (parsed.model) result.model = parsed.model;
         if (parsed.usage) result.usage = mergeUsage(result.usage, parsed.usage);
@@ -58,18 +61,23 @@ async function consumeOpenAIStream(stream, onChunk = null) {
         if (onChunk) await onChunk(parsed, delta);
     }
 
-    while (true) {
+    try {
+    while (!completed) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-        for (const line of lines) await consumeLine(line);
+        for (const line of lines) { await consumeLine(line); if (completed) break; }
     }
     buffer += decoder.decode();
-    if (buffer.trim()) await consumeLine(buffer);
+    if (!completed && buffer.trim()) await consumeLine(buffer);
     result.toolCalls = result.toolCalls.filter(Boolean);
     return result;
+    } finally {
+        if (completed) await reader.cancel().catch(() => {});
+        reader.releaseLock();
+    }
 }
 
 module.exports = {

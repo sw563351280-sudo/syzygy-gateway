@@ -31,7 +31,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="style.css?v=103">
+    <link rel="stylesheet" href="style.css?v=104">
     <script src="sea-cycle.js?v=1"></script>
     <link rel="stylesheet" href="home-sea.css?v=3">
     <link rel="stylesheet" href="sea-pages.css?v=2">
@@ -235,7 +235,7 @@
 
         <div class="resonance-core" id="resonanceCore"><div class="core-pulse"></div></div>
         <textarea id="chatInput" rows="1" placeholder="发消息给沈望…" aria-description="可直接粘贴剪贴板中的截图"></textarea>
-        <button class="chat-send-btn" id="chatSendBtn" onclick="sendChat()">发送 ✦</button>
+        <button class="chat-send-btn" id="chatSendBtn" type="button" onclick="chatSendOrStop()" aria-label="发送消息" title="发送消息"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
 </div>
 
@@ -691,7 +691,8 @@
 <script src="home-sea.js?v=2"></script>
 <script src="sea-pages.js?v=1"></script>
 <script src="journal-sea.js?v=1"></script>
-<script src="script.js?v=102"></script>
+<script src="chat-transport.js?v=1"></script>
+<script src="script.js?v=103"></script>
 <script src="music-player.js?v=5" defer></script>
         <div id="msgContextMenu" class="msg-context-menu" role="menu" aria-label="消息操作" hidden></div>
 

@@ -1,16 +1,5 @@
 /* Warm notes over the shared night sea; the classic page stays untouched. */
-@font-face { font-family: 'Sea Serif'; src: url('fonts/SeaSerifSC-Regular.woff2') format('woff2'); font-weight: 400; font-display: swap; }
-html[data-visual-theme="new"] { --ink:#edf3f7; --muted:#aebbc8; --blue:#c8b28e; --gold:#c8b28e; --line:rgba(255,255,255,.16); }
-html[data-visual-theme="new"] body { background:#081a2d; color:var(--ink); font-family:'Sea Serif','Songti SC','SimSun',serif; }
-html[data-visual-theme="new"] body::before { content:''; position:fixed; inset:0; z-index:-1; background:url('assets/ice-sea-night-v1.webp') center 43% / cover no-repeat; pointer-events:none; }
-html[data-visual-theme="new"] .top { height:64px; padding:0 max(20px,calc((100vw - 1120px)/2)); gap:12px; background:rgba(8,22,38,.18); border-bottom:1px solid rgba(255,255,255,.18); backdrop-filter:blur(12px); }
 html[data-visual-theme="new"] .top p,html[data-visual-theme="new"] .hero p,html[data-visual-theme="new"] .subbar,html[data-visual-theme="new"] .inbox-banner { display:none!important; }
-html[data-visual-theme="new"] .top h1 { font-size:23px; font-weight:400; letter-spacing:.1em; }
-html[data-visual-theme="new"] .back { background:none; box-shadow:none; color:var(--ink); font-size:22px; width:32px; }
-html[data-visual-theme="new"] .layer-nav { gap:20px; }
-html[data-visual-theme="new"] .layer-nav a { color:#e1e8ee; background:none; padding:10px 4px; border-radius:0; font-size:14px; }
-html[data-visual-theme="new"] .layer-nav a.on { color:var(--gold); border-bottom:1px solid var(--gold); }
-html[data-visual-theme="new"] main { max-width:1120px; padding:30px 20px 60px; }
 html[data-visual-theme="new"] .hero { padding:0 0 16px; }
 html[data-visual-theme="new"] .hero h2 { display:flex; align-items:baseline; gap:16px; margin:0; font-size:28px; font-weight:400; }
 .notes-total { font-size:14px; color:#b3bfca; font-weight:400; letter-spacing:0; }
@@ -30,7 +19,7 @@ html[data-visual-theme="new"] .pill b { padding:0; font-size:12px; min-width:0; 
 html[data-visual-theme="new"] .pill.active { background:none; color:#d5be95; border-bottom-color:#d5be95; box-shadow:none; }
 .notes-day { display:flex; align-items:center; justify-content:center; gap:14px; margin:18px 0 10px; font-size:14px; font-weight:400; color:rgba(200,178,142,.55); }
 .notes-day::before,.notes-day::after { content:''; height:1px; flex:1; background:rgba(200,178,142,.22); }
-html[data-visual-theme="new"] .memory-card { padding:14px 20px 14px 28px; margin:0 0 10px; min-height:84px; border:0; border-radius:6px; box-shadow:none; background-color:#f5f0e8; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' opacity='.035' filter='url(%23n)'/%3E%3C/svg%3E"); color:#34383d; opacity:1; transform:none; transition:background-color .15s; }
+html[data-visual-theme="new"] .memory-card { padding:14px 20px 14px 28px; margin:0 0 10px; min-height:84px; border:0; border-radius:6px; box-shadow:none; background-color:var(--memory-paper); background-image:var(--memory-paper-texture); color:#34383d; opacity:1; transform:none; transition:background-color .15s; }
 html[data-visual-theme="new"] .memory-card::before { content:''; position:absolute; left:16px; top:14px; bottom:14px; width:1px; background:rgba(200,184,160,.5); pointer-events:none; }
 html[data-visual-theme="new"] .memory-card:hover { box-shadow:none; transform:none; background-color:#f7f2ea; }
 html[data-visual-theme="new"] .memory-content { margin-right:22px; font-size:15px; line-height:1.6; overflow-wrap:anywhere; }

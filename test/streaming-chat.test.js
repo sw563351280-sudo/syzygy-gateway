@@ -11,6 +11,17 @@ function sseStream(events) {
     return new Response(body).body;
 }
 
+test('upstream DONE finishes and closes a provider body that never sends EOF', async () => {
+    let cancelled = false;
+    const body = new ReadableStream({ start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"完成"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'));
+    }, cancel() { cancelled = true; } });
+    const result = await consumeOpenAIStream(body);
+    assert.equal(result.content, '完成');
+    assert.equal(cancelled, true);
+    assert.equal(body.locked, false);
+});
+
 test('fragmented UTF8 and final usage without newline retain earlier cache detail', async () => {
     const text = 'data:' + JSON.stringify({ choices: [{ delta: { content: '你好' } }],
         usage: { prompt_tokens: 9000, prompt_tokens_details: { cached_tokens: 8000, cache_creation_tokens: 500 } } }) + '\r\n\r\n'

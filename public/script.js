@@ -2349,6 +2349,7 @@ function renderChatMessages(options = {}){
         const timeStr = v.fullTime ? new Date(v.fullTime).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) : (v.time || '');
         // 模型选择属于输入栏，不在每条消息里重复展示，避免打断对话阅读。
         if(timeStr) htmlContent += '<div class="msg-meta">' + timeStr + '</div>';
+        if (v._interrupted) htmlContent += '<div class="msg-meta">' + escapeHtml(v._interrupted) + ' · 已保留部分回复</div>';
 
         let actionsHtml = '<div class="msg-actions">';
         if(vCount > 1) {
@@ -2412,13 +2413,46 @@ function renameChatWindow(){
     toast('频道已重命名');
 }
 
+let activeChatRequest = null;
+function updateChatSendButton(state = activeChatRequest ? (activeChatRequest.reason === 'user' ? 'stopping' : 'generating') : 'idle') {
+    const button = document.getElementById('chatSendBtn');
+    if (!button) return;
+    const busy = state !== 'idle';
+    button.dataset.state = state;
+    button.disabled = state === 'stopping' || (!busy && _uploading);
+    button.title = state === 'stopping' ? '正在停止' : busy ? '停止生成' : '发送消息';
+    button.setAttribute('aria-label', button.title);
+    button.innerHTML = busy
+        ? '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>'
+        : '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+function chatSendOrStop() {
+    if (activeChatRequest) activeChatRequest.stop();
+    else sendChat();
+}
+function beginChatRequest() {
+    const request = ChatTransport.createRequest({
+        streaming: document.getElementById('streamToggle')?.checked !== false,
+        onState: updateChatSendButton,
+    });
+    activeChatRequest = request;
+    return request;
+}
+function finishChatRequest(request) {
+    if (activeChatRequest === request) activeChatRequest = null;
+    request?.finish();
+    if (window._coreStreamEnd) window._coreStreamEnd();
+}
+
 async function sendChat(options = {}) {
-    if (_isStreamingReply) return toast('请等当前回复结束后再发送');
+    if (_isStreamingReply || activeChatRequest) return toast('请等当前回复结束后再发送');
     if (isWorkroomSession() && workroomSending) return toast('正在发送，请稍候');
     workroomSending = isWorkroomSession();
+    let request = null;
+    const input = document.getElementById('chatInput');
+    let val = input?.value.trim() || '';
     try {
     const reuseLastUser = !!options.reuseLastUser;
-    const input = document.getElementById('chatInput');
     if(!input) return;
 
     const session = getActiveSession();
@@ -2427,7 +2461,6 @@ async function sendChat(options = {}) {
 
     let existingUserVersion = null;
     let submittedMessageId = null;
-    let val = input.value.trim();
     let workroomTarget = 'shenwang';
     const workroomExecute = isWorkroomSession(session) && options.workroomExecute === true;
     if (isWorkroomSession(session)) {
@@ -2460,7 +2493,11 @@ async function sendChat(options = {}) {
     console.log('currentImgBase64List:', currentImgBase64List.length);
     console.log('reuseLastUser:', reuseLastUser);
 
-    if (workroomTarget !== 'codex') await flushDirtyToZep(session);
+    if (workroomTarget !== 'codex') {
+        request = beginChatRequest();
+        await flushDirtyToZep(session, request.signal);
+        request.signal.throwIfAborted();
+    }
 
     var curFullTime = reuseLastUser ? (existingUserVersion.fullTime || new Date().toISOString()) : new Date().toISOString();
 
@@ -2527,7 +2564,7 @@ async function sendChat(options = {}) {
     var firstChunkReceived = false;
     var sDiv = null; var sRow = null; var toolHintTimer = null; var toolHintTimer2 = null;
     var assistantMsg = null;
-    var silenceTimer = null;
+    var fullReply = '', thinkContent = '', reasoningContent = '', rawAssistantText = '';
 
     const modelEl = document.getElementById('modelSelect');
     var selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按量]gemini-3-flash-preview';
@@ -2618,12 +2655,8 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             apiUrl = '/via/' + viaMatch[1] + '/v1/chat/completions';
         }
 
-        const controller = new AbortController();
-
-        const useToolsTO = document.getElementById('useToolsToggle')?.checked;
-        const toolTimeout = useToolsTO ? 300000 : useRollingContext ? 165000 : 120000;
-        silenceTimer = setTimeout(() => controller.abort(), toolTimeout);
-        function resetSilenceTimer() { clearTimeout(silenceTimer); silenceTimer = setTimeout(() => controller.abort(), toolTimeout); }
+        request.signal.throwIfAborted();
+        request.touch();
 
         // 🔍 诊断日志：请求 payload 大小
         const reqBody = {
@@ -2654,7 +2687,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
 
         const response = await fetch(apiUrl, {
             method: 'POST',
-            signal: controller.signal,
+            signal: request.signal,
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${currentSup.key}`,
@@ -2665,7 +2698,6 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         });
 
         if (!response.ok) {
-            clearTimeout(silenceTimer);
             const errText = await response.text().catch(() => '');
             let hint;
             if (response.status === 413) {
@@ -2679,18 +2711,13 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             } else {
                 hint = '服务器返回 HTTP ' + response.status + ': ' + errText.slice(0, 100);
             }
-            sDiv.innerHTML = '【通讯中断】' + hint;
-            return;
+            throw new Error(hint);
         }
 
-        let fullReply = "";
-        let thinkContent = "";
-        let reasoningContent = "";  // delta.reasoning_content
-        let rawAssistantText = "";   // 未清洗的原始返回
         let thinkMarker = null, thinkTextDiv = null;
 
         // ==========================================
-        resetSilenceTimer();
+        request.touch();
         thinkMarker = createThinkingMarker('');
         thinkMarker.element.hidden = true;
         thinkTextDiv = thinkMarker.detail;
@@ -2699,13 +2726,10 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         // ==========================================
         if (isStream) {
             if (window._coreStreamStart) window._coreStreamStart();
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder("utf-8");
-            let buffer = "";
 
             // 思考过程显示为消息气泡上方的常驻 🫧 标记
-            sDiv.innerHTML = '';
-            
+            sDiv.innerHTML = '<span class="loading-indicator">⟡ 正在等待回复…</span>';
+
             const mainTextDiv = document.createElement('div');
             mainTextDiv.classList.add('md-content');
             sDiv.appendChild(mainTextDiv);
@@ -2715,23 +2739,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             toolGroupEl.style.display = 'none';
             sDiv.appendChild(toolGroupEl);
 
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                resetSilenceTimer();
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop(); // 保留不完整的最后一行
-
-                for (const line of lines) {
-                    if (!line.startsWith("data: ")) continue;
-                    const dataStr = line.replace("data: ", "").trim();
-                    if (dataStr === "[DONE]") continue;
-                    if (dataStr.startsWith("[ERROR]")) { sDiv.innerHTML = '【通讯中断】服务器返回: ' + dataStr.replace('[ERROR]',''); return; }
-
-                    try {
-                        const parsed = JSON.parse(dataStr);
+            await ChatTransport.readStream(response, parsed => {
 
                         // 🔧 工具调用事件
                         if (parsed.type === 'tool_call') {
@@ -2739,10 +2747,10 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
                             toolGroupEl.style.display = 'block';
                             updateToolGroupDOM(toolGroupEl, toolCallRecords, true);
                             scrollChatToBottomIfNear(win);
-                            continue;
+                            return;
                         }
 
-                        const delta = parsed.choices[0].delta;
+                        const delta = parsed.choices?.[0]?.delta || {};
                         
                         // 1. 处理推理内容 (reasoning_content) - 如果模型支持
                         if (delta.reasoning_content) {
@@ -2759,6 +2767,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
                                 firstChunkReceived = true;
                                 clearTimeout(toolHintTimer);
                                 clearTimeout(toolHintTimer2);
+                                sDiv.querySelector('.loading-indicator')?.remove();
                                 sDiv.classList.remove('msg-loading');
                             }
                             rawAssistantText += delta.content;
@@ -2778,32 +2787,8 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
                             if (fullReply) mainTextDiv.innerHTML = stripDisplayTimestamp(fullReply).replace(/\n/g, '<br>') + '<span class="typing-cursor"></span>';
                             scrollChatToBottomIfNear(win);
                         }
-                    } catch (e) {
-                        // 解析出错跳过
-                    }
-                }
-            }
-            
-            // 接收完毕 — 处理 SSE buffer 残留，用累计全文解析
-            if (buffer.trim()) {
-                const lastLine = buffer.replace(/^data: /, '').trim();
-                if (lastLine && lastLine !== '[DONE]' && !lastLine.startsWith('[ERROR]')) {
-                    try {
-                        const parsedJson = JSON.parse(lastLine);
-                        if (parsedJson.choices?.[0]?.delta?.content) {
-                            rawAssistantText += parsedJson.choices[0].delta.content;
-                            const result = extractThinkingFromContent(rawAssistantText);
-                            fullReply = result.visibleContent;
-                            const combinedThinking = [reasoningContent, result.thinking].filter(Boolean).join('\n\n');
-                            if (combinedThinking) {
-                                thinkContent = combinedThinking;
-                                sRow.classList.add('has-think-marker');
-                                thinkMarker.update(thinkContent);
-                            }
-                        }
-                    } catch(e) {}
-                }
-            }
+            }, () => request.touch());
+            sDiv.querySelector('.loading-indicator')?.remove();
             mainTextDiv.innerHTML = renderMarkdown(fullReply);
             // 流结束：将工具调用组从"正在调用"切换为"调用了 N 次"
             if (toolCallRecords.length > 0) updateToolGroupDOM(toolGroupEl, toolCallRecords, false);
@@ -2851,7 +2836,6 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         }
         saveToCloud(true);
         fetchPulseStatus();
-        clearTimeout(silenceTimer);
         if (window._coreStreamEnd) window._coreStreamEnd();
         triggerStarEffects(val, fullReply);
         // 不调用 renderChatMessages() —— sDiv 已经有流式输出内容
@@ -2874,15 +2858,31 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         }
 
     } catch (err) {
-        clearTimeout(silenceTimer);
-        recordChatTransportFailure(session, sessionId, err.message, selectedModel);
-        sDiv.innerHTML = '<div class="msg-error"><div>【网络崩溃】</div><div class="msg-error-detail">'+err.message+'</div><button class="msg-retry-btn" onclick="retryLastMessage(this)">↻ 重新发送</button></div>';
-        sDiv.classList.add('msg-failed');
-        if (isWorkroomSession(session) && workroomTarget === 'all') {
+        const stopped = request?.reason === 'user';
+        const detail = stopped ? '已停止生成' : ChatTransport.errorMessage(err, request);
+        if (fullReply || thinkContent) {
+            getLiveSession(sessionId).messages.push({ _id: crypto.randomUUID(), role: 'assistant',
+                speaker: isWorkroomSession(session) ? 'shenwang' : undefined,
+                versions: [{ content: fullReply, thinking: thinkContent, rawContent: rawAssistantText,
+                    reasoning: reasoningContent, model: selectedModel, fullTime: new Date().toISOString(),
+                    _interrupted: detail, toolCalls: toolCallRecords }], activeVersion: 0 });
+            saveToCloud(true);
+            _renderDeferred = true;
+        } else if (stopped) {
+            sRow?.remove();
+        } else {
+            recordChatTransportFailure(session, sessionId, detail, selectedModel);
+            sDiv.textContent = '【通讯中断】' + detail;
+            sDiv.classList.add('msg-failed');
+            _renderDeferred = true;
+        }
+        toast(detail);
+        if (!stopped && isWorkroomSession(session) && workroomTarget === 'all') {
             setTimeout(() => workroomDispatchToCodex(val, '沈望本轮通讯中断，Codex 请先根据江鱼的消息继续判断。', imgsToSend), 0);
         }
     } finally {
         clearTimeout(toolHintTimer); clearTimeout(toolHintTimer2);
+        sDiv?.classList.remove('msg-loading');
         _isStreamingReply = false;
         if (isWorkroomSession(session) && activeChatId === sessionId) _renderDeferred = true;
         if (_renderDeferred) { _renderDeferred = false; renderChatMessages(); }
@@ -2892,10 +2892,13 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         }
     }
     } catch (e) {
-        console.error('sendChat exception:', e);
-        toast('发送异常: ' + e.message);
+        if (request?.reason === 'user') {
+            if (input && !input.value) input.value = val || '';
+            toast('已停止生成');
+        } else { console.error('sendChat exception:', e); toast('发送异常: ' + ChatTransport.errorMessage(e, request)); }
         _isStreamingReply = false;
     } finally {
+        finishChatRequest(request);
         workroomSending = false;
     }
 }
@@ -3811,7 +3814,7 @@ async function addChatImageFiles(fileList, source) {
 
     _uploading = true;
     var sendButtons = Array.from(document.querySelectorAll('.chat-send-btn'));
-    sendButtons.forEach(btn => { btn.disabled = true; });
+    sendButtons.forEach(btn => { btn.disabled = !activeChatRequest; });
 
     var compressionStart = performance.now();
     var results = new Array(files.length);
@@ -3869,7 +3872,7 @@ async function addChatImageFiles(fileList, source) {
 
     } finally {
         _uploading = false;
-        sendButtons.forEach(btn => { btn.disabled = false; });
+        updateChatSendButton();
     }
 }
 
@@ -4387,6 +4390,7 @@ function switchVersion(msgIndex, direction) {
 }
 
 function editUserMessage(msgIndex) {
+    if (activeChatRequest || _isStreamingReply) return toast('请先点击方块停止生成，再编辑消息');
     const session = getActiveSession();
     const msg = session.messages[msgIndex];
     if (!msg || msg.role !== 'user') return;
@@ -4403,6 +4407,7 @@ function editUserMessage(msgIndex) {
 }
 
 function resendUserMessage(msgIndex) {
+    if (activeChatRequest || _isStreamingReply) return toast('请先点击方块停止生成，再重新发送');
     const session = getActiveSession();
     const msg = session.messages[msgIndex];
     if (!msg || msg.role !== 'user') return;
@@ -4412,7 +4417,7 @@ function resendUserMessage(msgIndex) {
 }
 
 function regenerateAt(msgIndex) {
-    if (_isStreamingReply) { toast('请等当前回复结束后再重新生成'); return; }
+    if (_isStreamingReply || activeChatRequest) { toast('请先停止当前回复，再重新生成'); return; }
     const session = getActiveSession();
     const msg = session.messages[msgIndex];
     if (msg?.speaker === 'codex') return toast('请直接向 Codex 发送补充要求，不要重新生成沈望的回复');
@@ -4425,6 +4430,7 @@ function regenerateAt(msgIndex) {
 }
 
 async function regenerateSend(aiMsgIndex) {
+    if (activeChatRequest || _isStreamingReply) return;
     const session = getActiveSession();
     const aiMsg = session.messages[aiMsgIndex];
     const sessionId = session.id;
@@ -4447,7 +4453,10 @@ async function regenerateSend(aiMsgIndex) {
     if (!currentSup) { sDiv.innerHTML = '<div class="msg-error"><div>【未配置供应商】</div></div>'; return; }
     // 与普通发送一致：生成期间不要让同步把当前会话替换成旧快照。
     _isStreamingReply = true;
-    let reSilenceTimer = null;
+    const request = beginChatRequest();
+    let fullReply = '', thinkContent = '', rawAcc = '', reasoningAcc = '';
+    const toolCallRecords = [];
+    try {
     const modelEl = document.getElementById('modelSelect');
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
     const regenerationMessages = session.messages.slice(0, aiMsgIndex);
@@ -4462,7 +4471,6 @@ async function regenerateSend(aiMsgIndex) {
         if (last && Array.isArray(last.content)) last.content.unshift({ type: 'text', text: reminder });
         else if (last) last.content = reminder + last.content;
     }
-    try {
         let apiUrl = '/v1/chat/completions';
         const viaMatch = currentSup.url.match(/\/via\/(\w+)\//);
         if (viaMatch) {
@@ -4472,18 +4480,32 @@ async function regenerateSend(aiMsgIndex) {
 
         const streamToggle = document.getElementById('streamToggle');
         const isStream = streamToggle ? streamToggle.checked : true;
-        const reTimeout = useRollingContext ? 135000 : 90000;
-        const reController=new AbortController(); reSilenceTimer=setTimeout(()=>reController.abort(),reTimeout); function reReset(){clearTimeout(reSilenceTimer);reSilenceTimer=setTimeout(()=>reController.abort(),reTimeout)}
-        const response = await fetch(apiUrl, { method:'POST', signal:reController.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream,activeChatId:session.id,...(useRollingContext?{contextProtocol:{version:1,sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
-        if (!response.ok) { clearTimeout(reSilenceTimer); const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
-        let fullReply='', thinkContent='';
-        var toolCallRecords = [];
+        request.signal.throwIfAborted();
+        request.touch();
+        const response = await fetch(apiUrl, { method:'POST', signal:request.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,messages:historyMsgs,stream:isStream,activeChatId:session.id,...(useRollingContext?{contextProtocol:{version:1,sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
+        if (!response.ok) { const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         if(isStream) {
-            const reader = response.body.getReader(); const decoder = new TextDecoder('utf-8'); let buffer='', rawAcc='', reasoningAcc='';
-            sDiv.innerHTML=''; const thinkTextDiv=thinkMarker.detail;
+            sDiv.innerHTML='<span class="loading-indicator">⟡ 正在等待回复…</span>';
             const mainTextDiv=document.createElement('div'); mainTextDiv.classList.add('md-content'); sDiv.appendChild(mainTextDiv);
             const toolGroupEl=document.createElement('div'); toolGroupEl.className='tool-call-group-wrap'; toolGroupEl.style.display='none'; sDiv.appendChild(toolGroupEl);
-            while(true){const{done,value}=await reader.read(); if(done)break; reReset(); buffer+=decoder.decode(value,{stream:true}); const lines=buffer.split('\n'); buffer=lines.pop(); for(const line of lines){if(!line.startsWith('data: '))continue; const ds=line.replace('data: ','').trim(); if(ds==='[DONE]')continue; try{const p=JSON.parse(ds); if(p.type==='tool_call'){toolCallRecords.push({name:p.name,arguments:p.arguments||{},result:p.result||'',elapsed:p.elapsed||0}); toolGroupEl.style.display='block'; updateToolGroupDOM(toolGroupEl,toolCallRecords,true); scrollChatToBottomIfNear(win);continue;} const d=p.choices[0].delta; if(d.reasoning_content){reasoningAcc+=d.reasoning_content;} if(d.content){rawAcc+=d.content; const parsed=extractThinkingFromContent(rawAcc); fullReply=parsed.visibleContent; const combinedThink=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n'); if(combinedThink){thinkContent=combinedThink; thinkMarker.element.hidden=false; targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent);} mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';} scrollChatToBottomIfNear(win);}catch(e){}}}
+            await ChatTransport.readStream(response, p => {
+                if (p.type === 'tool_call') {
+                    toolCallRecords.push({name:p.name, arguments:p.arguments||{}, result:p.result||'', elapsed:p.elapsed||0});
+                    toolGroupEl.style.display='block';
+                    updateToolGroupDOM(toolGroupEl,toolCallRecords,true);
+                    return;
+                }
+                const d = p.choices?.[0]?.delta || {};
+                if (d.reasoning_content) reasoningAcc += d.reasoning_content;
+                if (d.content) { rawAcc += d.content; sDiv.querySelector('.loading-indicator')?.remove(); }
+                const parsed = extractThinkingFromContent(rawAcc);
+                fullReply = parsed.visibleContent;
+                thinkContent = [reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n');
+                if (thinkContent) { targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent); }
+                mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';
+                scrollChatToBottomIfNear(win);
+            }, () => request.touch());
+            sDiv.querySelector('.loading-indicator')?.remove();
             mainTextDiv.innerHTML=renderMarkdown(fullReply);
             if(toolCallRecords.length>0)updateToolGroupDOM(toolGroupEl,toolCallRecords,false);
         } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){thinkMarker.element.hidden=false; targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
@@ -4494,12 +4516,41 @@ async function regenerateSend(aiMsgIndex) {
         if (!liveAiMsg) throw new Error('重新生成的目标消息已不在当前会话中');
         ensureVersioned(liveAiMsg); liveAiMsg.versions.push({content:fullReply,thinking:stripDisplayTimestamp(thinkContent),time:timeStr,model:selectedModel,fullTime:new Date().toISOString(), toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined}); liveAiMsg.activeVersion=liveAiMsg.versions.length-1; liveAiMsg._zepDirty=true;
         saveToCloud(); renderChatMessages();
-    } catch(err) { sDiv.innerHTML='<div class="msg-error"><div>【网络崩溃】</div><div class="msg-error-detail">'+err.message+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); } finally { clearTimeout(reSilenceTimer); _isStreamingReply=false; if (_renderDeferred) { _renderDeferred=false; renderChatMessages(); } }
+    } catch (err) {
+        const stopped = request.reason === 'user';
+        const detail = stopped ? '已停止生成' : ChatTransport.errorMessage(err, request);
+        if (fullReply || thinkContent) {
+            const liveSession = getLiveSession(sessionId) || session;
+            const liveAiMsg = aiMsgId ? liveSession.messages.find(m => (m._id || m.id) === aiMsgId) : liveSession.messages[aiMsgIndex];
+            if (liveAiMsg) {
+                ensureVersioned(liveAiMsg);
+                liveAiMsg.versions.push({content:fullReply,thinking:thinkContent,rawContent:rawAcc,reasoning:reasoningAcc,
+                    model:document.getElementById('modelSelect')?.value,fullTime:new Date().toISOString(),
+                    _interrupted:detail,toolCalls:toolCallRecords});
+                liveAiMsg.activeVersion=liveAiMsg.versions.length-1;
+                liveAiMsg._zepDirty=true;
+                saveToCloud(true);
+            }
+        }
+        // A cancelled empty regeneration leaves the previous version intact.
+        _renderDeferred = true;
+        toast(detail);
+    } finally {
+        finishChatRequest(request);
+        _isStreamingReply=false;
+        sDiv.classList.remove('msg-loading');
+        if (_renderDeferred) { _renderDeferred=false; renderChatMessages(); }
+        if (_resyncPendingReason) {
+            const reason = _resyncPendingReason; _resyncPendingReason = null;
+            setTimeout(() => resyncAndMerge(reason), 1500);
+        }
+    }
 }
 
-async function flushDirtyToZep(session) {
+async function flushDirtyToZep(session, signal) {
     if (!session || !session.messages) return;
     for (let i = 0; i < session.messages.length; i++) {
+        signal?.throwIfAborted();
         const msg = session.messages[i];
         if (msg.role !== 'assistant' || !msg._zepDirty) continue;
         const v = getActiveVersion(msg);
@@ -4509,9 +4560,9 @@ async function flushDirtyToZep(session) {
         let aiContent = v.content || '';
         aiContent = legacyMessagePlain(aiContent);
         try {
-            await fetch('/api/flush-zep', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userContent:userContent,aiContent:aiContent}) });
+            await fetch('/api/flush-zep', { method:'POST', signal, headers:{'Content-Type':'application/json'}, body:JSON.stringify({userContent:userContent,aiContent:aiContent}) });
             console.log('✅ [延迟Zep] 已冲刷第'+i+'条消息');
-        } catch(e) { console.log('❌ [延迟Zep] 冲刷失败: '+e.message); }
+        } catch(e) { signal?.throwIfAborted(); console.log('❌ [延迟Zep] 冲刷失败: '+e.message); }
         delete msg._zepDirty;
     }
 }

@@ -9,6 +9,7 @@ public/assets/celestial-hanging.jpg
 public/assets/celestial-orbit.jpg
 public/assets/winter-home-v2.png
 public/cache-history.js
+public/chat-transport.js
 public/chat-window-context.js
 public/clipboard-images.js
 public/comets.html
@@ -59,3 +60,7 @@ public/assets/ice-sea-night-v1.webp
 public/sea-cycle.js
 public/memory-notes.css
 public/memory-notes.js
+public/memory-theme.js
+public/memory-sea.css
+public/growth-sea.css
+public/growth-sea.js

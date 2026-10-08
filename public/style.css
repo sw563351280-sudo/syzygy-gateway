@@ -3858,6 +3858,19 @@ body.neu-mode #sec-chat .chat-send-btn {
   letter-spacing: .02em;
   text-shadow: none;
 }
+#sec-chat #chatSendBtn {
+  width: 44px !important;
+  height: 44px !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0;
+}
+#sec-chat #chatSendBtn[data-state="generating"] { background: rgba(132, 159, 181, .22) !important; }
+#sec-chat #chatSendBtn:disabled { opacity: .55; cursor: wait; }
+#sec-chat #chatSendBtn:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 body.neu-mode #sec-chat .chat-tool-menu {
   bottom: calc(100% + 10px);
   left: 0;
