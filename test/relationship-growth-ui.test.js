@@ -42,7 +42,49 @@ test('reality and relationship cards collapse and render newest first', async ()
     assert.ok(output.indexOf('新相处') < output.indexOf('旧相处'));
     assert.ok(output.indexOf('最近') < output.indexOf('先前'));
 });
-test('growth page exposes an explicit expand and collapse affordance', () => {
-    assert.match(html, /\.episode-head:after\{content:"展开"/);
-    assert.match(html, /\.episode\[open\] \.episode-head:after\{content:"收起"/);
+test('temperature journeys group complete returns without hiding historical events', async () => {
+    const { context } = await setup();
+    const events = [
+        { id: 'initial', from: null, to: 'warm', occurred_at: '2026-10-01T00:00:00Z' },
+        { id: 'leave-one', from: 'warm', to: 'withdrawn', occurred_at: '2026-10-02T00:00:00Z' },
+        { id: 'middle-one', from: 'withdrawn', to: 'neutral', occurred_at: '2026-10-03T00:00:00Z' },
+        { id: 'return-one', from: 'neutral', to: 'warm', occurred_at: '2026-10-04T00:00:00Z' },
+        { id: 'leave-two', from: 'warm', to: 'hostile', occurred_at: '2026-10-05T00:00:00Z' },
+        { id: 'legacy', from: null, to: 'neutral', occurred_at: '2026-10-06T00:00:00Z' }
+    ];
+    const journeys = context.deriveTemperatureJourneys([...events].reverse());
+    const complete = journeys.find(item => item.kind === 'journey' && item.status === 'complete');
+    const open = journeys.find(item => item.kind === 'journey' && item.status === 'open');
+    const fallback = journeys.find(item => item.kind === 'event' && item.event.id === 'legacy');
+    assert.deepEqual([...complete.events].map(event => event.id), ['leave-one', 'middle-one', 'return-one']);
+    assert.deepEqual([...open.events].map(event => event.id), ['leave-two']);
+    assert.equal(fallback.event.id, 'legacy');
+    const displayed = journeys.flatMap(item => item.kind === 'journey' ? [...item.events] : [item.event]).map(item => item.id);
+    assert.deepEqual([...displayed].sort(), ['initial', 'leave-one', 'middle-one', 'return-one', 'leave-two', 'legacy'].sort());
+});
+test('temperature journeys keep invalid, duplicate warm, and unclosed history visible', async () => {
+    const { context } = await setup();
+    const events = [
+        { id: 'warm-warm', from: 'warm', to: 'warm', occurred_at: '2026-10-01T00:00:00Z' },
+        { id: 'unknown', from: 'warm', to: 'mystery', occurred_at: '2026-10-02T00:00:00Z' },
+        { id: 'open', from: 'warm', to: 'withdrawn', occurred_at: '2026-10-03T00:00:00Z' },
+        { id: 'no-date', from: 'withdrawn', to: 'neutral' }
+    ];
+    const journeys = context.deriveTemperatureJourneys(events);
+    assert.equal(journeys.filter(item => item.kind === 'event').length, 2);
+    const open = journeys.find(item => item.kind === 'journey');
+    assert.equal(open.status, 'open');
+    assert.deepEqual([...open.events].map(event => event.id), ['open', 'no-date']);
+    const shown = journeys.flatMap(item => item.kind === 'journey' ? [...item.events] : [item.event]).map(item => item.id);
+    assert.deepEqual([...shown].sort(), events.map(item => item.id).sort());
+});
+test('production sea theme keeps the approved growth structure', () => {
+    const seaScript = fs.readFileSync(require.resolve('../public/growth-sea.js'), 'utf8');
+    const seaCss = fs.readFileSync(require.resolve('../public/growth-sea.css'), 'utf8');
+    assert.match(seaScript, /正在连起来的线/);
+    assert.match(seaCss, /\.episode::before.*left:16px/);
+    assert.match(seaCss, /grid-template-columns:minmax\(240px,.92fr\) minmax\(0,1.55fr\)/);
+    assert.match(seaCss, /\.temperature-journey/);
+    assert.match(html, /deriveTemperatureJourneys/);
+    assert.match(html, /尚未命名的经历/);
 });

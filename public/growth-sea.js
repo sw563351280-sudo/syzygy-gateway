@@ -5,6 +5,7 @@
     const $=id=>document.getElementById(id);
     const intro=document.querySelector('.intro');
     document.querySelector('.top h1').textContent='成长';
+    document.querySelector('.top p').textContent='正在连起来的线';
     document.querySelector('.intro h2').textContent='一起走过的事';
     const nav=document.createElement('nav'); nav.className='layer-nav'; nav.setAttribute('aria-label','记忆库分类');
     for(const [text,url,active] of [['恒星','long-term.html',false],['成长','relationship-growth.html',true],['星尘','stardust.html',false],['彗星','comets.html',false]]){
