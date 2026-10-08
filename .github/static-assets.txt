@@ -64,3 +64,5 @@ public/memory-theme.js
 public/memory-sea.css
 public/growth-sea.css
 public/growth-sea.js
+public/comets-sea.css
+public/comets.js

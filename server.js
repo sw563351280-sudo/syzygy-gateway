@@ -35,7 +35,7 @@ const { activeRelationshipContext, applyRelationshipSignal, extractRelationshipS
 const { applyDecision: applyRealityDecision, curateRealityMemory, emptyRealityStore, normalizeStore: normalizeRealityStore, removeMemoryEvidence: removeRealityMemoryEvidence } = require('./reality-events');
 const { extractDialogueCrumbTags } = require('./dialogue-crumbs');
 const { createCrumbDigest } = require('./crumb-digest');
-const { extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
+const { ANTICIPATION_OUTPUT_INSTRUCTION, attachAnticipationSource, enrichAnticipation, formatAnticipationForWake: formatCareForWake, extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
 const { extractXhsUrl, findNoteData, isAllowedXhsMediaUrl, isAllowedXhsUrl, normalizeNote, parseInitialState, readXhsNote } = require('./xhs-reader');
 const {
     beijingHour,
@@ -2601,49 +2601,38 @@ function addAnticipation(input) {
     if (!input?.content || !input?.entity) return null;
     const items = loadAnticipations();
     const now = new Date();
-    const duplicate = items.some(item => item.status === 'open' && item.entity === input.entity && item.content === input.content && now - new Date(item.created_at).getTime() < 7 * 86400000);
-    if (duplicate) return null;
+    const duplicate = items.find(item => item.status === 'open' && item.entity === input.entity && item.content === input.content && now - new Date(item.created_at).getTime() < 7 * 86400000);
+    if (duplicate) {
+        // Repeated legacy tags can fill missing evidence without creating another orbit.
+        const supplied = makeAnticipation(input, now);
+        for (const key of ['context', 'source_quote', 'reason', 'source_message_id', 'source_at']) {
+            if ((!duplicate[key] || (key === 'reason' && duplicate[key] === '存在自然的后续')) && supplied[key]) duplicate[key] = supplied[key];
+        }
+        saveAnticipations(items);
+        return null;
+    }
     const entry = makeAnticipation(input);
     items.push(entry); saveAnticipations(items); armAnticipationWake(new Date());
     console.log(`📌 [牵挂线] 新建 ${entry.entity}: ${entry.content}`);
     return entry;
 }
 
-function processAnticipationTags(text) {
+function processAnticipationTags(text, sourceContext = {}) {
     const { cleanText, items } = extractAnticipationTags(text);
-    for (const item of items) addAnticipation(item);
+    for (const item of items) addAnticipation(attachAnticipationSource(item, sourceContext));
     return cleanText;
 }
 
-function processAssistantActionTags(text) {
-    return processPrivateJournalTags(processAnticipationTags(extractAndProcessTodoTags(text)));
+function processAssistantActionTags(text, sourceContext = {}) {
+    return processPrivateJournalTags(processAnticipationTags(extractAndProcessTodoTags(text), sourceContext));
 }
 
 function enrichAnticipationContext(item) {
-    if (!item) return null;
-    const crumb = item.source_crumb_id
-        ? loadCrumbs().find(entry => entry.id === item.source_crumb_id)
-        : null;
-    return {
-        ...item,
-        context: String(item.context || crumb?.fact || '').replace(/\s+/g, ' ').trim().slice(0, 240),
-        source_quote: String(item.source_quote || crumb?.source_quote || '').replace(/\s+/g, ' ').trim().slice(0, 240),
-        reason: String(item.reason || crumb?.follow_up?.reason || '存在自然的后续').replace(/\s+/g, ' ').trim().slice(0, 120),
-    };
+    return enrichAnticipation(item, loadCrumbs());
 }
 
 function formatAnticipationForWake(item) {
-    const care = enrichAnticipationContext(item);
-    if (!care) return '（无）';
-    const lines = [
-        `牵挂对象：${care.entity}`,
-        care.context ? `当时发生：${care.context}` : '',
-        care.source_quote ? `她当时的原话：${care.source_quote}` : '',
-        care.reason ? `之所以还惦记：${care.reason}` : '',
-        `这次想确认：${care.content}`,
-        '这些是事情的来路，不是最新状态。自然承接前因后果去问后来怎样了；不要擅自补剧情，不要把旧情况说成现在仍然如此，也不要偏去问另一个问题。',
-    ].filter(Boolean);
-    return lines.join('\n');
+    return formatCareForWake(enrichAnticipationContext(item));
 }
 
 function getDueAnticipation(now = new Date()) {
@@ -3722,6 +3711,7 @@ async function buildSharedSystemPrompt({
     const stableSystemBlock = [
         modelPromptText,
         stableSystemPrompt,
+        ANTICIPATION_OUTPUT_INSTRUCTION,
         stableCheck,
         extraStableText,
         modeInstruction,
@@ -5600,7 +5590,7 @@ ${NEXT_WAKE_OUTPUT_INSTRUCTION}`;
             return { error: `完整消息 finish_reason=${finishReason}`, invalid: true };
         }
         const wakeTag = extractNextWakeTag(rawContent);
-        const cleanedContent = cleanAssistantInternalArtifacts(processAssistantActionTags(wakeTag.cleanText));
+        const cleanedContent = cleanAssistantInternalArtifacts(processAssistantActionTags(wakeTag.cleanText, { sourceTexts: recentMsgs.filter(m => m.role === 'user').map(m => m.content) }));
         const parsed = parseProactiveMessageParts(cleanedContent);
         if (parsed.type !== 'messages') {
             const reason = parsed.type === 'legacy_control_token'
@@ -6892,7 +6882,7 @@ async function composeXhsWalkMessage(note) {
     const rawContent = typeof data?.choices?.[0]?.message?.content === 'string'
         ? data.choices[0].message.content
         : '';
-    return cleanAssistantInternalArtifacts(processAssistantActionTags(rawContent));
+    return cleanAssistantInternalArtifacts(processAssistantActionTags(rawContent, { sourceTexts: recentMessages.filter(m => m.role === 'user').map(m => m.content) }));
 }
 
 async function runXhsWalk(force = false) {
@@ -7595,6 +7585,10 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             traceEvent(_tr, 'adaptive_wake', '用户消息使旧计划作废', { source_user_message_id: adaptiveUserMessageId });
         }
         const currentMessageSource = currentUserMsgText ? { quote: currentUserMsgText, at: new Date().toISOString(), message_id: sourceMessageId, tab_id: sourceTabId } : null;
+        const anticipationWriteContext = noMemory ? {} : {
+            userText: currentUserMsgText, sourceRef: currentMessageSource ? { ...currentMessageSource, message_id: sourceMessageId || adaptiveUserMessageId } : null,
+            sourceTexts: cleanMessages.filter(m => m.role === 'user').map(m => stripTransportTimePrefix(extractText(m.content))).filter(Boolean).slice(-4),
+        };
         const crumbRetryRequested = /(?:生活碎屑|记忆碎屑|碎屑|星尘|写进(?:生活)?(?:碎屑|记忆)|再(?:重新)?写(?:一次)?|再记(?:一次)?|没写进)/i.test(currentUserMsgText || '');
         const crumbSourceTexts = crumbRetryRequested
             ? cleanMessages.filter(message => message?.role === 'user').map(message => stripTransportTimePrefix(extractText(message.content))).filter(Boolean).slice(-8)
@@ -8164,7 +8158,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 
             const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(cleanForFinal);
             if (!noMemory) for (const mem of ntMems) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr, currentMessageSource);
-            const todoClean = processAssistantActionTags(ntMems.length > 0 ? ntClean : cleanForFinal);
+            const todoClean = processAssistantActionTags(ntMems.length > 0 ? ntClean : cleanForFinal, anticipationWriteContext);
             const finalContent = todoClean;
 
             if (isStreamMode) {
@@ -8361,7 +8355,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                     const { cleanText: memClean, memories: streamMemories } = extractSaveMemoryTag(fullAiResponse);
                     if (!noMemory) for (const mem of streamMemories) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr, currentMessageSource);
                     let streamCleanText = memClean || fullAiResponse;
-                    const todoCleanMaybe = processAssistantActionTags(streamCleanText);
+                    const todoCleanMaybe = processAssistantActionTags(streamCleanText, anticipationWriteContext);
                     if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
                     moodLog('[MOOD DEBUG] before mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
                     const beforeMood = streamCleanText;
@@ -8390,7 +8384,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                            queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr, currentMessageSource);
                         }
                     }
-                    const todoClean = processAssistantActionTags(memories.length > 0 ? cleanText : assistantContent);
+                    const todoClean = processAssistantActionTags(memories.length > 0 ? cleanText : assistantContent, anticipationWriteContext);
                     if (memories.length > 0 || todoClean !== (memories.length > 0 ? cleanText : assistantContent)) {
                         data.choices[0].message.content = todoClean;
                         finalContent = todoClean;
@@ -9286,7 +9280,7 @@ app.get('/api/longterm-page-data', async (req, res) => {
     const allCrumbs = loadCrumbs().sort((a, b) => new Date(b.happened_at || b.created_at) - new Date(a.happened_at || a.created_at));
     const crumbs = allCrumbs.slice(0, 300);
     const crumbCount = allCrumbs.filter(item => item.status !== 'archived').length;
-    const anticipations = loadAnticipations().sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
+    const anticipations = loadAnticipations().map(enrichAnticipationContext).sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
     const mergeReviews = loadMemoryMergeReviews().filter(item => item.status === 'pending').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     const crumbDigests = loadDailyPages().filter(page => page.crumb_digest).map(page => ({ date: page.date, ...page.crumb_digest })).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30);
     const memoryEvents = activeMemoryEvents(loadMemoryEvents()).sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at)).slice(0, 100).map(publicMemoryEvent);
@@ -9745,7 +9739,7 @@ app.post('/api/web-chat', async (req, res) => {
                     const cleanAiContent = aiContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
                     const { cleanText, memories } = extractSaveMemoryTag(cleanAiContent);
                     for (const mem of memories) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
-                    const todoClean = processAssistantActionTags(memories.length > 0 ? cleanText : cleanAiContent);
+                    const todoClean = processAssistantActionTags(memories.length > 0 ? cleanText : cleanAiContent, { userText: text, sourceTexts: zepMessages.filter(m => m.role === 'user').map(m => extractText(m.content)), sourceRef: { message_id: adaptiveUserMessageId, at: new Date().toISOString() } });
                     const finalReply = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(todoClean, { sourceUserMessageId: adaptiveUserMessageId, lastTopic: text }), null, { userText: text });
                     await saveToZepWithCounter(text || '（发送了一张图片）', finalReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
                     saveLatestConversationSummary(text, finalReply);
@@ -9801,7 +9795,7 @@ app.post('/api/web-chat', async (req, res) => {
                 for (const mem of memories) {
                     queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, text, null);
                 }
-                aiReply = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(processAssistantActionTags(memories.length > 0 ? cleanText : aiReply), { sourceUserMessageId: adaptiveUserMessageId, lastTopic: text }), null, { userText: text });
+                aiReply = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(processAssistantActionTags(memories.length > 0 ? cleanText : aiReply, { userText: text, sourceTexts: zepMessages.filter(m => m.role === 'user').map(m => extractText(m.content)), sourceRef: { message_id: adaptiveUserMessageId, at: new Date().toISOString() } }), { sourceUserMessageId: adaptiveUserMessageId, lastTopic: text }), null, { userText: text });
 
                 await saveToZepWithCounter(text || '（发送了一张图片）', aiReply, zepLastUserContent, zepMessages, { platform: 'web_legacy', model: model }, null);
                 saveLatestConversationSummary(text, aiReply);
@@ -9961,6 +9955,8 @@ function persistDialogueCrumbs(crumbs, tr = null, sourceRef = null) {
         const sameEntityOpen = loadAnticipations().some(item => item.status === 'open' && crumb.entities.includes(item.entity) && Date.now() - new Date(item.created_at).getTime() < 7 * 86400000);
         if (crumb.follow_up && !hasAutoToday && !sameEntityOpen && addAnticipation({
             source_crumb_id: entry.id,
+            source_message_id: entry.source_message_id,
+            source_at: entry.source_at,
             content: crumb.follow_up.content,
             entity: crumb.follow_up.entity,
             context: entry.fact,
@@ -10297,7 +10293,7 @@ app.post('/api/memory-events/:id/resolve', (req, res) => {
 });
 
 app.get('/api/anticipations', (req, res) => {
-    const items = loadAnticipations().sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
+    const items = loadAnticipations().map(enrichAnticipationContext).sort((a, b) => new Date(a.due_at) - new Date(b.due_at));
     res.json({ anticipations: items });
 });
 
