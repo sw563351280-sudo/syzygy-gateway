@@ -15,7 +15,6 @@
         <p class="notice" role="status" aria-live="polite"></p>
         <div class="room" hidden><p>在网易云 App 邀请陪伴账号。歌曲由 App 播放，小屋同步歌曲并在聊天里陪你听。</p><label>你的网易云 UID<input class="partner" inputmode="numeric" placeholder="发送邀请的账号 ID"></label><button data-action="join">开始等待邀请</button><button data-action="leave">退出房间</button></div>
         <div class="now"><img class="cover" alt="专辑封面" hidden><div><strong class="song-name">还没有选择歌曲</strong><p class="artist">你先选。不选我就塞一首给你。</p><small class="state"></small></div></div>
-        <audio preload="none" crossorigin="anonymous"></audio>
         <div class="transport"><button data-action="previous" aria-label="上一首">上一首</button><button data-action="toggle">播放</button><button data-action="next" aria-label="下一首">下一首</button><button data-action="stop">结束共听</button></div>
         <label class="seek-label"><span class="time">0:00 / 0:00</span><input class="seek" type="range" min="0" max="100" value="0" aria-label="播放进度"></label>
         <div class="preferences"><label>音量<input class="volume" type="range" min="0" max="1" step="0.05" value="0.8"></label><select class="quality" aria-label="音质"><option value="high">高音质</option><option value="smooth">流畅</option></select><select class="play-mode" aria-label="播放模式"><option value="sequence">顺序</option><option value="repeat-one">单曲循环</option><option value="shuffle">随机</option></select></div>
@@ -28,7 +27,11 @@
         <div class="pane" data-pane="settings" hidden><p>两个账号用途独立：你的账号用于音源与收藏；陪伴账号用于进入网易云一起听房间。</p><div class="login-status"></div><div class="row"><button data-login="user">登录我的账号</button><button data-logout="user">退出我的账号</button></div><div class="row"><button data-login="companion">登录陪伴账号</button><button data-logout="companion">退出陪伴账号</button></div><img class="qr" alt="用网易云 App 扫码登录" hidden><p class="qr-status"></p><button data-action="summary">生成共听小结</button><pre class="summary"></pre></div>
       </section>`;
     const $ = selector => root.querySelector(selector);
-    const audio = $('audio');
+    // Keep native media output outside the collapsible panel. Web Audio can be
+    // suspended by iOS in the background while the media clock keeps advancing.
+    const audio = document.createElement('audio');
+    audio.preload = 'none';
+    root.append(audio);
     const owner = crypto.randomUUID();
     const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('syzygy-music-v1') : null;
     let csrf = '';
@@ -37,6 +40,8 @@
     let current = null;
     let epoch = null;
     let generation = 0;
+    let wantsPlayback = false;
+    let claimChain = Promise.resolve();
     let eventChain = Promise.resolve();
     let currentTab = 'search';
     let queue = [];
@@ -53,8 +58,6 @@
     refreshQr.hidden = true;
     $('.qr-status').after(refreshQr);
     refreshQr.addEventListener('click', () => { if (qrProfile) void attempt(() => login(qrProfile)); });
-    let audioContext;
-    let gain;
     let lastOffers = '';
     let restoredTime = 0;
     let restoredFromServer = false;
@@ -79,12 +82,24 @@
         eventChain = eventChain.catch(() => {}).then(() => api('/session/event', body)).then(session => {
             if (epoch === body.epoch && session.owner === owner) { remote = session; updateModeUI(); }
         }).catch(e => {
+            if (epoch !== body.epoch) return;
             if (['OWNER_CONFLICT', 'MODE_CONFLICT'].includes(e.code)) passiveStop();
             notice(e.message, true);
         });
         return eventChain;
     }
-    function passiveStop() { generation++; epoch = null; audio.pause(); persist(); }
+    function updateTransport() {
+        $('.transport [data-action="toggle"]').textContent = wantsPlayback ? '暂停' : '播放';
+        if (navigator.mediaSession) navigator.mediaSession.playbackState = wantsPlayback && !audio.paused ? 'playing' : 'paused';
+    }
+    function pausePlayback() {
+        generation++;
+        wantsPlayback = false;
+        audio.pause();
+        updateTransport();
+        persist();
+    }
+    function passiveStop() { epoch = null; pausePlayback(); }
     function announce() {
         const message = { owner, at: Date.now() };
         channel?.postMessage(message);
@@ -94,18 +109,9 @@
     if (channel) channel.onmessage = e => takeover(e.data);
     window.addEventListener('storage', e => { if (e.key === 'syzygy-music-takeover') { try { takeover(JSON.parse(e.newValue)); } catch {} } });
     function volume() {
-        try {
-            if (!audioContext) {
-                const Context = window.AudioContext || window.webkitAudioContext;
-                audioContext = new Context();
-                gain = audioContext.createGain();
-                audioContext.createMediaElementSource(audio).connect(gain);
-                gain.connect(audioContext.destination);
-            }
-            void audioContext.resume();
-            gain.gain.value = Number($('.volume').value);
-            audio.volume = 1;
-        } catch { audio.volume = Number($('.volume').value); }
+        // On iOS volume is controlled by the device buttons; do not reroute
+        // through an AudioContext just to implement software volume.
+        audio.volume = Number($('.volume').value);
     }
     function renderNow(s = current) {
         $('.song-name').textContent = s?.name || '还没有选择歌曲';
@@ -122,8 +128,19 @@
         if (!lane && queue.length && cursor >= 0 && !interruption) interruption = { queue: [...queue], cursor, currentTime: audio.currentTime };
         passiveStop();
         const token = generation;
-        await eventChain.catch(() => {});
-        const claim = await api('/session/event', { type: 'claim', owner, songId: s.id, actor, snapshot: { ...snapshot(), currentTime: resumeTime } });
+        wantsPlayback = true;
+        current = s;
+        updateTransport();
+        // Serialize claims so an older, slow request cannot take over a newer song.
+        const pendingClaim = claimChain.catch(() => {}).then(async () => {
+            await eventChain.catch(() => {});
+            if (token !== generation) return null;
+            return api('/session/event', { type: 'claim', owner, songId: s.id, actor, snapshot: { ...snapshot(), currentTime: resumeTime } });
+        });
+        claimChain = pendingClaim;
+        let claim;
+        try { claim = await pendingClaim; }
+        catch (e) { if (token !== generation) return; pausePlayback(); throw e; }
         if (token !== generation) return;
         epoch = claim.epoch;
         current = claim.song;
@@ -133,14 +150,28 @@
             if (token === generation) audio.currentTime = Math.min(resumeTime, audio.duration || resumeTime);
         }, { once: true });
         announce(); renderNow(); renderQueue(); persist();
+        if (navigator.mediaSession && window.MediaMetadata) navigator.mediaSession.metadata = new MediaMetadata({ title: current.name, artist: current.artist, album: current.album || '' });
         notice('正在准备音源…');
         try { await audio.play(); if (token === generation) notice(''); }
         catch (e) {
             if (token !== generation) return;
+            wantsPlayback = false; updateTransport();
             await sendEvent('pause');
             notice(e.name === 'NotAllowedError' ? '浏览器需要你再点一下“播放”继续。' : '音源暂时无法播放，请尝试流畅音质或检查账号登录。', true);
         }
         if (currentTab === 'lyrics') void attempt(loadLyrics);
+    }
+    async function resumePlayback() {
+        if (inRoom() || wantsPlayback) return;
+        if (!current) return notice('先选一首歌曲。');
+        if (!epoch) {
+            const position = audio.currentTime || restoredTime; restoredTime = 0;
+            return play(current, 'user', true, position);
+        }
+        const token = ++generation;
+        wantsPlayback = true; updateTransport(); volume();
+        try { await audio.play(); }
+        catch (e) { if (token !== generation) return; pausePlayback(); throw e; }
     }
     function appendButton(parent, text, action) {
         const button = document.createElement('button'); button.textContent = text;
@@ -231,9 +262,10 @@
     }
     async function refresh() {
         const observedGeneration = generation;
+        const observedEpoch = epoch;
         const status = await api('/status');
         csrf = status.csrfToken;
-        if (observedGeneration !== generation) return;
+        if (observedGeneration !== generation || observedEpoch !== epoch) return;
         if (epoch && (status.session.mode !== 'local' || status.session.owner !== owner || status.session.epoch !== epoch)) passiveStop();
         const oldRoomSong = remote.song?.id;
         remote = status.session;
@@ -327,11 +359,11 @@
         });
         const actions = {
             hide: () => { $('.panel').hidden = true; },
-            join: async () => { if (epoch) { audio.pause(); await sendEvent('close'); } passiveStop(); announce(); await api('/mode', { mode: 'netease-room', partnerUid: $('.partner').value.trim() }); await refresh(); notice('已开始等待，请在网易云 App 发出一起听邀请。'); },
+            join: async () => { pausePlayback(); const closing = sendEvent('close'); epoch = null; await closing; passiveStop(); announce(); await api('/mode', { mode: 'netease-room', partnerUid: $('.partner').value.trim() }); await refresh(); notice('已开始等待，请在网易云 App 发出一起听邀请。'); },
             leave: async () => { await api('/mode', { mode: 'local' }); chosenMode = 'local'; await refresh(); renderNow(); },
-            toggle: async () => { if (!current) return notice('先选一首歌曲。'); if (!audio.paused) audio.pause(); else if (!epoch) { const position = audio.currentTime || restoredTime; restoredTime = 0; await play(current, 'user', true, position); } else { volume(); await audio.play(); } },
+            toggle: () => wantsPlayback || !audio.paused ? pausePlayback() : resumePlayback(),
             previous: () => next(-1), next: () => next(1),
-            stop: async () => { audio.pause(); await sendEvent('close'); epoch = null; notice('本次共听已结束。'); await refresh(); },
+            stop: async () => { pausePlayback(); const token = generation; const closing = sendEvent('close'); epoch = null; await closing; if (token !== generation) return; notice('本次共听已结束。'); await refresh(); },
             'clear-queue': () => { queue = []; cursor = -1; interruption = null; renderQueue(); persist(); return sendEvent('queue'); },
             'restore-lane': () => next(),
             'refresh-daily': () => loadDaily(true),
@@ -357,10 +389,15 @@
     $('.quality').addEventListener('change', () => { persist(); notice('音质设置将用于下一次播放。'); });
     $('.seek').addEventListener('input', e => { if (Number.isFinite(audio.duration)) audio.currentTime = audio.duration * Number(e.target.value) / 100; });
     const time = seconds => Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}` : '0:00';
-    audio.addEventListener('playing', () => { if (!epoch || inRoom()) { audio.pause(); return; } $('.transport [data-action="toggle"]').textContent = '暂停'; void sendEvent('play'); });
-    audio.addEventListener('pause', () => { $('.transport [data-action="toggle"]').textContent = '播放'; if (epoch && !audio.ended) void sendEvent('pause'); });
-    audio.addEventListener('error', () => { if (epoch) { void sendEvent('pause'); notice('音源加载失败，请尝试重新登录、切换音质或另一首歌。', true); } });
-    audio.addEventListener('ended', () => { void attempt(async () => { await sendEvent('finish'); if ($('.play-mode').value === 'repeat-one' && current) await play(current, 'user', true); else await next(); }); });
+    audio.addEventListener('playing', () => { if (audio.paused) return; if (!epoch || inRoom() || !wantsPlayback) { audio.pause(); return; } updateTransport(); void sendEvent('play'); });
+    audio.addEventListener('pause', () => { if (!audio.paused || audio.ended) return; if (epoch) wantsPlayback = false; updateTransport(); if (epoch) { persist(); void sendEvent('pause'); } });
+    audio.addEventListener('error', () => { if (epoch) { pausePlayback(); void sendEvent('pause'); notice('音源加载失败，请尝试重新登录、切换音质或另一首歌。', true); } });
+    audio.addEventListener('ended', () => { if (!epoch || !audio.ended || !wantsPlayback) return; const token = generation; wantsPlayback = false; updateTransport(); void attempt(async () => { await sendEvent('finish'); if (token !== generation) return; if ($('.play-mode').value === 'repeat-one' && current) await play(current, 'user', true); else await next(); }); });
+    if (navigator.mediaSession) {
+        for (const [action, handler] of Object.entries({ play: resumePlayback, pause: pausePlayback, previoustrack: () => next(-1), nexttrack: () => next(1) })) {
+            try { navigator.mediaSession.setActionHandler(action, () => { void attempt(handler); }); } catch { /* Some browsers only support play/pause. */ }
+        }
+    }
     audio.addEventListener('timeupdate', () => {
         $('.time').textContent = `${time(audio.currentTime)} / ${time(audio.duration)}`;
         $('.seek').value = audio.duration ? String(audio.currentTime / audio.duration * 100) : '0';
@@ -387,7 +424,7 @@
     setInterval(async () => {
         if (refreshing || !shouldPollStatus()) return;
         refreshing = true;
-        try { await refresh(); } catch (e) { if (epoch && !audio.paused) passiveStop(); notice('音乐状态连接中断，请稍后重试。', true); }
+        try { await refresh(); } catch (e) { notice('音乐状态同步暂时中断，正在重试。', true); }
         finally { refreshing = false; }
     }, 5000);
     renderNow(); renderQueue(); void attempt(refresh);

@@ -56,6 +56,19 @@ async function main() {
         if (!executablePath) throw new Error('Set CHROME_PATH to an installed Chromium executable');
         browser = await puppeteer.launch({ executablePath, headless: true, args: ['--mute-audio', '--autoplay-policy=no-user-gesture-required'], defaultViewport: { width: 1280, height: 900 } });
         const page = await browser.newPage();
+        await page.evaluateOnNewDocument(() => {
+            window.audioContextCount = 0;
+            const NativeContext = window.AudioContext;
+            window.AudioContext = class extends NativeContext {
+                constructor(...args) { super(...args); window.audioContextCount++; }
+            };
+            window.mediaActions = {};
+            const setActionHandler = navigator.mediaSession.setActionHandler.bind(navigator.mediaSession);
+            navigator.mediaSession.setActionHandler = (name, handler) => {
+                window.mediaActions[name] = handler;
+                setActionHandler(name, handler);
+            };
+        });
         console.log('Browser launched');
         const errors = []; page.on('pageerror', error => { errors.push(error.message); console.error('Page error:', error.message); });
         const url = `http://127.0.0.1:${server.address().port}/music-qa`;
@@ -75,8 +88,66 @@ async function main() {
         await waitState('play');
         console.log('Synthetic audio is playing');
         assert.equal(music.status().session.active, true);
+        assert.equal(await page.evaluate(() => window.audioContextCount), 0, 'native audio must not depend on a background-suspended AudioContext');
+        assert.equal(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.panel audio')), null);
+        await click('[data-action="hide"]');
+        const background = await browser.newPage();
+        await background.bringToFront();
+        const backgroundTime = await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('audio').currentTime);
+        await new Promise(resolve => setTimeout(resolve, 1200));
+        assert.equal(await page.evaluate(() => document.hidden), true);
+        assert.ok(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('audio').currentTime) > backgroundTime + 0.5, 'hidden panel and background tab must keep playing');
+        await background.close(); await page.bringToFront(); await click('.launcher');
         await click('[data-action="toggle"]'); await waitState('pause');
+        const pausedTime = await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('audio').currentTime);
+        await new Promise(resolve => setTimeout(resolve, 1200));
+        assert.equal(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('audio').currentTime), pausedTime, 'pause must freeze the audio clock');
         await click('[data-action="toggle"]'); await waitState('play');
+
+        await page.evaluate(() => { window.mediaActions.pause(); window.mediaActions.pause(); });
+        await waitState('pause');
+        assert.equal(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('audio').paused), true, 'repeated lock-screen pause must never toggle playback back on');
+        await page.evaluate(() => { window.mediaActions.play(); window.mediaActions.play(); });
+        await waitState('play');
+
+        // Hold a completed claim response: pausing during preparation must win
+        // over the earlier play request when that response eventually arrives.
+        await page.evaluate(() => {
+            const nativeFetch = window.fetch;
+            window.fetch = async (...args) => {
+                const response = await nativeFetch(...args);
+                if (String(args[0]).endsWith('/session/event') && JSON.parse(args[1]?.body || '{}').type === 'claim') {
+                    window.claimWaiting = true;
+                    await new Promise(resolve => { window.releaseClaim = resolve; });
+                    window.fetch = nativeFetch;
+                }
+                return response;
+            };
+        });
+        await click('.search-results .track button');
+        await page.waitForFunction(() => window.claimWaiting);
+        await click('[data-action="toggle"]');
+        await page.evaluate(() => window.releaseClaim());
+        await new Promise(resolve => setTimeout(resolve, 400));
+        assert.equal(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('audio').paused), true, 'late claim must not restart paused audio');
+        await click('[data-action="toggle"]'); await waitState('play');
+        for (let i = 0; i < 3; i++) {
+            await click('[data-action="toggle"]');
+            await click('[data-action="toggle"]');
+        }
+        await click('[data-action="toggle"]'); await waitState('pause');
+        assert.equal(await page.evaluate(() => navigator.mediaSession.playbackState), 'paused');
+        await click('[data-action="toggle"]'); await waitState('play');
+
+        // A failed metadata/status poll must not interrupt the native audio.
+        await page.setRequestInterception(true);
+        const failStatus = request => request.url().endsWith('/api/music/status') ? request.abort() : request.continue();
+        page.on('request', failStatus);
+        await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.notice').textContent.includes('状态同步暂时中断'), { timeout: 8000 });
+        assert.equal(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('audio').paused), false);
+        page.off('request', failStatus);
+        await page.setRequestInterception(false);
+        console.log('Native output, hidden/background playback, system controls, delayed-claim cancellation, rapid pause/resume and transient status failure passed');
         await click('[data-tab="lyrics"]');
         await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.lyrics').textContent.includes('今晚的风'));
         await page.screenshot({ path: path.join(output, 'desktop.png') });
@@ -97,6 +168,10 @@ async function main() {
         await page.evaluate(() => { const r = document.querySelector('#syzygy-music').shadowRoot; r.querySelector('.import input').value = '7'; r.querySelector('.import').requestSubmit(); });
         await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.library summary')?.textContent.includes('晚安之前'));
         await click('.library summary'); await click('.library details > button'); await waitState('play');
+        await page.evaluate(() => { const audio = document.querySelector('#syzygy-music').shadowRoot.querySelector('audio'); audio.currentTime = audio.duration - 0.1; });
+        await page.waitForFunction(async () => { const s = (await (await fetch('/api/music/status')).json()).session; return s?.song?.id === '2' && s.state === 'play'; }, { polling: 250 });
+        await click('[data-action="previous"]');
+        await page.waitForFunction(async () => { const s = (await (await fetch('/api/music/status')).json()).session; return s?.song?.id === '1' && s.state === 'play'; }, { polling: 250 });
         await click('[data-action="next"]');
         await page.waitForFunction(async () => { const s = (await (await fetch('/api/music/status')).json()).session; return s?.song?.id === '2' && s.state === 'play'; }, { polling: 250 });
         await click('[data-action="stop"]'); await waitState('closed');
