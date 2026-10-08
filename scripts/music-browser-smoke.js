@@ -84,13 +84,13 @@ async function main() {
         });
         try { await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelectorAll('.search-results .track').length === 2, { timeout: 5000 }); }
         catch (e) { console.log(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.notice').textContent)); throw e; }
-        await click('.search-results .track button');
+        await click('.search-results .track');
         await waitState('play');
         console.log('Synthetic audio is playing');
         assert.equal(music.status().session.active, true);
         assert.equal(await page.evaluate(() => window.audioContextCount), 0, 'native audio must not depend on a background-suspended AudioContext');
         assert.equal(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.panel audio')), null);
-        await click('[data-action="hide"]');
+        await click('.launcher');
         const background = await browser.newPage();
         await background.bringToFront();
         const backgroundTime = await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('audio').currentTime);
@@ -124,7 +124,7 @@ async function main() {
                 return response;
             };
         });
-        await click('.search-results .track button');
+        await click('.search-results .track');
         await page.waitForFunction(() => window.claimWaiting);
         await click('[data-action="toggle"]');
         await page.evaluate(() => window.releaseClaim());
@@ -148,8 +148,10 @@ async function main() {
         page.off('request', failStatus);
         await page.setRequestInterception(false);
         console.log('Native output, hidden/background playback, system controls, delayed-claim cancellation, rapid pause/resume and transient status failure passed');
-        await click('[data-tab="lyrics"]');
+        await click('[data-action="open-lyrics"]');
+        await page.waitForFunction(() => !document.querySelector('#syzygy-music').shadowRoot.querySelector('.lyrics-view').hidden);
         await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.lyrics').textContent.includes('今晚的风'));
+        await click('[data-action="close-lyrics"]');
         await page.screenshot({ path: path.join(output, 'desktop.png') });
 
         // Cross-tab takeover must silence the first audio element without letting
@@ -174,13 +176,14 @@ async function main() {
         await page.waitForFunction(async () => { const s = (await (await fetch('/api/music/status')).json()).session; return s?.song?.id === '1' && s.state === 'play'; }, { polling: 250 });
         await click('[data-action="next"]');
         await page.waitForFunction(async () => { const s = (await (await fetch('/api/music/status')).json()).session; return s?.song?.id === '2' && s.state === 'play'; }, { polling: 250 });
-        await click('[data-action="stop"]'); await waitState('closed');
+        await click('[data-action="settings-toggle"]'); await click('[data-action="stop"]'); await waitState('closed');
         await page.reload();
         console.log('Queue and reload checks passed');
         await page.waitForFunction(() => Boolean(window.SyzygyMusic));
         assert.equal(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('audio').paused), true);
 
         await click('.launcher');
+        await click('[data-action="settings-toggle"]');
         await click('[data-mode="netease-room"]');
         await page.evaluate(() => { document.querySelector('#syzygy-music').shadowRoot.querySelector('.partner').value = '7'; });
         await click('[data-action="join"]');
@@ -195,7 +198,7 @@ async function main() {
         await click('[data-action="leave"]'); await waitState('closed');
         assert.equal(music.status().session.mode, 'local');
 
-        await click('[data-tab="settings"]');
+        await click('[data-action="settings-toggle"]');
         await click('[data-login="companion"]');
         await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.qr-status').textContent.includes('已过期'));
         await click('[data-action="refresh-qr"]');

@@ -7,25 +7,27 @@
     document.body.append(host);
     const root = host.attachShadow({ mode: 'open' });
     root.innerHTML = `
-      <link rel="stylesheet" href="/music-player.css?v=2">
+      <link rel="stylesheet" href="/music-player.css?v=3">
       <button part="launcher" class="launcher" aria-label="打开一起听歌">♫ <span>一起听</span></button>
-      <section class="panel" aria-label="一起听歌" hidden>
-        <header><div><small>SHARED LISTENING</small><h2>耳机分你一只。</h2></div><button data-action="hide" aria-label="收起播放器">⌄</button></header>
-        <div class="mode"><button data-mode="local">小屋播放器</button><button data-mode="netease-room">网易云一起听</button></div>
+      <div class="music-shell panel" hidden>
+        <header><div><small>WINDOWSIDE RECORDS</small><h2>耳机分你一只。</h2></div><button data-action="settings-toggle" class="settings-button" aria-label="打开音乐设置">⚙</button></header>
         <p class="notice" role="status" aria-live="polite"></p>
-        <div class="room" hidden><p>在网易云 App 邀请陪伴账号。歌曲由 App 播放，小屋同步歌曲并在聊天里陪你听。</p><label>你的网易云 UID<input class="partner" inputmode="numeric" placeholder="发送邀请的账号 ID"></label><button data-action="join">开始等待邀请</button><button data-action="leave">退出房间</button></div>
-        <div class="now"><img class="cover" alt="专辑封面" hidden><div><strong class="song-name">还没有选择歌曲</strong><p class="artist">你先选。不选我就塞一首给你。</p><small class="state"></small></div></div>
-        <div class="transport"><button data-action="previous" aria-label="上一首">上一首</button><button data-action="toggle">播放</button><button data-action="next" aria-label="下一首">下一首</button><button data-action="stop">结束共听</button></div>
-        <label class="seek-label"><span class="time">0:00 / 0:00</span><input class="seek" type="range" min="0" max="100" value="0" aria-label="播放进度"></label>
-        <div class="preferences"><label>音量<input class="volume" type="range" min="0" max="1" step="0.05" value="0.8"></label><select class="quality" aria-label="音质"><option value="high">高音质</option><option value="smooth">流畅</option></select><select class="play-mode" aria-label="播放模式"><option value="sequence">顺序</option><option value="repeat-one">单曲循环</option><option value="shuffle">随机</option></select></div>
-        <nav aria-label="音乐内容"><button data-tab="search" class="active">搜歌</button><button data-tab="queue">队列</button><button data-tab="playlists">歌单</button><button data-tab="daily">今日私选</button><button data-tab="lyrics">歌词</button><button data-tab="settings">账号</button></nav>
+        <section class="record-stage" aria-label="正在播放">
+          <button class="record-button" data-action="open-lyrics" aria-label="点击唱片查看歌词">
+            <span class="turntable"><span class="record"><img class="cover" alt="专辑封面" hidden><span class="record-label"></span><span class="record-hole"></span></span><span class="tonearm" aria-hidden="true"></span></span>
+          </button>
+          <div class="now"><strong class="song-name">还没有选择歌曲</strong><p class="artist">你先选。不选我就塞一首给你。</p><small class="state"></small><small class="shared-state"></small></div>
+          <label class="seek-label"><span class="time">0:00 / 0:00</span><input class="seek" type="range" min="0" max="100" value="0" aria-label="播放进度"></label>
+          <div class="transport"><button data-action="previous" aria-label="上一首">⏮</button><button data-action="toggle" aria-label="播放或暂停">▶</button><button data-action="next" aria-label="下一首">⏭</button></div>
+        </section>
+        <nav aria-label="音乐内容"><button data-tab="search" class="active">搜歌</button><button data-tab="queue">队列</button><button data-tab="playlists">歌单</button><button data-tab="daily">今日私选</button></nav>
         <div class="pane" data-pane="search"><form class="search"><input name="q" maxlength="200" placeholder="歌名 / 歌手" aria-label="搜索歌曲" required><button>搜索</button></form><div class="search-results"></div><h3>沈望点的歌</h3><div class="offers"><p class="empty">在聊天里说“陪我听首歌”。</p></div></div>
         <div class="pane" data-pane="queue" hidden><div class="row"><h3>当前队列</h3><button data-action="restore-lane" hidden>返回原队列</button><button data-action="clear-queue">清空</button></div><div class="queue-list"></div></div>
-        <div class="pane" data-pane="playlists" hidden><form class="import"><input name="value" placeholder="网易云歌单 ID 或完整链接" aria-label="导入歌单" required><button>导入</button></form><button data-action="my-playlists">读取我的歌单</button><div class="library"></div></div>
+        <div class="pane" data-pane="playlists" hidden><div class="library-tools"><h3>我的歌单</h3><button data-action="playlist-import-toggle" aria-expanded="false">⊕</button></div><form class="import" hidden><input name="value" placeholder="网易云歌单 ID 或完整链接" aria-label="导入歌单" required><button>导入</button></form><button data-action="my-playlists">读取我的歌单</button><div class="library"></div></div>
         <div class="pane" data-pane="daily" hidden><div class="row"><h3>今日私选</h3><button data-action="refresh-daily">换一批</button><button data-action="play-daily">播放全部</button></div><p class="daily-note"></p><div class="daily-list"></div></div>
-        <div class="pane" data-pane="lyrics" hidden><pre class="lyrics">选一首歌后查看歌词。</pre></div>
-        <div class="pane" data-pane="settings" hidden><p>两个账号用途独立：你的账号用于音源与收藏；陪伴账号用于进入网易云一起听房间。</p><div class="login-status"></div><div class="row"><button data-login="user">登录我的账号</button><button data-logout="user">退出我的账号</button></div><div class="row"><button data-login="companion">登录陪伴账号</button><button data-logout="companion">退出陪伴账号</button></div><img class="qr" alt="用网易云 App 扫码登录" hidden><p class="qr-status"></p><button data-action="summary">生成共听小结</button><pre class="summary"></pre></div>
-      </section>`;
+      </div>
+      <section class="lyrics-view" hidden aria-label="歌词"><header><button data-action="close-lyrics" aria-label="返回唱片机">←</button><strong class="lyrics-title"></strong><span></span></header><pre class="lyrics">选一首歌后查看歌词。</pre></section>
+      <section class="settings-drawer" hidden aria-label="音乐设置"><header><strong>设置</strong><button data-action="settings-toggle" aria-label="关闭音乐设置">×</button></header><div class="mode"><button data-mode="local">小屋播放器</button><button data-mode="netease-room">网易云一起听</button></div><div class="preferences"><label>音量<input class="volume" type="range" min="0" max="1" step="0.05" value="0.8"></label><label>音质<select class="quality" aria-label="音质"><option value="high">高音质</option><option value="smooth">流畅</option></select></label><label>顺序<select class="play-mode" aria-label="播放模式"><option value="sequence">顺序</option><option value="repeat-one">单曲循环</option><option value="shuffle">随机</option></select></label></div><div class="room" hidden><p>在网易云 App 邀请陪伴账号。歌曲由 App 播放，小屋只同步状态。</p><label>你的网易云 UID<input class="partner" inputmode="numeric" placeholder="发送邀请的账号 ID"></label><button data-action="join">开始等待邀请</button><button data-action="leave">退出房间</button></div><div class="account"><p>你的账号用于音源与收藏；陪伴账号用于网易云一起听。</p><div class="login-status"></div><div class="row"><button data-login="user">登录我的账号</button><button data-logout="user">退出我的账号</button></div><div class="row"><button data-login="companion">登录陪伴账号</button><button data-logout="companion">退出陪伴账号</button></div><img class="qr" alt="用网易云 App 扫码登录" hidden><p class="qr-status"></p><button data-action="summary">生成共听小结</button><pre class="summary"></pre></div><button data-action="stop" class="end-listening">结束共听</button></section>`;
     const $ = selector => root.querySelector(selector);
     // Keep native media output outside the collapsible panel. Web Audio can be
     // suspended by iOS in the background while the media clock keeps advancing.
@@ -89,8 +91,10 @@
         return eventChain;
     }
     function updateTransport() {
-        $('.transport [data-action="toggle"]').textContent = wantsPlayback ? '暂停' : '播放';
+        $('.transport [data-action="toggle"]').textContent = wantsPlayback ? '❚❚' : '▶';
+        $('.transport [data-action="toggle"]').setAttribute('aria-label', wantsPlayback ? '暂停' : '播放');
         if (navigator.mediaSession) navigator.mediaSession.playbackState = wantsPlayback && !audio.paused ? 'playing' : 'paused';
+        renderNow();
     }
     function pausePlayback() {
         generation++;
@@ -113,14 +117,22 @@
         // through an AudioContext just to implement software volume.
         audio.volume = Number($('.volume').value);
     }
+    function sharedState() {
+        if (inRoom() && ['play', 'pause'].includes(remote.state)) return ['with-him', '♪ 他也戴着另一只耳机'];
+        if (!inRoom() && ['play', 'pause'].includes(remote.state)) return ['alone', '此刻只有你一个人'];
+        return ['ended', '耳机先收起来了'];
+    }
     function renderNow(s = current) {
         $('.song-name').textContent = s?.name || '还没有选择歌曲';
         $('.artist').textContent = s?.artist || '你先选。不选我就塞一首给你。';
         $('.cover').hidden = !s;
-        if (s) $('.cover').src = `/api/music/cover/${s.id}`;
+        if (s) { $('.cover').src = `/api/music/cover/${s.id}`; $('.record-label').textContent = s.album?.slice(0, 12) || 'SHARED'; }
+        const [kind, text] = sharedState();
+        $('.shared-state').textContent = text;
+        $('.shared-state').dataset.state = kind;
+        $('.record-stage').dataset.playing = wantsPlayback && !audio.paused ? 'true' : 'false';
         $('.transport').hidden = inRoom();
         $('.seek-label').hidden = inRoom();
-        $('.preferences').hidden = inRoom();
     }
     async function play(s, actor = 'user', lane = false, resumeTime = 0) {
         if (inRoom()) { notice('这是给网易云房间的点歌建议，请在网易云 App 选择：' + s.name); return; }
@@ -159,7 +171,7 @@
             await sendEvent('pause');
             notice(e.name === 'NotAllowedError' ? '浏览器需要你再点一下“播放”继续。' : '音源暂时无法播放，请尝试流畅音质或检查账号登录。', true);
         }
-        if (currentTab === 'lyrics') void attempt(loadLyrics);
+        if (!$('.lyrics-view').hidden) void attempt(loadLyrics);
     }
     async function resumePlayback() {
         if (inRoom() || wantsPlayback) return;
@@ -181,26 +193,29 @@
         container.replaceChildren();
         if (!songs.length) { const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = '这里还空着，放几首喜欢的歌进来。'; container.append(empty); }
         songs.forEach((s, index) => {
-            const card = document.createElement('article'); card.className = 'track';
+            const card = document.createElement('article'); card.className = 'track'; card.tabIndex = 0;
             const info = document.createElement('div'); info.className = 'track-info';
             const title = document.createElement('strong'); title.textContent = s.name;
             const artist = document.createElement('small'); artist.textContent = s.artist;
             info.append(title, artist);
             if (s.reason) { const reason = document.createElement('p'); reason.textContent = `${s.tag || ''} · ${s.reason}`; info.append(reason); }
             card.append(info);
-            const actions = document.createElement('div'); actions.className = 'track-actions';
-            appendButton(actions, inRoom() ? '点歌建议' : '播放', async () => { if (lane) { cursor = index; interruption = null; } await play(s, actor, lane); });
-            appendButton(actions, '+ 队列', () => { if (!queue.some(v => v.id === s.id)) queue.push(s); queue = queue.slice(0, 200); renderQueue(); persist(); return sendEvent('queue'); });
-            appendButton(actions, '收藏', () => saveToPlaylist(s));
+            const more = document.createElement('details'); more.className = 'track-more';
+            const summary = document.createElement('summary'); summary.textContent = '⋯'; summary.setAttribute('aria-label', `《${s.name}》更多操作`); more.append(summary);
+            appendButton(more, inRoom() ? '点歌建议' : '加入队列', async () => { if (inRoom()) return play(s, actor, lane); if (!queue.some(v => v.id === s.id)) queue.push(s); queue = queue.slice(0, 200); renderQueue(); persist(); return sendEvent('queue'); });
+            appendButton(more, '收藏', () => saveToPlaylist(s));
             if (feedback) {
                 const select = document.createElement('select'); select.setAttribute('aria-label', '歌曲反馈');
                 for (const [value, label] of [['', '反馈…'], ['like', '喜欢'], ['heard', '听过了'], ['more_like_this', '多推这种'], ['less_like_this', '少推这种'], ['dislike', '不喜欢']]) {
                     const option = document.createElement('option'); option.value = value; option.textContent = label; select.append(option);
                 }
                 select.addEventListener('change', () => { if (select.value) void attempt(async () => { await api('/feedback', { songId: s.id, action: select.value }); notice('记住了，会用于下一次私选。'); }); });
-                actions.append(select);
+                more.append(select);
             }
-            card.append(actions); container.append(card);
+            card.append(more); container.append(card);
+            const choose = () => { if (lane) { cursor = index; interruption = null; } void attempt(() => play(s, actor, lane)); };
+            card.addEventListener('click', e => { if (!e.target.closest('details,button,select,summary')) choose(); });
+            card.addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === card) { e.preventDefault(); choose(); } });
         });
     }
     function renderQueue() {
@@ -240,10 +255,17 @@
     }
     async function loadLyrics() {
         const s = inRoom() ? remote.song : current;
-        if (!s) return;
+        $('.lyrics-title').textContent = s ? `${s.name} · ${s.artist}` : '歌词';
+        if (!s) { $('.lyrics').textContent = '选一首歌后查看歌词。'; return; }
         const lyrics = await api('/lyrics/' + s.id);
         $('.lyrics').textContent = lyrics.lyric || '这首歌暂时没有歌词。';
     }
+    async function openLyrics() {
+        $('.lyrics-view').hidden = false;
+        $('.music-shell').hidden = true;
+        await loadLyrics();
+    }
+    function closeLyrics() { $('.lyrics-view').hidden = true; $('.music-shell').hidden = false; }
     async function tab(name, load = true) {
         currentTab = name;
         root.querySelectorAll('[data-pane]').forEach(p => { p.hidden = p.dataset.pane !== name; });
@@ -252,13 +274,12 @@
         if (name === 'queue') renderQueue();
         if (name === 'playlists') await loadLibrary();
         if (name === 'daily') await loadDaily();
-        if (name === 'lyrics') await loadLyrics();
-        if (name === 'settings') await refresh();
     }
     function updateModeUI() {
         root.querySelectorAll('[data-mode]').forEach(button => button.classList.toggle('active', button.dataset.mode === chosenMode));
         $('.room').hidden = chosenMode !== 'netease-room';
         $('.state').textContent = `${inRoom() ? '网易云一起听' : '小屋播放器'} · ${({ play: '正在播放', pause: '已暂停', waiting: '等待邀请 / 同步', ready: '等待播放', stale: '历史状态，点击播放继续', disconnected: '连接中断，正在重试', closed: '已结束', finished: '已播完' })[remote.state] || remote.state}`;
+        renderNow();
     }
     async function refresh() {
         const observedGeneration = generation;
@@ -286,8 +307,8 @@
         $('.login-status').textContent = `我的账号：${status.userLoggedIn ? '已保存登录态' : '未登录'} · 陪伴账号：${status.companionLoggedIn ? '已保存登录态' : '未登录'}`;
         updateModeUI();
         if (!status.configured) notice('音乐面板已就绪，等待服务端连接音源服务。');
-        if (inRoom() && oldRoomSong !== remote.song?.id && currentTab === 'lyrics') void attempt(loadLyrics);
-        if (!$('.panel').hidden) {
+        if (inRoom() && oldRoomSong !== remote.song?.id && !$('.lyrics-view').hidden) void attempt(loadLyrics);
+        if (!$('.music-shell').hidden) {
             const data = await api('/session');
             const signature = JSON.stringify(data.offers);
             if (signature !== lastOffers) {
@@ -358,7 +379,11 @@
             updateModeUI();
         });
         const actions = {
-            hide: () => { $('.panel').hidden = true; },
+            hide: () => { $('.music-shell').hidden = true; },
+            'settings-toggle': () => { $('.settings-drawer').hidden = !$('.settings-drawer').hidden; },
+            'open-lyrics': () => void attempt(openLyrics),
+            'close-lyrics': closeLyrics,
+            'playlist-import-toggle': () => { const form = $('.import'); form.hidden = !form.hidden; button.setAttribute('aria-expanded', String(!form.hidden)); if (!form.hidden) form.querySelector('input').focus(); },
             join: async () => { pausePlayback(); const closing = sendEvent('close'); epoch = null; await closing; passiveStop(); announce(); await api('/mode', { mode: 'netease-room', partnerUid: $('.partner').value.trim() }); await refresh(); notice('已开始等待，请在网易云 App 发出一起听邀请。'); },
             leave: async () => { await api('/mode', { mode: 'local' }); chosenMode = 'local'; await refresh(); renderNow(); },
             toggle: () => wantsPlayback || !audio.paused ? pausePlayback() : resumePlayback(),
@@ -373,14 +398,19 @@
         };
         if (actions[button.dataset.action]) void attempt(actions[button.dataset.action]);
     });
-    $('.launcher').addEventListener('click', () => { $('.panel').hidden = !$('.panel').hidden; if (!$('.panel').hidden) void attempt(refresh); });
+    $('.launcher').addEventListener('click', () => { $('.music-shell').hidden = !$('.music-shell').hidden; if (!$('.music-shell').hidden) void attempt(refresh); });
     const chatSection = document.getElementById('sec-chat');
     if (chatSection) {
         const syncChatLauncher = () => host.classList.toggle('chat-active', chatSection.classList.contains('active'));
         new MutationObserver(syncChatLauncher).observe(chatSection, { attributes: true, attributeFilter: ['class'] });
         syncChatLauncher();
     }
-    root.addEventListener('keydown', e => { if (e.key === 'Escape') { $('.panel').hidden = true; $('.launcher').focus(); } });
+    root.addEventListener('keydown', e => {
+        if (e.key !== 'Escape') return;
+        if (!$('.lyrics-view').hidden) { closeLyrics(); return; }
+        if (!$('.settings-drawer').hidden) { $('.settings-drawer').hidden = true; return; }
+        if (!$('.music-shell').hidden) { $('.music-shell').hidden = true; $('.launcher').focus(); }
+    });
     $('.search').addEventListener('submit', e => { e.preventDefault(); const query = new FormData(e.currentTarget).get('q'); void attempt(async () => { notice('正在搜索…'); const songs = await api('/search?q=' + encodeURIComponent(query)); renderSongs($('.search-results'), songs); notice(songs.length ? '' : '没有找到歌曲，试试补充歌手。'); }); });
     $('.import').addEventListener('submit', e => { e.preventDefault(); const value = new FormData(e.currentTarget).get('value'); void attempt(async () => { notice('正在导入歌单…'); await api('/playlists/import', { value }); await loadLibrary(); notice('歌单已导入。'); }); });
     $('.volume').addEventListener('input', volume);
@@ -412,14 +442,14 @@
         const saved = JSON.parse(localStorage.getItem('syzygy-music-snapshot-v2') || 'null');
         if (saved?.version === 2) { queue = Array.isArray(saved.queue) ? saved.queue.slice(0, 200) : []; cursor = saved.cursor; current = saved.song; restoredTime = Number(saved.currentTime) || 0; interruption = saved.interruption; $('.quality').value = saved.quality || 'high'; $('.play-mode').value = saved.playMode || 'sequence'; }
     } catch { /* No automatic playback or writes on restoration. */ }
-    window.SyzygyMusic = { open() { $('.panel').hidden = false; void attempt(refresh); }, play(id, actor = 'companion') {
-        $('.panel').hidden = false; void attempt(async () => { const s = await api('/detail/' + id); await play(s, actor); });
+    window.SyzygyMusic = { open() { $('.lyrics-view').hidden = true; $('.music-shell').hidden = false; void attempt(refresh); }, play(id, actor = 'companion') {
+        $('.lyrics-view').hidden = true; $('.music-shell').hidden = false; void attempt(async () => { const s = await api('/detail/' + id); await play(s, actor); });
     } };
     document.addEventListener('click', e => { const button = e.target.closest('[data-music-song]'); if (button) window.SyzygyMusic.play(button.dataset.musicSong); });
     let refreshing = false;
     function shouldPollStatus() {
         const inactiveLocalPlayer = audio.paused && !epoch && !inRoom();
-        return !inactiveLocalPlayer || (!document.hidden && !$('.panel').hidden);
+        return !inactiveLocalPlayer || (!document.hidden && !$('.music-shell').hidden);
     }
     setInterval(async () => {
         if (refreshing || !shouldPollStatus()) return;
