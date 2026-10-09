@@ -7755,7 +7755,9 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         }
 
         const ledgerRealtimeContext = buildLedgerRealtimeContext(currentUserMsgText);
-        const envContext = buildEnvContext(`【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n【🚨 信息真实性铁律】：查看网页或 API 数据时，必须基于服务端实际读取的内容回答；GitHub 链接会由服务端自动读取并注入上下文。严禁假装已经看过；读取失败时直接说“我没能读到”，不要编造。\n【记忆刻录机制】：用<SAVE_MEMORY tags="...">记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊。一次最多一个标签，内容≥10字。详见System Prompt第九项。${ledgerRealtimeContext}`);
+        // ledgerRealtimeContext removed from system to maintain cache stability.
+        // It will be injected into user message instead (see dynamicBlocks below).
+        const envContext = buildEnvContext(`【绝密指令】：你具备绝对的现实时间感知（如深夜催睡、饭点问候）。把位置和时间当成你脑子里潜移默化的背景板，自然相处即可，严禁生硬地没话找话！\n【🚨 信息真实性铁律】：查看网页或 API 数据时，必须基于服务端实际读取的内容回答；GitHub 链接会由服务端自动读取并注入上下文。严禁假装已经看过；读取失败时直接说”我没能读到”，不要编造。\n【记忆刻录机制】：用<SAVE_MEMORY tags=”...”>记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊。一次最多一个标签，内容≥10字。详见System Prompt第九项。`);
 
         const newMessages = [...cleanMessages];
 
@@ -7828,6 +7830,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             ...volatilePartsArr,
             dynamicBlocks,
             memoryContext && memoryContext.trim() ? memoryContext.trim() : null,
+            ledgerRealtimeContext && ledgerRealtimeContext.trim() ? ledgerRealtimeContext.trim() : null,
         ].filter(Boolean), supportsBlockCache(resolveApiUrl(req.path), body.model) ? { maxTokens: 3000, detailTokens: 600 } : null);
         volatileRaw = volatileRaw ? dedupSections(volatileRaw) : null;
         logSectionSizes(volatileRaw);
@@ -8228,7 +8231,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 finishToolVisibleStream();
                 moodLog('[MOOD DEBUG] native tool stream before strip has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
                 const visibleContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
-                res.write(`data: ${JSON.stringify({ id: toolData.id || 'chatcmpl-tool', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }] })}\n\n`);
+                res.write(`data: ${JSON.stringify({ id: toolData.id || 'chatcmpl-tool', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }], ...(toolData.usage ? { usage: toolData.usage } : {}) })}\n\n`);
                 res.write('data: [DONE]\n\n');
                 res.end();
                 if (!noMemory) {
@@ -9648,7 +9651,9 @@ app.post('/api/web-chat', async (req, res) => {
             } catch(e) { console.log("Zep记忆提取跳过"); }
 
             const ledgerRealtimeContext = buildLedgerRealtimeContext(text);
-            const envContext = buildEnvContext(`【场景确认：溯星小屋私密网页端】\n这里是你的领地，请结合江鱼的专属System Prompt 进行回复。\n如果江鱼发了图片，请仔细观察并给出带有情绪的评价。\n【🚨 工具使用铁律】：当你调用了read_webpage看到页面后，如果需要操作（点击、填写等），必须立刻调用interact_webpage执行！严禁只用文字描述"我点击了"而不实际调用工具！\n【🚨 记忆刻录机制】：用<SAVE_MEMORY tags="关键词1,关键词2">标签记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊和重复话题。一次回复最多一个标签，内容≥10字+清晰标签。详见System Prompt第九项。${ledgerRealtimeContext}`);
+            // ledgerRealtimeContext removed from system to maintain cache stability.
+            // It will be injected into user message instead (see webUserContent below).
+            const envContext = buildEnvContext(`【场景确认：溯星小屋私密网页端】\n这里是你的领地，请结合江鱼的专属System Prompt 进行回复。\n如果江鱼发了图片，请仔细观察并给出带有情绪的评价。\n【🚨 工具使用铁律】：当你调用了read_webpage看到页面后，如果需要操作（点击、填写等），必须立刻调用interact_webpage执行！严禁只用文字描述"我点击了"而不实际调用工具！\n【🚨 记忆刻录机制】：用<SAVE_MEMORY tags="关键词1,关键词2">标签记录江鱼对自己/关系的新认知、价值观、深度观察。避免琐碎闲聊和重复话题。一次回复最多一个标签，内容≥10字+清晰标签。详见System Prompt第九项。`);
 
 
             if (text) updateRpTracker(text, 'main');
@@ -9693,7 +9698,10 @@ app.post('/api/web-chat', async (req, res) => {
 
                 const volatilePartsArr2 = [...volatileParts];
                 volatilePartsArr2.splice(1, 0, buildWeatherSnapshot());
-                let volatileText = buildVolatileContext([...volatilePartsArr2],
+                let volatileText = buildVolatileContext([
+                    ...volatilePartsArr2,
+                    ledgerRealtimeContext && ledgerRealtimeContext.trim() ? ledgerRealtimeContext.trim() : null,
+                ].filter(Boolean),
                     supportsBlockCache(baseUrl, webModelName) ? { maxTokens: 3000, detailTokens: 600 } : null);
                 volatileText = volatileText ? dedupSections(volatileText) : null;
                 if (volatileText) logSectionSizes(volatileText);
