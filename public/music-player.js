@@ -7,10 +7,10 @@
     document.body.append(host);
     const root = host.attachShadow({ mode: 'open' });
     root.innerHTML = `
-      <link rel="stylesheet" href="/music-player.css?v=3">
+      <link rel="stylesheet" href="/music-player.css?v=4">
       <button part="launcher" class="launcher" aria-label="打开一起听歌">♫ <span>一起听</span></button>
       <div class="music-shell panel" hidden>
-        <header><div><small>WINDOWSIDE RECORDS</small><h2>耳机分你一只。</h2></div><button data-action="settings-toggle" class="settings-button" aria-label="打开音乐设置">⚙</button></header>
+        <header><div><small>WINDOWSIDE RECORDS</small><h2>耳机分你一只。</h2></div><div class="header-actions"><button data-action="settings-toggle" class="settings-button" aria-label="打开音乐设置">⚙</button><button data-action="hide" class="close-button" aria-label="关闭音乐窗口">×</button></div></header>
         <p class="notice" role="status" aria-live="polite"></p>
         <section class="record-stage" aria-label="正在播放">
           <button class="record-button" data-action="open-lyrics" aria-label="点击唱片查看歌词">
