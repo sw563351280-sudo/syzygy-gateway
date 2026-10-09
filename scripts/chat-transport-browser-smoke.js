@@ -113,9 +113,17 @@ async function main() {
                 forceScrollToChatBottom();
             }, light);
             await sleep(350);
-            const styles = await page.$eval('.message-usage', el => ({ color: getComputedStyle(el).color, parent: getComputedStyle(el.closest('.msg')).color, opacity: getComputedStyle(el).opacity }));
+            const styles = await page.$eval('.message-usage', el => {
+                const bubble = el.parentElement.querySelector('.msg');
+                return { color: getComputedStyle(el).color, parent: getComputedStyle(bubble).color,
+                    opacity: getComputedStyle(el).opacity, fontSize: getComputedStyle(el).fontSize,
+                    outside: !el.closest('.msg'), below: el.getBoundingClientRect().top >= bubble.getBoundingClientRect().bottom };
+            });
             assert.equal(styles.color, styles.parent);
             assert.equal(styles.opacity, '0.45');
+            assert.equal(styles.fontSize, '9px');
+            assert.equal(styles.outside, true);
+            assert.equal(styles.below, true);
             await page.screenshot({ path: path.join(previewDirectory, light ? 'usage-day.png' : 'usage-night.png') });
         }
         await page.setViewport({ width: 320, height: 740 });

@@ -1056,7 +1056,9 @@ body.neu-mode #supplierList > div {
 
 
 /* ═══ 消息元信息（时间戳） ═══ */
-.message-usage { color: inherit; opacity: .45; font-size: 11px; line-height: 1.7; margin-top: 8px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.msg-row.sys.has-message-usage { flex-direction: column; align-items: flex-start; gap: 0; }
+.message-usage { color: var(--text); opacity: .45; font-size: 9px; line-height: 1.7; margin: 4px 0 0 12px; max-width: calc(94% - 12px); font-weight: 400; font-variant-numeric: tabular-nums; }
+body.neu-mode .message-usage { color: var(--sea-foreground, #4b5c70); }
 .message-usage summary { display: flex; flex-wrap: wrap; gap: 0 5px; cursor: pointer; list-style: none; }
 .message-usage summary::-webkit-details-marker { display: none; }
 .message-usage summary span { white-space: nowrap; }

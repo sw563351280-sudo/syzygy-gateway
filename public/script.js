@@ -2346,7 +2346,6 @@ function renderChatMessages(options = {}){
 
         const timeStr = v.fullTime ? new Date(v.fullTime).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) : (v.time || '');
         // 模型选择属于输入栏，不在每条消息里重复展示，避免打断对话阅读。
-        if (m.role === 'assistant' && speaker !== 'codex') htmlContent += MessageUsage.html(v.messageUsage);
         if(timeStr) htmlContent += '<div class="msg-meta">' + timeStr + '</div>';
         if (v._interrupted) htmlContent += '<div class="msg-meta">' + escapeHtml(v._interrupted) + ' · 已保留部分回复</div>';
 
@@ -2372,6 +2371,7 @@ function renderChatMessages(options = {}){
             rowDiv.appendChild(createThinkingMarker(finalThinking).element);
         }
         rowDiv.appendChild(div);
+        if (m.role === 'assistant' && speaker !== 'codex') MessageUsage.mount(rowDiv, v.messageUsage);
 
         win.appendChild(rowDiv);
     });
@@ -2845,7 +2845,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         triggerStarEffects(val, fullReply);
         // 不调用 renderChatMessages() —— sDiv 已经有流式输出内容
         // 追加 meta 和 action 按钮到现有气泡
-        sDiv.insertAdjacentHTML('beforeend', MessageUsage.html(assistantMsg.versions[0].messageUsage));
+        MessageUsage.mount(sRow, assistantMsg.versions[0].messageUsage);
         const metaDiv = document.createElement('div');
         metaDiv.className = 'msg-meta';
         metaDiv.innerText = timeStr;

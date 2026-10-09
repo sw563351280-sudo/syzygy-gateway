@@ -41,7 +41,13 @@
             + ' · 平均速度 ' + speed + ' · 耗时 ' + duration
             + '<br>本次请求汇总；平均速度包含等待和工具处理时间。未返回的统计显示为 —。</div></details>';
     }
-    const api = { normalize, tracker, html };
+    function mount(row, usage) {
+        row.querySelector(':scope > .message-usage')?.remove();
+        const markup = html(usage);
+        row.classList.toggle('has-message-usage', Boolean(markup));
+        if (markup) row.insertAdjacentHTML('beforeend', markup);
+    }
+    const api = { normalize, tracker, html, mount };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.MessageUsage = api;
 })(typeof window === 'undefined' ? globalThis : window);
