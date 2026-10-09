@@ -14,6 +14,8 @@ test('free readiness check gates expanded history on configured server support',
     assert.equal(await canUseRollingContext(route, model, async () => { throw Error('offline'); }), false);
     assert.equal(await canUseRollingContext(route, model, async () => ({ ok: true, json: async () => ({ version: 1, rollingSummary: false }) })), false);
     assert.equal(await canUseRollingContext('/via/other/v1', model, () => assert.fail('other routes untouched')), false);
+    assert.equal(await canUseRollingContext('/via/tree/v1/chat/completions', 'claude-opus-5-5', async () => ({ ok: true, json: async () => ({ version: 1, rollingSummary: true }) })), false);
+    assert.equal(await canUseRollingContext('/via/tree/v1/chat/completions', 'claude-opus-5-5', async () => ({ ok: true, json: async () => ({ version: 1, rollingSummary: true, cacheRoutes: ['tree'] }) })), true);
 });
 
 test('history prefix stays identical during append then rotates within a bound', () => {
@@ -47,7 +49,7 @@ test('scope is provider/model/session specific; inaccessible storage safely fall
     const storage = { getItem: k => map.get(k), setItem: (k, v) => map.set(k, v), removeItem: k => map.delete(k) };
     const route = '/via/aihubmix/v1/chat/completions', model = 'claude-opus-4-6-think';
     cachedChatHistory(messages(100), 'a', route, model, storage);
-    assert.equal(cachedChatHistory(messages(102), 'a', route, model, storage).length, 30);
+    assert.equal(cachedChatHistory(messages(102), 'a', route, model, storage).length, 32);
     assert.equal(cachedChatHistory(messages(102), 'b', route, model, storage).length, 30);
     assert.equal(cachedChatHistory(messages(102), 'a', route, 'claude-sonnet-4-6', storage).length, 30);
     assert.equal(cachedChatHistory(messages(102), 'a', '/via/other/v1', model, storage).length, 30);

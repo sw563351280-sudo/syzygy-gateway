@@ -4460,8 +4460,15 @@ async function regenerateSend(aiMsgIndex) {
     const regenerationMessages = session.messages.slice(0, aiMsgIndex);
     const retainedImages = ChatWindowContext.imageWindow(regenerationMessages, getActiveVersion);
     const useRollingContext = !isWorkroomSession(session) && !retainedImages.size && await canUseRollingContext(currentSup.url, selectedModel, fetch);
+    if (!useRollingContext && !isWorkroomSession(session) && isCacheHistoryRoute(currentSup.url, selectedModel)) {
+        let historyStorage;
+        try { historyStorage = window.sessionStorage; } catch (_) {}
+        const selected = cachedChatHistory(regenerationMessages.slice(0, -1), session.id,
+            currentSup.url, selectedModel, historyStorage);
+        regenerationMessages.splice(0, regenerationMessages.length - 1, ...selected);
+    }
     var historyMsgs = regenerationMessages.map(function(m) { var v = getActiveVersion(m); var c = v.content; if (Array.isArray(c)) { var tp=[]; for(var j=0;j<c.length;j++){if(c[j].type==='text')tp.push(c[j].text||'');} c=tp.join(' ')||'（发送了图片）'; } if(typeof c==='string'&&c.includes('data:image'))c='（发送了图片）'; c=legacyMessagePlain(c); if(typeof c==='string'&&(m.role==='user'||useRollingContext))c=fmtTsTag(v.fullTime)+stripDisplayTimestamp(c); if(useRollingContext&&!m._id)m._id=crypto.randomUUID(); return {role:m.role,content:ChatWindowContext.retainImages(c,m,retainedImages,getActiveVersion),...(useRollingContext?{_contextId:m._id,_contextRevision:ContextContinuity.revisionOf(m,getActiveVersion)}:{})}; });
-    if (!useRollingContext && historyMsgs.length > 30) historyMsgs = historyMsgs.slice(-30);
+    if (!useRollingContext && !isCacheHistoryRoute(currentSup.url, selectedModel) && historyMsgs.length > 30) historyMsgs = historyMsgs.slice(-30);
     if (isWorkroomSession(session)) {
         historyMsgs = ChatWindowContext.workroomHistory(regenerationMessages, chatSessions.find(s => s.id === 'main')?.messages || [], getActiveVersion, legacyMessagePlain, fmtTsTag);
         const last = historyMsgs[historyMsgs.length - 1];

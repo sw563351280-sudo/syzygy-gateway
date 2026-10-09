@@ -2,6 +2,18 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { formatCacheStatus } = require('../public/context-cache-status');
+test('actual request route and TTL are distinct from adapter readiness', () => {
+    const status = { enabled: true, cacheAdapter: { localCheckPassed: true, treeLocalCheckPassed: true, ttl: '1h' },
+        latestCacheRequest: { host: 'api.treegpt.cc', model: 'claude-opus-5-5',
+            breakpoints: [{ placement: 'message', role: 'system', ttl: '5m' }] } };
+    const text = formatCacheStatus(status);
+    assert.match(text, /TreeGPT/);
+    assert.match(text, /最近实际请求：api.treegpt.cc \/ claude-opus-5-5/);
+    assert.match(text, /实际缓存参数：消息级 system · 5 分钟/);
+    assert.match(text, /以上游用量为准/);
+    status.latestCacheRequest.breakpoints = [];
+    assert.match(formatCacheStatus(status), /没有显式缓存断点/);
+});
 test('cache duration comes from the server, including older deployments', () => {
     const text = ttl => formatCacheStatus({ enabled: true, cacheAdapter: { localCheckPassed: true, ttl } });
     assert.match(text('1h'), /1 小时缓存/);

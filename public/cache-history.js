@@ -11,7 +11,7 @@
     }
     function isCacheHistoryRoute(url, model) {
         if (!/^claude-/i.test(model || '')) return false;
-        try { return new URL(url, 'https://local.invalid').pathname.startsWith('/via/aihubmix/'); }
+        try { return /^\/via\/(aihubmix|tree)\//.test(new URL(url, 'https://local.invalid').pathname); }
         catch (_) { return false; }
     }
     function cachedChatHistory(messages, sessionId, url, model, storage) {
@@ -19,7 +19,9 @@
         const key = 'syzygy-cache-history-v1:' + JSON.stringify([sessionId, url, model]);
         let anchor = null;
         try { anchor = storage.getItem(key); } catch (_) {}
-        const result = selectCacheHistory(messages, anchor);
+        // Keep the same starting message for several turns instead of evicting
+        // the first pair on every send. Bound the fallback window to 38 messages.
+        const result = selectCacheHistory(messages, anchor, 30, 8);
         try {
             if (result.anchorId) storage.setItem(key, result.anchorId);
             else storage.removeItem(key);
@@ -34,6 +36,8 @@
             const response = await fetchImpl('/api/context-budget/capabilities', { cache: 'no-store', signal: controller.signal });
             if (!response.ok) return false;
             const status = await response.json();
+            const route = new URL(url, 'https://local.invalid').pathname.split('/')[2];
+            if (route === 'tree' && !status.cacheRoutes?.includes('tree')) return false;
             return status.version === 1 && status.rollingSummary === true;
         } catch (_) { return false; } finally { clearTimeout(timeout); }
     }

@@ -10,6 +10,21 @@ const fixture = () => ({ model: 'claude-opus-4-6-think', stream: true, max_token
         { role: 'user', content: 'changing runtime and question', cache_control: { type: 'ephemeral' } } ],
     tools: [{ type: 'function', function: { name: 'read', parameters: { type: 'object' } } }] });
 
+test('TreeGPT Opus 5.5 caches stable system and history with explicit one-hour TTL', () => {
+    const body = { ...fixture(), model: 'claude-opus-5-5' };
+    const wire = prepareCachedRequest('https://api.treegpt.cc/v1/chat/completions', body, { historyEnd: 2 });
+    assert.notEqual(wire, body);
+    assert.deepEqual(inspectCacheRequest(wire), { breakpoints: [
+        { message: 0, block: 0, role: 'system', placement: 'content', ttl: '1h' },
+        { message: 2, block: 0, role: 'assistant', placement: 'content', ttl: '1h' }
+    ], includeUsage: true });
+    assert.equal(wire.messages[3].cache_control, undefined);
+    assert.equal(cacheAdapterStatus().treeLocalCheckPassed, true);
+    for (const endpoint of ['http://api.treegpt.cc/v1', 'https://api.treegpt.cc.other.test/v1']) {
+        assert.equal(prepareCachedRequest(endpoint, body), body);
+    }
+});
+
 test('wire payload uses two content breakpoints, preserves settings and never changes conversation', () => {
     const body = fixture(), original = JSON.stringify(body);
     const wire = prepareCachedRequest(endpoint, body, { historyEnd: 2 });

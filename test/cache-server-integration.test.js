@@ -39,7 +39,7 @@ test('non-AIHubMix final history caps merged history and preserves current quest
         const systemMsg = { role: 'system', content: 'rules' };
         await vm.runInNewContext(`(async () => { ${source.slice(begin, end)} })()`, {
             newMessages: messages, incomingMessages: all.slice(0, 31), contextProtocol: undefined, isOpenClawRequest: false,
-            supportsBlockCache: () => false, body, systemMsg, finalUserContent: 'current question',
+            supportsBlockCache: () => false, resolveApiUrl: () => 'https://other.test/v1', req: { path: '/' }, body, systemMsg, finalUserContent: 'current question',
             composeContext: require('../context-budget').composeContext,
             rollingContext: { project() { assert.fail('other providers must not summarize'); } },
         });
@@ -55,6 +55,35 @@ test('saving frontend state cannot invoke legacy paid summary generation', () =>
     const end = source.indexOf("app.get('/api/user-state'", start);
     assert.doesNotMatch(source.slice(start, end), /updateRollingSummaries\s*\(/);
     assert.match(source, /delete body\.contextProtocol/);
+});
+
+test('TreeGPT browser history survives server projection across turns without a paid summary', async () => {
+    const { cachedChatHistory } = require('../public/cache-history');
+    const { supportsBlockCache } = require('../provider-cache');
+    const { composeContext } = require('../context-budget');
+    const begin = source.indexOf('let projectedHistory =');
+    const end = source.indexOf('body.messages = bodyMessages;', begin) + 'body.messages = bodyMessages;'.length;
+    const all = Array.from({ length: 112 }, (_, i) => ({ _id: String(i), role: i % 2 ? 'assistant' : 'user', content: 'message ' + i }));
+    const map = new Map(), storage = { getItem: k => map.get(k), setItem: (k, v) => map.set(k, v) };
+    const endpoint = 'https://api.treegpt.cc/v1/chat/completions';
+    let previous;
+    for (const count of [100, 102, 104, 106, 108, 110]) {
+        const selected = cachedChatHistory(all.slice(0, count), 'session', '/via/tree/v1/chat/completions', 'claude-opus-5-5', storage);
+        const body = { model: 'claude-opus-5-5' };
+        await vm.runInNewContext(`(async () => { ${source.slice(begin, end)} })()`, {
+            newMessages: selected.map(({ role, content }) => ({ role, content })), incomingMessages: selected,
+            contextProtocol: undefined, isOpenClawRequest: false, supportsBlockCache,
+            resolveApiUrl: () => endpoint, req: { path: '/via/tree/v1/chat/completions' },
+            body, systemMsg: { role: 'system', content: 'fixed rules' }, finalUserContent: 'dynamic ' + count,
+            composeContext, rollingContext: { project() { assert.fail('fallback must not summarize'); } },
+        });
+        assert.equal(body.messages[1].content, 'message ' + (count < 110 ? 70 : 80));
+        assert.ok(body.messages.length <= 40);
+        const wire = prepareCachedRequest(endpoint, body, { historyEnd: body.messages.length - 2 });
+        const clean = list => JSON.stringify(list.map(m => ({ role: m.role, content: typeof m.content === 'string' ? m.content : m.content.map(b => b.text).join('') })));
+        if (previous && count < 110) assert.equal(clean(wire.messages.slice(0, previous.length)), clean(previous));
+        previous = wire.messages.slice(0, -1);
+    }
 });
 
 test('fixed output rules move intact into cached system only for AIHubMix', () => {
@@ -82,17 +111,20 @@ for (const [start, end] of [
     ['const finalWireBody =', 'if (!response.ok)'],
     ['const webToolWireBody =', 'if (!toolRes.ok)'],
     ['const webFinalWireBody =', 'if (!aiRes.ok)'],
-]) test(`real server serializes prepared cache payload: ${start}`, async () => {
+]) for (const [endpoint, model] of [
+    ['https://aihubmix.com/v1/chat/completions', 'claude-opus-4-6-think'],
+    ['https://api.treegpt.cc/v1/chat/completions', 'claude-opus-5-5'],
+]) test(`real server serializes prepared cache payload: ${start} ${endpoint}`, async () => {
     const messages = [{ role: 'system', content: 'rules' }, { role: 'assistant', content: 'history' }, { role: 'user', content: 'runtime' }];
-    const body = { model: 'claude-opus-4-6-think', stream: true, messages };
+    const body = { model, stream: true, messages };
     const parts = { currentMessage: messages[2] };
     const observed = [], sent = [];
     const observer = { request(value) { observed.push(JSON.stringify(value)); return 1; } };
     const context = { prepareCachedRequest, body, toolBody: body, toolFetchBody: body, fetchBody: body,
         lifecycle: { signal: new AbortController().signal },
         bodyMessages: messages, apiMessages: messages, contextParts: parts, webContextParts: parts,
-        contextBudget: observer, webContextBudget: observer, apiUrl: 'https://aihubmix.com/v1/chat/completions',
-        baseUrl: 'https://aihubmix.com/v1', apiHeaders: {}, apiKey: 'test',
+        contextBudget: observer, webContextBudget: observer, apiUrl: endpoint,
+        baseUrl: endpoint, apiHeaders: {}, apiKey: 'test',
         fetch: async (_url, options) => { sent.push(options.body); return {}; } };
     const offset = source.indexOf(start);
     assert.ok(offset >= 0);
@@ -132,7 +164,9 @@ test('status endpoint is authenticated and performs no upstream request', () => 
     vm.runInNewContext(source.slice(offset, end), {
         app: { get(_url, fn) { handler = fn; } }, process: { env: { MEMORY_PASSWORD: 'test' } },
         readContextBudgetConfig: () => readConfig({}), cacheAdapterStatus, rollingContextCapabilities: () => ({ version: 1, rollingSummary: true }), costLedger: { snapshot: () => ({}) },
-        _budgetConsoleRing: [{ t: 'now', m: '[ContextBudget] ' + JSON.stringify({ event: 'usage', host: 'aihubmix.com',
+        _budgetConsoleRing: [{ t: 'request', m: '[ContextBudget] ' + JSON.stringify({ event: 'request', kind: 'chat', host: 'api.treegpt.cc',
+            model: 'claude-opus-5-5', cacheRequest: { breakpoints: [{ placement: 'content', role: 'system', ttl: '1h' }] } }) },
+            { t: 'now', m: '[ContextBudget] ' + JSON.stringify({ event: 'usage', host: 'aihubmix.com',
             model: 'claude-opus-4-6-think', cacheState: 'written', usage: { read: 0, write: 8000 } }) }],
         fetch() { assert.fail('no upstream access'); },
     });
@@ -143,5 +177,7 @@ test('status endpoint is authenticated and performs no upstream request', () => 
     handler({ query: { pwd: 'test' } }, res);
     assert.equal(result.cacheAdapter.localCheckPassed, true);
     assert.equal(result.latestCache.state, 'written');
+    assert.equal(result.latestCacheRequest.host, 'api.treegpt.cc');
+    assert.equal(result.latestCacheRequest.breakpoints[0].ttl, '1h');
     assert.equal(JSON.stringify(result).includes('MEMORY_PASSWORD'), false);
 });

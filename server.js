@@ -759,7 +759,8 @@ function observeContextBudget(options, response) {
 }
 function rollingContextCapabilities() {
     return { version: 1, rollingSummary: Boolean(process.env.CONTEXT_SUMMARY_API_KEY || process.env.DREAM_API_KEY || process.env.ROUTER_API_KEY),
-        thresholdTokens: readContextBudgetConfig().historyTokens, recentTailTokens: 1500, dynamicSoftTokens: 3000 };
+        thresholdTokens: readContextBudgetConfig().historyTokens, recentTailTokens: 1500, dynamicSoftTokens: 3000,
+        cacheRoutes: ['aihubmix', 'tree'] };
 }
 const rollingContext = createRollingContext({
     store: fileStore(path.join(DATA_DIR, 'rolling-context')),
@@ -7862,7 +7863,8 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 [contextProtocol.sessionId, resolveApiUrl(req.path), body.model], identified, contextBudget, contextProtocol.prefix, lifecycle.signal);
         } else if (!isOpenClawRequest) {
             // Apply the provider limit to the final merged history before sending.
-            projectedHistory = projectedHistory.slice(-30);
+            const historyLimit = supportsBlockCache(resolveApiUrl(req.path), body.model) ? 38 : 30;
+            projectedHistory = projectedHistory.slice(-historyLimit);
         }
         const hasProjectedSummary = typeof projectedHistory[0]?.content === 'string'
             && projectedHistory[0].content.startsWith('[System reference: Conversation history summary]\n');
@@ -8814,6 +8816,16 @@ app.get('/api/context-budget/status', (req, res) => {
     let latestSummary = null;
     let latestToolSchema = null;
     let latestContext = null;
+    let latestCacheRequest = null;
+    for (let i = _budgetConsoleRing.length - 1; i >= 0; i--) {
+        try {
+            const event = JSON.parse(_budgetConsoleRing[i].m.slice('[ContextBudget] '.length));
+            if (event.event !== 'request' || event.kind === 'summary') continue;
+            latestCacheRequest = { at: _budgetConsoleRing[i].t, host: event.callHost || event.host,
+                model: event.callModel || event.model, ...event.cacheRequest };
+            break;
+        } catch (_) {}
+    }
     for (let i = _budgetConsoleRing.length - 1; i >= 0; i--) {
         try {
             const event = JSON.parse(_budgetConsoleRing[i].m.slice('[ContextBudget] '.length));
@@ -8854,6 +8866,7 @@ app.get('/api/context-budget/status', (req, res) => {
         contextOptimization: rollingContextCapabilities(),
         latestSummary,
         latestContext,
+        latestCacheRequest,
         latestToolSchema,
         costLedger: costLedger.snapshot(),
         latestCache,

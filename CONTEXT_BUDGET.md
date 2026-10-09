@@ -4,7 +4,7 @@
 
 ## 安全滚动摘要
 
-网页正常发送和重新生成先免费读取 `/api/context-budget/capabilities`。仅 AIHubMix Claude 且服务器配置了摘要密钥时，使用 v1 上下文协议：网页把当前可用的完整历史和消息 ID 交给网关；网关存原文、生成摘要投影后再发给聊天模型。协议字段和 ID 不发送给供应商。未配置、旧服务器或检查失败时保留原来的历史窗口。
+网页正常发送和重新生成先免费读取 `/api/context-budget/capabilities`。AIHubMix / TreeGPT Claude 且服务器配置了摘要密钥时，使用 v1 上下文协议：网页把当前可用的完整历史和消息 ID 交给网关；网关存原文、生成摘要投影后再发给聊天模型。TreeGPT 还要求服务器返回 `cacheRoutes` 包含 `tree`，防止新前端向旧后端发送完整历史。协议字段和 ID 不发送给供应商。未配置、旧服务器或检查失败时使用下文的有界历史窗口。
 
 未压缩历史的粗估文本 token 达到 `CONTEXT_BUDGET_HISTORY_TOKENS`（默认12000）时，把较旧部分与旧累计摘要一起总结；保留约1500 token近期原文，至少2条完整消息，尽量从user开始。不硬截断长消息或回复。摘要输出上限1400 token，验证后摘要粗估上限1800 token；空内容、非stop结束、工具调用、未缩小输入均拒绝提交。
 
@@ -36,7 +36,7 @@ AIHubMix Claude 的普通聊天和web-chat动态构建使用约3000 token软预�
 
 Self-Summary、Keeper仍未启用；目前使用现有独立摘要渠道。OpenClaw和不提供新协议的外部客户端仍保留原入口策略。
 
-AIHubMix Claude 的普通聊天、web-chat 和工具轮统一在稳定 system 与历史断点发送 `cache_control: {"type":"ephemeral","ttl":"1h"}`。正常请求命中相同前缀时刷新有效期；没有后台保温调用，闲置超过一小时可能重新写入。首次写入、新增历史、摘要或提示词变化仍可能产生写入。状态面板读取服务器返回的 TTL；部署并重启网关后生效。
+AIHubMix / TreeGPT Claude 的普通聊天、web-chat 和工具轮统一在稳定 system 与历史断点发送 `cache_control: {"type":"ephemeral","ttl":"1h"}`。正常请求命中相同前缀时刷新有效期；没有后台保温调用，闲置超过一小时可能重新写入。首次写入、新增历史、摘要或提示词变化仍可能产生写入。状态面板分别显示本地适配自检及最近实际请求的 host、model、断点位置和 TTL；本地自检不证明当前渠道实际命中。部署并重启网关后生效。
 
 ## 工具定义稳定化
 
@@ -48,9 +48,9 @@ request.toolSchema记录实际发出工具定义相对上次的变化：first/st
 
 ## 本次缓存修复
 
-按 [AIHubMix 缓存文档](https://docs.aihubmix.com/en/practices/prompt-caching)，Chat Completions 的 Claude 标记应放在 content 文本块上。`provider-cache.js` 在真正发出请求前复制 payload，清理旧的消息层标记，在固定 system 和历史末尾各放一个 5 分钟断点。当前动态资料、问题及本轮新增工具结果不设断点。原始聊天记录和图片、工具调用、thinking 参数保持原样。
+按 [AIHubMix 缓存文档](https://docs.aihubmix.com/en/practices/prompt-caching)，Chat Completions 的 Claude 标记应放在 content 文本块上。`provider-cache.js` 在真正发出请求前复制 payload，清理旧的消息层标记，在固定 system 和历史末尾各放一个 1 小时断点。当前动态资料、问题及本轮新增工具结果不设断点。原始聊天记录和图片、工具调用、thinking 参数保持原样。
 
-适配仅覆盖 HTTPS 的 aihubmix.com、api.aihubmix.com、api.inferera.com 上 claude- 开头模型，普通聊天和 web-chat 的工具与最终生成均接入。流式显式请求 include_usage。AIHubMix Claude 工具请求失败直接报错，不因参数错误自动降级再发一次。
+适配仅覆盖 HTTPS 的 aihubmix.com、api.aihubmix.com、api.inferera.com、api.treegpt.cc 上 claude- 开头模型，普通聊天和 web-chat 的工具与最终生成均接入。TreeGPT 使用 New API 的 Chat Completions 到 Claude 转换，是否透传 TTL 及实际命中仍需以上游 usage/账单确认；不推定任意其他中转兼容。流式显式请求 include_usage。适配渠道的 Claude 工具请求失败直接报错，不因参数错误自动降级再发一次。
 
 前端「原始日志」顶部显示免费本地格式检查，以及最近一次模型调用的读写 token、时间、渠道、模型和费用估算。刷新只访问本服务，不调用模型；本地检查通过不表示上游实际命中。观测日志独立保留最近 1000 条，筛选 ContextBudget 可查看；重启清空。状态接口需要管理密码。
 
@@ -58,11 +58,11 @@ request.toolSchema记录实际发出工具定义相对上次的变化：first/st
 
 ## 历史前缀复用优化
 
-未使用滚动摘要时，网页普通发送最多携带最近30条历史，重新生成最多携带目标回复之前的30条消息。AIHubMix 也不再为了稳定缓存前缀额外扩到38条。编辑使用当前版本，不恢复已删除记录。
+未使用滚动摘要时，AIHubMix / TreeGPT 网页普通发送和重新生成使用 30～38 条有界历史窗口：起点保存在 sessionStorage，在 8 条增量内复用；超过上限后轮换到最近30条，轮换可能重新写入缓存。相比固定30条，多保留至多8条历史换取相邻轮次的稳定前缀；不是固定费用承诺。其他渠道维持原窗口。编辑使用当前版本，不恢复已删除记录。
 
-非滚动摘要的主聊天入口在合并跨平台历史之后，再限制为最近30条历史，当前提问另行保留；防止服务端追加消息绕过前端窗口。原始日志顶部显示最近上下文的渠道、时间、接收条数、合并后条数、投影后条数、历史字符数、摘要含包装字符数及最长三条历史的长度。仅记录数值和角色，不记录正文；条数限制仍不是 token 或金额上限。
+非滚动摘要的主聊天入口在合并跨平台历史之后，适配渠道上限为38条历史，其他渠道上限30条，当前提问另行保留；防止服务端追加消息绕过前端窗口。原始日志顶部显示最近上下文的渠道、时间、接收条数、合并后条数、投影后条数、历史字符数、摘要含包装字符数及最长三条历史的长度。仅记录数值和角色，不记录正文；条数限制仍不是 token 或金额上限。
 
-固定30条窗口移动时可能降低历史部分缓存命中率，这是恢复原窗口的取舍；条数上限不保证固定 token 或费用。滚动摘要正常流程仍按 token 阈值处理；OpenClaw的12条策略及 `/api/web-chat` 的15条策略保持原样。
+条数上限不保证固定 token 或费用。滚动摘要正常流程仍按 token 阈值处理；摘要失败保护仍为最近30条，OpenClaw的12条策略及 `/api/web-chat` 的15条策略保持原样。工具集合、system、模型或历史内容发生变化时，延长 TTL 不能阻止缓存失效。
 
 AIHubMix Claude 普通聊天的关系状态、心情快照、生活碎屑三组固定输出规则移到system缓存区，动态数据仍每轮更新，原有动态字符额度不增加。上游将经历一次新前缀写入。效果需从之后正常聊天账单判断；本地测试仅证明请求前缀可复用，不产生实际供应商缓存。
 
