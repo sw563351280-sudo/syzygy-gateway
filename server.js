@@ -705,6 +705,7 @@ const API_ROUTES = {
     'reward':   'https://reward.dzzi.ai/v1/chat/completions',
     'jumeng':   'https://api.jumengai.net/v1/chat/completions',
     'aihubmix': 'https://aihubmix.com/v1/chat/completions',
+    'emtf': 'https://emtf.aipm9527.site/v1/chat/completions',
 
 };
 
