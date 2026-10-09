@@ -36,6 +36,18 @@ if (require.main === module || process.argv[1] === '-') {
     try {
         const revision = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: '/opt/syzygy', encoding: 'utf8' }).trim();
         console.log(JSON.stringify({ event: 'runtime', revision, adapter: require('/opt/syzygy/provider-cache').cacheAdapterStatus() }));
+        // Verify deployed public code without exporting source or private configuration.
+        const fs = require('node:fs');
+        const assets = {};
+        for (const name of ['index.html', 'script.js', 'cache-history.js']) {
+            const relative = `public/${name}`;
+            const actual = fs.readFileSync(`/opt/syzygy/${relative}`, 'utf8');
+            const committed = execFileSync('git', ['show', `HEAD:${relative}`], { cwd: '/opt/syzygy', encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
+            assets[name] = { matchesDeployedCommit: actual === committed };
+            if (name === 'index.html') assets[name].loadsCacheV2 = actual.includes('script.js?v=20261009-cache-v2');
+            if (name === 'script.js') assets[name].sendsCacheV2 = actual.includes('cacheClientVersion: 2') && actual.includes('cacheClientVersion:2');
+        }
+        console.log(JSON.stringify({ event: 'frontend_assets', assets }));
         const raw = execFileSync('journalctl', ['-u', 'syzygy.service', '--since', '2 hours ago', '-n', '20000', '--no-pager', '-o', 'json'], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
         const events = [];
         for (const row of raw.split('\n')) {
