@@ -3377,20 +3377,16 @@ function getBeijingTime() {
     return new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 }
 
-// Cache-friendly: only date + hour range, not exact minute/second
-function getBeijingTimeRounded() {
-    const now = new Date();
-    const bjTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
-    const date = bjTime.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' });
-    const hour = bjTime.getHours();
-    // Round to 4-hour blocks to reduce cache invalidation
-    const timeBlock = hour < 6 ? '凌晨' : hour < 12 ? '上午' : hour < 18 ? '下午' : '晚上';
-    return `${date} ${timeBlock}`;
-}
-
 function buildEnvContext(body) {
     body += homeSea.context();
-    return `\n\n==========\n【系统环境参数实时同步】\n当前真实时间：${getBeijingTimeRounded()}\n当前物理位置：中国\n${body}\n==========\n`;
+    // Time information removed from system prompt to maintain cache stability.
+    // Time is now injected into each user message instead.
+    return `\n\n==========\n【系统环境参数实时同步】\n当前物理位置：中国\n${body}\n==========\n`;
+}
+
+// Generate timestamp for user messages (not shown to user, only visible to model)
+function buildUserMessageTimestamp() {
+    return `[系统时间：${getBeijingTime()}]`;
 }
 
 
@@ -7839,10 +7835,17 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         // === 3. 组装最终 messages: system + history + (merged user) ===
         const lastUserMsg = newMessages.pop();  // 当前用户原话
         let finalUserContent = lastUserMsg.content;
+
+        // Inject timestamp into user message (invisible to frontend, visible to model)
+        const timestamp = buildUserMessageTimestamp();
         if (volatileText) {
             finalUserContent = Array.isArray(finalUserContent)
-                ? [{ type: 'text', text: volatileText + '\n\n' }, ...finalUserContent]
-                : volatileText + '\n\n' + finalUserContent;
+                ? [{ type: 'text', text: timestamp + '\n\n' + volatileText + '\n\n' }, ...finalUserContent]
+                : timestamp + '\n\n' + volatileText + '\n\n' + finalUserContent;
+        } else {
+            finalUserContent = Array.isArray(finalUserContent)
+                ? [{ type: 'text', text: timestamp + '\n\n' }, ...finalUserContent]
+                : timestamp + '\n\n' + finalUserContent;
         }
         if (xhsAuthorityPrompt) {
             finalUserContent = Array.isArray(finalUserContent)
