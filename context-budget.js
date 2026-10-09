@@ -1,7 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('node:crypto');
-const { inspectCacheRequest, supportsBlockCache } = require('./provider-cache');
+const { inspectCacheRequest, inspectWireRequest, supportsBlockCache } = require('./provider-cache');
 const { createToolSchemaTracker } = require('./tool-schema-cache');
 const toolSchemaTracker = createToolSchemaTracker();
 
@@ -175,6 +175,7 @@ function createBudgetObserver({ endpoint, model, conversationId = null, clientCa
                     scope: conversationId ? 'conversation' : 'turn' } : null;
             emit({ event: 'request', call: id, kind, callHost, callModel, turn: totals(), estimatesOnly: true,
                 toolSchema,
+                wire: inspectWireRequest(source.endpoint || endpoint, body),
                 messages: measureMessages(body.messages),
                 toolTokens: estimateText(JSON.stringify(body.tools || [])),
                 toolCount: (body.tools || []).length,

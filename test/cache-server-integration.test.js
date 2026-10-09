@@ -182,8 +182,11 @@ for (const [start, end] of [
     await vm.runInNewContext(`(async () => { ${source.slice(offset, source.indexOf(end, offset))} })()`, context);
     assert.deepEqual(sent, observed);
     assert.equal(sent.length, 1);
-    assert.equal(inspectCacheRequest(JSON.parse(sent[0])).breakpoints.length, 2);
-    assert.ok(inspectCacheRequest(JSON.parse(sent[0])).breakpoints.every(b => b.ttl === '1h'));
+    const cacheInspection = inspectCacheRequest(JSON.parse(sent[0]), endpoint);
+    const expectedBreakpoints = endpoint.includes('api.treegpt.cc') ? 1 : 2;
+    assert.equal(cacheInspection.breakpoints.length, expectedBreakpoints);
+    assert.ok(cacheInspection.breakpoints.every(b => b.ttl === '1h'));
+    if (expectedBreakpoints === 1) assert.equal(cacheInspection.strategy, 'tree-system-tools-v1');
     assert.equal(typeof messages[0].content, 'string');
 });
 

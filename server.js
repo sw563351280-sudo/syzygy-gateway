@@ -7813,7 +7813,6 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         const xhsShareUrl = extractXhsUrl(currentUserMsgText);
         const xhsContext = await buildXhsVisionContext(currentUserMsgText);
         const xhsAuthorityPrompt = formatXhsAuthorityPrompt(xhsContext);
-        if (xhsAuthorityPrompt) systemMsg.content += `\n\n${xhsAuthorityPrompt}`;
         const githubContext = await buildGitHubContext(currentUserMsgText);
         const crumbContext = await buildCrumbRecallContext(currentUserMsgText);
         if (xhsContext) traceEvent(_tr, 'xhs', '小红书读取', { ok: !xhsContext.error, type: xhsContext.note?.type || null, images: xhsContext.images.length, error: xhsContext.error || null });
@@ -7827,6 +7826,11 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             finalUserContent = Array.isArray(finalUserContent)
                 ? [{ type: 'text', text: volatileText + '\n\n' }, ...finalUserContent]
                 : volatileText + '\n\n' + finalUserContent;
+        }
+        if (xhsAuthorityPrompt) {
+            finalUserContent = Array.isArray(finalUserContent)
+                ? [{ type: 'text', text: xhsAuthorityPrompt + '\n\n' }, ...finalUserContent]
+                : xhsAuthorityPrompt + '\n\n' + finalUserContent;
         }
         if (_albumPhotoBlocks.length > 0) {
             if (!Array.isArray(finalUserContent)) finalUserContent = [{ type: 'text', text: finalUserContent }];
@@ -9654,9 +9658,13 @@ app.post('/api/web-chat', async (req, res) => {
                 const webXhsShareUrl = extractXhsUrl(text);
                 const webXhsContext = await buildXhsVisionContext(text);
                 const webXhsAuthorityPrompt = formatXhsAuthorityPrompt(webXhsContext);
-                if (webXhsAuthorityPrompt) webSystemMsg.content += `\n\n${webXhsAuthorityPrompt}`;
                 const webGitHubContext = await buildGitHubContext(text);
                 const webCrumbContext = await buildCrumbRecallContext(text);
+                if (webXhsAuthorityPrompt) {
+                    finalUser = Array.isArray(finalUser)
+                        ? [{ type: 'text', text: webXhsAuthorityPrompt + '\n\n' }, ...finalUser]
+                        : webXhsAuthorityPrompt + '\n\n' + finalUser;
+                }
                 if (webXhsContext) {
                     const prefix = webXhsContext.text + '\n\n';
                     finalUser = Array.isArray(finalUser)

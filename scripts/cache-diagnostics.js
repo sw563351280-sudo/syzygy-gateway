@@ -16,6 +16,16 @@ function safeEvent(line) {
             breakpoints: (e.cacheRequest?.breakpoints || []).map(p => ({ ...numbers(p, ['message', 'block']), role: p.role, placement: p.placement, ttl: p.ttl })),
             includeUsage: e.cacheRequest?.includeUsage === true,
             toolSchema: e.toolSchema ? { state: e.toolSchema.state, scope: e.toolSchema.scope, ...numbers(e.toolSchema, ['count', 'added', 'removed', 'definitionsChanged']) } : null,
+            wire: e.wire ? {
+                strategy: e.wire.strategy,
+                messageCount: e.wire.messageCount,
+                roles: Array.isArray(e.wire.roles) ? e.wire.roles.filter(role => ['system', 'user', 'assistant', 'tool'].includes(role)) : [],
+                toolCount: e.wire.toolCount,
+                breakpoints: (e.wire.breakpoints || []).map(p => ({ ...numbers(p, ['message', 'block']), role: p.role, placement: p.placement, ttl: p.ttl })),
+                stablePrefix: e.wire.stablePrefix ? numbers(e.wire.stablePrefix, ['messages', 'bytes']) : null,
+                suffix: e.wire.suffix ? numbers(e.wire.suffix, ['messages', 'bytes']) : null,
+                requestOptions: e.wire.requestOptions ? { keys: Array.isArray(e.wire.requestOptions.keys) ? e.wire.requestOptions.keys.filter(k => /^[a-z_]+$/.test(k)) : [] } : null,
+            } : null,
             messages: numbers(e.messages, ['textTokens', 'mediaBlocks']), ...numbers(e, ['toolCount', 'toolTokens']) });
         else if (e.event === 'context') {
             for (const key of ['stable', 'history', 'summary', 'currentWithDynamic']) result[key] = numbers(e[key], ['textTokens', 'mediaBlocks']);

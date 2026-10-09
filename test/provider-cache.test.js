@@ -1,8 +1,9 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { prepareCachedRequest, inspectCacheRequest, cacheAdapterStatus } = require('../provider-cache');
+const { prepareCachedRequest, inspectCacheRequest, inspectWireRequest, cacheStrategy, cacheAdapterStatus } = require('../provider-cache');
 const endpoint = 'https://aihubmix.com/v1/chat/completions';
+const treeEndpoint = 'https://api.treegpt.cc/v1/chat/completions';
 const fixture = () => ({ model: 'claude-opus-4-6-think', stream: true, max_tokens: 4096,
     thinking: { type: 'enabled', budget_tokens: 2048 }, stream_options: { other: true },
     messages: [ { role: 'system', content: 'rules', cache_control: { type: 'ephemeral' } },
@@ -10,29 +11,36 @@ const fixture = () => ({ model: 'claude-opus-4-6-think', stream: true, max_token
         { role: 'user', content: 'changing runtime and question', cache_control: { type: 'ephemeral' } } ],
     tools: [{ type: 'function', function: { name: 'read', parameters: { type: 'object' } } }] });
 
-test('TreeGPT Opus 5.5 caches stable system and history with explicit one-hour TTL', () => {
+test('TreeGPT Opus 5.5 defaults to one stable system/tools breakpoint', () => {
     const body = { ...fixture(), model: 'claude-opus-5-5' };
-    const wire = prepareCachedRequest('https://api.treegpt.cc/v1/chat/completions', body, { historyEnd: 2 });
+    const wire = prepareCachedRequest(treeEndpoint, body, { historyEnd: 2 });
     assert.notEqual(wire, body);
-    assert.deepEqual(inspectCacheRequest(wire), { breakpoints: [
-        { message: 0, block: 0, role: 'system', placement: 'content', ttl: '1h' },
-        { message: 2, block: 0, role: 'assistant', placement: 'content', ttl: '1h' }
+    assert.deepEqual(inspectCacheRequest(wire, treeEndpoint), { strategy: 'tree-system-tools-v1', breakpoints: [
+        { message: 0, block: 0, role: 'system', placement: 'content', ttl: '1h' }
     ], includeUsage: true });
     assert.equal(wire.messages[3].cache_control, undefined);
     assert.equal(cacheAdapterStatus().treeLocalCheckPassed, true);
-    for (const endpoint of ['http://api.treegpt.cc/v1', 'https://api.treegpt.cc.other.test/v1']) {
-        assert.equal(prepareCachedRequest(endpoint, body), body);
+    for (const badEndpoint of ['http://api.treegpt.cc/v1', 'https://api.treegpt.cc.other.test/v1']) {
+        assert.equal(prepareCachedRequest(badEndpoint, body), body);
     }
 });
 
-test('wire payload uses two content breakpoints, preserves settings and never changes conversation', () => {
-    const body = fixture(), original = JSON.stringify(body);
-    const wire = prepareCachedRequest(endpoint, body, { historyEnd: 2 });
-    assert.equal(JSON.stringify(body), original);
+test('TreeGPT history breakpoint is opt-in experimental while AIHubMix retains two breakpoints', () => {
+    const tree = prepareCachedRequest(treeEndpoint, { ...fixture(), model: 'claude-opus-5-5' }, { historyEnd: 2, historyBreakpoint: true });
+    assert.equal(cacheStrategy(treeEndpoint, 'claude-opus-5-5', { historyBreakpoint: true }), 'tree-history-experiment-v1');
+    assert.equal(inspectCacheRequest(tree, treeEndpoint, { historyBreakpoint: true }).strategy, 'tree-history-experiment-v1');
+    assert.equal(inspectCacheRequest(tree, treeEndpoint, { historyBreakpoint: true }).breakpoints.length, 2);
+    const wire = prepareCachedRequest(endpoint, fixture(), { historyEnd: 2 });
     assert.deepEqual(inspectCacheRequest(wire), { breakpoints: [
         { message: 0, block: 0, role: 'system', placement: 'content', ttl: '1h' },
         { message: 2, block: 0, role: 'assistant', placement: 'content', ttl: '1h' }
     ], includeUsage: true });
+});
+
+test('wire payload canonicalizes tools, preserves settings and never changes conversation', () => {
+    const body = fixture(), original = JSON.stringify(body);
+    const wire = prepareCachedRequest(endpoint, body, { historyEnd: 2 });
+    assert.equal(JSON.stringify(body), original);
     assert.equal(wire.messages.some(m => m.cache_control), false);
     assert.deepEqual(wire.thinking, body.thinking);
     assert.equal(wire.max_tokens, body.max_tokens);
@@ -40,16 +48,29 @@ test('wire payload uses two content breakpoints, preserves settings and never ch
     assert.equal(wire.stream_options.other, true);
 });
 
-test('changing runtime and appended tool rounds leave cached prefix identical', () => {
-    const first = prepareCachedRequest(endpoint, fixture(), { historyEnd: 2 });
-    const next = fixture();
+test('TreeGPT stable prefix remains identical when history or dynamic suffix changes', () => {
+    const body = { ...fixture(), model: 'claude-opus-5-5' };
+    const first = prepareCachedRequest(treeEndpoint, body, { historyEnd: 2 });
+    const next = { ...fixture(), model: 'claude-opus-5-5' };
+    next.messages[1].content = 'rotated historical question';
     next.messages[3].content = 'different time, RAG and user question';
-    next.messages.push({ role: 'assistant', content: null, tool_calls: [{ id: 'a' }] },
-        { role: 'tool', tool_call_id: 'a', content: 'new result' });
-    const second = prepareCachedRequest(endpoint, next, { historyEnd: 2 });
-    assert.equal(JSON.stringify(first.messages.slice(0, 3)), JSON.stringify(second.messages.slice(0, 3)));
-    assert.deepEqual(inspectCacheRequest(second), inspectCacheRequest(first));
-    assert.deepEqual(second.messages.slice(4), next.messages.slice(4));
+    const second = prepareCachedRequest(treeEndpoint, next, { historyEnd: 2 });
+    assert.deepEqual(first.messages[0], second.messages[0]);
+    assert.notDeepEqual(first.messages.slice(1), second.messages.slice(1));
+    assert.equal(inspectCacheRequest(second, treeEndpoint).breakpoints.length, 1);
+});
+
+test('redacted wire diagnostics fingerprint the final payload without prompt or schema text', () => {
+    const body = prepareCachedRequest(treeEndpoint, { ...fixture(), model: 'claude-opus-5-5' }, { historyEnd: 2 });
+    const diagnostic = inspectWireRequest(treeEndpoint, body);
+    assert.equal(diagnostic.host, 'api.treegpt.cc');
+    assert.equal(diagnostic.strategy, 'tree-system-tools-v1');
+    assert.equal(diagnostic.toolCount, 1);
+    assert.deepEqual(diagnostic.roles, ['system', 'user', 'assistant', 'user']);
+    assert.equal(diagnostic.stablePrefix.messages, 1);
+    assert.ok(/^[a-f0-9]{16}$/.test(diagnostic.stablePrefix.fingerprint));
+    assert.ok(/^[a-f0-9]{16}$/.test(diagnostic.toolSchemaFingerprint));
+    assert.doesNotMatch(JSON.stringify(diagnostic), /rules|past question|changing runtime|parameters|read/);
 });
 
 test('multimodal blocks and tool pairs are preserved; empty history is skipped', () => {
