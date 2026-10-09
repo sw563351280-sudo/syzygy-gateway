@@ -2,8 +2,9 @@
 (function (root) {
     function formatCacheStatus(status) {
         const ready = status.cacheAdapter?.localCheckPassed;
+        const ttlLabel = { '1h': '1 小时缓存', '5m': '5 分钟缓存' }[status.cacheAdapter?.ttl] || '缓存有效期未确认';
         const lines = [ready
-            ? 'AIHubMix 缓存格式：本地检查通过 · 5 分钟缓存（未向模型发请求，不代表实际命中）'
+            ? `AIHubMix 缓存格式：本地检查通过 · ${ttlLabel}（未向模型发请求，不代表实际命中）`
             : 'AIHubMix 缓存格式：尚未确认，请检查服务是否更新并重启'];
         if (!status.enabled) lines.push('费用观测已关闭，无法更新实际缓存结果。');
         if (status.contextOptimization) lines.push(status.contextOptimization.rollingSummary

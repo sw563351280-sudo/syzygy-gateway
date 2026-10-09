@@ -100,6 +100,7 @@ for (const [start, end] of [
     assert.deepEqual(sent, observed);
     assert.equal(sent.length, 1);
     assert.equal(inspectCacheRequest(JSON.parse(sent[0])).breakpoints.length, 2);
+    assert.ok(inspectCacheRequest(JSON.parse(sent[0])).breakpoints.every(b => b.ttl === '1h'));
     assert.equal(typeof messages[0].content, 'string');
 });
 

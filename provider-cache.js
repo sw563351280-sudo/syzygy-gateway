@@ -1,5 +1,6 @@
 'use strict';
 const { stableToolSchema } = require('./tool-schema-cache');
+const CACHE_TTL = '1h';
 
 // AIHubMix documents content-block cache_control on Chat Completions:
 // https://docs.aihubmix.com/en/practices/prompt-caching
@@ -38,7 +39,7 @@ function prepareCachedRequest(endpoint, body, { historyEnd = -1, enabled = true 
         // Mark only text. Preserve image/tool/thinking blocks and their order.
         const block = [...message.content].reverse().find(b => b.type === 'text' && typeof b.text === 'string' && b.text.trim());
         if (!block) return false;
-        block.cache_control = { type: 'ephemeral' }; // 5m, no keeper / 1h write surcharge.
+        block.cache_control = { type: 'ephemeral', ttl: CACHE_TTL };
         return true;
     }
     const systemIndex = (result.messages || []).findIndex(m => m.role === 'system');
@@ -72,9 +73,9 @@ function cacheAdapterStatus() {
     ] };
     const prepared = prepareCachedRequest('https://aihubmix.com/v1/chat/completions', body, { historyEnd: 2 });
     const inspection = inspectCacheRequest(prepared);
-    return { version: 1, provider: 'aihubmix', protocol: 'chat-content-blocks', ttl: '5m',
+    return { version: 1, provider: 'aihubmix', protocol: 'chat-content-blocks', ttl: CACHE_TTL,
         localCheckPassed: inspection.breakpoints.length === 2
-            && inspection.breakpoints.every(b => b.placement === 'content' && b.message < 3)
+            && inspection.breakpoints.every(b => b.placement === 'content' && b.message < 3 && b.ttl === CACHE_TTL)
             && inspection.includeUsage,
         upstreamVerified: false };
 }

@@ -870,7 +870,6 @@ const SUPABASE_URL = 'https://zaqcpvqpfdbhsqpjfgbd.supabase.co/rest/v1/phone_act
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphcWNwdnFwZmRiaHNxcGpmZ2JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkyMDQ3NjQsImV4cCI6MjA5NDc4MDc2NH0.2olvex6-uUWzJHSsgxQAsMbejQK53xVuNSXrmH1ExIA';
 
 const CACHE_BLACKLIST_FILE = path.join(DATA_DIR, 'cache_blacklist.json');
-const CACHE_TTL = '1h';
 const METADATA_USER_ID = 'syzygy-gateway-stable';
 
 function loadPhoneCache() { try { return JSON.parse(fs.readFileSync(PHONE_CACHE_FILE, 'utf8')); } catch(e) { return null; } }

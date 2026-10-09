@@ -107,7 +107,7 @@ function readConfig(env = process.env) {
     // Exact host + exact model only. Never apply these to subscription/relay routes.
     const defaults = {};
     for (const model of ['claude-opus-4-6', 'claude-opus-4-6-think']) {
-        defaults[`aihubmix.com|${model}`] = { input: 5, read: 0.5, write: 6.25, output: 25, usdToCny: 7 };
+        defaults[`aihubmix.com|${model}`] = { input: 5, read: 0.5, write: 10, output: 25, usdToCny: 7 };
     }
     let rates = {};
     try { rates = JSON.parse(env.CONTEXT_BUDGET_RATES_JSON || '{}'); } catch (_) { /* Unknown pricing, never guess. */ }

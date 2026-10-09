@@ -15,8 +15,8 @@ test('wire payload uses two content breakpoints, preserves settings and never ch
     const wire = prepareCachedRequest(endpoint, body, { historyEnd: 2 });
     assert.equal(JSON.stringify(body), original);
     assert.deepEqual(inspectCacheRequest(wire), { breakpoints: [
-        { message: 0, block: 0, role: 'system', placement: 'content', ttl: '5m' },
-        { message: 2, block: 0, role: 'assistant', placement: 'content', ttl: '5m' }
+        { message: 0, block: 0, role: 'system', placement: 'content', ttl: '1h' },
+        { message: 2, block: 0, role: 'assistant', placement: 'content', ttl: '1h' }
     ], includeUsage: true });
     assert.equal(wire.messages.some(m => m.cache_control), false);
     assert.deepEqual(wire.thinking, body.thinking);
@@ -59,4 +59,5 @@ test('other relays and non-Claude payloads are unchanged; self-check never calls
     global.fetch = () => { assert.fail('self-check must be free'); };
     try { assert.equal(cacheAdapterStatus().localCheckPassed, true); } finally { global.fetch = originalFetch; }
     assert.equal(cacheAdapterStatus().upstreamVerified, false);
+    assert.equal(cacheAdapterStatus().ttl, '1h');
 });

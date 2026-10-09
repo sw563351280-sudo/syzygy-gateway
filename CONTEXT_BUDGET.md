@@ -36,6 +36,8 @@ AIHubMix Claude 的普通聊天和web-chat动态构建使用约3000 token软预�
 
 Self-Summary、Keeper仍未启用；目前使用现有独立摘要渠道。OpenClaw和不提供新协议的外部客户端仍保留原入口策略。
 
+AIHubMix Claude 的普通聊天、web-chat 和工具轮统一在稳定 system 与历史断点发送 `cache_control: {"type":"ephemeral","ttl":"1h"}`。正常请求命中相同前缀时刷新有效期；没有后台保温调用，闲置超过一小时可能重新写入。首次写入、新增历史、摘要或提示词变化仍可能产生写入。状态面板读取服务器返回的 TTL；部署并重启网关后生效。
+
 ## 工具定义稳定化
 
 AIHubMix Claude实际发出的tools按名称固定顺序，定义对象的字段递归排序；仅去除内容完全相同的重复定义。描述、参数约束、schema内数组顺序、强制tool_choice保持原样。处理发生在供应商payload副本上，不修改原始注册表，不增加任何工具，不把此前可用工具留到无权限的新请求。其他渠道保持原样。
@@ -81,10 +83,10 @@ AIHubMix Claude 普通聊天的关系状态、心情快照、生活碎屑三组�
 默认仅为 aihubmix.com 的 claude-opus-4-6 和 claude-opus-4-6-think 配置以下价格（2026-09-24 核对 [供应商价格页](https://aihubmix.com/authors/anthropic)）；其他渠道、域名、模型不套用。实际结算以供应商账单为准：
 
 ```json
-{"aihubmix.com|claude-opus-4-6":{"input":5,"read":0.5,"write":6.25,"output":25,"usdToCny":7}}
+{"aihubmix.com|claude-opus-4-6":{"input":5,"read":0.5,"write":10,"output":25,"usdToCny":7}}
 ```
 
-四项 token 单价单位均为美元/百万 token。示例 write 为 5 分钟缓存写入总单价，不是另加在普通输入上的附加费。1 小时或混合 TTL 不能直接使用此示例。usdToCny 是手工估算汇率，不自动查询。不使用本示例推断 Kiro/Antigravity 的计费。
+四项 token 单价单位均为美元/百万 token。示例 write 已于 2026-10-09 随缓存切换为 1 小时写入总单价（普通输入的 2 倍），不是另加在普通输入上的附加费；5 分钟或混合 TTL 不能直接使用此示例。若部署环境通过 `CONTEXT_BUDGET_RATES_JSON` 覆盖过价格，需要同步调整对应 write，环境覆盖不会自动改写。usdToCny 是手工估算汇率，不自动查询。不使用本示例推断 Kiro/Antigravity 的计费。
 
 ## 如何读数据
 

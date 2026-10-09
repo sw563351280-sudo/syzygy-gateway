@@ -114,7 +114,7 @@ test('usage merging preserves partial details and replaces counters without summ
 
 test('default prices cover exact AIHubMix Opus ids and allow explicit overrides', () => {
     const config = readConfig({});
-    assert.deepEqual(config.rates['aihubmix.com|claude-opus-4-6-think'], rates);
+    assert.deepEqual(config.rates['aihubmix.com|claude-opus-4-6-think'], { ...rates, write: 10 });
     assert.equal(config.rates['other.test|claude-opus-4-6-think'], undefined);
     assert.equal(config.rates['aihubmix.com|claude-opus-4-6-unknown'], undefined);
     assert.equal(readConfig({ CONTEXT_BUDGET_RATES_JSON: JSON.stringify({ 'aihubmix.com|claude-opus-4-6-think': null }) }).rates['aihubmix.com|claude-opus-4-6-think'], null);
