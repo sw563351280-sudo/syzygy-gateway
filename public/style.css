@@ -1056,6 +1056,12 @@ body.neu-mode #supplierList > div {
 
 
 /* ═══ 消息元信息（时间戳） ═══ */
+.message-usage { color: inherit; opacity: .45; font-size: 11px; line-height: 1.7; margin-top: 8px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.message-usage summary { display: flex; flex-wrap: wrap; gap: 0 5px; cursor: pointer; list-style: none; }
+.message-usage summary::-webkit-details-marker { display: none; }
+.message-usage summary span { white-space: nowrap; }
+.message-usage summary:focus-visible { outline: 1px solid currentColor; outline-offset: 3px; border-radius: 3px; }
+.message-usage-detail { margin-top: 5px; overflow-wrap: anywhere; }
 .msg-meta { font-size: 0.68em; color: var(--dim); opacity: 0.5; margin-top: 4px; line-height: 1.2; text-align: right; font-family: monospace; transition: opacity 0.2s; }
 .msg:hover .msg-meta { opacity: 0.8; }
 

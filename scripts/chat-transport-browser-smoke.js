@@ -32,7 +32,7 @@ async function main() {
         lifecycle.startStream();
         const event = content => 'data: ' + JSON.stringify({ choices: [{ delta: { content } }] }) + '\n\n';
         if (mode === 'partial' || mode === 'broken') res.write(event('已经收到的半段回复'));
-        if (mode === 'success') res.end(event('正常完整回复') + 'data: [DONE]\n\n');
+        if (mode === 'success') res.end(event('正常完整回复') + 'data: ' + JSON.stringify({ syzygy_usage: { total: 29700, read: 29500, write: 200, output: 134 } }) + '\n\ndata: [DONE]\n\n');
         if (mode === 'error') res.end('data: [ERROR]测试供应商错误\n\n');
         if (mode === 'broken') res.end();
     });
@@ -99,6 +99,31 @@ async function main() {
 
         mode = 'success'; await send(); await idle(); state = await snapshot();
         assert.equal(state.messages.at(-1).versions[0].content, '正常完整回复');
+        assert.equal(state.messages.at(-1).versions[0].messageUsage.read, 29500);
+        await page.evaluate(() => renderChatMessages());
+        assert.match(await page.$eval('.message-usage summary', el => el.textContent), /命中 29.5k/);
+        await page.click('.message-usage summary');
+        assert.equal(await page.$eval('.message-usage', el => el.open), true);
+        for (const light of [false, true]) {
+            await page.evaluate(light => {
+                document.body.classList.add('neu-mode');
+                document.documentElement.dataset.visualTheme = 'new';
+                document.documentElement.dataset.seaCycle = light ? 'day' : 'night';
+                document.querySelector('.message-usage').open = false;
+                forceScrollToChatBottom();
+            }, light);
+            await sleep(350);
+            const styles = await page.$eval('.message-usage', el => ({ color: getComputedStyle(el).color, parent: getComputedStyle(el.closest('.msg')).color, opacity: getComputedStyle(el).opacity }));
+            assert.equal(styles.color, styles.parent);
+            assert.equal(styles.opacity, '0.45');
+            await page.screenshot({ path: path.join(previewDirectory, light ? 'usage-day.png' : 'usage-night.png') });
+        }
+        await page.setViewport({ width: 320, height: 740 });
+        assert.equal(await page.$eval('.message-usage', el => el.scrollWidth <= el.clientWidth), true);
+        await page.evaluate(() => regenerateAt(getActiveSession().messages.length - 1));
+        await idle(); state = await snapshot();
+        assert.equal(state.messages.at(-1).versions.at(-1).messageUsage.read, 29500);
+        console.log('Usage previews: ' + previewDirectory);
         mode = 'error'; await send(); await idle(); state = await snapshot();
         assert.match(state.messages.at(-1).versions[0].content, /测试供应商错误/);
         mode = 'broken'; await send(); await idle(); state = await snapshot();

@@ -751,7 +751,15 @@ app.use('/api/codex', workspaceRouter(codexWorkspace));
 app.use('/api/shen-settings', shenSettingsRouter(shenSettings));
 const costLedger = createCostLedger({ filename: path.join(DATA_DIR, 'context-cost-ledger.json') });
 function observeContextBudget(options, response) {
+    const collectUsage = require('./message-usage').createMessageUsage();
     const observer = createBudgetObserver({ ...options, log: event => {
+        const usage = collectUsage(event);
+        if (usage) {
+            response.locals.messageUsage = usage;
+            if (response.getHeader('Content-Type')?.includes('text/event-stream') && !response.writableEnded && !response.destroyed) {
+                response.write(`data: ${JSON.stringify({ type: 'message_usage', syzygy_usage: usage })}\n\n`);
+            }
+        }
         try { costLedger.record(event); } catch (_) {}
         console.log('[ContextBudget]', JSON.stringify(event));
     } });
@@ -8244,6 +8252,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, moodCleaned);
                 traceEnd(_tr, { ok: true, replyLen: (moodCleaned || '').length, path: 'tool-json' });
                 if (musicToolRecords.length) toolData.music_tool_calls = musicToolRecords;
+                toolData.syzygy_usage = res.locals.messageUsage || null;
                 return res.status(200).json(toolData);
             }
         }
@@ -8462,6 +8471,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 }
                 if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, finalContent);
                 traceEnd(_tr, { ok: true, replyLen: (finalContent || '').length, path: 'json' });
+                data.syzygy_usage = res.locals.messageUsage || null;
                 res.status(response.status).json(data);
             } catch (e) { res.status(500).json({ error: "解析失败: " + rawText }); }
         }

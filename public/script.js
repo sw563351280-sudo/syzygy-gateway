@@ -2346,6 +2346,7 @@ function renderChatMessages(options = {}){
 
         const timeStr = v.fullTime ? new Date(v.fullTime).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) : (v.time || '');
         // 模型选择属于输入栏，不在每条消息里重复展示，避免打断对话阅读。
+        if (m.role === 'assistant' && speaker !== 'codex') htmlContent += MessageUsage.html(v.messageUsage);
         if(timeStr) htmlContent += '<div class="msg-meta">' + timeStr + '</div>';
         if (v._interrupted) htmlContent += '<div class="msg-meta">' + escapeHtml(v._interrupted) + ' · 已保留部分回复</div>';
 
@@ -2563,6 +2564,7 @@ async function sendChat(options = {}) {
     var sDiv = null; var sRow = null; var toolHintTimer = null; var toolHintTimer2 = null;
     var assistantMsg = null;
     var fullReply = '', thinkContent = '', reasoningContent = '', rawAssistantText = '';
+    const messageUsage = MessageUsage.tracker();
 
     const modelEl = document.getElementById('modelSelect');
     var selectedModel = (modelEl && modelEl.value) ? modelEl.value : '[按量]gemini-3-flash-preview';
@@ -2740,6 +2742,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             sDiv.appendChild(toolGroupEl);
 
             await ChatTransport.readStream(response, parsed => {
+                        messageUsage.accept(parsed);
 
                         // 🔧 工具调用事件
                         if (parsed.type === 'tool_call') {
@@ -2799,6 +2802,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             // ==========================================
             const data = await response.json();
             fullReply = data.choices[0].message.content || "";
+            messageUsage.accept(data);
             if (Array.isArray(data.music_tool_calls)) toolCallRecords.push(...data.music_tool_calls);
             rawAssistantText = fullReply;
             reasoningContent = data.choices[0].message.reasoning_content || '';
@@ -2828,6 +2832,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
         const domThinking = stripDisplayTimestamp(thinkContent || (thinkTextDiv ? thinkTextDiv.innerText : '') || '');
         assistantMsg = { _id: crypto.randomUUID(), role: 'assistant', speaker: isWorkroomSession(session) ? 'shenwang' : undefined, versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
+        assistantMsg.versions[0].messageUsage = messageUsage.finish();
         getLiveSession(sessionId).messages.push(assistantMsg);
         // 先存本地备份，再尝试云端同步
         // 🛡️ 拒绝备份脏兜底状态
@@ -2840,6 +2845,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         triggerStarEffects(val, fullReply);
         // 不调用 renderChatMessages() —— sDiv 已经有流式输出内容
         // 追加 meta 和 action 按钮到现有气泡
+        sDiv.insertAdjacentHTML('beforeend', MessageUsage.html(assistantMsg.versions[0].messageUsage));
         const metaDiv = document.createElement('div');
         metaDiv.className = 'msg-meta';
         metaDiv.innerText = timeStr;
@@ -2865,7 +2871,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
                 speaker: isWorkroomSession(session) ? 'shenwang' : undefined,
                 versions: [{ content: fullReply, thinking: thinkContent, rawContent: rawAssistantText,
                     reasoning: reasoningContent, model: selectedModel, fullTime: new Date().toISOString(),
-                    _interrupted: detail, toolCalls: toolCallRecords }], activeVersion: 0 });
+                    _interrupted: detail, toolCalls: toolCallRecords, messageUsage: messageUsage.finish() }], activeVersion: 0 });
             saveToCloud(true);
             _renderDeferred = true;
         } else if (stopped) {
@@ -4455,6 +4461,7 @@ async function regenerateSend(aiMsgIndex) {
     _isStreamingReply = true;
     const request = beginChatRequest();
     let fullReply = '', thinkContent = '', rawAcc = '', reasoningAcc = '';
+    const messageUsage = MessageUsage.tracker();
     const toolCallRecords = [];
     try {
     const modelEl = document.getElementById('modelSelect');
@@ -4497,6 +4504,7 @@ async function regenerateSend(aiMsgIndex) {
             const mainTextDiv=document.createElement('div'); mainTextDiv.classList.add('md-content'); sDiv.appendChild(mainTextDiv);
             const toolGroupEl=document.createElement('div'); toolGroupEl.className='tool-call-group-wrap'; toolGroupEl.style.display='none'; sDiv.appendChild(toolGroupEl);
             await ChatTransport.readStream(response, p => {
+                messageUsage.accept(p);
                 if (p.type === 'tool_call') {
                     toolCallRecords.push({name:p.name, arguments:p.arguments||{}, result:p.result||'', elapsed:p.elapsed||0});
                     toolGroupEl.style.display='block';
@@ -4516,13 +4524,13 @@ async function regenerateSend(aiMsgIndex) {
             sDiv.querySelector('.loading-indicator')?.remove();
             mainTextDiv.innerHTML=renderMarkdown(fullReply);
             if(toolCallRecords.length>0)updateToolGroupDOM(toolGroupEl,toolCallRecords,false);
-        } else { const data=await response.json(); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){thinkMarker.element.hidden=false; targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
+        } else { const data=await response.json(); messageUsage.accept(data); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){thinkMarker.element.hidden=false; targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
         sDiv.classList.remove('msg-loading');
         const timeStr=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
         const liveSession = getLiveSession(sessionId) || session;
         const liveAiMsg = aiMsgId ? liveSession.messages.find(m => (m._id || m.id) === aiMsgId) : liveSession.messages[aiMsgIndex];
         if (!liveAiMsg) throw new Error('重新生成的目标消息已不在当前会话中');
-        ensureVersioned(liveAiMsg); liveAiMsg.versions.push({content:fullReply,thinking:stripDisplayTimestamp(thinkContent),time:timeStr,model:selectedModel,fullTime:new Date().toISOString(), toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined}); liveAiMsg.activeVersion=liveAiMsg.versions.length-1; liveAiMsg._zepDirty=true;
+        ensureVersioned(liveAiMsg); liveAiMsg.versions.push({content:fullReply,thinking:stripDisplayTimestamp(thinkContent),time:timeStr,model:selectedModel,fullTime:new Date().toISOString(), messageUsage: messageUsage.finish(), toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined}); liveAiMsg.activeVersion=liveAiMsg.versions.length-1; liveAiMsg._zepDirty=true;
         saveToCloud(); renderChatMessages();
     } catch (err) {
         const stopped = request.reason === 'user';
@@ -4534,7 +4542,7 @@ async function regenerateSend(aiMsgIndex) {
                 ensureVersioned(liveAiMsg);
                 liveAiMsg.versions.push({content:fullReply,thinking:thinkContent,rawContent:rawAcc,reasoning:reasoningAcc,
                     model:document.getElementById('modelSelect')?.value,fullTime:new Date().toISOString(),
-                    _interrupted:detail,toolCalls:toolCallRecords});
+                    _interrupted:detail,toolCalls:toolCallRecords,messageUsage:messageUsage.finish()});
                 liveAiMsg.activeVersion=liveAiMsg.versions.length-1;
                 liveAiMsg._zepDirty=true;
                 saveToCloud(true);
