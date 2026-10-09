@@ -24,7 +24,7 @@ async function main() {
         browser = await puppeteer.launch({ executablePath, headless: true });
         const page = await browser.newPage(), errors = []; page.on('pageerror', e => errors.push(e.message));
         await page.setRequestInterception(true); page.on('request', r => r.url().startsWith('http') && !r.url().startsWith('http://127.0.0.1:') ? r.abort() : r.continue());
-        await page.evaluateOnNewDocument(() => { if (!localStorage.getItem('syzygy_visual_theme')) localStorage.setItem('syzygy_visual_theme', 'new'); });
+        await page.evaluateOnNewDocument(() => { Date.now = () => Date.parse('2026-10-09T20:00:00+08:00'); if (!localStorage.getItem('syzygy_visual_theme')) localStorage.setItem('syzygy_visual_theme', 'new'); });
         await page.setViewport({ width: 1536, height: 1024 });
         const url = `http://127.0.0.1:${server.address().port}/comets.html?pwd=fixture`;
         await page.goto(url, { waitUntil: 'networkidle0' }); await page.evaluate(() => document.fonts.ready);

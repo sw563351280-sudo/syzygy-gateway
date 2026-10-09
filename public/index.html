@@ -11,6 +11,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
+    <script src="/sea-cycle.js?v=20261009-global"></script>
+    <script src="/site-theme.js?v=20261009-global"></script>
     <script>
       (() => {
         const mobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
@@ -18,24 +20,12 @@
         if (mobileUA || touchDevice) document.documentElement.classList.add('is-mobile-device');
       })();
     </script>
-    <script>
-      (() => {
-        try {
-          const savedTheme = localStorage.getItem('syzygy_visual_theme');
-          const legacyLayout = localStorage.getItem('syzygy_home_layout');
-          document.documentElement.dataset.visualTheme = savedTheme === 'new' || savedTheme === 'classic'
-            ? savedTheme
-            : legacyLayout === 'new' ? 'new' : 'classic';
-        } catch (_) {
-          document.documentElement.dataset.visualTheme = 'classic';
-        }
-      })();
-    </script>
+
     <link rel="stylesheet" href="style.css?v=104">
-    <script src="sea-cycle.js?v=1"></script>
     <link rel="stylesheet" href="home-sea.css?v=3">
     <link rel="stylesheet" href="sea-pages.css?v=2">
     <link rel="stylesheet" href="journal-sea.css?v=3">
+    <link rel="stylesheet" href="/site-theme.css?v=20261009-global">
 </head>
 <body class="neu-mode">
     <svg id="syzygy-line-svg" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999;"><defs><linearGradient id="syzygy-grad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4fc3f7;stop-opacity:0.8"/><stop offset="100%" style="stop-color:#c9a961;stop-opacity:0.8"/></linearGradient></defs><line id="syzygy-line" x1="0" y1="0" x2="0" y2="0" style="stroke:url(#syzygy-grad);stroke-width:1.5;opacity:0;transition:opacity 0.3s ease-in-out;"/></svg>
@@ -692,7 +682,7 @@
 <script src="sea-pages.js?v=1"></script>
 <script src="journal-sea.js?v=1"></script>
 <script src="chat-transport.js?v=1"></script>
-<script src="script.js?v=103"></script>
+<script src="script.js?v=20261009-global"></script>
 <script src="music-player.js?v=8" defer></script>
         <div id="msgContextMenu" class="msg-context-menu" role="menu" aria-label="消息操作" hidden></div>
 

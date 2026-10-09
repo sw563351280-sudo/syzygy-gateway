@@ -1,4 +1,4 @@
-/* The home's sea follows Shanghai time, including while a page stays open. */
+/* Every page's sea follows Shanghai time, including while a page stays open. */
 (function (root) {
     'use strict';
     const offset = 8 * 60 * 60 * 1000;

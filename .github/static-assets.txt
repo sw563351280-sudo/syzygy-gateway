@@ -66,3 +66,5 @@ public/growth-sea.css
 public/growth-sea.js
 public/comets-sea.css
 public/comets.js
+public/site-theme.css
+public/site-theme.js

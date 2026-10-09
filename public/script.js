@@ -58,7 +58,7 @@ const starState = { pendingMeteor: false, pendingNebula: false };
     }
     function start(){
         stop();
-        if(document.documentElement.dataset.visualTheme==='new' && (!document.body.dataset.view || document.body.dataset.view==='home' || document.body.dataset.seaPage==='true')){x.clearRect(0,0,w,h);return}
+        if(document.documentElement.dataset.visualTheme==='new'){x.clearRect(0,0,w,h);return}
         if(reducedMotion.matches){draw(false);c.dataset.motion='static';return}
         if(document.hidden)return;
         running=true;c.dataset.motion='animated';frameId=requestAnimationFrame(frame);
@@ -1920,9 +1920,7 @@ function getVisualTheme() {
 function getVisualThemeColor(viewId = document.body?.dataset?.view || 'home') {
     const isNew = getVisualTheme() === 'new';
     if (!isNew) return viewId === 'chat' ? '#EFF6FD' : '#E8EFF7';
-    if (viewId === 'home') return document.documentElement.dataset.seaCycle === 'night' ? '#081A2D' : '#A9C3D8';
-    if (viewId === 'dev' || viewId === 'console') return '#101827';
-    return '#DCE8F1';
+    return document.documentElement.dataset.seaCycle === 'night' ? '#081A2D' : '#A9C3D8';
 }
 
 function applyVisualTheme(theme, persist = true) {

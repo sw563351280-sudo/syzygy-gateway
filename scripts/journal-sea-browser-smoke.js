@@ -46,10 +46,10 @@ async function main() {
     const layout = await page.evaluate(()=>{
       const main = document.querySelector('.journal-sea-main').getBoundingClientRect();
       const row = document.querySelector('.journal-sea-row').getBoundingClientRect();
-      return { width:main.width,left:main.left,rowHeight:row.height,filter:getComputedStyle(document.querySelector('#sec-private-journal'),'::before').filter,visible:[...document.querySelectorAll('.journal-sea-row')].filter(r=>r.getBoundingClientRect().bottom <= innerHeight).length };
+      return { width:main.width,left:main.left,rowHeight:row.height,filter:getComputedStyle(document.body,'::before').filter,visible:[...document.querySelectorAll('.journal-sea-row')].filter(r=>r.getBoundingClientRect().bottom <= innerHeight).length };
     });
     assert.equal(layout.width,640); assert.ok(layout.left >= 102 && layout.left <= 128); assert.equal(layout.rowHeight,56);
-    assert.ok(layout.visible>=8 && layout.visible<=12); assert.equal(layout.filter,'saturate(0.9)');
+    assert.ok(layout.visible>=8 && layout.visible<=12); assert.equal(layout.filter,'none');
     assert.equal(await page.$eval('#privateJournalSea',e=>e.textContent.includes('SHEN WANG')),false);
     assert.equal(await page.$eval('#privateJournalSea',e=>e.textContent.includes('只有沈望愿意')),false);
     assert.equal(await page.$eval('#starmap',e=>getComputedStyle(e).display),'none');

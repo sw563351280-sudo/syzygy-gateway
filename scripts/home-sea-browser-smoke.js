@@ -30,10 +30,10 @@ async function main() {
         const cycle = async time => page.evaluate(value => { const saved=Date.now; Date.now=()=>Date.parse(value); SeaCycle.update(); Date.now=saved; }, time);
         await cycle('2026-10-07T07:00:00+08:00');
         assert.equal(await page.evaluate(() => document.documentElement.dataset.seaCycle),'day');
-        assert.match(await page.$eval('#sec-home',e=>getComputedStyle(e,'::before').backgroundImage),/ice-sea-home-v2/);
+        assert.match(await page.$eval('body',e=>getComputedStyle(e,'::before').backgroundImage),/ice-sea-home-v2/);
         await cycle('2026-10-07T18:00:00+08:00');
         assert.equal(await page.evaluate(() => document.documentElement.dataset.seaCycle),'night');
-        assert.match(await page.$eval('#sec-home',e=>getComputedStyle(e,'::before').backgroundImage),/ice-sea-night-v1/);
+        assert.match(await page.$eval('body',e=>getComputedStyle(e,'::before').backgroundImage),/ice-sea-night-v1/);
         assert.equal(await page.$eval('.home-v2-hero',e=>getComputedStyle(e).color),'rgb(237, 243, 247)');
         assert.equal(await page.$eval('#theme-color-meta',e=>e.content),'#081A2D');
         await page.screenshot({ path:path.join(root,'qa-sea-home-night-1024.png') });
