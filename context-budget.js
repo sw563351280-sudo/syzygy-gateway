@@ -120,7 +120,7 @@ function readConfig(env = process.env) {
     };
 }
 
-function createBudgetObserver({ endpoint, model, conversationId = null, config = readConfig(), log = value => console.log('[ContextBudget]', JSON.stringify(value)) }) {
+function createBudgetObserver({ endpoint, model, conversationId = null, clientCacheVersion = null, config = readConfig(), log = value => console.log('[ContextBudget]', JSON.stringify(value)) }) {
     const noop = { context() {}, request() { return null; }, response() {}, finish() {} };
     if (!config.enabled) return noop;
     let host;
@@ -145,7 +145,7 @@ function createBudgetObserver({ endpoint, model, conversationId = null, config =
             summary: group(values.filter(v => v.kind === 'summary')) };
     };
     // Diagnostics must never interrupt a chat, including a failing log sink.
-    const emit = event => { try { log({ turnId, host, model, ...event }); } catch (_) {} };
+    const emit = event => { try { log({ turnId, host, model, clientCacheVersion, ...event }); } catch (_) {} };
     return {
         context({ systemMessage, summaryMessages = [], historyMessages = [], currentMessage, historySource }) {
             const history = measureMessages(historyMessages);

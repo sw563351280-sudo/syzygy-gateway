@@ -7536,7 +7536,10 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         });
         let body = req.body;
         const contextBudget = observeContextBudget({ endpoint: resolveApiUrl(req.path), model: body.model || '',
-            conversationId: typeof body.contextProtocol?.sessionId === 'string' ? body.contextProtocol.sessionId : null }, res);
+            conversationId: typeof body.contextProtocol?.sessionId === 'string' ? body.contextProtocol.sessionId
+                : typeof body.activeChatId === 'string' && body.activeChatId.length <= 200 ? body.activeChatId : null,
+            clientCacheVersion: body.cacheClientVersion === 2 ? 2 : null }, res);
+        delete body.cacheClientVersion; // Local diagnostics, never send to the provider.
         const contextProtocol = body.contextProtocol;
         delete body.contextProtocol; // Gateway-only metadata must never reach a provider.
         const workroomDiscussion = body.activeChatId === 'syzygy-workroom';
@@ -7959,7 +7962,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             filteredTools = keepRequestedReadTools(filteredTools, currentUserMsgText);
             console.log(`🔧 [工具] 只读按需保留: ${filteredTools.map(t => t.function?.name || t.name).join(',') || '(无)'}`);
         }
-        if (ledgerRealtimeContext) {
+        if (ledgerRealtimeContext && !supportsBlockCache(apiUrl, body.model)) {
             filteredTools = filteredTools.filter(t => !['check_ledger', 'query_ledger'].includes(t.function?.name || t.name));
             console.log('📒 [账本] 已注入实时数据，跳过账本 function calling');
         }
@@ -9683,7 +9686,7 @@ app.post('/api/web-chat', async (req, res) => {
                     if (hasUrl && !webXhsShareUrl && !webGitHubContext) webForceToolChoice = { type: "function", function: { name: "fetch_txt" } };
                 }
                 let filteredTools = filterRelevantTools(enabledTools, text, webForceToolChoice);
-                if (ledgerRealtimeContext) {
+                if (ledgerRealtimeContext && !supportsBlockCache(baseUrl, webModelName)) {
                     filteredTools = keepRequestedReadTools(filteredTools, text)
                         .filter(t => !['check_ledger', 'query_ledger'].includes(t.function?.name || t.name));
                     console.log('📒 [web-chat账本] 已注入实时数据，跳过账本 function calling');

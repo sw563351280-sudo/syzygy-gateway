@@ -11,7 +11,7 @@ function safeEvent(line) {
         let e;
         try { e = JSON.parse(message.slice(start + marker.length)); } catch { return null; }
         const result = { at, event: e.event, turnId: e.turnId, call: e.call,
-            kind: e.kind, host: e.callHost || e.host, model: e.callModel || e.model };
+            kind: e.kind, host: e.callHost || e.host, model: e.callModel || e.model, clientCacheVersion: e.clientCacheVersion };
         if (e.event === 'request') Object.assign(result, {
             breakpoints: (e.cacheRequest?.breakpoints || []).map(p => ({ ...numbers(p, ['message', 'block']), role: p.role, placement: p.placement, ttl: p.ttl })),
             includeUsage: e.cacheRequest?.includeUsage === true,
@@ -29,6 +29,7 @@ function safeEvent(line) {
     if (message.includes('[CacheOpt]') || message.includes('[CacheOpt-web]')) return {
         at, event: 'prefix', stableHash: message.match(/stableHash=([a-f0-9]+)/)?.[1],
         historyTokens: Number(message.match(/historyTokens≈(\d+)/)?.[1]) || null };
+    if (message.includes('已注入实时数据，跳过账本 function calling')) return { at, event: 'ledger_tools_removed' };
     return null;
 }
 if (require.main === module || process.argv[1] === '-') {

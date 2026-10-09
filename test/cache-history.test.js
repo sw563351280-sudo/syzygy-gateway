@@ -6,6 +6,28 @@ const { prepareCachedRequest } = require('../provider-cache');
 const { canUseRollingContext } = require('../public/cache-history');
 const messages = n => Array.from({ length: n }, (_, i) => ({ _id: String(i), role: i % 2 ? 'assistant' : 'user', content: 'message ' + i }));
 
+test('real browser send assigns IDs before fallback history anchoring', async () => {
+    const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '../public/script.js'), 'utf8');
+    const begin = source.indexOf('const retainedImages = ChatWindowContext.imageWindow(session.messages, getActiveVersion);');
+    const end = source.indexOf('var historyMsgs =', begin);
+    const map = new Map();
+    const storage = { getItem: k => map.get(k), setItem: (k, v) => map.set(k, v), removeItem: k => map.delete(k) };
+    const session = { id: 'same', messages: messages(101).map(({ _id, ...m }) => m) };
+    let id = 0;
+    const context = { session, currentSup: { url: '/via/tree/v1/chat/completions' }, selectedModel: 'claude-opus-5-5',
+        ChatWindowContext: { imageWindow: () => new Set() }, getActiveVersion: m => m, isWorkroomSession: () => false,
+        canUseRollingContext: async () => false, isCacheHistoryRoute: require('../public/cache-history').isCacheHistoryRoute,
+        ContextContinuity: require('../public/context-continuity'), crypto: { randomUUID: () => 'id-' + (++id) },
+        fetch: () => assert.fail('no model calls'), window: { sessionStorage: storage }, cachedChatHistory };
+    const run = () => require('node:vm').runInNewContext(`(async () => { ${source.slice(begin, end)} return cachedChatHistory(session.messages.slice(0, -1), session.id, currentSup.url, selectedModel, historyStorage); })()`, context);
+    const first = await run();
+    session.messages.push({ role: 'assistant', content: 'reply' }, { role: 'user', content: 'next' });
+    const next = await run();
+    assert.equal(first.length, 30);
+    assert.equal(next.length, 32);
+    assert.equal(first[0]._id, next[0]._id);
+});
+
 test('free readiness check gates expanded history on configured server support', async () => {
     const route = '/via/aihubmix/v1/chat/completions';
     const model = 'claude-opus-4-6';

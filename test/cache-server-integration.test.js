@@ -105,6 +105,31 @@ test('fixed output rules move intact into cached system only for AIHubMix', () =
     assert.equal(old.systemMsg.content, 'system');
 });
 
+test('realtime ledger injection preserves cached tool definitions on both chat paths', () => {
+    const { supportsBlockCache } = require('../provider-cache');
+    const { keepRequestedReadTools } = require('../tool-policy');
+    const tools = ['check_phone', 'check_ledger', 'query_ledger', 'music_current_session'].map(name => ({ type: 'function', function: { name } }));
+    for (const web of [false, true]) {
+        const begin = source.indexOf(web
+            ? 'if (ledgerRealtimeContext && !supportsBlockCache(baseUrl, webModelName))'
+            : 'if (ledgerRealtimeContext && !supportsBlockCache(apiUrl, body.model))');
+        const end = source.indexOf(web ? 'if (webXhsShareUrl)' : 'let maxToolRounds', begin);
+        assert.ok(begin >= 0 && end > begin);
+        const select = (endpoint, ledger, available = tools) => {
+            const state = { filteredTools: available, ledgerRealtimeContext: ledger, apiUrl: endpoint, baseUrl: endpoint,
+                body: { model: 'claude-opus-5-5' }, webModelName: 'claude-opus-5-5', supportsBlockCache,
+                keepRequestedReadTools, text: '这次花了好多钱', console: { log() {} } };
+            vm.runInNewContext(source.slice(begin, end), state);
+            return state.filteredTools;
+        };
+        const endpoint = 'https://api.treegpt.cc/v1/chat/completions';
+        assert.deepEqual(select(endpoint, 'live ledger'), select(endpoint, ''));
+        assert.equal(select('https://other.test/v1', 'live ledger').some(t => /ledger/.test(t.function.name)), false);
+        const disabled = tools.filter(t => t.function.name !== 'query_ledger');
+        assert.deepEqual(select(endpoint, 'live ledger', disabled), disabled, 'disabled tools are never restored');
+    }
+});
+
 // Run the actual integration fragments without starting server background jobs.
 for (const [start, end] of [
     ['const toolWireBody =', 'if (!toolResponse.ok)'],

@@ -26,6 +26,9 @@
         }
         const last = status.latestCache;
         const context = status.latestContext;
+        if (context) lines.push(context.clientCacheVersion === 2
+            ? '最近请求的前端缓存版本：v2'
+            : '最近请求未携带新版前端缓存标记；网页用户请强制刷新后核对。外部客户端可能不提供此标记。');
         if (context?.historyDetail) {
             const d = context.historyDetail, s = context.historySource;
             lines.push(`最近上下文（${context.host} / ${context.model} · ${context.at}）：历史 ${d.count} 条 / ${d.characters} 字符，摘要含包装 ${context.summaryCharacters} 字符。`);
