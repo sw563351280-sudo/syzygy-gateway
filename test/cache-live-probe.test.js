@@ -29,11 +29,19 @@ test('probe stops after a changed-suffix hit', async () => {
     assert.equal(calls, 2);
 });
 test('probe does not retry HTTP failure or unexpected token volume', async () => {
-    for (const response of [new Response('', { status: 429 }), Response.json({ usage: { prompt_tokens: 4000, completion_tokens: 1 } })]) {
+    for (const response of [new Response('', { status: 429 }), Response.json({ usage: { prompt_tokens: 4001, completion_tokens: 1 } })]) {
         let calls = 0;
         await runProbe({ key: 'fake', adapter, budget, emit: () => {}, fetchImpl: async () => { calls++; return response; } });
         assert.equal(calls, 1);
     }
+});
+test('continuation respects remaining two calls even without a write counter', async () => {
+    let calls = 0;
+    await runProbe({ key: 'fake', maxCalls: 2, adapter, budget, emit: () => {}, fetchImpl: async () => {
+        calls++;
+        return Response.json({ usage: { prompt_tokens: 3365, completion_tokens: 4, prompt_tokens_details: { cached_tokens: 0 } } });
+    } });
+    assert.equal(calls, 2);
 });
 test('credential selection uses active TreeGPT supplier and rejects ambiguity', () => {
     const suppliers = [{ url: '/via/tree/v1', key: 'one' }, { url: 'https://api.treegpt.cc/v1', key: 'two' }];

@@ -19,7 +19,7 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key root@46.250.248.31 'node - --paid-cache-probe' < scripts/cache-live-probe.js
+          ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key root@46.250.248.31 'node - --paid-cache-probe --remaining-two' < scripts/cache-live-probe.js
       - name: Remove runner SSH key
         if: always()
         run: rm -f ~/.ssh/deploy_key

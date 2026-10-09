@@ -29,9 +29,21 @@ function fixture(nonce, suffix) {
     };
 }
 
-async function runProbe({ key, adapter, budget, fetchImpl = fetch, emit = console.log, nonce = require('node:crypto').randomUUID() }) {
+function numericUsage(value, prefix = '', result = {}) {
+    if (!value || typeof value !== 'object') return result;
+    for (const [key, item] of Object.entries(value)) {
+        if (!/^[a-z_]+$/i.test(key)) continue;
+        const path = prefix ? `${prefix}.${key}` : key;
+        if (typeof item === 'number' && Number.isFinite(item) && item >= 0) result[path] = item;
+        else if (prefix.split('.').length < 3 && item && typeof item === 'object' && !Array.isArray(item)) numericUsage(item, path, result);
+    }
+    return result;
+}
+
+async function runProbe({ key, adapter, budget, maxCalls = 3, fetchImpl = fetch, emit = console.log, nonce = require('node:crypto').randomUUID() }) {
+    if (!Number.isInteger(maxCalls) || maxCalls < 1 || maxCalls > 3) throw new Error('invalid_call_cap');
     const results = [];
-    for (const [index, suffix] of ['alpha', 'beta', 'beta'].entries()) {
+    for (const [index, suffix] of ['alpha', 'beta', 'beta'].slice(0, maxCalls).entries()) {
         const body = adapter.prepareCachedRequest(ENDPOINT, fixture(nonce, suffix), { historyEnd: 2 });
         emit(JSON.stringify({ event: 'probe_request', call: index + 1, variant: index === 0 ? 'initial' : index === 1 ? 'changed_suffix' : 'exact_repeat', ...adapter.inspectCacheRequest(body) }));
         const response = await fetchImpl(ENDPOINT, {
@@ -43,7 +55,7 @@ async function runProbe({ key, adapter, budget, fetchImpl = fetch, emit = consol
             emit(JSON.stringify({ event: 'probe_stopped', reason: 'http_error', status: response.status }));
             break;
         }
-        let usage = null;
+        let usage = null, returnedModelMatches = null;
         const wire = await response.text();
         if (wire.length > 1000000) throw new Error('unexpected_response_size');
         if (response.headers.get('content-type')?.includes('text/event-stream')) {
@@ -53,17 +65,19 @@ async function runProbe({ key, adapter, budget, fetchImpl = fetch, emit = consol
                 if (!data || data === '[DONE]') continue;
                 const event = JSON.parse(data);
                 if (event.error) throw new Error('stream_error');
+                if (event.model) returnedModelMatches = event.model === body.model;
                 usage = budget.mergeUsage(usage, event.usage);
             }
         } else {
             const data = JSON.parse(wire);
             if (data.error) throw new Error('provider_error');
+            if (data.model) returnedModelMatches = data.model === body.model;
             usage = data.usage;
         }
         const normalized = budget.normalizeUsage(usage);
-        emit(JSON.stringify({ event: 'probe_usage', call: index + 1, usage: normalized, evidence: budget.usageEvidence(usage) }));
+        emit(JSON.stringify({ event: 'probe_usage', call: index + 1, usage: normalized, evidence: numericUsage(usage), returnedModelMatches }));
         results.push(normalized);
-        if (!normalized || normalized.total === null || normalized.total > 3000 || normalized.output === null || normalized.output > 64 || normalized.read === null || normalized.write === null) {
+        if (!normalized || normalized.total === null || normalized.total > 4000 || normalized.output === null || normalized.output > 64 || normalized.read === null) {
             emit(JSON.stringify({ event: 'probe_stopped', reason: 'usage_guard' }));
             break;
         }
@@ -77,7 +91,9 @@ async function main() {
     const fs = require('node:fs');
     const config = JSON.parse(fs.readFileSync('/opt/syzygy/data/web_config.json', 'utf8'));
     const key = selectKey(config);
-    await runProbe({ key, adapter: require('/opt/syzygy/provider-cache'), budget: require('/opt/syzygy/context-budget') });
+    // A continuation explicitly consumes only the two remaining calls of a three-call test.
+    const maxCalls = process.argv.includes('--remaining-two') ? 2 : 3;
+    await runProbe({ key, maxCalls, adapter: require('/opt/syzygy/provider-cache'), budget: require('/opt/syzygy/context-budget') });
 }
 if (require.main === module || process.argv[1] === '-') main().catch(() => {
     // Never print provider response bodies, config, keys or raw exceptions.
