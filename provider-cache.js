@@ -1,6 +1,7 @@
 'use strict';
 const crypto = require('node:crypto');
 const { stableToolSchema } = require('./tool-schema-cache');
+const { usesNativeCache, buildNativeRequest } = require('./anthropic-cache');
 const CACHE_TTL = '1h';
 
 // AIHubMix documents content-block cache_control on Chat Completions:
@@ -100,6 +101,9 @@ function prepareCachedRequest(endpoint, body, { historyEnd = -1, enabled = true,
 
 function inspectCacheRequest(body, endpoint = null, { treeSystemOnly = false } = {}) {
     const breakpoints = [];
+    if (Array.isArray(body.system)) body.system.forEach((block, blockIndex) => {
+        if (block.cache_control) breakpoints.push({ message: -1, block: blockIndex, role: 'system', placement: 'system', ttl: block.cache_control.ttl || '5m' });
+    });
     (body.messages || []).forEach((message, messageIndex) => {
         if (message.cache_control) breakpoints.push({ message: messageIndex, role: message.role, placement: 'message', ttl: message.cache_control.ttl || '5m' });
         if (Array.isArray(message.content)) message.content.forEach((block, blockIndex) => {
@@ -107,8 +111,8 @@ function inspectCacheRequest(body, endpoint = null, { treeSystemOnly = false } =
                 role: message.role, placement: 'content', ttl: block.cache_control.ttl || '5m' });
         });
     });
-    const result = { breakpoints, includeUsage: body.stream_options?.include_usage === true };
-    if (endpoint) result.strategy = cacheStrategy(endpoint, body.model, { treeSystemOnly });
+    const result = { breakpoints, includeUsage: body.system !== undefined ? body.stream === true : body.stream_options?.include_usage === true };
+    if (endpoint) result.strategy = body.system !== undefined && usesNativeCache(endpoint, body.model) ? 'anthropic-frozen-v1' : cacheStrategy(endpoint, body.model, { treeSystemOnly });
     return result;
 }
 
@@ -143,7 +147,7 @@ function inspectWireRequest(endpoint, body) {
         roles: messages.map(message => message?.role || 'unknown'),
         toolCount: tools.length,
         toolSchemaFingerprint: digest(comparableTools),
-        stablePrefix: { messages: stableMessages.length, bytes: contentSize(stableMessages), fingerprint: digest({ model: body.model, tools: comparableTools, messages: stableMessages }) },
+        stablePrefix: { messages: stableMessages.length, bytes: contentSize(stableMessages) + (body.system ? contentSize(body.system) : 0), fingerprint: digest({ model: body.model, tools: comparableTools, system: cacheComparable(body.system), messages: stableMessages }) },
         suffix: { messages: suffixMessages.length, bytes: contentSize(suffixMessages), fingerprint: digest(suffixMessages) },
         requestOptions: { keys: Object.keys(options).sort(), fingerprint: digest(options) },
     };
@@ -161,15 +165,24 @@ function cacheAdapterStatus() {
     const treeBody = { ...body, model: 'claude-opus-5-5' };
     const treePrepared = prepareCachedRequest('https://api.treegpt.cc/v1/chat/completions', treeBody, { historyEnd: 2 });
     const treeInspection = inspectCacheRequest(treePrepared, 'https://api.treegpt.cc/v1/chat/completions');
-    return { version: 3, provider: 'aihubmix', providers: ['aihubmix', 'tree'], protocol: 'chat-content-blocks', ttl: CACHE_TTL,
-        strategies: { aihubmix: 'content-history-v1', tree: 'tree-history-prefix-v2' },
+    const native = prepareProviderRequest('https://api.treegpt.cc/v1/chat/completions', treeBody, { historyEnd: 2 });
+    const nativeInspection = inspectCacheRequest(native, 'https://api.treegpt.cc/v1/chat/completions');
+    return { version: 4, provider: 'aihubmix', providers: ['aihubmix', 'tree'], protocol: 'chat-content-blocks', ttl: CACHE_TTL,
+        treeProtocol: usesNativeCache('https://api.treegpt.cc/v1', treeBody.model) ? 'anthropic-messages' : 'chat-content-blocks',
+        treeNativeCheckPassed: nativeInspection.strategy === 'anthropic-frozen-v1' && nativeInspection.breakpoints.some(p => p.placement === 'system') && nativeInspection.breakpoints.every(p => p.ttl === '1h'),
+        strategies: { aihubmix: 'content-history-v1', tree: nativeInspection.strategy },
         localCheckPassed: inspection.breakpoints.length === 2
             && inspection.breakpoints.every(b => b.placement === 'content' && b.message < 3 && b.ttl === CACHE_TTL)
             && inspection.includeUsage,
-        treeLocalCheckPassed: treeInspection.strategy === 'tree-history-prefix-v2' && treeInspection.breakpoints.length === 1
+        treeLocalCheckPassed: nativeInspection.strategy === 'anthropic-frozen-v1'
+            ? nativeInspection.breakpoints.some(p => p.placement === 'system') && nativeInspection.breakpoints.every(p => p.ttl === '1h')
+            : treeInspection.strategy === 'tree-history-prefix-v2' && treeInspection.breakpoints.length === 1
             && treeInspection.breakpoints[0].placement === 'content' && treeInspection.breakpoints[0].message === 2
             && treeInspection.breakpoints[0].ttl === CACHE_TTL && treeInspection.includeUsage,
         upstreamVerified: false };
 }
 
-module.exports = { supportsBlockCache, cacheStrategy, prepareCachedRequest, inspectCacheRequest, inspectWireRequest, cacheAdapterStatus };
+function prepareProviderRequest(endpoint, body, options = {}) {
+    return usesNativeCache(endpoint, body.model) ? buildNativeRequest(body, options) : prepareCachedRequest(endpoint, body, options);
+}
+module.exports = { supportsBlockCache, cacheStrategy, prepareCachedRequest, prepareProviderRequest, inspectCacheRequest, inspectWireRequest, cacheAdapterStatus };

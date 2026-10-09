@@ -14,6 +14,9 @@
         try { return /^\/via\/(aihubmix|tree)\//.test(new URL(url, 'https://local.invalid').pathname); }
         catch (_) { return false; }
     }
+    function isFrozenCacheRoute(url, model) {
+        return isCacheHistoryRoute(url, model) && new URL(url, 'https://local.invalid').pathname.split('/')[2] === 'tree';
+    }
     function cachedChatHistory(messages, sessionId, url, model, storage) {
         if (!isCacheHistoryRoute(url, model)) return messages.slice(-30);
         const key = 'syzygy-cache-history-v1:' + JSON.stringify([sessionId, url, model]);
@@ -37,11 +40,12 @@
             if (!response.ok) return false;
             const status = await response.json();
             const route = new URL(url, 'https://local.invalid').pathname.split('/')[2];
+            if (route === 'tree' && status.treeFrozenContext === true) return true;
             if (route === 'tree' && !status.cacheRoutes?.includes('tree')) return false;
             return status.version === 1 && status.rollingSummary === true;
         } catch (_) { return false; } finally { clearTimeout(timeout); }
     }
-    const api = { selectCacheHistory, isCacheHistoryRoute, cachedChatHistory, canUseRollingContext };
+    const api = { selectCacheHistory, isCacheHistoryRoute, isFrozenCacheRoute, cachedChatHistory, canUseRollingContext };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else Object.assign(root, api);
 })(typeof window !== 'undefined' ? window : globalThis);

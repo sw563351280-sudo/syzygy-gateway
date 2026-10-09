@@ -18,7 +18,8 @@ const { extractThinkingFromContent } = require('./public/thinking-parser');
 const { consumeOpenAIStream } = require('./streaming-chat');
 const { createChatRequestLifecycle } = require('./chat-request-lifecycle');
 const { composeContext, createBudgetObserver, mergeUsage, readConfig: readContextBudgetConfig } = require('./context-budget');
-const { prepareCachedRequest, supportsBlockCache, cacheAdapterStatus } = require('./provider-cache');
+const { prepareProviderRequest: prepareCachedRequest, supportsBlockCache, cacheAdapterStatus } = require('./provider-cache');
+const { usesNativeCache, fetchCachedProvider } = require('./anthropic-cache');
 const cacheHistoryWindow = require('./cache-history-window').createCacheHistoryWindow();
 const { createRollingContext, fileStore, createSummarizer } = require('./rolling-context');
 const { budgetDynamicParts } = require('./dynamic-budget');
@@ -761,7 +762,7 @@ function observeContextBudget(options, response) {
 function rollingContextCapabilities() {
     return { version: 1, rollingSummary: Boolean(process.env.CONTEXT_SUMMARY_API_KEY || process.env.DREAM_API_KEY || process.env.ROUTER_API_KEY),
         thresholdTokens: readContextBudgetConfig().historyTokens, recentTailTokens: 1500, dynamicSoftTokens: 3000,
-        cacheRoutes: ['aihubmix', 'tree'] };
+        cacheRoutes: ['aihubmix', 'tree'], treeFrozenContext: usesNativeCache('https://api.treegpt.cc/v1', 'claude-opus-5-5') };
 }
 const rollingContext = createRollingContext({
     store: fileStore(path.join(DATA_DIR, 'rolling-context')),
@@ -773,6 +774,10 @@ const rollingContext = createRollingContext({
         apiKey: process.env.CONTEXT_SUMMARY_API_KEY || process.env.DREAM_API_KEY || process.env.ROUTER_API_KEY || '',
     })(input),
     log: event => console.log('[ContextBudget]', JSON.stringify(event)),
+});
+const frozenContextArchive = createRollingContext({
+    store: fileStore(path.join(DATA_DIR, 'frozen-context')),
+    rawOnly: true,
 });
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 let music;
@@ -7542,6 +7547,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             clientCacheVersion: body.cacheClientVersion === 2 ? 2 : null }, res);
         delete body.cacheClientVersion; // Local diagnostics, never send to the provider.
         const contextProtocol = body.contextProtocol;
+        const cacheScope = typeof body.activeChatId === 'string' ? body.activeChatId : 'main';
         delete body.contextProtocol; // Gateway-only metadata must never reach a provider.
         const workroomDiscussion = body.activeChatId === 'syzygy-workroom';
         const noMemory = req.headers['x-no-memory'] === 'true';
@@ -7854,7 +7860,14 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 : prefix + finalUserContent;
         }
         let projectedHistory = newMessages.map(({ _contextId, _contextRevision, ...message }) => message);
-        if (contextProtocol?.version === 1 && typeof contextProtocol.sessionId === 'string'
+        if (contextProtocol?.version === 1 && contextProtocol.mode === 'frozen-v1'
+            && !isOpenClawRequest && usesNativeCache(resolveApiUrl(req.path), body.model)) {
+            // Resume browser-omitted history only with the existing revision proof.
+            // No paid summarizer and no sliding slice of the frozen source.
+            projectedHistory = await frozenContextArchive.project(
+                [contextProtocol.sessionId || cacheScope, resolveApiUrl(req.path), body.model, req.headers?.authorization || ''],
+                newMessages, null, contextProtocol.prefix, lifecycle.signal);
+        } else if (contextProtocol?.version === 1 && typeof contextProtocol.sessionId === 'string'
             && contextProtocol.sessionId.length <= 200 && !isOpenClawRequest
             && supportsBlockCache(resolveApiUrl(req.path), body.model)) {
             // Foreign-platform inserts have no frontend ID. Their occurrence and
@@ -8083,9 +8096,9 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             toolRound++;
             const roundLabel = `第${toolRound}轮`;
             console.log(`🔧 [工具] ${roundLabel}请求（${enabledTools.length}个工具）...`);
-            const toolWireBody = prepareCachedRequest(apiUrl, toolBody, { historyEnd: bodyMessages.indexOf(contextParts.currentMessage) - 1 });
+            const toolWireBody = prepareCachedRequest(apiUrl, toolBody, { historyEnd: bodyMessages.indexOf(contextParts.currentMessage) - 1, scope: cacheScope });
             const budgetCall = contextBudget.request(toolWireBody);
-            const toolResponse = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(toolWireBody), signal: lifecycle.signal });
+            const toolResponse = await fetchCachedProvider(apiUrl, toolWireBody, { headers: apiHeaders, signal: lifecycle.signal });
 
             if (!toolResponse.ok) {
                 const errStatus = toolResponse.status;
@@ -8122,6 +8135,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                             content: streamed.content || null,
                             reasoning_content: streamed.reasoning || null,
                             tool_calls: streamed.toolCalls,
+                            ...(streamed.anthropicContent ? { _anthropic_content: streamed.anthropicContent } : {}),
                         },
                     }],
                 };
@@ -8142,7 +8156,8 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 }
                 lastToolSig = thisSig;
                 console.log(`🔧 [工具] AI请求调用${curMessage.tool_calls.length}个工具`);
-                body.messages.push({ role: 'assistant', content: curMessage.content || null, tool_calls: curMessage.tool_calls });
+                body.messages.push({ role: 'assistant', content: curMessage.content || null, tool_calls: curMessage.tool_calls,
+                    ...(curMessage._anthropic_content ? { _anthropic_content: curMessage._anthropic_content } : {}) });
                 for (const tc of curMessage.tool_calls) {
                     lifecycle.signal.throwIfAborted();
                     let fnArgs = {};
@@ -8225,7 +8240,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         }
 
         // 多轮工具调用后仍无最终回复→继续走原来的fetch逻辑
-        if (maxToolRounds <= 0) {
+        if (maxToolRounds <= 0 && !usesNativeCache(apiUrl, body.model)) {
             console.log(`🔧 [工具] 已达最大轮次，压缩工具结果后继续`);
             const toolResults = [];
             for (const m of body.messages) { if (m.role === 'tool' && m.content) toolResults.push(m.content); }
@@ -8240,10 +8255,15 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             delete body.tools; delete body.tool_choice;
         }
 
-        const finalWireBody = prepareCachedRequest(apiUrl, body, { historyEnd: body.messages.indexOf(contextParts.currentMessage) - 1 });
+        if (usesNativeCache(apiUrl, body.model) && filteredTools.length) {
+            body.tools = filteredTools.map(({ _mcp, ...tool }) => tool);
+            body.tool_choice = 'none';
+            if (body.messages.at(-1)?.role === 'assistant') body.messages.push({ role: 'user', content: '请根据已取得的信息回答当前问题，不再调用工具。' });
+        }
+        const finalWireBody = prepareCachedRequest(apiUrl, body, { historyEnd: body.messages.indexOf(contextParts.currentMessage) - 1, scope: cacheScope });
         const finalBudgetCall = contextBudget.request(finalWireBody);
         lifecycle.signal.throwIfAborted();
-        const response = await fetch(apiUrl, { method: 'POST', headers: apiHeaders, body: JSON.stringify(finalWireBody), signal: lifecycle.signal });
+        const response = await fetchCachedProvider(apiUrl, finalWireBody, { headers: apiHeaders, signal: lifecycle.signal });
         if (!response.ok) {
             const errText = await response.text();
             if (isStreamMode) { res.write(`data: [ERROR]${errText.substring(0,500)}\n\n`); res.end(); return; }
@@ -9726,10 +9746,8 @@ app.post('/api/web-chat', async (req, res) => {
                     console.log(`🔧 [web-chat工具] ${roundLabel}请求...`);
                     const webToolWireBody = prepareCachedRequest(baseUrl, toolFetchBody, { historyEnd: apiMessages.indexOf(webContextParts.currentMessage) - 1 });
                     const webBudgetCall = webContextBudget.request(webToolWireBody);
-                    const toolRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-                        method: 'POST',
+                    const toolRes = await fetchCachedProvider(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, webToolWireBody, {
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                        body: JSON.stringify(webToolWireBody)
                     });
 
                     if (!toolRes.ok) {
@@ -9753,7 +9771,8 @@ app.post('/api/web-chat', async (req, res) => {
                         if (thisSig === webLastSig) { console.log(`🔧 [web-chat工具] 检测到重复调用，中断`); apiMessages.push({ role: 'assistant', content: '（已获取足够信息）' }); break; }
                         webLastSig = thisSig;
                         console.log(`🔧 [web-chat工具] AI请求调用${curMsg.tool_calls.length}个工具`);
-                        apiMessages.push({ role: 'assistant', content: curMsg.content || null, tool_calls: curMsg.tool_calls });
+                        apiMessages.push({ role: 'assistant', content: curMsg.content || null, tool_calls: curMsg.tool_calls,
+                            ...(curMsg._anthropic_content ? { _anthropic_content: curMsg._anthropic_content } : {}) });
                         for (const tc of curMsg.tool_calls) {
                             let fnArgs = {};
                             try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
@@ -9786,6 +9805,7 @@ app.post('/api/web-chat', async (req, res) => {
                 }
 
                 // 压缩工具结果保留，防止数据丢失
+                if (!usesNativeCache(baseUrl, webModelName)) {
                 const toolResults = [];
                 for (const m of apiMessages) { if (m.role === 'tool' && m.content) toolResults.push(m.content); }
                 fetchBody.messages = apiMessages.filter(m => m.role !== 'tool' && !(m.role === 'assistant' && m.tool_calls));
@@ -9797,12 +9817,18 @@ app.post('/api/web-chat', async (req, res) => {
                     console.log(`🔧 [web-chat工具压缩] ${toolResults.length}段 → ${truncated.length}字符`);
                 }
 
+                } else {
+                    fetchBody.messages = apiMessages;
+                    if (filteredTools.length) {
+                        fetchBody.tools = filteredTools.map(({ _mcp, ...tool }) => tool);
+                        fetchBody.tool_choice = 'none';
+                        if (fetchBody.messages.at(-1)?.role === 'assistant') fetchBody.messages.push({ role: 'user', content: '请根据已取得的信息回答当前问题，不再调用工具。' });
+                    }
+                }
                 const webFinalWireBody = prepareCachedRequest(baseUrl, fetchBody, { historyEnd: fetchBody.messages.indexOf(webContextParts.currentMessage) - 1 });
                 const webFinalBudgetCall = webContextBudget.request(webFinalWireBody);
-                const aiRes = await fetch(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
-                    method: 'POST',
+                const aiRes = await fetchCachedProvider(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, webFinalWireBody, {
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                    body: JSON.stringify(webFinalWireBody)
                 });
 
                 if (!aiRes.ok) {

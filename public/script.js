@@ -2606,7 +2606,7 @@ async function sendChat(options = {}) {
     // Send original available history to our gateway; it archives and projects it.
     // Other channels keep their existing window. No provider receives these IDs.
     const retainedImages = ChatWindowContext.imageWindow(session.messages, getActiveVersion);
-    const useRollingContext = !isWorkroomSession(session) && !retainedImages.size && await canUseRollingContext(currentSup.url, selectedModel, fetch);
+    const useRollingContext = !isWorkroomSession(session) && (!retainedImages.size || isFrozenCacheRoute(currentSup.url, selectedModel)) && await canUseRollingContext(currentSup.url, selectedModel, fetch);
     if (isCacheHistoryRoute(currentSup.url, selectedModel)) ContextContinuity.ensureMessageIds([session], () => crypto.randomUUID());
     let historyStorage;
     try { historyStorage = window.sessionStorage; } catch (_) {}
@@ -2661,7 +2661,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         const reqBody = {
             model: selectedModel,
             cacheClientVersion: 2,
-            ...(useRollingContext ? { contextProtocol: { version: 1, sessionId: session.id, prefix: session.contextPrefix || null } } : {}),
+            ...(useRollingContext ? { contextProtocol: { version: 1, mode: isFrozenCacheRoute(currentSup.url, selectedModel) ? 'frozen-v1' : 'summary-v1', sessionId: session.id, prefix: session.contextPrefix || null } } : {}),
             activeChatId: session.id,
             messages: historyMsgs,
             stream: isStream
@@ -4461,7 +4461,7 @@ async function regenerateSend(aiMsgIndex) {
     const selectedModel = (modelEl && modelEl.value) ? modelEl.value : 'gemini-2-flash';
     const regenerationMessages = session.messages.slice(0, aiMsgIndex);
     const retainedImages = ChatWindowContext.imageWindow(regenerationMessages, getActiveVersion);
-    const useRollingContext = !isWorkroomSession(session) && !retainedImages.size && await canUseRollingContext(currentSup.url, selectedModel, fetch);
+    const useRollingContext = !isWorkroomSession(session) && (!retainedImages.size || isFrozenCacheRoute(currentSup.url, selectedModel)) && await canUseRollingContext(currentSup.url, selectedModel, fetch);
     if (isCacheHistoryRoute(currentSup.url, selectedModel)) ContextContinuity.ensureMessageIds([session], () => crypto.randomUUID());
     if (!useRollingContext && !isWorkroomSession(session) && isCacheHistoryRoute(currentSup.url, selectedModel)) {
         let historyStorage;
@@ -4490,7 +4490,7 @@ async function regenerateSend(aiMsgIndex) {
         const isStream = streamToggle ? streamToggle.checked : true;
         request.signal.throwIfAborted();
         request.touch();
-        const response = await fetch(apiUrl, { method:'POST', signal:request.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,cacheClientVersion:2,messages:historyMsgs,stream:isStream,activeChatId:session.id,...(useRollingContext?{contextProtocol:{version:1,sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
+        const response = await fetch(apiUrl, { method:'POST', signal:request.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,cacheClientVersion:2,messages:historyMsgs,stream:isStream,activeChatId:session.id,...(useRollingContext?{contextProtocol:{version:1,mode:isFrozenCacheRoute(currentSup.url,selectedModel)?'frozen-v1':'summary-v1',sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
         if (!response.ok) { const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         if(isStream) {
             sDiv.innerHTML='<span class="loading-indicator">⟡ 正在等待回复…</span>';

@@ -38,6 +38,7 @@ test('free readiness check gates expanded history on configured server support',
     assert.equal(await canUseRollingContext('/via/other/v1', model, () => assert.fail('other routes untouched')), false);
     assert.equal(await canUseRollingContext('/via/tree/v1/chat/completions', 'claude-opus-5-5', async () => ({ ok: true, json: async () => ({ version: 1, rollingSummary: true }) })), false);
     assert.equal(await canUseRollingContext('/via/tree/v1/chat/completions', 'claude-opus-5-5', async () => ({ ok: true, json: async () => ({ version: 1, rollingSummary: true, cacheRoutes: ['tree'] }) })), true);
+    assert.equal(await canUseRollingContext('/via/tree/v1/chat/completions', 'claude-opus-5-5', async () => ({ ok: true, json: async () => ({ version: 1, rollingSummary: false, treeFrozenContext: true }) })), true);
 });
 
 test('history prefix stays identical during append then rotates within a bound', () => {

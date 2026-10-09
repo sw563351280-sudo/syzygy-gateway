@@ -195,7 +195,7 @@ function createBudgetObserver({ endpoint, model, conversationId = null, clientCa
             emit({ event: 'request', call: id, kind, callHost, callModel, turn: totals(), estimatesOnly: true,
                 toolSchema,
                 wire,
-                messages: measureMessages(body.messages),
+                messages: measureMessages([...(Array.isArray(body.system) ? [{ role: 'system', content: body.system }] : []), ...(body.messages || [])]),
                 toolTokens: estimateText(JSON.stringify(body.tools || [])),
                 toolCount: (body.tools || []).length,
                 cacheRequest: inspectCacheRequest(body),

@@ -8,12 +8,13 @@
             : 'AIHubMix 缓存格式：尚未确认，请检查服务是否更新并重启'];
         if (!status.enabled) lines.push('费用观测已关闭，无法更新实际缓存结果。');
         const request = status.latestCacheRequest;
+        if (status.cacheAdapter?.treeProtocol === 'anthropic-messages') lines.push('TreeGPT：Anthropic 原生接口 · 原文每 8 轮分段冻结 · 不调用摘要模型；仍需以上游实际读写为准。');
         if (request) {
             const points = request.breakpoints || [];
             const labels = { '1h': '1 小时', '5m': '5 分钟' };
             lines.push(`最近实际请求：${request.host} / ${request.model} · 缓存断点 ${points.length} 个`);
             lines.push(points.length
-                ? '实际缓存参数：' + points.map(p => `${p.placement === 'content' ? '内容块' : '消息级'} ${p.role} · ${labels[p.ttl] || '时长未知'}`).join('；') + '（是否接受、命中以上游用量为准）'
+                ? '实际缓存参数：' + points.map(p => `${p.placement === 'system' ? '原生系统块' : p.placement === 'content' ? '内容块' : '消息级'} ${p.role} · ${labels[p.ttl] || '时长未知'}`).join('；') + '（是否接受、命中以上游用量为准）'
                 : '本次请求没有显式缓存断点；本地自检通过不代表此渠道启用了缓存。');
         }
         if (status.contextOptimization) lines.push(status.contextOptimization.rollingSummary

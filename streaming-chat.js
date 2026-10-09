@@ -73,6 +73,7 @@ async function consumeOpenAIStream(stream, onChunk = null) {
     buffer += decoder.decode();
     if (!completed && buffer.trim()) await consumeLine(buffer);
     result.toolCalls = result.toolCalls.filter(Boolean);
+    if (stream.anthropicContent) result.anthropicContent = stream.anthropicContent;
     return result;
     } finally {
         if (completed) await reader.cancel().catch(() => {});

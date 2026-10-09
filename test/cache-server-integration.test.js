@@ -8,6 +8,28 @@ const { prepareCachedRequest, inspectCacheRequest, cacheAdapterStatus } = requir
 const { mergeUsage, readConfig, normalizeUsage } = require('../context-budget');
 const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
+test('native frozen browser protocol retains original available history without paid summaries', async () => {
+    const begin = source.indexOf('let projectedHistory =');
+    const end = source.indexOf('body.messages = bodyMessages;', begin) + 'body.messages = bodyMessages;'.length;
+    const messages = Array.from({ length: 80 }, (_, i) => ({ _contextId: 'id' + i, _contextRevision: 'revision', role: i % 2 ? 'assistant' : 'user', content: 'text ' + i }));
+    const body = { model: 'claude-opus-5-5' };
+    await vm.runInNewContext(`(async () => { ${source.slice(begin, end)} })()`, {
+        newMessages: messages, incomingMessages: messages, contextProtocol: { version: 1, mode: 'frozen-v1', sessionId: 'same' }, isOpenClawRequest: false,
+        usesNativeCache: require('../anthropic-cache').usesNativeCache,
+        cacheScope: 'same', lifecycle: { signal: new AbortController().signal },
+        frozenContextArchive: require('../rolling-context').createRollingContext({ rawOnly: true, store: { read() { return null; }, write() {} } }),
+        resolveApiUrl: () => 'https://api.treegpt.cc/v1/chat/completions', req: { path: '/' }, body,
+        systemMsg: { role: 'system', content: 'persona' }, finalUserContent: 'current dynamics', composeContext: require('../context-budget').composeContext,
+        rollingContext: { project() { assert.fail('freezing must not summarize'); } },
+    });
+    assert.equal(body.messages.length, 82);
+    assert.ok(body.messages.every(m => !('_contextId' in m) && !('_contextRevision' in m)));
+    assert.equal(body.messages.at(-1).content, 'current dynamics');
+    const wire = require('../provider-cache').prepareProviderRequest('https://api.treegpt.cc/v1/chat/completions', body, { historyEnd: 80 });
+    assert.equal(wire.system.length, 2);
+    assert.equal(wire.messages.length, 5);
+});
+
 test('actual gateway stabilizes legacy browser history only with authenticated saved-session proof', async () => {
     const begin = source.indexOf('let projectedHistory =');
     const end = source.indexOf('body.messages = bodyMessages;', begin) + 'body.messages = bodyMessages;'.length;
@@ -171,12 +193,14 @@ for (const [start, end] of [
     const parts = { currentMessage: messages[2] };
     const observed = [], sent = [];
     const observer = { request(value) { observed.push(JSON.stringify(value)); return 1; } };
-    const context = { prepareCachedRequest, body, toolBody: body, toolFetchBody: body, fetchBody: body,
+    const fakeFetch = async (_url, options) => { sent.push(options.body); return { ok: false }; };
+    const context = { prepareCachedRequest: require('../provider-cache').prepareProviderRequest, body, toolBody: body, toolFetchBody: body, fetchBody: body,
+        cacheScope: 'test', fetchCachedProvider: (url, request, options) => require('../anthropic-cache').fetchCachedProvider(url, request, { ...options, fetchImpl: fakeFetch }),
         lifecycle: { signal: new AbortController().signal },
         bodyMessages: messages, apiMessages: messages, contextParts: parts, webContextParts: parts,
         contextBudget: observer, webContextBudget: observer, apiUrl: endpoint,
         baseUrl: endpoint, apiHeaders: {}, apiKey: 'test',
-        fetch: async (_url, options) => { sent.push(options.body); return {}; } };
+        fetch: fakeFetch };
     const offset = source.indexOf(start);
     assert.ok(offset >= 0);
     await vm.runInNewContext(`(async () => { ${source.slice(offset, source.indexOf(end, offset))} })()`, context);
@@ -187,8 +211,8 @@ for (const [start, end] of [
     assert.equal(cacheInspection.breakpoints.length, expectedBreakpoints);
     assert.ok(cacheInspection.breakpoints.every(b => b.ttl === '1h'));
     if (expectedBreakpoints === 1) {
-        assert.equal(cacheInspection.strategy, 'tree-history-prefix-v2');
-        assert.equal(cacheInspection.breakpoints[0].message, JSON.parse(sent[0]).messages.length - 2);
+        assert.equal(cacheInspection.strategy, 'anthropic-frozen-v1');
+        assert.equal(cacheInspection.breakpoints[0].placement, 'system');
     }
     assert.equal(typeof messages[0].content, 'string');
 });

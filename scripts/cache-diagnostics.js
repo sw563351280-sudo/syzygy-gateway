@@ -68,6 +68,7 @@ if (require.main === module || process.argv[1] === '-') {
             const committed = execFileSync('git', ['show', `HEAD:${relative}`], { cwd: '/opt/syzygy', encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
             assets[name] = { matchesDeployedCommit: actual === committed };
             if (name === 'index.html') assets[name].loadsCacheV2 = actual.includes('script.js?v=20261009-cache-v2');
+            if (name === 'index.html') assets[name].loadsNativeCacheV3 = actual.includes('script.js?v=20261009-native-cache-v3');
             if (name === 'script.js') assets[name].sendsCacheV2 = actual.includes('cacheClientVersion: 2') && actual.includes('cacheClientVersion:2');
         }
         console.log(JSON.stringify({ event: 'frontend_assets', assets }));
