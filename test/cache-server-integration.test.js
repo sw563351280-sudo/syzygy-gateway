@@ -186,7 +186,10 @@ for (const [start, end] of [
     const expectedBreakpoints = endpoint.includes('api.treegpt.cc') ? 1 : 2;
     assert.equal(cacheInspection.breakpoints.length, expectedBreakpoints);
     assert.ok(cacheInspection.breakpoints.every(b => b.ttl === '1h'));
-    if (expectedBreakpoints === 1) assert.equal(cacheInspection.strategy, 'tree-system-tools-v1');
+    if (expectedBreakpoints === 1) {
+        assert.equal(cacheInspection.strategy, 'tree-history-prefix-v2');
+        assert.equal(cacheInspection.breakpoints[0].message, JSON.parse(sent[0]).messages.length - 2);
+    }
     assert.equal(typeof messages[0].content, 'string');
 });
 

@@ -22,6 +22,12 @@ function safeEvent(line) {
                 roles: Array.isArray(e.wire.roles) ? e.wire.roles.filter(role => ['system', 'user', 'assistant', 'tool'].includes(role)) : [],
                 toolCount: e.wire.toolCount,
                 breakpoints: (e.wire.breakpoints || []).map(p => ({ ...numbers(p, ['message', 'block']), role: p.role, placement: p.placement, ttl: p.ttl })),
+                cachedSpanState: ['first', 'stable', 'changed'].includes(e.wire.cachedSpanState) ? e.wire.cachedSpanState : null,
+                cachedSpan: e.wire.stablePrefix ? {
+                    ...numbers(e.wire.stablePrefix, ['messages', 'bytes']),
+                    fingerprint: typeof e.wire.stablePrefix.fingerprint === 'string' && /^[a-f0-9]{16}$/.test(e.wire.stablePrefix.fingerprint)
+                        ? e.wire.stablePrefix.fingerprint : null,
+                } : null,
                 stablePrefix: e.wire.stablePrefix ? numbers(e.wire.stablePrefix, ['messages', 'bytes']) : null,
                 suffix: e.wire.suffix ? numbers(e.wire.suffix, ['messages', 'bytes']) : null,
                 requestOptions: e.wire.requestOptions ? { keys: Array.isArray(e.wire.requestOptions.keys) ? e.wire.requestOptions.keys.filter(k => /^[a-z_]+$/.test(k)) : [] } : null,

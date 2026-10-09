@@ -4,6 +4,8 @@ const assert = require('node:assert/strict');
 const { prepareCachedRequest, inspectCacheRequest, inspectWireRequest, cacheStrategy, cacheAdapterStatus } = require('../provider-cache');
 const endpoint = 'https://aihubmix.com/v1/chat/completions';
 const treeEndpoint = 'https://api.treegpt.cc/v1/chat/completions';
+const cacheFree = value => JSON.parse(JSON.stringify(value, (key, item) => key === 'cache_control' ? undefined : item));
+const cacheFreeContent = value => typeof value?.content === 'string' ? value.content : value?.content?.map(block => block.text || '').join('');
 const fixture = () => ({ model: 'claude-opus-4-6-think', stream: true, max_tokens: 4096,
     thinking: { type: 'enabled', budget_tokens: 2048 }, stream_options: { other: true },
     messages: [ { role: 'system', content: 'rules', cache_control: { type: 'ephemeral' } },
@@ -11,13 +13,14 @@ const fixture = () => ({ model: 'claude-opus-4-6-think', stream: true, max_token
         { role: 'user', content: 'changing runtime and question', cache_control: { type: 'ephemeral' } } ],
     tools: [{ type: 'function', function: { name: 'read', parameters: { type: 'object' } } }] });
 
-test('TreeGPT Opus 5.5 defaults to one stable system/tools breakpoint', () => {
+test('TreeGPT Opus 5.5 defaults to one stable history-prefix breakpoint', () => {
     const body = { ...fixture(), model: 'claude-opus-5-5' };
     const wire = prepareCachedRequest(treeEndpoint, body, { historyEnd: 2 });
     assert.notEqual(wire, body);
-    assert.deepEqual(inspectCacheRequest(wire, treeEndpoint), { strategy: 'tree-system-tools-v1', breakpoints: [
-        { message: 0, block: 0, role: 'system', placement: 'content', ttl: '1h' }
+    assert.deepEqual(inspectCacheRequest(wire, treeEndpoint), { strategy: 'tree-history-prefix-v2', breakpoints: [
+        { message: 2, block: 0, role: 'assistant', placement: 'content', ttl: '1h' }
     ], includeUsage: true });
+    assert.equal(wire.messages[0].cache_control, undefined);
     assert.equal(wire.messages[3].cache_control, undefined);
     assert.equal(cacheAdapterStatus().treeLocalCheckPassed, true);
     for (const badEndpoint of ['http://api.treegpt.cc/v1', 'https://api.treegpt.cc.other.test/v1']) {
@@ -25,11 +28,12 @@ test('TreeGPT Opus 5.5 defaults to one stable system/tools breakpoint', () => {
     }
 });
 
-test('TreeGPT history breakpoint is opt-in experimental while AIHubMix retains two breakpoints', () => {
-    const tree = prepareCachedRequest(treeEndpoint, { ...fixture(), model: 'claude-opus-5-5' }, { historyEnd: 2, historyBreakpoint: true });
-    assert.equal(cacheStrategy(treeEndpoint, 'claude-opus-5-5', { historyBreakpoint: true }), 'tree-history-experiment-v1');
-    assert.equal(inspectCacheRequest(tree, treeEndpoint, { historyBreakpoint: true }).strategy, 'tree-history-experiment-v1');
-    assert.equal(inspectCacheRequest(tree, treeEndpoint, { historyBreakpoint: true }).breakpoints.length, 2);
+test('TreeGPT can explicitly roll back to one system/tools breakpoint while AIHubMix retains two', () => {
+    const tree = prepareCachedRequest(treeEndpoint, { ...fixture(), model: 'claude-opus-5-5' }, { historyEnd: 2, treeSystemOnly: true });
+    assert.equal(cacheStrategy(treeEndpoint, 'claude-opus-5-5', { treeSystemOnly: true }), 'tree-system-tools-v1');
+    assert.deepEqual(inspectCacheRequest(tree, treeEndpoint, { treeSystemOnly: true }).breakpoints, [
+        { message: 0, block: 0, role: 'system', placement: 'content', ttl: '1h' }
+    ]);
     const wire = prepareCachedRequest(endpoint, fixture(), { historyEnd: 2 });
     assert.deepEqual(inspectCacheRequest(wire), { breakpoints: [
         { message: 0, block: 0, role: 'system', placement: 'content', ttl: '1h' },
@@ -48,15 +52,20 @@ test('wire payload canonicalizes tools, preserves settings and never changes con
     assert.equal(wire.stream_options.other, true);
 });
 
-test('TreeGPT stable prefix remains identical when history or dynamic suffix changes', () => {
+test('TreeGPT cached prefix grows only with append-only history and excludes dynamic suffix', () => {
     const body = { ...fixture(), model: 'claude-opus-5-5' };
     const first = prepareCachedRequest(treeEndpoint, body, { historyEnd: 2 });
     const next = { ...fixture(), model: 'claude-opus-5-5' };
-    next.messages[1].content = 'rotated historical question';
     next.messages[3].content = 'different time, RAG and user question';
-    const second = prepareCachedRequest(treeEndpoint, next, { historyEnd: 2 });
-    assert.deepEqual(first.messages[0], second.messages[0]);
-    assert.notDeepEqual(first.messages.slice(1), second.messages.slice(1));
+    next.messages.splice(3, 0, { role: 'assistant', content: 'new reply' }, { role: 'user', content: 'next historical turn' });
+    const second = prepareCachedRequest(treeEndpoint, next, { historyEnd: 4 });
+    const firstWire = inspectWireRequest(treeEndpoint, first);
+    const secondWire = inspectWireRequest(treeEndpoint, second);
+    assert.deepEqual(first.messages.slice(0, 3).map(cacheFreeContent), second.messages.slice(0, 3).map(cacheFreeContent));
+    assert.equal(inspectCacheRequest(second, treeEndpoint).breakpoints[0].message, 4);
+    assert.equal(firstWire.stablePrefix.messages, 3);
+    assert.equal(secondWire.stablePrefix.messages, 5);
+    assert.notEqual(firstWire.stablePrefix.fingerprint, secondWire.stablePrefix.fingerprint);
     assert.equal(inspectCacheRequest(second, treeEndpoint).breakpoints.length, 1);
 });
 
@@ -64,10 +73,10 @@ test('redacted wire diagnostics fingerprint the final payload without prompt or 
     const body = prepareCachedRequest(treeEndpoint, { ...fixture(), model: 'claude-opus-5-5' }, { historyEnd: 2 });
     const diagnostic = inspectWireRequest(treeEndpoint, body);
     assert.equal(diagnostic.host, 'api.treegpt.cc');
-    assert.equal(diagnostic.strategy, 'tree-system-tools-v1');
+    assert.equal(diagnostic.strategy, 'tree-history-prefix-v2');
     assert.equal(diagnostic.toolCount, 1);
     assert.deepEqual(diagnostic.roles, ['system', 'user', 'assistant', 'user']);
-    assert.equal(diagnostic.stablePrefix.messages, 1);
+    assert.equal(diagnostic.stablePrefix.messages, 3);
     assert.ok(/^[a-f0-9]{16}$/.test(diagnostic.stablePrefix.fingerprint));
     assert.ok(/^[a-f0-9]{16}$/.test(diagnostic.toolSchemaFingerprint));
     assert.doesNotMatch(JSON.stringify(diagnostic), /rules|past question|changing runtime|parameters|read/);

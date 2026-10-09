@@ -20,12 +20,14 @@ function supportsBlockCache(endpoint, model) {
         && /^claude-/i.test(model || '');
 }
 
-// TreeGPT's OpenAI-compatible Claude translation has demonstrated a stable
-// system/tools prefix hit. Do not ask it to translate a second historical
-// breakpoint until that behavior is explicitly validated upstream.
-function cacheStrategy(endpoint, model, { historyBreakpoint = false } = {}) {
+// TreeGPT's OpenAI-compatible Claude translation caches the full prefix ending at
+// the last explicit breakpoint. Put that breakpoint after stable history so the
+// large reusable span includes tools, system, and history—not only system text.
+// SYZYGY_TREE_CACHE=system-only rolls back to the v1 system-only breakpoint.
+function cacheStrategy(endpoint, model, { treeSystemOnly = false } = {}) {
     if (!supportsBlockCache(endpoint, model)) return 'none';
-    if (cacheHost(endpoint) === TREEGPT_HOST) return historyBreakpoint ? 'tree-history-experiment-v1' : 'tree-system-tools-v1';
+    const systemOnly = treeSystemOnly || process.env.SYZYGY_TREE_CACHE === 'system-only';
+    if (cacheHost(endpoint) === TREEGPT_HOST) return systemOnly ? 'tree-system-tools-v1' : 'tree-history-prefix-v2';
     return 'content-history-v1';
 }
 
@@ -48,10 +50,10 @@ function selectedRequestOptions(body) {
 
 // Returns a wire copy; never saves cache metadata in the user's conversation.
 // historyEnd is fixed BEFORE tool rounds append dynamic user / tool messages.
-function prepareCachedRequest(endpoint, body, { historyEnd = -1, enabled = true, historyBreakpoint = false } = {}) {
+function prepareCachedRequest(endpoint, body, { historyEnd = -1, enabled = true, treeSystemOnly = false } = {}) {
     if (!enabled || !supportsBlockCache(endpoint, body.model)) return body;
     const result = JSON.parse(JSON.stringify(body));
-    const strategy = cacheStrategy(endpoint, result.model, { historyBreakpoint });
+    const strategy = cacheStrategy(endpoint, result.model, { treeSystemOnly });
     delete result.cache_control; // Do not also auto-cache the volatile suffix.
     for (const message of result.messages || []) {
         delete message.cache_control;
@@ -77,18 +79,26 @@ function prepareCachedRequest(endpoint, body, { historyEnd = -1, enabled = true,
         return true;
     }
     const systemIndex = (result.messages || []).findIndex(m => m.role === 'system');
-    if (systemIndex >= 0) mark(systemIndex);
-    if (strategy === 'content-history-v1' || strategy === 'tree-history-experiment-v1') {
+    const tree = cacheHost(endpoint) === TREEGPT_HOST;
+    let markedHistory = false;
+    if (systemIndex >= 0 && (!tree || treeSystemOnly)) mark(systemIndex);
+    if ((!tree && strategy === 'content-history-v1') || (tree && !treeSystemOnly)) {
         // Caller gives the original current-message boundary, not the last user in a tool round.
         if (Number.isInteger(historyEnd) && historyEnd >= 0 && historyEnd < result.messages.length - 1) {
-            for (let i = historyEnd; i > systemIndex; i--) if (mark(i)) break;
+            // TreeGPT uses this single history breakpoint; AIHubMix adds it after system.
+            for (let i = historyEnd; i > systemIndex; i--) {
+                if (mark(i)) { markedHistory = true; break; }
+            }
         }
     }
+    // Short/new TreeGPT conversations have no historical text to mark yet.
+    // Fall back to the stable system/tools prefix rather than disabling caching.
+    if (tree && !treeSystemOnly && !markedHistory && systemIndex >= 0) mark(systemIndex);
     if (result.stream === true) result.stream_options = { ...result.stream_options, include_usage: true };
     return result;
 }
 
-function inspectCacheRequest(body, endpoint = null, { historyBreakpoint = false } = {}) {
+function inspectCacheRequest(body, endpoint = null, { treeSystemOnly = false } = {}) {
     const breakpoints = [];
     (body.messages || []).forEach((message, messageIndex) => {
         if (message.cache_control) breakpoints.push({ message: messageIndex, role: message.role, placement: 'message', ttl: message.cache_control.ttl || '5m' });
@@ -98,8 +108,16 @@ function inspectCacheRequest(body, endpoint = null, { historyBreakpoint = false 
         });
     });
     const result = { breakpoints, includeUsage: body.stream_options?.include_usage === true };
-    if (endpoint) result.strategy = cacheStrategy(endpoint, body.model, { historyBreakpoint });
+    if (endpoint) result.strategy = cacheStrategy(endpoint, body.model, { treeSystemOnly });
     return result;
+}
+
+function cacheComparable(value) {
+    if (Array.isArray(value)) return value.map(cacheComparable);
+    if (!value || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.entries(value)
+        .filter(([key]) => key !== 'cache_control')
+        .map(([key, item]) => [key, cacheComparable(item)]));
 }
 
 // Hashes are deliberately over full wire values but only the fixed-size digest,
@@ -110,9 +128,11 @@ function inspectWireRequest(endpoint, body) {
     const stableEnd = inspection.breakpoints.length
         ? Math.max(...inspection.breakpoints.map(point => point.message)) + 1
         : 0;
-    const stableMessages = messages.slice(0, stableEnd);
+    const cachedMessages = cacheComparable(messages.slice(0, stableEnd));
+    const stableMessages = cachedMessages;
     const suffixMessages = messages.slice(stableEnd);
     const tools = Array.isArray(body.tools) ? body.tools : [];
+    const comparableTools = cacheComparable(tools);
     const options = selectedRequestOptions(body);
     return {
         host: cacheHost(endpoint),
@@ -122,8 +142,8 @@ function inspectWireRequest(endpoint, body) {
         messageCount: messages.length,
         roles: messages.map(message => message?.role || 'unknown'),
         toolCount: tools.length,
-        toolSchemaFingerprint: digest(tools),
-        stablePrefix: { messages: stableMessages.length, bytes: contentSize(stableMessages), fingerprint: digest({ model: body.model, tools, messages: stableMessages }) },
+        toolSchemaFingerprint: digest(comparableTools),
+        stablePrefix: { messages: stableMessages.length, bytes: contentSize(stableMessages), fingerprint: digest({ model: body.model, tools: comparableTools, messages: stableMessages }) },
         suffix: { messages: suffixMessages.length, bytes: contentSize(suffixMessages), fingerprint: digest(suffixMessages) },
         requestOptions: { keys: Object.keys(options).sort(), fingerprint: digest(options) },
     };
@@ -138,15 +158,16 @@ function cacheAdapterStatus() {
     ] };
     const prepared = prepareCachedRequest('https://aihubmix.com/v1/chat/completions', body, { historyEnd: 2 });
     const inspection = inspectCacheRequest(prepared, 'https://aihubmix.com/v1/chat/completions');
-    const treeInspection = inspectCacheRequest(prepareCachedRequest('https://api.treegpt.cc/v1/chat/completions',
-        { ...body, model: 'claude-opus-5-5' }, { historyEnd: 2 }), 'https://api.treegpt.cc/v1/chat/completions');
-    return { version: 2, provider: 'aihubmix', providers: ['aihubmix', 'tree'], protocol: 'chat-content-blocks', ttl: CACHE_TTL,
-        strategies: { aihubmix: 'content-history-v1', tree: 'tree-system-tools-v1' },
+    const treeBody = { ...body, model: 'claude-opus-5-5' };
+    const treePrepared = prepareCachedRequest('https://api.treegpt.cc/v1/chat/completions', treeBody, { historyEnd: 2 });
+    const treeInspection = inspectCacheRequest(treePrepared, 'https://api.treegpt.cc/v1/chat/completions');
+    return { version: 3, provider: 'aihubmix', providers: ['aihubmix', 'tree'], protocol: 'chat-content-blocks', ttl: CACHE_TTL,
+        strategies: { aihubmix: 'content-history-v1', tree: 'tree-history-prefix-v2' },
         localCheckPassed: inspection.breakpoints.length === 2
             && inspection.breakpoints.every(b => b.placement === 'content' && b.message < 3 && b.ttl === CACHE_TTL)
             && inspection.includeUsage,
-        treeLocalCheckPassed: treeInspection.strategy === 'tree-system-tools-v1' && treeInspection.breakpoints.length === 1
-            && treeInspection.breakpoints[0].placement === 'content' && treeInspection.breakpoints[0].message === 0
+        treeLocalCheckPassed: treeInspection.strategy === 'tree-history-prefix-v2' && treeInspection.breakpoints.length === 1
+            && treeInspection.breakpoints[0].placement === 'content' && treeInspection.breakpoints[0].message === 2
             && treeInspection.breakpoints[0].ttl === CACHE_TTL && treeInspection.includeUsage,
         upstreamVerified: false };
 }

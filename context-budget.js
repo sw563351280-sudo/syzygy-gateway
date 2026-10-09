@@ -5,6 +5,22 @@ const { inspectCacheRequest, inspectWireRequest, supportsBlockCache } = require(
 const { createToolSchemaTracker } = require('./tool-schema-cache');
 const toolSchemaTracker = createToolSchemaTracker();
 
+function createFingerprintTracker({ limit = 500, ttlMs = 30 * 60 * 1000, now = Date.now } = {}) {
+    const snapshots = new Map();
+    return {
+        compare(scope, fingerprint) {
+            const key = JSON.stringify(scope), time = now();
+            const previous = snapshots.get(key);
+            const before = previous && time - previous.at < ttlMs ? previous : null;
+            snapshots.delete(key);
+            snapshots.set(key, { at: time, fingerprint });
+            while (snapshots.size > limit) snapshots.delete(snapshots.keys().next().value);
+            return !before ? 'first' : before.fingerprint === fingerprint ? 'stable' : 'changed';
+        },
+    };
+}
+const cachedSpanTracker = createFingerprintTracker();
+
 // Input projection only. Never edits persisted messages or summary cursors.
 function composeContext({ systemMessage, summaryMessages = [], historyMessages = [], currentMessage }) {
     return [systemMessage, ...summaryMessages, ...historyMessages, currentMessage].filter(Boolean);
@@ -173,9 +189,12 @@ function createBudgetObserver({ endpoint, model, conversationId = null, clientCa
             const toolSchema = kind === 'chat' && supportsBlockCache(source.endpoint || endpoint, callModel)
                 ? { ...toolSchemaTracker.compare([callHost, callModel, conversationId || turnId], body.tools || []),
                     scope: conversationId ? 'conversation' : 'turn' } : null;
+            const wire = inspectWireRequest(source.endpoint || endpoint, body);
+            const wireScope = [callHost, callModel, conversationId || turnId];
+            wire.cachedSpanState = cachedSpanTracker.compare(wireScope, wire.stablePrefix?.fingerprint || null);
             emit({ event: 'request', call: id, kind, callHost, callModel, turn: totals(), estimatesOnly: true,
                 toolSchema,
-                wire: inspectWireRequest(source.endpoint || endpoint, body),
+                wire,
                 messages: measureMessages(body.messages),
                 toolTokens: estimateText(JSON.stringify(body.tools || [])),
                 toolCount: (body.tools || []).length,
