@@ -3377,9 +3377,20 @@ function getBeijingTime() {
     return new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
 }
 
+// Cache-friendly: only date + hour range, not exact minute/second
+function getBeijingTimeRounded() {
+    const now = new Date();
+    const bjTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+    const date = bjTime.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai' });
+    const hour = bjTime.getHours();
+    // Round to 4-hour blocks to reduce cache invalidation
+    const timeBlock = hour < 6 ? '凌晨' : hour < 12 ? '上午' : hour < 18 ? '下午' : '晚上';
+    return `${date} ${timeBlock}`;
+}
+
 function buildEnvContext(body) {
     body += homeSea.context();
-    return `\n\n==========\n【系统环境参数实时同步】\n当前真实时间：${getBeijingTime()}\n当前物理位置：中国\n${body}\n==========\n`;
+    return `\n\n==========\n【系统环境参数实时同步】\n当前真实时间：${getBeijingTimeRounded()}\n当前物理位置：中国\n${body}\n==========\n`;
 }
 
 
