@@ -139,23 +139,31 @@ test('TreeGPT browser history survives server projection across turns without a 
     }
 });
 
-test('fixed output rules move intact into cached system only for AIHubMix', () => {
-    const start = source.indexOf('const moodSnapshotInst =', source.indexOf('const isClaudeModel ='));
-    const end = source.indexOf("if (dynamicBlocks.endsWith", start);
+test('fixed output rules keep their original placement even if dynamic reads fail', async () => {
+    const start = source.indexOf("let dynamicBlocks = ''", source.indexOf('const isClaudeModel ='));
+    const end = source.indexOf('// 构建 volatile context', start);
     assert.ok(start >= 0 && end > start);
-    function run(enabled) {
-        const state = { systemMsg: { content: 'system' }, dynamicBlocks: '',
-            liveCtx: 'LIVE', memCtx: 'MEMORY', txCtx: 'TRANSCRIPT', wakeDecisionsCtx: 'WAKE',
+    async function run(enabled, failAt = null) {
+        const state = { systemMsg: { content: 'system' },
+            buildLiveStatePrompt: async () => { if (failAt === 'live') throw new Error('unavailable'); return 'LIVE'; },
+            scanMemoryRadar: async () => { if (failAt === 'memory') throw new Error('unavailable'); return 'MEMORY'; },
+            shouldScanTranscript: () => true,
+            scanTranscriptRadar: async () => { if (failAt === 'transcript') throw new Error('unavailable'); return 'TRANSCRIPT'; },
+            loadRecentWakeDecisions: () => [], formatWakeDecisionsForContext: () => 'WAKE',
+            _ctxDiag: {}, currentUserMsgText: 'question', console: { log() {} },
             supportsBlockCache: () => enabled, resolveApiUrl: () => '', req: { path: '/' }, body: { model: 'test' },
             cutAtSentence: (s, n) => s.slice(0, n) };
-        vm.runInNewContext(source.slice(start, end), state);
-        return state;
+        return vm.runInNewContext(`(async () => { ${source.slice(start, end)} return { system: systemMsg.content, dynamicBlocks }; })()`, state);
     }
-    const old = run(false), updated = run(true);
-    const fixed = updated.systemMsg.content.slice('system\n\n'.length);
+    const old = await run(false), updated = await run(true);
+    const fixed = updated.system.slice('system\n\n'.length);
     assert.equal(fixed + '\n\n' + updated.dynamicBlocks, old.dynamicBlocks);
     assert.equal(updated.dynamicBlocks, 'LIVE\n\nMEMORY\n\nTRANSCRIPT\n\nWAKE');
-    assert.equal(old.systemMsg.content, 'system');
+    assert.equal(old.system, 'system');
+    for (const failAt of ['live', 'memory', 'transcript']) {
+        assert.equal((await run(true, failAt)).system, updated.system);
+        assert.equal((await run(false, failAt)).dynamicBlocks, fixed);
+    }
 });
 
 test('realtime ledger injection preserves cached tool definitions on both chat paths', () => {
@@ -166,7 +174,7 @@ test('realtime ledger injection preserves cached tool definitions on both chat p
         const begin = source.indexOf(web
             ? 'if (ledgerRealtimeContext && !supportsBlockCache(baseUrl, webModelName))'
             : 'if (ledgerRealtimeContext && !supportsBlockCache(apiUrl, body.model))');
-        const end = source.indexOf(web ? 'if (webXhsShareUrl)' : 'let maxToolRounds', begin);
+        const end = source.indexOf(web ? 'if (webXhsShareUrl)' : 'const cacheToolPolicy', begin);
         assert.ok(begin >= 0 && end > begin);
         const select = (endpoint, ledger, available = tools) => {
             const state = { filteredTools: available, ledgerRealtimeContext: ledger, apiUrl: endpoint, baseUrl: endpoint,

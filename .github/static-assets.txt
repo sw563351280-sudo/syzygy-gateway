@@ -28,6 +28,7 @@ public/memory-curator-diagnostics.js
 public/memory-manager.html
 public/memory-vault.html
 public/memory.html
+public/message-usage.js
 public/music-player.css
 public/music-player.js
 public/relationship-growth.html

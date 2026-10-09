@@ -19,6 +19,7 @@ const { consumeOpenAIStream } = require('./streaming-chat');
 const { createChatRequestLifecycle } = require('./chat-request-lifecycle');
 const { composeContext, createBudgetObserver, mergeUsage, readConfig: readContextBudgetConfig } = require('./context-budget');
 const { prepareProviderRequest: prepareCachedRequest, supportsBlockCache, cacheAdapterStatus } = require('./provider-cache');
+const { createCachedToolPolicy, appendToolHint, executeAllowedTool } = require('./cached-tool-policy');
 const { usesNativeCache, fetchCachedProvider } = require('./anthropic-cache');
 const cacheHistoryWindow = require('./cache-history-window').createCacheHistoryWindow();
 const { createRollingContext, fileStore, createSummarizer } = require('./rolling-context');
@@ -7799,22 +7800,22 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         // === 2. 收集全部动态内容 → 合并进最后一条 user message ===
         // 四层上下文 + mood snapshot
         let dynamicBlocks = '';
+            const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
+            const dialogueCrumbInst = '【生活碎屑输出规则·每轮主动检查】\n像 MOOD_SNAPSHOT 一样，回复前主动检查江鱼这一轮是否说出了以后可能想找回的具体生活事实；有就悄悄输出至多一个隐藏标签，没有就不要为了完成任务硬写。格式：<CRUMB>{"fact":"我记着她说……","source_quote":"她这一轮逐字原话","entities":["对象"],"tags":["短标签"]}</CRUMB>。标签体必须是一个单行、严格合法的 JSON 对象：字段名和字符串均使用英文双引号，内容里的双引号必须写成 \\"，不使用代码块或额外解释。通常 source_quote 必须逐字来自这一轮；但当她明确说“再写一次”“写进生活碎屑”或“没写进去”时，可以引用近期对话里相关的用户原话，绝不能引用助手杜撰的内容。技术讨论、寒暄、纯情绪、重复近况和拿不准的情况不输出。';
+            const relationshipStateInst = '【双轴关系状态·由当前对话模型判断】\n你拥有近期完整对话，同时独立判断事件轴与温度轴。事件 transition：friction_started（摩擦）、conflict_started、conflict_continues、paused_unresolved、tentative_contact（冷战后第一次靠近）、repair_started、resolved、conflict_reopened；只有温度变化时用 temperature_changed。温度 temperature：warm、neutral、withdrawn、hostile。只在任一轴真正变化时输出至多一个隐藏标签；无变化不输出。格式：<RELATIONSHIP_STATE>{"transition":"状态","temperature":"可选温度","temperature_direction":"up|down|steady","signal_strength":"ordinary|strong","support_turns":1,"title":"短标题","summary":"状态变化及依据；称呼变化只写在这里","evidence_quote":"江鱼本轮逐字原话","themes":["短主题"],"confidence":0.0,"user_confirmed":false,"resolution_basis":"explicit|implicit_reconnection"}</RELATIONSHIP_STATE>。称呼是实时特征，不单独存储：连续6个有效用户轮次未使用“爸爸/老公/沈望”等亲密称呼，只提高警觉，不能单独降温；短至两三个字的“嗯/哦/行/随便”等仍是有效轮次和语气证据，不得排除；纯技术事务、粘贴内容和引用他人对话不计入这6轮。降温：一轮强信号可变更，普通信号至少连续两轮；升温至少连续两轮。直接“你”需结合语义，冲突中讽刺性“您”可算强信号。冷战后首次主动分享、恢复亲密称呼、接玩笑或允许亲近只用 tentative_contact；后续新的恢复行为才用 repair_started；再持续恢复且未重燃，才可 resolved + implicit_reconnection（confidence≥0.85）。明确说开则 resolved + explicit + user_confirmed=true。“算了/不说了/随便吧”是 paused_unresolved。evidence_quote 必须逐字来自本轮；标签为单行严格 JSON并自动隐藏。';
+            const fixedOutputRules = [relationshipStateInst, moodSnapshotInst, dialogueCrumbInst].join('\n\n');
+            const cacheFixedRules = supportsBlockCache(resolveApiUrl(req.path), body.model);
+            if (cacheFixedRules) systemMsg.content += '\n\n' + fixedOutputRules;
+            else dynamicBlocks = fixedOutputRules;
         try {
             const liveCtx = await buildLiveStatePrompt();
-            let activeChatId = req.body.activeChatId || 'main';
-            try { const cfg = await webConfigStore.readShared(); activeChatId = req.body.activeChatId || cfg?.activeChatId || 'main'; } catch(e) {}
             const memCtx = await scanMemoryRadar(currentUserMsgText);
             let txCtx = '';
             const shouldScan = shouldScanTranscript(currentUserMsgText);
             if (shouldScan) txCtx = await scanTranscriptRadar(currentUserMsgText);
             const wakeDecisionsCtx = formatWakeDecisionsForContext(loadRecentWakeDecisions(5));
-            const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
-            const dialogueCrumbInst = '【生活碎屑输出规则·每轮主动检查】\n像 MOOD_SNAPSHOT 一样，回复前主动检查江鱼这一轮是否说出了以后可能想找回的具体生活事实；有就悄悄输出至多一个隐藏标签，没有就不要为了完成任务硬写。格式：<CRUMB>{"fact":"我记着她说……","source_quote":"她这一轮逐字原话","entities":["对象"],"tags":["短标签"]}</CRUMB>。标签体必须是一个单行、严格合法的 JSON 对象：字段名和字符串均使用英文双引号，内容里的双引号必须写成 \\"，不使用代码块或额外解释。通常 source_quote 必须逐字来自这一轮；但当她明确说“再写一次”“写进生活碎屑”或“没写进去”时，可以引用近期对话里相关的用户原话，绝不能引用助手杜撰的内容。技术讨论、寒暄、纯情绪、重复近况和拿不准的情况不输出。';
-            const relationshipStateInst = '【双轴关系状态·由当前对话模型判断】\n你拥有近期完整对话，同时独立判断事件轴与温度轴。事件 transition：friction_started（摩擦）、conflict_started、conflict_continues、paused_unresolved、tentative_contact（冷战后第一次靠近）、repair_started、resolved、conflict_reopened；只有温度变化时用 temperature_changed。温度 temperature：warm、neutral、withdrawn、hostile。只在任一轴真正变化时输出至多一个隐藏标签；无变化不输出。格式：<RELATIONSHIP_STATE>{"transition":"状态","temperature":"可选温度","temperature_direction":"up|down|steady","signal_strength":"ordinary|strong","support_turns":1,"title":"短标题","summary":"状态变化及依据；称呼变化只写在这里","evidence_quote":"江鱼本轮逐字原话","themes":["短主题"],"confidence":0.0,"user_confirmed":false,"resolution_basis":"explicit|implicit_reconnection"}</RELATIONSHIP_STATE>。称呼是实时特征，不单独存储：连续6个有效用户轮次未使用“爸爸/老公/沈望”等亲密称呼，只提高警觉，不能单独降温；短至两三个字的“嗯/哦/行/随便”等仍是有效轮次和语气证据，不得排除；纯技术事务、粘贴内容和引用他人对话不计入这6轮。降温：一轮强信号可变更，普通信号至少连续两轮；升温至少连续两轮。直接“你”需结合语义，冲突中讽刺性“您”可算强信号。冷战后首次主动分享、恢复亲密称呼、接玩笑或允许亲近只用 tentative_contact；后续新的恢复行为才用 repair_started；再持续恢复且未重燃，才可 resolved + implicit_reconnection（confidence≥0.85）。明确说开则 resolved + explicit + user_confirmed=true。“算了/不说了/随便吧”是 paused_unresolved。evidence_quote 必须逐字来自本轮；标签为单行严格 JSON并自动隐藏。';
-            const fixedOutputRules = [relationshipStateInst, moodSnapshotInst, dialogueCrumbInst].join('\n\n');
-            if (supportsBlockCache(resolveApiUrl(req.path), body.model)) {
+            if (cacheFixedRules) {
                 // Same rules and dynamic allowance; only their cache position changes.
-                systemMsg.content += '\n\n' + fixedOutputRules;
                 dynamicBlocks = cutAtSentence([liveCtx, memCtx, txCtx, wakeDecisionsCtx].filter(Boolean).join('\n\n'), Math.max(0, 12500 - fixedOutputRules.length - 2));
             } else {
                 dynamicBlocks = cutAtSentence([fixedOutputRules, liveCtx, memCtx, txCtx, wakeDecisionsCtx].filter(Boolean).join('\n\n'), 12500);
@@ -8025,6 +8026,13 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             filteredTools = filteredTools.filter(t => !['check_ledger', 'query_ledger'].includes(t.function?.name || t.name));
             console.log('📒 [账本] 已注入实时数据，跳过账本 function calling');
         }
+        const cacheToolPolicy = usesNativeCache(apiUrl, body.model) && !isOpenClawRequest && !workroomDiscussion
+            ? createCachedToolPolicy(enabledTools.filter(tool => {
+                const name = tool.function?.name || tool.name;
+                return (!TOY_TOOLS.has(name) || (TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false))
+                    && (name !== 'get_health_summary' || TOOLS_ENABLED.health_data);
+            }), filteredTools) : null;
+        appendToolHint(contextParts.currentMessage, cacheToolPolicy);
         let maxToolRounds = 5, toolRound = 0, lastToolSig = '', fileModified = false;
         const musicToolRecords = [];
         const isStreamMode = body.stream === true;
@@ -8112,7 +8120,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             }
             const toolBody = JSON.parse(JSON.stringify(body));
             toolBody.stream = isStreamMode;
-            toolBody.tools = filteredTools.map(t => { const { _mcp, ...clean } = t; return clean; });
+            toolBody.tools = cacheToolPolicy?.tools || filteredTools.map(t => { const { _mcp, ...clean } = t; return clean; });
             const isGeminiModel = (body.model || '').toLowerCase().includes('gemini');
             // toolRound 在发送首轮请求前仍为 0；此前判断 === 1 导致
             // 所有“首轮强制工具”实际上都退化成 auto。
@@ -8193,9 +8201,11 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                     try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
                     const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name);
                     const startTime = Date.now();
-                    const result = await executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null, tc.id);
+                    const result = await executeAllowedTool(cacheToolPolicy, tc.function.name,
+                        () => executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null, tc.id));
                     lifecycle.signal.throwIfAborted();
-                    if (tc.function.name === 'write_file' || tc.function.name === 'edit_file') fileModified = true;
+                    if ((!cacheToolPolicy || cacheToolPolicy.allows(tc.function.name))
+                        && (tc.function.name === 'write_file' || tc.function.name === 'edit_file')) fileModified = true;
                     const elapsed = Date.now() - startTime;
                     if (MUSIC_TOOL_NAMES.includes(tc.function.name)) musicToolRecords.push({ name: tc.function.name, arguments: fnArgs, result, elapsed });
                     const privateJournalRead = tc.function.name === 'read_private_journal';
@@ -8285,8 +8295,8 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             delete body.tools; delete body.tool_choice;
         }
 
-        if (usesNativeCache(apiUrl, body.model) && filteredTools.length) {
-            body.tools = filteredTools.map(({ _mcp, ...tool }) => tool);
+        if (usesNativeCache(apiUrl, body.model) && (cacheToolPolicy?.tools.length || filteredTools.length)) {
+            body.tools = cacheToolPolicy?.tools || filteredTools.map(({ _mcp, ...tool }) => tool);
             body.tool_choice = 'none';
             if (body.messages.at(-1)?.role === 'assistant') body.messages.push({ role: 'user', content: '请根据已取得的信息回答当前问题，不再调用工具。' });
         }
@@ -9772,9 +9782,16 @@ app.post('/api/web-chat', async (req, res) => {
                     filteredTools = filteredTools.filter(t => !['fetch_txt', 'fetch_html', 'fetch_json'].includes(t.function?.name));
                 }
                 console.log(`🔧 [web-chat工具] 全部${enabledTools.length}个 → 筛选后${filteredTools.length}个`);
+                const webCacheToolPolicy = usesNativeCache(baseUrl, webModelName)
+                    ? createCachedToolPolicy(enabledTools.filter(tool => {
+                        const name = tool.function?.name || tool.name;
+                        return (!TOY_TOOLS.has(name) || (TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false))
+                            && (name !== 'get_health_summary' || TOOLS_ENABLED.health_data);
+                    }), filteredTools) : null;
+                appendToolHint(webContextParts.currentMessage, webCacheToolPolicy);
                 let webMaxRounds = 8, webLastSig = '';
                 while (webMaxRounds-- > 0 && filteredTools.length > 0) {
-                    const toolFetchBody = { ...fetchBody, tools: filteredTools.map(t => { const { _mcp, ...clean } = t; return clean; }) };
+                    const toolFetchBody = { ...fetchBody, tools: webCacheToolPolicy?.tools || filteredTools.map(t => { const { _mcp, ...clean } = t; return clean; }) };
                     const isGeminiModel = (model || '').toLowerCase().includes('gemini');
                     if (webForceToolChoice && webMaxRounds === 7) { toolFetchBody.tool_choice = isGeminiModel ? "required" : webForceToolChoice; } else if (isGeminiModel) delete toolFetchBody.tool_choice; else toolFetchBody.tool_choice = "auto";
 
@@ -9812,7 +9829,9 @@ app.post('/api/web-chat', async (req, res) => {
                         for (const tc of curMsg.tool_calls) {
                             let fnArgs = {};
                             try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
-                            const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name); const result = await executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null, tc.id);
+                            const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name);
+                            const result = await executeAllowedTool(webCacheToolPolicy, tc.function.name,
+                                () => executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null, tc.id));
                             apiMessages.push({ role: 'tool', tool_call_id: tc.id, content: result });
                         }
                         fetchBody.messages = apiMessages;
@@ -9855,8 +9874,8 @@ app.post('/api/web-chat', async (req, res) => {
 
                 } else {
                     fetchBody.messages = apiMessages;
-                    if (filteredTools.length) {
-                        fetchBody.tools = filteredTools.map(({ _mcp, ...tool }) => tool);
+                    if (webCacheToolPolicy?.tools.length || filteredTools.length) {
+                        fetchBody.tools = webCacheToolPolicy?.tools || filteredTools.map(({ _mcp, ...tool }) => tool);
                         fetchBody.tool_choice = 'none';
                         if (fetchBody.messages.at(-1)?.role === 'assistant') fetchBody.messages.push({ role: 'user', content: '请根据已取得的信息回答当前问题，不再调用工具。' });
                     }

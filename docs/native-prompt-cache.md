@@ -17,8 +17,14 @@ Based on the user-supplied `mcp-cache-breakdown.md`:
   message. Tools have no separate breakpoint. Every marker has `ttl: "1h"`.
 - Dynamic time, state, recalls and the current question remain after the cached
   history. Live data is not frozen or replaced with stale snapshots.
-- A stable opaque metadata user ID is supplied. This is not proof of upstream
-  sticky routing; Anthropic documents it as a user identifier for abuse detection.
+- No metadata user ID is supplied.
+- Native TreeGPT sends a stable catalogue of enabled tool definitions on both
+  chat paths. Current-turn selection remains separate: an uncached permission
+  hint lists permitted tools, and the server refuses calls outside that list.
+  Disabled device/health tools are excluded. Configuration or definition changes
+  still legitimately change the catalogue; changing the topic alone does not.
+- Fixed output rules are added before dynamic state/recall reads. A failed read
+  cannot remove the rules or change the fixed system prefix.
 
 Freezing changes placement, not token count. The first native request and each
 eight-turn freeze transition may write a large new history block. BP1 remains
