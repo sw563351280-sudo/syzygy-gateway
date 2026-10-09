@@ -30,6 +30,13 @@ function safeEvent(line) {
         at, event: 'prefix', stableHash: message.match(/stableHash=([a-f0-9]+)/)?.[1],
         historyTokens: Number(message.match(/historyTokens≈(\d+)/)?.[1]) || null };
     if (message.includes('已注入实时数据，跳过账本 function calling')) return { at, event: 'ledger_tools_removed' };
+    const historyMarker = '[CacheHistoryWindow] ';
+    if (message.includes(historyMarker)) {
+        try {
+            const value = JSON.parse(message.slice(message.indexOf(historyMarker) + historyMarker.length));
+            return { at, event: 'history_window', state: ['anchored', 'reused', 'rotated', 'reset', 'unverified'].includes(value.state) ? value.state : 'unknown', ...numbers(value, ['retained', 'messages']) };
+        } catch { return null; }
+    }
     return null;
 }
 if (require.main === module || process.argv[1] === '-') {

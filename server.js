@@ -19,6 +19,7 @@ const { consumeOpenAIStream } = require('./streaming-chat');
 const { createChatRequestLifecycle } = require('./chat-request-lifecycle');
 const { composeContext, createBudgetObserver, mergeUsage, readConfig: readContextBudgetConfig } = require('./context-budget');
 const { prepareCachedRequest, supportsBlockCache, cacheAdapterStatus } = require('./provider-cache');
+const cacheHistoryWindow = require('./cache-history-window').createCacheHistoryWindow();
 const { createRollingContext, fileStore, createSummarizer } = require('./rolling-context');
 const { budgetDynamicParts } = require('./dynamic-budget');
 const { createCostLedger } = require('./cost-ledger');
@@ -7868,6 +7869,18 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             // Apply the provider limit to the final merged history before sending.
             const historyLimit = supportsBlockCache(resolveApiUrl(req.path), body.model) ? 38 : 30;
             projectedHistory = projectedHistory.slice(-historyLimit);
+            if (historyLimit === 38 && typeof body.activeChatId === 'string' && body.activeChatId.length <= 200
+                && body.activeChatId !== 'syzygy-workroom' && isAuthenticated(req)) {
+                try {
+                    const config = await webConfigStore.readShared();
+                    const session = config?.chatSessions?.find(s => s.id === body.activeChatId);
+                    const result = cacheHistoryWindow.project(
+                        [body.activeChatId, resolveApiUrl(req.path), body.model, req.headers.authorization || ''],
+                        projectedHistory, session?.messages);
+                    projectedHistory = result.messages;
+                    console.log('[CacheHistoryWindow] ' + JSON.stringify({ state: result.state, retained: result.retained, messages: projectedHistory.length }));
+                } catch (_) { /* Keep the caller's current history if verification is unavailable. */ }
+            }
         }
         const hasProjectedSummary = typeof projectedHistory[0]?.content === 'string'
             && projectedHistory[0].content.startsWith('[System reference: Conversation history summary]\n');

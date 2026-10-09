@@ -8,6 +8,32 @@ const { prepareCachedRequest, inspectCacheRequest, cacheAdapterStatus } = requir
 const { mergeUsage, readConfig, normalizeUsage } = require('../context-budget');
 const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
+test('actual gateway stabilizes legacy browser history only with authenticated saved-session proof', async () => {
+    const begin = source.indexOf('let projectedHistory =');
+    const end = source.indexOf('body.messages = bodyMessages;', begin) + 'body.messages = bodyMessages;'.length;
+    const saved = Array.from({ length: 60 }, (_, i) => ({ _id: 'id' + i, role: i % 2 ? 'assistant' : 'user', content: 'message ' + i }));
+    const cacheHistoryWindow = require('../cache-history-window').createCacheHistoryWindow();
+    async function run(stop, authenticated = true) {
+        const body = { model: 'claude-opus-5-5', activeChatId: 'same' };
+        const messages = saved.slice(stop - 30, stop).map(({ role, content }) => ({ role, content }));
+        await vm.runInNewContext(`(async () => { ${source.slice(begin, end)} })()`, {
+            newMessages: messages, incomingMessages: messages, contextProtocol: null, isOpenClawRequest: false,
+            supportsBlockCache: () => true, resolveApiUrl: () => 'https://api.treegpt.cc/v1/chat/completions',
+            req: { path: '/', headers: { authorization: 'test-key' } }, isAuthenticated: () => authenticated,
+            webConfigStore: { readShared: async () => { assert.ok(authenticated); return { chatSessions: [{ id: 'same', messages: saved }] }; } },
+            cacheHistoryWindow, body, systemMsg: { role: 'system', content: 'rules' }, finalUserContent: 'current dynamic ' + stop,
+            composeContext: require('../context-budget').composeContext, console: { log() {} },
+        });
+        return body.messages;
+    }
+    const first = await run(40), second = await run(42);
+    assert.equal(first.length, 32);
+    assert.equal(second.length, 34);
+    assert.equal(JSON.stringify(first.slice(0, -1)), JSON.stringify(second.slice(0, 31)));
+    assert.equal((await run(44, false)).length, 32);
+    assert.equal(second.at(-1).content, 'current dynamic 42');
+});
+
 test('real main projection sends only original history to summarizer and strips private metadata', async () => {
     const begin = source.indexOf('let projectedHistory =');
     const end = source.indexOf('body.messages = bodyMessages;', begin) + 'body.messages = bodyMessages;'.length;
