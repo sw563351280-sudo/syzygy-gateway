@@ -2,6 +2,7 @@
 // Read-only; export only approved numeric cache metadata, never raw log lines.
 const { execFileSync } = require('node:child_process');
 const numbers = (value, keys) => Object.fromEntries(keys.filter(k => typeof value?.[k] === 'number').map(k => [k, value[k]]));
+const safeDigest = value => typeof value === 'string' && /^[a-f0-9]{16}$/.test(value) ? value : null;
 function safeEvent(line) {
     const at = new Date(Number(line.__REALTIME_TIMESTAMP) / 1000).toISOString();
     const message = String(line.MESSAGE || '');
@@ -21,6 +22,8 @@ function safeEvent(line) {
                 messageCount: e.wire.messageCount,
                 roles: Array.isArray(e.wire.roles) ? e.wire.roles.filter(role => ['system', 'user', 'assistant', 'tool'].includes(role)) : [],
                 toolCount: e.wire.toolCount,
+                toolSchemaFingerprint: safeDigest(e.wire.toolSchemaFingerprint),
+                breakpointFingerprints: (e.wire.breakpointFingerprints || []).map(p => ({ ...numbers(p, ['message', 'block']), fingerprint: safeDigest(p.fingerprint) })),
                 breakpoints: (e.wire.breakpoints || []).map(p => ({ ...numbers(p, ['message', 'block']), role: p.role, placement: p.placement, ttl: p.ttl })),
                 cachedSpanState: ['first', 'stable', 'changed'].includes(e.wire.cachedSpanState) ? e.wire.cachedSpanState : null,
                 cachedSpan: e.wire.stablePrefix ? {
@@ -30,7 +33,7 @@ function safeEvent(line) {
                 } : null,
                 stablePrefix: e.wire.stablePrefix ? numbers(e.wire.stablePrefix, ['messages', 'bytes']) : null,
                 suffix: e.wire.suffix ? numbers(e.wire.suffix, ['messages', 'bytes']) : null,
-                requestOptions: e.wire.requestOptions ? { keys: Array.isArray(e.wire.requestOptions.keys) ? e.wire.requestOptions.keys.filter(k => /^[a-z_]+$/.test(k)) : [] } : null,
+                requestOptions: e.wire.requestOptions ? { fingerprint: safeDigest(e.wire.requestOptions.fingerprint), keys: Array.isArray(e.wire.requestOptions.keys) ? e.wire.requestOptions.keys.filter(k => /^[a-z_]+$/.test(k)) : [] } : null,
             } : null,
             messages: numbers(e.messages, ['textTokens', 'mediaBlocks']), ...numbers(e, ['toolCount', 'toolTokens']) });
         else if (e.event === 'context') {

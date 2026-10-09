@@ -8,13 +8,15 @@ const { prepareCachedRequest, inspectCacheRequest, cacheAdapterStatus } = requir
 const { mergeUsage, readConfig, normalizeUsage } = require('../context-budget');
 const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
-test('native frozen browser protocol retains original available history without paid summaries', async () => {
+for (const mode of [undefined, 'summary-v1', 'frozen-v1']) test(`native history retains original messages without paid summaries with browser mode ${mode}`, async () => {
     const begin = source.indexOf('let projectedHistory =');
     const end = source.indexOf('body.messages = bodyMessages;', begin) + 'body.messages = bodyMessages;'.length;
-    const messages = Array.from({ length: 80 }, (_, i) => ({ _contextId: 'id' + i, _contextRevision: 'revision', role: i % 2 ? 'assistant' : 'user', content: 'text ' + i }));
+    let previousSystem;
+    for (const length of [86, 88]) {
+    const messages = Array.from({ length }, (_, i) => ({ _contextId: 'id' + i, _contextRevision: 'revision', role: i % 2 ? 'assistant' : 'user', content: 'text ' + i }));
     const body = { model: 'claude-opus-5-5' };
     await vm.runInNewContext(`(async () => { ${source.slice(begin, end)} })()`, {
-        newMessages: messages, incomingMessages: messages, contextProtocol: { version: 1, mode: 'frozen-v1', sessionId: 'same' }, isOpenClawRequest: false,
+        newMessages: messages, incomingMessages: messages, contextProtocol: { version: 1, mode, sessionId: 'same' }, isOpenClawRequest: false,
         usesNativeCache: require('../anthropic-cache').usesNativeCache,
         cacheScope: 'same', lifecycle: { signal: new AbortController().signal },
         frozenContextArchive: require('../rolling-context').createRollingContext({ rawOnly: true, store: { read() { return null; }, write() {} } }),
@@ -22,12 +24,14 @@ test('native frozen browser protocol retains original available history without 
         systemMsg: { role: 'system', content: 'persona' }, finalUserContent: 'current dynamics', composeContext: require('../context-budget').composeContext,
         rollingContext: { project() { assert.fail('freezing must not summarize'); } },
     });
-    assert.equal(body.messages.length, 82);
+    assert.equal(body.messages.length, length + 2);
     assert.ok(body.messages.every(m => !('_contextId' in m) && !('_contextRevision' in m)));
     assert.equal(body.messages.at(-1).content, 'current dynamics');
-    const wire = require('../provider-cache').prepareProviderRequest('https://api.treegpt.cc/v1/chat/completions', body, { historyEnd: 80 });
+    const wire = require('../provider-cache').prepareProviderRequest('https://api.treegpt.cc/v1/chat/completions', body, { historyEnd: length });
     assert.equal(wire.system.length, 2);
-    assert.equal(wire.messages.length, 5);
+    if (previousSystem) assert.deepEqual(wire.system, previousSystem, 'new turns must not shift frozen original history');
+    previousSystem = wire.system;
+    }
 });
 
 test('actual gateway stabilizes legacy browser history only with authenticated saved-session proof', async () => {
@@ -66,6 +70,7 @@ test('real main projection sends only original history to summarizer and strips 
     await vm.runInNewContext(`(async () => { ${source.slice(begin, end)} })()`, {
         newMessages: messages, incomingMessages: messages, contextProtocol: { version: 1, sessionId: 'session', prefix }, isOpenClawRequest: false,
         supportsBlockCache: () => true, resolveApiUrl: () => 'https://aihubmix.com/v1', req: { path: '/' },
+        usesNativeCache: require('../anthropic-cache').usesNativeCache,
         rollingContext: { async project(scope, history, observer, proof) { observed = { scope, history, proof }; return history.map(({ role, content }) => ({ role, content })); } },
         body, lifecycle: { signal: new AbortController().signal }, contextBudget: {}, systemMsg: { role: 'system', content: 'rules' }, finalUserContent: 'dynamic and latest',
         composeContext: require('../context-budget').composeContext,

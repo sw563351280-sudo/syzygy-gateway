@@ -82,6 +82,26 @@ test('redacted wire diagnostics fingerprint the final payload without prompt or 
     assert.doesNotMatch(JSON.stringify(diagnostic), /rules|past question|changing runtime|parameters|read/);
 });
 
+test('native diagnostic hashes stop at each content block instead of including merged dynamic text', () => {
+    const body = { model: 'claude-opus-5-5', system: [
+        { type: 'text', text: 'persona', cache_control: { type: 'ephemeral', ttl: '1h' } },
+        { type: 'text', text: 'frozen', cache_control: { type: 'ephemeral', ttl: '1h' } },
+    ], messages: [{ role: 'user', content: [
+        { type: 'text', text: 'past', cache_control: { type: 'ephemeral', ttl: '1h' } },
+        { type: 'text', text: 'dynamic A' },
+    ] }] };
+    const first = inspectWireRequest(treeEndpoint, body);
+    body.messages[0].content[1].text = 'dynamic B';
+    const second = inspectWireRequest(treeEndpoint, body);
+    assert.equal(first.stablePrefix.fingerprint, second.stablePrefix.fingerprint);
+    assert.deepEqual(first.breakpointFingerprints, second.breakpointFingerprints);
+    assert.notEqual(first.suffix.fingerprint, second.suffix.fingerprint);
+    body.system[1].text = 'updated frozen';
+    const third = inspectWireRequest(treeEndpoint, body);
+    assert.equal(first.breakpointFingerprints[0].fingerprint, third.breakpointFingerprints[0].fingerprint);
+    assert.notEqual(first.breakpointFingerprints[1].fingerprint, third.breakpointFingerprints[1].fingerprint);
+});
+
 test('multimodal blocks and tool pairs are preserved; empty history is skipped', () => {
     const body = fixture();
     body.messages[2].content = [{ type: 'text', text: 'answer' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,abc' } }];

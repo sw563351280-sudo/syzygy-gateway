@@ -7860,8 +7860,11 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 : prefix + finalUserContent;
         }
         let projectedHistory = newMessages.map(({ _contextId, _contextRevision, ...message }) => message);
-        if (contextProtocol?.version === 1 && contextProtocol.mode === 'frozen-v1'
+        if (contextProtocol?.version === 1 && typeof contextProtocol.sessionId === 'string'
+            && contextProtocol.sessionId.length > 0 && contextProtocol.sessionId.length <= 200
             && !isOpenClawRequest && usesNativeCache(resolveApiUrl(req.path), body.model)) {
+            // Transport policy is server-owned: older tabs omit mode or send
+            // summary-v1. They must not re-enable paid summaries/sliding history.
             // Resume browser-omitted history only with the existing revision proof.
             // No paid summarizer and no sliding slice of the frozen source.
             projectedHistory = await frozenContextArchive.project(

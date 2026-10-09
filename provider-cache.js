@@ -132,9 +132,20 @@ function inspectWireRequest(endpoint, body) {
     const stableEnd = inspection.breakpoints.length
         ? Math.max(...inspection.breakpoints.map(point => point.message)) + 1
         : 0;
-    const cachedMessages = cacheComparable(messages.slice(0, stableEnd));
-    const stableMessages = cachedMessages;
+    function prefixAt(point) {
+        const prefix = cacheComparable(messages.slice(0, point.message + 1));
+        if (point.placement === 'content') prefix.at(-1).content = prefix.at(-1).content.slice(0, point.block + 1);
+        const system = cacheComparable(point.placement === 'system' ? body.system.slice(0, point.block + 1) : body.system);
+        return { model: body.model, tools: cacheComparable(body.tools || []), system, messages: prefix };
+    }
+    const lastPoint = inspection.breakpoints.at(-1);
+    const lastPrefix = lastPoint ? prefixAt(lastPoint) : { messages: [], system: undefined };
+    const stableMessages = lastPrefix.messages;
     const suffixMessages = messages.slice(stableEnd);
+    if (lastPoint?.placement === 'content') {
+        const tail = messages[lastPoint.message].content.slice(lastPoint.block + 1);
+        if (tail.length) suffixMessages.unshift({ ...messages[lastPoint.message], content: tail });
+    }
     const tools = Array.isArray(body.tools) ? body.tools : [];
     const comparableTools = cacheComparable(tools);
     const options = selectedRequestOptions(body);
@@ -147,7 +158,8 @@ function inspectWireRequest(endpoint, body) {
         roles: messages.map(message => message?.role || 'unknown'),
         toolCount: tools.length,
         toolSchemaFingerprint: digest(comparableTools),
-        stablePrefix: { messages: stableMessages.length, bytes: contentSize(stableMessages) + (body.system ? contentSize(body.system) : 0), fingerprint: digest({ model: body.model, tools: comparableTools, system: cacheComparable(body.system), messages: stableMessages }) },
+        breakpointFingerprints: inspection.breakpoints.map(point => ({ ...point, fingerprint: digest(prefixAt(point)) })),
+        stablePrefix: { messages: stableMessages.length, bytes: contentSize(stableMessages) + (lastPrefix.system ? contentSize(lastPrefix.system) : 0), fingerprint: digest(lastPoint ? lastPrefix : { model: body.model, tools: comparableTools, messages: [] }) },
         suffix: { messages: suffixMessages.length, bytes: contentSize(suffixMessages), fingerprint: digest(suffixMessages) },
         requestOptions: { keys: Object.keys(options).sort(), fingerprint: digest(options) },
     };
