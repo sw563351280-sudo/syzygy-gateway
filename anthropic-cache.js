@@ -54,13 +54,15 @@ function buildNativeRequest(body, { historyEnd = -1, scope = 'default' } = {}) {
     const frozen = freezeHistory(history);
     let requiredToolHint = null;
     const result = { model: body.model, max_tokens: body.max_tokens ?? body.max_completion_tokens ?? 16384,
-        stream: body.stream === true, system: [], messages: [],
-        metadata: { user_id: 'syzygy-' + createHash('sha256').update(JSON.stringify([scope, body.model])).digest('hex') } };
+        stream: body.stream === true, system: [], messages: [] };
+    // metadata.user_id removed: it participates in Anthropic's cache key calculation,
+    // causing cache misses when scope or model varies even slightly.
     if (systemText.trim()) result.system.push({ type: 'text', text: systemText, cache_control: cc() });
     if (frozen.frozen) result.system.push({ type: 'text', text: frozen.frozen, cache_control: cc() });
     // Only explicit generation settings are forwarded; no browser/gateway fields.
     for (const key of ['temperature', 'top_p', 'top_k', 'thinking', 'output_config']) if (body[key] !== undefined) result[key] = structuredClone(body[key]);
-    if (!result.thinking && /thinking|think$/i.test(body.model)) result.thinking = { type: 'enabled', budget_tokens: Math.max(1024, Math.floor(result.max_tokens * 0.6)) };
+    // Fixed thinking budget to ensure stable cache keys across requests.
+    if (!result.thinking && /thinking|think$/i.test(body.model)) result.thinking = { type: 'enabled', budget_tokens: 8192 };
     // Opus 5.5 native API rejects the gateway's legacy temperature=0.9 and
     // manual thinking budgets. Keep one explicit, stable supported configuration.
     if (/^claude-opus-5[-.]5(?:$|-)/i.test(body.model)) {
