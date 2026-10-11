@@ -43,7 +43,7 @@ function contentBlocks(content) {
     }).filter(b => b.type !== 'text' || b.text?.length);
 }
 
-function buildNativeRequest(body, { historyEnd = -1, scope = 'default' } = {}) {
+function buildNativeRequest(body, { historyEnd = -1, scope = 'default', cache = true } = {}) {
     const source = body.messages || [];
     const systemText = source.filter(m => m.role === 'system').flatMap(m => contentBlocks(m.content)).map(b => {
         if (b.type !== 'text') throw new Error('System must contain text');
@@ -51,13 +51,13 @@ function buildNativeRequest(body, { historyEnd = -1, scope = 'default' } = {}) {
     }).join('\n\n');
     const history = source.filter((m, i) => i <= historyEnd && m.role !== 'system');
     const suffix = source.filter((m, i) => i > historyEnd && m.role !== 'system');
-    const frozen = freezeHistory(history);
+    const frozen = cache ? freezeHistory(history) : { frozen: '', remaining: history, count: 0 };
     let requiredToolHint = null;
     const result = { model: body.model, max_tokens: body.max_tokens ?? body.max_completion_tokens ?? 16384,
         stream: body.stream === true, system: [], messages: [] };
     // metadata.user_id removed: it participates in Anthropic's cache key calculation,
     // causing cache misses when scope or model varies even slightly.
-    if (systemText.trim()) result.system.push({ type: 'text', text: systemText, cache_control: cc() });
+    if (systemText.trim()) result.system.push({ type: 'text', text: systemText, ...(cache ? { cache_control: cc() } : {}) });
     if (frozen.frozen) result.system.push({ type: 'text', text: frozen.frozen, cache_control: cc() });
     // Only explicit generation settings are forwarded; no browser/gateway fields.
     for (const key of ['temperature', 'top_p', 'top_k', 'thinking', 'output_config']) if (body[key] !== undefined) result[key] = structuredClone(body[key]);
@@ -101,7 +101,7 @@ function buildNativeRequest(body, { historyEnd = -1, scope = 'default' } = {}) {
             blocks = contentBlocks(message.content);
             for (const call of message.tool_calls || []) blocks.push({ type: 'tool_use', id: call.id, name: call.function.name, input: JSON.parse(call.function.arguments || '{}') });
         }
-        if (i === breakpoint) {
+        if (cache && i === breakpoint) {
             const block = [...blocks].reverse().find(b => ['text', 'tool_result', 'image', 'document'].includes(b.type));
             if (block) block.cache_control = cc();
         }
@@ -205,6 +205,8 @@ async function fetchCachedProvider(endpoint, body, { headers = {}, signal, fetch
     if (body.stream) return { ok: true, status: response.status, headers: response.headers, body: convertStream(response.body) };
     const data = await response.json();
     if (data.type === 'error' || data.error) throw new Error('Anthropic response error');
-    return { ok: true, status: response.status, headers: response.headers, json: async () => convertMessage(data) };
+    const converted = convertMessage(data);
+    return { ok: true, status: response.status, headers: response.headers,
+        json: async () => converted, text: async () => JSON.stringify(converted) };
 }
 module.exports = { usesNativeCache, freezeHistory, buildNativeRequest, fetchCachedProvider, convertStream, convertMessage };

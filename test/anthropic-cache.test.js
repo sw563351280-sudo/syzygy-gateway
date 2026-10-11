@@ -142,5 +142,6 @@ test('native text streams and non-stream replies expose content and cache counte
         usage: { input_tokens: 10, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 100 },
     }) });
     const json = await reply.json(); assert.equal(json.choices[0].message.content, 'answer');
+    assert.deepEqual(JSON.parse(await reply.text()), json, 'the main non-streaming route consumes text()');
     assert.equal(normalizeUsage(json.usage).read, 100);
 });

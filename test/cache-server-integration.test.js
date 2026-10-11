@@ -208,7 +208,7 @@ for (const [start, end] of [
     const observer = { request(value) { observed.push(JSON.stringify(value)); return 1; } };
     const fakeFetch = async (_url, options) => { sent.push(options.body); return { ok: false }; };
     const context = { prepareCachedRequest: require('../provider-cache').prepareProviderRequest, body, toolBody: body, toolFetchBody: body, fetchBody: body,
-        cacheScope: 'test', fetchCachedProvider: (url, request, options) => require('../anthropic-cache').fetchCachedProvider(url, request, { ...options, fetchImpl: fakeFetch }),
+        cacheScope: 'test', fetchCachedProvider: (url, request, options) => require('../provider-transport').fetchCachedProvider(url, request, { ...options, fetchImpl: fakeFetch }),
         lifecycle: { signal: new AbortController().signal },
         bodyMessages: messages, apiMessages: messages, contextParts: parts, webContextParts: parts,
         contextBudget: observer, webContextBudget: observer, apiUrl: endpoint,

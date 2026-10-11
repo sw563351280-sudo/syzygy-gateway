@@ -20,7 +20,8 @@ const { createChatRequestLifecycle } = require('./chat-request-lifecycle');
 const { composeContext, createBudgetObserver, mergeUsage, readConfig: readContextBudgetConfig } = require('./context-budget');
 const { prepareProviderRequest: prepareCachedRequest, supportsBlockCache, cacheAdapterStatus } = require('./provider-cache');
 const { createCachedToolPolicy, appendToolHint, executeAllowedTool } = require('./cached-tool-policy');
-const { usesNativeCache, fetchCachedProvider } = require('./anthropic-cache');
+const { usesNativeCache } = require('./anthropic-cache');
+const { fetchCachedProvider } = require('./provider-transport');
 const cacheHistoryWindow = require('./cache-history-window').createCacheHistoryWindow();
 const { createRollingContext, fileStore, createSummarizer } = require('./rolling-context');
 const { budgetDynamicParts } = require('./dynamic-budget');
@@ -8135,7 +8136,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             console.log(`🔧 [工具] ${roundLabel}请求（${enabledTools.length}个工具）...`);
             const toolWireBody = prepareCachedRequest(apiUrl, toolBody, { historyEnd: bodyMessages.indexOf(contextParts.currentMessage) - 1, scope: cacheScope });
             const budgetCall = contextBudget.request(toolWireBody);
-            const toolResponse = await fetchCachedProvider(apiUrl, toolWireBody, { headers: apiHeaders, signal: lifecycle.signal });
+            const toolResponse = await fetchCachedProvider(apiUrl, toolWireBody, { headers: apiHeaders, signal: lifecycle.signal, protocolState: lifecycle });
 
             if (!toolResponse.ok) {
                 const errStatus = toolResponse.status;
@@ -8303,7 +8304,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         const finalWireBody = prepareCachedRequest(apiUrl, body, { historyEnd: body.messages.indexOf(contextParts.currentMessage) - 1, scope: cacheScope });
         const finalBudgetCall = contextBudget.request(finalWireBody);
         lifecycle.signal.throwIfAborted();
-        const response = await fetchCachedProvider(apiUrl, finalWireBody, { headers: apiHeaders, signal: lifecycle.signal });
+        const response = await fetchCachedProvider(apiUrl, finalWireBody, { headers: apiHeaders, signal: lifecycle.signal, protocolState: lifecycle });
         if (!response.ok) {
             const errText = await response.text();
             if (isStreamMode) { res.write(`data: [ERROR]${errText.substring(0,500)}\n\n`); res.end(); return; }
@@ -9801,6 +9802,7 @@ app.post('/api/web-chat', async (req, res) => {
                     const webBudgetCall = webContextBudget.request(webToolWireBody);
                     const toolRes = await fetchCachedProvider(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, webToolWireBody, {
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                        protocolState: webContextBudget,
                     });
 
                     if (!toolRes.ok) {
@@ -9884,6 +9886,7 @@ app.post('/api/web-chat', async (req, res) => {
                 const webFinalBudgetCall = webContextBudget.request(webFinalWireBody);
                 const aiRes = await fetchCachedProvider(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, webFinalWireBody, {
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                    protocolState: webContextBudget,
                 });
 
                 if (!aiRes.ok) {
