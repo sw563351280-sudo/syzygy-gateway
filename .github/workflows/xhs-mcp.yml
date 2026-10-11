@@ -1,6 +1,12 @@
 name: Manage server Xiaohongshu MCP
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        default: inspect
+        options: [inspect, install]
+        description: Inspect prerequisites or install the pinned MCP service
 permissions:
   contents: read
 jobs:
@@ -17,6 +23,50 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key root@46.250.248.31 'node -' < scripts/xhs-mcp-inspect.js
+      - name: Remove runner SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+  install:
+    if: inputs.mode == 'install'
+    needs: inspect
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    concurrency:
+      group: syzygy-xhs-install
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: xpzouying/xiaohongshu-mcp
+          ref: 6583124dfda92312b6bc19a042a6acfae63fe498
+          path: upstream-xhs
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: upstream-xhs/go.mod
+          cache-dependency-path: upstream-xhs/go.sum
+      - name: Build pinned v2.5.0 source
+        working-directory: upstream-xhs
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go mod verify
+          go build -trimpath -ldflags '-X main.version=v2.5.0' -o ../xiaohongshu-mcp .
+          cd ..
+          sha256sum xiaohongshu-mcp > SHA256SUMS
+      - name: Install private systemd service
+        env:
+          SSH_KEY: ${{ secrets.CONTABO_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          SSH=(ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -o PasswordAuthentication=no -i ~/.ssh/deploy_key root@46.250.248.31)
+          "${SSH[@]}" 'install -d -m 700 /opt/syzygy-xhs/incoming'
+          scp -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/deploy_key xiaohongshu-mcp SHA256SUMS root@46.250.248.31:/opt/syzygy-xhs/incoming/
+          "${SSH[@]}" 'bash -s' < scripts/install-xhs-mcp.sh
+          "${SSH[@]}" 'node -' < scripts/xhs-mcp-inspect.js
       - name: Remove runner SSH key
         if: always()
         run: rm -f ~/.ssh/deploy_key
