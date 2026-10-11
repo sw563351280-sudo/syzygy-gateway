@@ -41,8 +41,15 @@ async function main(){
         assert.equal(writes.length,0,'reading performs no mutations');
         await page.type('#searchInput','稀有关键词');assert.equal(await count(),1,'search finds a memory outside latest ten');
         assert.equal(await page.$eval('.memory-card',e=>e.dataset.memoryId),'fixture_65');
-        await page.evaluate(()=>{searchInput.value='';filterAll();});await page.click('.pill-manual');assert.equal(await count(),27);
+        assert.equal(await page.$('#tagFilter'),null,'no content-tag categories');
+        assert.equal(await page.$$eval('button',buttons=>buttons.some(b=>b.textContent.trim()==='热度')),false,'no heat sorting');
+        await page.evaluate(()=>{searchInput.value='';filterAll();});await page.select('#sourceFilter','source:manual');assert.equal(await count(),27);
         await page.click('.pill-all');assert.equal(await count(),10);
+        await page.click('.pill-everywhere');await page.type('#searchInput','稀有关键词');assert.equal(await count(),1);
+        await page.evaluate(()=>{searchInput.value='';filterAll();});
+        await page.select('#orderFilter','oldest');assert.equal(await page.$eval('.memory-card',e=>e.dataset.memoryId),'fixture_81','oldest across stores');
+        await page.evaluate(()=>clearLibraryFilters());assert.equal(await count(),10);
+        assert.match(await page.$eval('#resultSummary',e=>e.textContent),/找到 80 条，已显示 10 条/);
         await page.click('#card-fixture_0 [data-memory-action="quote"]');
         assert.equal(await page.$eval('#quote-fixture_0',e=>e.hidden),false);assert.equal(await page.evaluate(()=>window.injected),undefined);
         assert.match(await page.$eval('#quote-fixture_0 time',e=>e.textContent),/08:18$/,'minute precision');
@@ -73,10 +80,12 @@ async function main(){
             await page.click('.notes-filter');await page.keyboard.press('Escape');assert.equal(await page.$eval('.notes-tools',e=>e.open),false);
         }
         await page.evaluate(()=>localStorage.setItem('syzygy_visual_theme','classic'));await page.reload({waitUntil:'networkidle0'});
-        assert.equal(await count(),memories.length,'classic still renders all memory data');
+        assert.equal(await count(),memories.filter(m=>m.category==='active').length,'classic renders current range');
+        await page.click('.pill-everywhere');assert.equal(await count(),memories.length,'classic supports all ranges');
+        await page.type('#searchInput','稀有关键词');assert.equal(await count(),1,'classic searches stored content');
         assert.equal(await page.evaluate(()=>!!window.MemoryNotes),false);
         assert.deepEqual(errors,[]);
-        console.log(JSON.stringify({ok:true,widths:[1536,1024,393,320],checks:['ten recent','offscreen search','source filters','date groups','safe quote','edit','full browse','partial batch deletion','restore','mobile dialogs','classic rollback']}));
+        console.log(JSON.stringify({ok:true,widths:[1536,1024,393,320],checks:['ten recent','offscreen search','independent source and scope filters','all ranges','no content-tag filter or heat sorting','real date sorting','result counts','safe quote','edit','full browse','partial batch deletion','restore','mobile dialogs','classic theme']}));
     }finally{await browser?.close();await new Promise(r=>server.close(r));}
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

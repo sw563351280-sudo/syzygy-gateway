@@ -25,12 +25,12 @@
         const year=chinaParts(Date.now())?.year;
         return `${p.year!==year?p.year+'年':''}${Number(p.month)}月${Number(p.day)}日 · ${weekday}`;
     };
-    let expanded=false, order='time', selected=[], rendered=0, lastDay=null, observer;
+    let expanded=false, selected=[], rendered=0, lastDay=null, observer;
     const total=$('totalCount');
     total.className='notes-total'; total.parentElement.removeChild(total);
     document.querySelector('.hero h2').append(total);
     const search=$('searchInput'), wrap=document.createElement('div'); wrap.className='notes-search-wrap';
-    search.before(wrap); wrap.innerHTML=icon('search'); wrap.append(search); search.placeholder='搜索记忆…'; search.setAttribute('aria-label','搜索全部记忆');
+    search.before(wrap); wrap.innerHTML=icon('search'); wrap.append(search); search.placeholder='搜索当前范围…'; search.setAttribute('aria-label','搜索当前范围的记忆');
     const add=document.querySelector('.add'); add.innerHTML=icon('pencil')+'<span>写入</span>'; add.setAttribute('aria-label','写入记忆');
     const filter=document.createElement('button'); filter.type='button'; filter.className='notes-filter'; filter.innerHTML=icon('filter')+'<span>筛选</span>'; filter.setAttribute('aria-label','筛选与整理'); filter.setAttribute('aria-haspopup','dialog');
     add.after(filter);
@@ -39,13 +39,14 @@
     tools.innerHTML='<h2>筛选与整理</h2>'; tools.append(document.querySelector('.sort'));
     const inbox=document.createElement('button'); inbox.type='button'; inbox.className='notes-inbox-button'; inbox.textContent='记忆收件箱';
     inbox.addEventListener('click',()=>{tools.close();openInbox();}); tools.append(inbox);
+    const vault=document.createElement('a');vault.className='notes-inbox-button';vault.href='/memory-vault.html?pwd='+encodeURIComponent(PWD);vault.textContent='查看合并建议 · 收纳室';tools.append(vault);
     const close=document.createElement('button'); close.type='button'; close.className='notes-tools-close'; close.textContent='收起'; close.addEventListener('click',()=>tools.close()); tools.append(close); document.body.append(tools);
     filter.addEventListener('click',()=>{inbox.textContent=MEMORY_EVENTS.length?'记忆收件箱 · '+MEMORY_EVENTS.length:'记忆收件箱';tools.showModal();});
     tools.addEventListener('click',e=>{if(e.target===tools){const r=tools.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)tools.close();}});
     const list=$('memoryList');
     function note(m) {
         const id=esc(m.id), shown=m.category==='roleplay'?stripMemoryLead(m.content):shenRecord(m.content), tags=(m.tags||[]).filter(Boolean);
-        const foot=[tags.join('/'),compactDate(m.created_at),sourceLabel(m.source),m.category==='archived'?'冰封':''].filter(Boolean).map(esc).join(' · ');
+        const foot=[compactDate(m.created_at),sourceLabel(m.source),m.category==='archived'?'冰封':m.category==='roleplay'?'游戏卡带':'长期记忆'].filter(Boolean).map(esc).join(' · ');
         const action=(name,label)=>`<button type="button" data-memory-action="${name}">${label}</button>`;
         const actions=m.category==='archived'?action('restore','解封')+action('delete','删除'):action('edit','编辑')+action('resolved',m.resolved?'取消解决标记':'标记解决')+action('delete','删除');
         const selector=multiSelectMode?`<label class="mem-check"><input type="checkbox" aria-label="选择这条记忆" data-memory-check${selectedMemoryIds.has(m.id)?' checked':''}></label>`:'';
@@ -59,20 +60,20 @@
         </article>`;
     }
     function matches() {
-        const q=search.value.trim().toLocaleLowerCase();
-        return ALL_MEMS.filter(m=>m.category===currentCat&&(currentSource==='all'||m.source===currentSource)&&[m.content,m.source_quote,...(m.tags||[])].filter(Boolean).join(' ').toLocaleLowerCase().includes(q)).sort((a,b)=>order==='heat'?(b.liveHeat??b.heat??.5)-(a.liveHeat??a.heat??.5):(Date.parse(b.created_at)||0)-(Date.parse(a.created_at)||0));
+        return libraryMatches();
     }
     function rows(memories) {
         return memories.map(m=>{
-            const day=dayKey(m.created_at), heading=order==='time'&&day!==lastDay?'<h3 class="notes-day">'+esc(dayLabel(m.created_at))+'</h3>':'';
+            const date=orderFilter.value==='updated'?(m.updated_at||m.created_at):m.created_at;
+            const day=dayKey(date), heading=day!==lastDay?'<h3 class="notes-day">'+esc(dayLabel(date))+'</h3>':'';
             lastDay=day;return heading+note(m);
         }).join('');
     }
-    function isRecent() { return !expanded&&!search.value.trim()&&currentCat==='active'&&currentSource==='all'&&order==='time'; }
+    function isRecent() { return !expanded&&!search.value.trim()&&currentCat==='active'&&currentSource==='all'&&orderFilter.value==='created'; }
     function appendMore() {
         observer?.disconnect(); $('notesMore')?.remove();
         const end=Math.min(selected.length,rendered+40);
-        list.insertAdjacentHTML('beforeend',rows(selected.slice(rendered,end))); rendered=end; addMore(); updateBatchUI();
+        list.insertAdjacentHTML('beforeend',rows(selected.slice(rendered,end))); rendered=end; addMore(); updateResultSummary(selected.length,rendered); updateBatchUI();
     }
     function addMore() {
         if (rendered>=selected.length) return;
@@ -87,14 +88,11 @@
     }
     function paint() {
         observer?.disconnect(); selected=matches(); rendered=Math.min(selected.length,isRecent()?10:40); lastDay=null;
-        list.innerHTML=rows(selected.slice(0,rendered))||'<div class="notes-empty">'+(search.value.trim()?'没有找到这段记忆。':'这里还没有记忆。')+'</div>';
-        addMore(); updateBatchUI();
+        list.innerHTML=rows(selected.slice(0,rendered))||'<div class="notes-empty">当前筛选下没有记忆，可以重置筛选或切换到全部范围。</div>';
+        addMore(); updateResultSummary(selected.length,rendered); updateBatchUI();
     }
     renderMemoryList=paint;
-    filterAll=paint;
-    setFilter=function(btn,cat,source){document.querySelectorAll('.pill').forEach(x=>x.classList.toggle('active',x===btn));currentCat=cat;currentSource=source;expanded=false;paint();};
-    sortByHeat=function(){order='heat';expanded=true;paint();tools.close();};
-    sortByTime=function(){order='time';expanded=false;paint();tools.close();};
+    filterAll=function(){selectedMemoryIds.clear();expanded=false;paint();};
     const originalToggle=toggleMultiSelect;
     toggleMultiSelect=function(force){tools.close();originalToggle(force);};
     list.addEventListener('change',e=>{if(e.target.matches('[data-memory-check]'))toggleMemorySelected(e.target.closest('[data-memory-id]').dataset.memoryId,e.target.checked);});

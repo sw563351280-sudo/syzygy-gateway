@@ -60,6 +60,7 @@ function requestedBuiltinToolNames(text) {
         names.add('query_ledger');
     }
     if (/原始对话|对话记录|聊天记录|对话原文|之前.*说过|以前.*说过|答应了什么|承诺过什么|搜.*(?:对话|原话|记录)/i.test(value)) names.add('search_transcript');
+    if (/碎屑|星尘|生活记忆|还记得|之前|以前|上次|昨天|前天|那天|记不记得|想起来/i.test(value)) names.add('search_crumbs');
     if (/环境|位置|电量|天气|在哪里|周围响度/i.test(value)) names.add('check_environment');
 
     return names;

@@ -1,4 +1,14 @@
-/* Warm notes over the shared night sea; the classic page stays untouched. */
+/* Shared library controls; visual themes retain their existing card styles. */
+.library-filters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin:0 0 12px; }
+.library-filters label { display:grid; gap:6px; min-width:0; font-size:12px; color:var(--muted); }
+.library-filters select { width:100%; min-width:0; padding:10px; border:1px solid var(--line); border-radius:10px; font:inherit; color:var(--ink); background:var(--card); }
+.library-filters select option { color:#28364d; background:#edf5fc; }
+.library-summary { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:16px; color:var(--muted); font-size:12px; }
+.library-summary a { color:inherit; }
+.library-summary .tiny { flex-shrink:0; }
+html[data-visual-theme="new"] .library-filters select { background:rgba(255,255,255,.06); }
+html[data-visual-theme="new"] .library-summary .tiny { color:var(--ink); background:rgba(255,255,255,.08); border:1px solid var(--line); }
+html[data-visual-theme="new"] .inbox-banner.show { display:flex!important; }
 html[data-visual-theme="new"] .top p,html[data-visual-theme="new"] .hero p,html[data-visual-theme="new"] .subbar,html[data-visual-theme="new"] .inbox-banner { display:none!important; }
 html[data-visual-theme="new"] .hero { padding:0 0 16px; }
 html[data-visual-theme="new"] .hero h2 { display:flex; align-items:baseline; gap:16px; margin:0; font-size:28px; font-weight:400; }

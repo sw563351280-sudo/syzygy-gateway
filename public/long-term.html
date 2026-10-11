@@ -8,7 +8,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>星渡 · 长期记忆</title>
   <script src="/memory-theme.js?v=20261009-global"></script>
-  <script src="/memory-notes.js?v=2" defer></script>
+  <script src="/memory-notes.js?v=3" defer></script>
   <script src="/memory-curator-diagnostics.js?v=2" defer></script>
   <link rel="stylesheet" href="/memory-curator-diagnostics.css?v=2">
   <style>
@@ -23,7 +23,7 @@
     @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
   </style>
   <link rel="stylesheet" href="/memory-sea.css?v=1">
-  <link rel="stylesheet" href="/memory-notes.css?v=2">
+  <link rel="stylesheet" href="/memory-notes.css?v=3">
 <link rel="stylesheet" href="/site-theme.css?v=20261011-pwa-rollback">
 </head>
 <body>
@@ -33,17 +33,20 @@
     <button class="inbox-banner" id="inboxBanner" onclick="openInbox()"><span><b id="inboxTitle">记忆正在整理</b><small id="inboxSubtitle">已经收到，不会丢失</small></span><span>查看 →</span></button>
     <div class="toolbar"><input class="search" id="searchInput" placeholder="找一件已经记下的事…" oninput="filterAll()"><button class="add" onclick="openModal()">＋ 写入</button></div>
     <div class="filters">
-      <button class="pill pill-all active" onclick="setFilter(this,'active','all')"><span class="pill-icon">✦</span><span>全部</span><b id="cntAll">0</b></button>
-      <button class="pill pill-manual" onclick="setFilter(this,'active','manual')"><span class="pill-icon">✎</span><span>手动</span><b id="cntManual">0</b></button>
-      <button class="pill pill-shen" onclick="setFilter(this,'active','ai_active')"><span class="pill-icon">✧</span><span>沈望</span><b id="cntAI">0</b></button>
-      <button class="pill pill-summary" onclick="setFilter(this,'active','butler_summary')"><span class="pill-icon">⌁</span><span>整理</span><b id="cntButler">0</b></button>
+      <button class="pill pill-all active" onclick="setFilter(this,'active','all')"><span class="pill-icon">✦</span><span>长期记忆</span><b id="cntAll">0</b></button>
       <button class="pill pill-roleplay" onclick="setFilter(this,'roleplay','all')"><span class="pill-icon">◈</span><span>游戏卡带</span><b id="cntRP">0</b></button>
       <button class="pill pill-archive" onclick="setFilter(this,'archived','all')"><span class="pill-icon">❄</span><span>冰封</span><b id="cntArchived">0</b></button>
+      <button class="pill pill-everywhere" onclick="setFilter(this,'all','all')"><span class="pill-icon">⌕</span><span>全部范围</span><b id="cntEverywhere">0</b></button>
     </div>
-    <div class="subbar"><span>共 <b id="totalCount">0</b> 条 · 只留下句号，不收过程。</span><span class="sort"><button onclick="sortByHeat()">热度</button><button onclick="sortByTime()">时间</button><button onclick="triggerCleanup()">整理</button><button class="select-toggle" id="multiToggle" onclick="toggleMultiSelect()">选择</button></span></div>
+    <div class="library-filters" aria-label="记忆筛选">
+      <label>写入来源<select id="sourceFilter" onchange="changeLibraryFilters()"><option value="all">所有来源</option></select></label>
+      <label>排列<select id="orderFilter" onchange="changeLibraryFilters()"><option value="created">最近记下</option><option value="updated">最近修改</option><option value="oldest">最早记下</option></select></label>
+    </div>
+    <div class="library-summary"><span id="resultSummary" role="status" aria-live="polite"></span><a id="vaultLink" href="#">收纳室 · 合并建议</a><button class="tiny" onclick="clearLibraryFilters()">重置筛选</button></div>
+    <div class="subbar"><span>共 <b id="totalCount">0</b> 条</span><span class="sort"><button onclick="openInbox()">待处理</button><button onclick="triggerCleanup()">AI 整理建议</button><button class="select-toggle" id="multiToggle" onclick="toggleMultiSelect()">批量整理</button></span></div>
     <div id="memoryList">加载中…</div>
   </main>
-  <div class="batch-bar" id="batchBar" aria-live="polite"><span class="batch-count">已选 <b id="selectedCount">0</b> 条</span><button onclick="selectVisibleMemories()">全选当前</button><button onclick="toggleMultiSelect(false)">取消</button><button class="batch-delete" id="batchDelete" onclick="deleteSelectedMemories()" disabled>删除</button></div>
+  <div class="batch-bar" id="batchBar" aria-live="polite"><span class="batch-count">已选 <b id="selectedCount">0</b> 条</span><button onclick="selectVisibleMemories()">全选已显示</button><button onclick="toggleMultiSelect(false)">取消</button><button class="batch-delete" id="batchDelete" onclick="deleteSelectedMemories()" disabled>删除</button></div>
   <div class="modal-bg" id="addModal"><div class="modal"><h3>写下一件事</h3><textarea id="newContent" rows="4" placeholder="已经形成的结论…"></textarea><input id="newTags" placeholder="标签，用逗号隔开"><button class="btn-save" onclick="submitNew()">保存</button> <button class="tiny" onclick="closeModal()">取消</button></div></div><div class="toast" id="toast"></div>
   <div class="modal-bg" id="inboxModal"><div class="modal inbox-modal"><div class="inbox-head"><div><h3 style="margin:0">记忆收件箱</h3><div style="font-size:12px;color:var(--muted);margin-top:4px">只显示正在整理或需要确认的内容</div></div><button class="tiny" onclick="closeInbox()">关闭</button></div><div id="inboxList"></div></div></div>
   <script>
@@ -52,6 +55,7 @@
     document.getElementById('growthLink').href='/relationship-growth.html?pwd='+encodeURIComponent(PWD);
     document.getElementById('dustLink').href='/stardust.html?pwd='+encodeURIComponent(PWD);
     document.getElementById('cometLink').href='/comets.html?pwd='+encodeURIComponent(PWD);
+    document.getElementById('vaultLink').href='/memory-vault.html?pwd='+encodeURIComponent(PWD);
     let ALL_MEMS=[],MEMORY_EVENTS=[],COUNTS={},currentCat='active',currentSource='all',multiSelectMode=false,batchDeleting=false;
     const selectedMemoryIds=new Set();
     const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const shenRecord=s=>String(s||'').trim().replace(/^我记着[：:]\s*/,'').replace(/江鱼/g,'她').replace(/你/g,'她').replace(/沈望/g,'我');const stripMemoryLead=s=>String(s||'').trim().replace(/^我记着[：:]\s*/,'');
@@ -65,25 +69,42 @@
     function openInbox(){renderInbox();inboxModal.classList.add('show')}function closeInbox(){inboxModal.classList.remove('show')}
     async function retryEvent(id){let r=await fetch('/api/memory-events/'+encodeURIComponent(id)+'/retry',{method:'POST'}),d=await r.json().catch(()=>({}));showToast(r.ok?'已安排重试':(d.error||'重试失败'));setTimeout(loadData,600)}
     async function resolveEvent(id,action,targetId){let r=await fetch('/api/memory-events/'+encodeURIComponent(id)+'/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,target_id:targetId||null})}),d=await r.json().catch(()=>({}));if(!r.ok){showToast(d.error||'处理失败');return}showToast('已处理');await loadData();if(!MEMORY_EVENTS.length)closeInbox()}
-    function syncCountUI(){COUNTS={all:ALL_MEMS.filter(m=>m.category==='active').length,manual:ALL_MEMS.filter(m=>m.category==='active'&&m.source==='manual').length,ai_active:ALL_MEMS.filter(m=>m.category==='active'&&m.source==='ai_active').length,butler_summary:ALL_MEMS.filter(m=>m.category==='active'&&m.source==='butler_summary').length,roleplay:ALL_MEMS.filter(m=>m.category==='roleplay').length,archived:ALL_MEMS.filter(m=>m.category==='archived').length};cntAll.textContent=COUNTS.all;cntManual.textContent=COUNTS.manual;cntAI.textContent=COUNTS.ai_active;cntButler.textContent=COUNTS.butler_summary;cntRP.textContent=COUNTS.roleplay;cntArchived.textContent=COUNTS.archived;totalCount.textContent=ALL_MEMS.length}
-    function sourceLabel(s){return({manual:'手动写下',ai_active:'沈望记下',butler_summary:'整理而来',roleplay:'游戏卡带'})[s]||'记忆'}
+    function syncCountUI(){cntAll.textContent=ALL_MEMS.filter(m=>m.category==='active').length;cntRP.textContent=ALL_MEMS.filter(m=>m.category==='roleplay').length;cntArchived.textContent=ALL_MEMS.filter(m=>m.category==='archived').length;cntEverywhere.textContent=ALL_MEMS.length;totalCount.textContent=ALL_MEMS.length;refreshLibrarySources()}
+    function sourceLabel(s){return({manual:'手动写下',ai_active:'沈望记下',butler_summary:'整理而来',roleplay:'游戏卡带',migrated_from_blocks:'早期导入'})[s]||s||'未注明来源'}
+    function scopeMemories(){return ALL_MEMS.filter(m=>currentCat==='all'||m.category===currentCat)}
+    function refreshLibrarySources(){
+      const sources=new Map(),old=sourceFilter.value;
+      for(const m of scopeMemories()){const key=m.source||'';sources.set(key,(sources.get(key)||0)+1)}
+      sourceFilter.replaceChildren(new Option('所有来源','all'));
+      for(const [source,count] of [...sources].sort((a,b)=>sourceLabel(a[0]).localeCompare(sourceLabel(b[0]),'zh-CN')))sourceFilter.add(new Option(sourceLabel(source)+' · '+count,'source:'+source));
+      if([...sourceFilter.options].some(o=>o.value===old))sourceFilter.value=old;
+      currentSource=sourceFilter.value==='all'?'all':sourceFilter.value.slice(7);
+    }
+    function libraryMatches(){
+      const query=searchInput.value.trim().toLocaleLowerCase(),order=orderFilter.value;
+      const time=m=>Date.parse(order==='updated'?(m.updated_at||m.created_at):m.created_at)||0;
+      return scopeMemories().filter(m=>(currentSource==='all'||(m.source||'')===currentSource)&&[m.content,m.source_quote,...(Array.isArray(m.tags)?m.tags:[])].filter(Boolean).join(' ').toLocaleLowerCase().includes(query)).sort((a,b)=>(order==='oldest'?time(a)-time(b):time(b)-time(a))||String(a.id).localeCompare(String(b.id)));
+    }
+    function updateResultSummary(count,shown=count){resultSummary.textContent=({active:'长期记忆',roleplay:'游戏卡带',archived:'冰封',all:'全部范围'})[currentCat]+' · 找到 '+count+' 条'+(shown<count?'，已显示 '+shown+' 条':'')}
+    function changeLibraryFilters(){currentSource=sourceFilter.value==='all'?'all':sourceFilter.value.slice(7);selectedMemoryIds.clear();filterAll()}
+    function clearLibraryFilters(){searchInput.value='';sourceFilter.value='all';orderFilter.value='created';setFilter(document.querySelector('.pill-all'),'active','all')}
     function renderCard(m){let heat=m.liveHeat??m.heat??.5,archive=m.category==='archived'?' · 冰封中':'',origin=m.source_quote?'<details class="memory-origin"><summary>原话 · '+esc(new Date(m.source_at||m.created_at).toLocaleString('zh-CN'))+'</summary><div>'+esc(m.source_quote)+'</div></details>':'',shown=m.category==='roleplay'?stripMemoryLead(m.content):shenRecord(m.content),tags=(m.tags||[]).filter(Boolean),tagBlock=tags.length?'<div class="memory-tags">'+tags.map(t=>'<span class="tag">'+esc(t)+'</span>').join('')+'</div>':'',checked=selectedMemoryIds.has(m.id)?' checked':'',selector=multiSelectMode?'<label class="mem-check" onclick="event.stopPropagation()"><input type="checkbox" aria-label="选择这条记忆"'+checked+' onchange="toggleMemorySelected(\''+m.id+'\',this.checked)"></label>':'',acts=m.category==='archived'?'<button class="btn-sm" onclick="restoreMemory(\''+m.id+'\')">解封</button><button class="btn-sm btn-del" onclick="deleteArchivedMemory(\''+m.id+'\')">删除</button>':'<button class="btn-sm" onclick="startEdit(\''+m.id+'\')">编辑</button><button class="btn-sm" onclick="toggleResolved(\''+m.id+'\','+!!m.resolved+')">'+(m.resolved?'已解决':'标记解决')+'</button><button class="btn-sm btn-del" onclick="deleteMemory(\''+m.id+'\')">删除</button>';return '<article class="memory-card cat-'+m.category+(multiSelectMode?' selecting':'')+'" id="card-'+m.id+'" data-memory-id="'+esc(m.id)+'" data-category="'+m.category+'" data-source="'+m.source+'" data-heat="'+heat+'">'+selector+'<div class="memory-content" id="content-'+m.id+'">'+esc(shown)+'</div>'+origin+tagBlock+'<div class="memory-meta"><span>'+new Date(m.created_at).toLocaleString('zh-CN')+' · '+sourceLabel(m.source)+archive+'</span><span class="mem-actions">'+acts+'</span></div><div id="edit-'+m.id+'" style="display:none;margin-top:10px"><textarea id="ta-'+m.id+'" rows="3">'+esc(stripMemoryLead(m.content))+'</textarea><input id="tags-'+m.id+'" value="'+esc(tags.join(', '))+'"><button class="btn-save" onclick="saveEdit(\''+m.id+'\')">保存</button> <button class="tiny" onclick="cancelEdit(\''+m.id+'\')">取消</button></div></article>'}
-    function renderMemoryList(){memoryList.innerHTML=ALL_MEMS.map(renderCard).join('')||'<div style="padding:54px 12px;text-align:center;color:var(--muted)">这里还没有长期记忆。</div>';filterAll();updateBatchUI()}
-    function filterAll(){let q=(searchInput.value||'').toLowerCase();document.querySelectorAll('#memoryList .memory-card').forEach(c=>c.style.display=(c.textContent.toLowerCase().includes(q)&&c.dataset.category===currentCat&&(currentSource==='all'||c.dataset.source===currentSource))?'block':'none')}
-    function setFilter(btn,cat,source){document.querySelectorAll('.pill').forEach(x=>x.classList.remove('active'));btn.classList.add('active');currentCat=cat;currentSource=source;filterAll()}
-    function sortByHeat(){[...memoryList.children].sort((a,b)=>b.dataset.heat-a.dataset.heat).forEach(x=>memoryList.appendChild(x))} function sortByTime(){[...memoryList.children].sort((a,b)=>b.id.localeCompare(a.id)).forEach(x=>memoryList.appendChild(x))}
+    function renderMemoryList(){const matches=libraryMatches();memoryList.innerHTML=matches.map(renderCard).join('')||'<div class="notes-empty">当前筛选下没有记忆，可以重置筛选或切换到全部范围。</div>';updateResultSummary(matches.length);updateBatchUI()}
+    function filterAll(){selectedMemoryIds.clear();renderMemoryList()}
+    function setFilter(btn,cat,source){document.querySelectorAll('.pill').forEach(x=>x.classList.toggle('active',x===btn));currentCat=cat;currentSource=source;sourceFilter.value=source==='all'?'all':'source:'+source;selectedMemoryIds.clear();refreshLibrarySources();filterAll()}
     function startEdit(id){document.getElementById('content-'+id).style.display='none';document.getElementById('edit-'+id).style.display='block'} function cancelEdit(id){document.getElementById('content-'+id).style.display='block';document.getElementById('edit-'+id).style.display='none'}
     async function saveEdit(id){let content=document.getElementById('ta-'+id).value,tags=document.getElementById('tags-'+id).value.split(/[,，]/).filter(Boolean);let r=await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({content,tags})});if((await r.json()).success)location.reload()}
     function captureScrollAnchor(excludedIds){let excluded=new Set(excludedIds),top=document.querySelector('.top').getBoundingClientRect().bottom+4,cards=[...document.querySelectorAll('#memoryList .memory-card')].filter(c=>c.style.display!=='none'&&!excluded.has(c.dataset.memoryId)),anchor=cards.find(c=>c.getBoundingClientRect().bottom>top);return anchor?{id:anchor.dataset.memoryId,top:anchor.getBoundingClientRect().top}:null}
-    function applyDeletedMemories(ids){let idSet=new Set(ids),anchor=captureScrollAnchor(ids);ALL_MEMS=ALL_MEMS.filter(m=>!idSet.has(m.id));ids.forEach(id=>{selectedMemoryIds.delete(id);document.getElementById('card-'+id)?.remove()});syncCountUI();if(!document.querySelector('#memoryList .memory-card'))renderMemoryList();else{filterAll();updateBatchUI()}if(anchor)requestAnimationFrame(()=>{let el=document.getElementById('card-'+anchor.id);if(el)window.scrollBy(0,el.getBoundingClientRect().top-anchor.top)})}
+    function applyDeletedMemories(ids){let idSet=new Set(ids),anchor=captureScrollAnchor(ids);ALL_MEMS=ALL_MEMS.filter(m=>!idSet.has(m.id));ids.forEach(id=>{selectedMemoryIds.delete(id);document.getElementById('card-'+id)?.remove()});syncCountUI();renderMemoryList();if(anchor)requestAnimationFrame(()=>{let el=document.getElementById('card-'+anchor.id);if(el)window.scrollBy(0,el.getBoundingClientRect().top-anchor.top)})}
     async function requestMemoryDelete(memory){let url=memory.category==='archived'?'/api/archive-memories/':'/api/long-term-memories/',r=await fetch(url+encodeURIComponent(memory.id),{method:'DELETE'}),d=await r.json().catch(()=>({}));if(!r.ok||d.success===false)throw new Error(d.error||'删除失败');return memory.id}
     async function deleteMemory(id){if(!confirm('删除这条记忆？'))return;let memory=ALL_MEMS.find(m=>m.id===id);if(!memory)return;try{await requestMemoryDelete(memory);applyDeletedMemories([id]);showToast('已删除')}catch(e){showToast(e.message||'删除失败')}} async function restoreMemory(id){await fetch('/api/archive-memories/'+encodeURIComponent(id)+'/restore',{method:'POST'});location.reload()} async function deleteArchivedMemory(id){if(!confirm('彻底删除这条冰封记忆？'))return;let memory=ALL_MEMS.find(m=>m.id===id);if(!memory)return;try{await requestMemoryDelete(memory);applyDeletedMemories([id]);showToast('已删除')}catch(e){showToast(e.message||'删除失败')}}
     function toggleMultiSelect(force){multiSelectMode=typeof force==='boolean'?force:!multiSelectMode;selectedMemoryIds.clear();document.body.classList.toggle('multi-selecting',multiSelectMode);renderMemoryList()}
     function toggleMemorySelected(id,checked){if(checked)selectedMemoryIds.add(id);else selectedMemoryIds.delete(id);updateBatchUI()}
     function selectVisibleMemories(){let visible=[...document.querySelectorAll('#memoryList .memory-card')].filter(c=>c.style.display!=='none'),allSelected=visible.length>0&&visible.every(c=>selectedMemoryIds.has(c.dataset.memoryId));visible.forEach(c=>{if(allSelected)selectedMemoryIds.delete(c.dataset.memoryId);else selectedMemoryIds.add(c.dataset.memoryId);let input=c.querySelector('.mem-check input');if(input)input.checked=!allSelected});updateBatchUI()}
-    function updateBatchUI(){batchBar.classList.toggle('show',multiSelectMode);multiToggle.classList.toggle('active',multiSelectMode);multiToggle.textContent=multiSelectMode?'取消选择':'选择';selectedCount.textContent=selectedMemoryIds.size;batchDelete.disabled=selectedMemoryIds.size===0||batchDeleting}
+    function updateBatchUI(){batchBar.classList.toggle('show',multiSelectMode);multiToggle.classList.toggle('active',multiSelectMode);multiToggle.textContent=multiSelectMode?'取消选择':'批量整理';selectedCount.textContent=selectedMemoryIds.size;batchDelete.disabled=selectedMemoryIds.size===0||batchDeleting}
     async function deleteSelectedMemories(){let ids=[...selectedMemoryIds];if(!ids.length||batchDeleting)return;if(!confirm('确定删除选中的 '+ids.length+' 条记忆？'))return;batchDeleting=true;updateBatchUI();let succeeded=[],failed=[];for(let i=0;i<ids.length;i+=8){let chunk=ids.slice(i,i+8),results=await Promise.allSettled(chunk.map(id=>{let memory=ALL_MEMS.find(m=>m.id===id);return memory?requestMemoryDelete(memory):Promise.reject(new Error('未找到记忆'))}));results.forEach((result,index)=>{if(result.status==='fulfilled')succeeded.push(chunk[index]);else failed.push(chunk[index])})}if(succeeded.length)applyDeletedMemories(succeeded);batchDeleting=false;failed.forEach(id=>selectedMemoryIds.add(id));updateBatchUI();showToast(failed.length?'已删除 '+succeeded.length+' 条，'+failed.length+' 条失败':'已删除 '+succeeded.length+' 条')}
-    async function toggleResolved(id,resolved){let r=await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({resolved:!resolved})});if((await r.json()).success)location.reload()} async function triggerCleanup(){if(!confirm('检查重复记忆并提出整理？'))return;let r=await fetch('/trigger-cleanup?pwd='+encodeURIComponent(PWD),{method:'POST'}),d=await r.json();alert(d.success?'整理完成':'整理失败')}
+    async function toggleResolved(id,resolved){let r=await fetch('/api/long-term-memories/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({resolved:!resolved})});if((await r.json()).success)location.reload()}
+    async function triggerCleanup(){if(!confirm('让 AI 检查重复记忆并生成合并建议？建议可在收纳室查看，不会直接删除记忆。'))return;try{let r=await fetch('/api/memory-merge-reviews/scan?pwd='+encodeURIComponent(PWD),{method:'POST'}),d=await r.json();if(!r.ok||d.success===false)throw new Error(d.error||'暂时无法开始整理');showToast('已开始检查，可在收纳室查看建议')}catch(e){showToast(e.message)}}
     loadData();
   </script>
 </body>
