@@ -15,6 +15,8 @@ html[data-visual-theme="new"] {
   --ink:var(--sea-foreground); --muted:var(--sea-muted); --blue:var(--sea-accent); --gold:var(--sea-accent);
   --text:var(--sea-foreground); --dim:var(--sea-muted); --cream:var(--sea-foreground);
   --sea-home-image:var(--sea-image);
+  isolation:isolate;
+  min-height:100vh;
   background:var(--sea-base) !important;
 }
 html[data-visual-theme="new"][data-sea-cycle="night"] {
@@ -27,16 +29,41 @@ html[data-visual-theme="new"][data-sea-cycle="night"] {
   --sea-accent:#c8b28e;
   color-scheme:dark;
 }
-html[data-visual-theme="new"] body {
+/* One stable image on the root, outside the fixed chat body and its viewport. */
+html[data-visual-theme="new"]::before {
+  content:''; position:fixed; top:0; left:0; width:100%; height:100vh;
+  z-index:-1; pointer-events:none;
+  background:var(--sea-base) var(--sea-image) center 43% / cover no-repeat;
+}
+html[data-visual-theme="new"] body,
+html[data-visual-theme="new"] body.neu-mode {
   isolation:isolate;
   min-height:100dvh;
-  background:var(--sea-base) !important;
+  background:transparent !important;
   color:var(--sea-foreground);
 }
 html[data-visual-theme="new"] body::before {
-  content:''; position:fixed; inset:0; z-index:-1; pointer-events:none;
-  background:var(--sea-image) center 43% / cover no-repeat !important;
-  opacity:1; filter:none; mix-blend-mode:normal;
+  content:none !important;
+}
+/* Installed PWAs use the full screen; controls still keep their safe-area padding. */
+@media (display-mode: standalone) {
+  html[data-visual-theme="new"] body,
+  html[data-visual-theme="new"] body.neu-mode {
+    min-height:100vh;
+  }
+  html[data-visual-theme="new"] body:is([data-view="chat"], .codex-chat-mode) {
+    position:relative !important;
+    inset:auto !important;
+    height:100vh !important;
+  }
+  html[data-visual-theme="new"] body.neu-mode :is(#sec-chat.section, #sec-dev.codex-chat-open) {
+    height:100vh !important;
+    min-height:0;
+  }
+  html[data-visual-theme="new"] body.neu-mode #sec-home.home-layout-v2,
+  html[data-visual-theme="new"] body.neu-mode #sec-home.home-layout-v2 .home-v2 {
+    min-height:100vh;
+  }
 }
 /* Existing page-specific art no longer covers or tints the shared sea. */
 html[data-visual-theme="new"] body.neu-mode .section,
