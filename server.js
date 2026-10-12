@@ -3022,7 +3022,7 @@ async function processLongTermMemoryEvent(event, tr = null) {
             candidates,
         }));
     } catch (error) {
-        return holdMemoryEvent(event, 'pending', `审查器失败：${error.message}`, null, candidates, tr);
+        return holdMemoryEvent(event, error.retryable === false ? 'needs_review' : 'pending', `审查器失败：${error.message}`, null, candidates, tr);
     }
 
     const threshold = decision.action === 'create' ? 0.78 : 0.85;

@@ -1,17 +1,39 @@
 'use strict';
 
-function findJson(text) {
+function jsonObjects(text) {
     const source = String(text || '').replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
-    const start = source.indexOf('{'); if (start < 0) return null;
-    let depth = 0, quoted = false, escaped = false;
+    const objects = [];
+    for (let start = source.indexOf('{'); start >= 0; start = source.indexOf('{', start + 1)) {
+    let depth = 0, quoted = false, escaped = false, closed = false;
     for (let i = start; i < source.length; i++) {
         const ch = source[i];
         if (quoted) { if (escaped) escaped = false; else if (ch === '\\') escaped = true; else if (ch === '"') quoted = false; continue; }
         if (ch === '"') quoted = true;
         else if (ch === '{') depth++;
-        else if (ch === '}' && --depth === 0) { try { return JSON.parse(source.slice(start, i + 1)); } catch (_) { return null; } }
+        else if (ch === '}' && --depth === 0) {
+            try { objects.push(JSON.parse(source.slice(start, i + 1))); } catch (_) {}
+            start = i; closed = true;
+            break;
+        }
     }
-    return null;
+    if (!closed) break;
+    }
+    return objects;
+}
+function findJson(text) { return jsonObjects(text)[0] || null; }
+function textParts(value) {
+    if (typeof value === 'string') return [value];
+    if (!Array.isArray(value)) return [];
+    const text = value.filter(block => block?.thought !== true).map(block => typeof block?.text === 'string' ? block.text : typeof block?.text?.value === 'string' ? block.text.value : '').join('');
+    return text ? [text] : [];
+}
+function invalidDecision(data, texts, detail) {
+    const shape = data?.choices ? 'openai' : data?.candidates ? 'gemini' : data?.type === 'message' ? 'anthropic' : data?.output ? 'responses' : 'unknown';
+    const reason = detail || (texts.some(text => text.trim()) ? '输出不是有效审核 JSON' : '没有返回审核正文');
+    const error = new Error(`memory merge curator returned no valid decision：${reason}（格式 ${shape}，文本 ${texts.reduce((sum, text) => sum + text.length, 0)} 字符）。自动重试已停止，正文已保留，请人工确认。`);
+    error.code = 'MEMORY_INVALID_DECISION';
+    error.retryable = false;
+    return error;
 }
 
 function normalizeDecision(payload, incoming, candidates) {
@@ -44,17 +66,33 @@ async function decideMemoryWrite(options) {
     const request = value => fetchImpl(endpoint, { method: 'POST', headers, body: JSON.stringify(value), signal: controller.signal });
     try {
         let response = await request(body);
-        if (!response.ok && (response.status === 400 || response.status === 422)) { delete body.response_format; response = await request(body); }
-        if (!response.ok) throw new Error(`memory merge curator API ${response.status}`);
-        const data = await response.json();
+        if (!response.ok && (response.status === 400 || response.status === 422)) {
+            const detail = await response.clone?.().text().catch(() => '') || '';
+            if (/response_format|json_object/i.test(detail) && /unsupported|not supported|not allowed|不支持|unknown|unrecognized/i.test(detail)) {
+                delete body.response_format; response = await request(body);
+            }
+        }
+        if (!response.ok) {
+            const error = new Error(`memory merge curator API ${response.status}`);
+            error.retryable = response.status === 429 || response.status >= 500;
+            throw error;
+        }
+        let data;
+        try { data = await response.json(); } catch { throw invalidDecision(null, [], '返回体不是有效 JSON'); }
         const message = data?.choices?.[0]?.message || {};
-        for (const raw of [message.content, message.reasoning_content, data?.choices?.[0]?.text, data?.output_text]) {
-            const parsed = typeof raw === 'string' ? findJson(raw) : null;
+        const finalTexts = [...textParts(message.content), ...textParts(data?.choices?.[0]?.text), ...textParts(data?.output_text),
+            ...textParts(data?.content), ...(data?.candidates || []).flatMap(candidate => textParts(candidate?.content?.parts)),
+            ...(data?.output || []).filter(item => item.type === 'message').flatMap(item => textParts(item.content))];
+        const texts = [...finalTexts, ...textParts(message.reasoning_content)];
+        const finish = data?.choices?.[0]?.finish_reason || data?.stop_reason || data?.candidates?.[0]?.finishReason;
+        if (['length', 'max_tokens', 'MAX_TOKENS'].includes(finish) || data?.status === 'incomplete') throw invalidDecision(data, texts, '输出达到上限或被截断');
+        if (message.refusal || data?.error) throw invalidDecision(data, texts, '上游返回拒绝或接口错误');
+        for (const parsed of texts.flatMap(jsonObjects)) {
             if (parsed && ['new', 'create', 'same', 'update', 'supersede', 'conflict', 'review', 'skip'].includes(parsed.action)) {
                 return normalizeDecision(parsed, incoming, candidates);
             }
         }
-        throw new Error('memory merge curator returned no valid decision');
+        throw invalidDecision(data, texts);
     } finally { clearTimeout(timer); }
 }
 

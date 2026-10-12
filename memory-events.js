@@ -9,6 +9,9 @@ const ACTIVE_STATUSES = new Set(['received', 'processing', 'pending', 'needs_rev
 const MAX_AUTO_ATTEMPTS = 10;
 const MINUTE_MS = 60 * 1000;
 const RETRY_DELAYS_MS = [5, 15, 30, 60, 120, 240, 480, 720, 1440].map(minutes => minutes * MINUTE_MS);
+function invalidReviewResult(event) {
+    return event?.kind === 'long_term' && /memory merge curator returned no valid decision/.test(String(event.error || ''));
+}
 
 function autoRetryExhausted(event, maxAttempts = MAX_AUTO_ATTEMPTS) {
     return event?.kind === 'long_term' && Number(event?.attempts || 0) >= maxAttempts;
@@ -21,6 +24,7 @@ function nextAutoRetryAt(event, now = new Date()) {
 }
 
 function autoRetryDue(event, now = new Date()) {
+    if (invalidReviewResult(event)) return false;
     if (autoRetryExhausted(event)) return false;
     if (!event?.next_retry_at) return true;
     const due = new Date(event.next_retry_at).getTime();
@@ -55,7 +59,10 @@ function readMemoryEvents(file) {
             // Earlier snapshots remain valid and are still recoverable.
         }
     }
-    return [...byId.values()];
+    // Recover previously queued format failures without another model call or
+    // deleting/recreating the durable event. Manual retry clears its error.
+    return [...byId.values()].map(event => invalidReviewResult(event) && ['pending', 'received', 'processing'].includes(event.status)
+        ? { ...event, status: 'needs_review', next_retry_at: null } : event);
 }
 
 function appendEventSnapshot(file, event) {
