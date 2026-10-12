@@ -328,26 +328,19 @@ function isWorkroomSession(session = getActiveSession()) {
 let _dataVersion = 0;
 async function syncFromCloud() {
     try {
-        const r = await fetch(syncConfigUrl());
-        const data = await r.json();
+        const data = await loadCloudConfig();
         _dataVersion = data._version || 0;
         updateHistoryWindows(data._historyWindows, true);
 
         suppliers = (data.suppliers && data.suppliers.length) ? data.suppliers : [{ name: "默认接口", url: "https://api.dzzi.ai/v1", key: "" }];
-        chatSessions = (data.chatSessions && data.chatSessions.length) ? data.chatSessions : [{ id: 'main', name: '主频道', messages: [] }];
+        const cloudSessions = (data.chatSessions && data.chatSessions.length) ? data.chatSessions : [{ id: 'main', name: '主频道', messages: [] }];
+        ContextContinuity.ensureMessageIds(cloudSessions, () => crypto.randomUUID());
+        _chatJournal.observe(cloudSessions);
+        const recovery = _chatJournal.restore(cloudSessions);
+        chatSessions = recovery.sessions;
         ensureWorkroomSession();
         activeSupIndex = data.activeSupIndex || 0;
         activeChatId   = data.activeChatId  || 'main';
-
-        // 🛡️ 云端加载成功后，旧的紧急备份已无意义，清掉（防止未来从脏备份恢复）
-        try {
-            const oldBak = JSON.parse(localStorage.getItem('syzygy_urgent_bak') || 'null');
-            const bakDirty = oldBak && Array.isArray(oldBak.sessions) && oldBak.sessions.some(s => (s.name || '').includes('加载中'));
-            if (oldBak && (!oldBak.sessions || !oldBak.sessions.length || bakDirty)) {
-                localStorage.removeItem('syzygy_urgent_bak');
-                console.log('[sync] 已清理脏紧急备份');
-            }
-        } catch(_) {}
 
         if (!chatSessions.find(s => s.id === activeChatId)) {
             activeChatId = chatSessions[0].id;
@@ -365,6 +358,7 @@ async function syncFromCloud() {
         renderChatMessages();
         updateWorkroomChrome();
         fetchModels();
+        if (recovery.restored) saveToCloud(true);
 
         const viewTitle = document.getElementById('chatViewTitle');
         if (viewTitle) {
@@ -374,24 +368,7 @@ async function syncFromCloud() {
 
     } catch(e) {
         console.error('[sync] load failed:', e.message);
-        // 尝试从本地紧急备份恢复
-        if ((!chatSessions || !chatSessions.length || !chatSessions[0]?.messages?.length) && !localStorage.getItem('syzygy_urgent_used')) {
-            try {
-                const bak = JSON.parse(localStorage.getItem('syzygy_urgent_bak') || 'null');
-                // 🛡️ 拒绝从脏备份恢复（备份里的会话名含"加载中"说明是被污染的）
-                const bakDirty = bak && Array.isArray(bak.sessions) && bak.sessions.some(s => (s.name || '').includes('加载中'));
-                if (!bakDirty && bak && bak.sessions && bak.sessions.length && bak.sessions[0]?.messages?.length) {
-                    chatSessions = bak.sessions;
-                    _dataVersion = bak.ver || 0;
-                    console.log('[sync] 从本地紧急备份恢复 ' + bak.sessions[0].messages.length + ' 条消息');
-                    localStorage.setItem('syzygy_urgent_used', '1');
-                    setTimeout(() => localStorage.removeItem('syzygy_urgent_used'), 60000);
-                } else if (bakDirty) {
-                    console.warn('[sync] 紧急备份为脏数据，跳过恢复');
-                    localStorage.removeItem('syzygy_urgent_bak');
-                }
-            } catch(_) {}
-        }
+        // Pending new messages remain in the journal until cloud loading succeeds.
         // Never wipe in-memory data. On first load, keep trying.
         if (!chatSessions || !chatSessions.length) {
             suppliers    = [{ name: "默认接口", url: "https://api.dzzi.ai/v1", key: "" }];
@@ -451,6 +428,21 @@ let _saveFailCount = 0;
 let _lastSaveError = '';
 let _saveMutationEpoch = 0;
 let _saveCommittedEpoch = 0;
+const _chatJournal = ChatPersistence.createJournal(localStorage);
+let _preservePendingHistory = false;
+async function loadCloudConfig() {
+    // Recovery uses the full history so older queued messages cannot be mistaken
+    // for new tail entries or shift the partial-save boundary.
+    const full = _chatJournal.hasPending();
+    const data = await ChatPersistence.requestJson(full ? '/api/sync-config' : syncConfigUrl());
+    if (!Array.isArray(data.chatSessions)) throw new Error('云端聊天数据格式异常');
+    if (full) {
+        _preservePendingHistory = true;
+        data._historyWindows = Object.fromEntries(data.chatSessions.map(s =>
+            [s.id, { start: 0, total: (s.messages || []).length, hasMore: false, partial: false }]));
+    }
+    return data;
+}
 function hasUnsavedCloudChanges() { return _saveCommittedEpoch < _saveMutationEpoch; }
 function _showSaveWarning(show, errMsg) {
     let el = document.getElementById('saveWarning');
@@ -730,10 +722,10 @@ async function resyncAndMerge(reason) {
     _syncing = true;
     _syncingPromise = (async () => {
     try {
-        const r = await fetch(syncConfigUrl(), { cache: 'no-store' });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const data = await r.json();
+        const data = await loadCloudConfig();
         const serverSessions = data.chatSessions || [];
+        ContextContinuity.ensureMessageIds(serverSessions, () => crypto.randomUUID());
+        _chatJournal.observe(serverSessions);
 
         let serverAdded = 0, localOnly = 0;
         const localById = {};
@@ -832,13 +824,14 @@ async function _doSave() {
     ContextContinuity.ensureMessageIds(chatSessions, () => crypto.randomUUID());
     var clone;
     try { clone = structuredClone(chatSessions); } catch (_e) { clone = JSON.parse(JSON.stringify(chatSessions)); }
+    const journalSnapshot = JSON.parse(JSON.stringify(clone));
 
     // 2. 常规处理
     for (var si = 0; si < clone.length; si++) {
         var s = clone[si];
         if (!s.messages) continue;
         cleanupOldImages(s);
-        ContextContinuity.trimContextWindow(s, getActiveVersion);
+        if (!_preservePendingHistory) ContextContinuity.trimContextWindow(s, getActiveVersion);
         for (var mi = 0; mi < s.messages.length; mi++) {
             var m = s.messages[mi];
             if (m.versions && m.versions.length > 5) {
@@ -871,20 +864,11 @@ async function _doSave() {
     console.log('[sync-config] ' + (payloadBytes / 1024 / 1024).toFixed(2) + ' MB, 保留 ' + keptRounds + ' 个图片轮次');
 
     // 5. 发送
-    var r = await fetch('/api/sync-config', {
+    var d = await ChatPersistence.requestJson('/api/sync-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: payloadText
     });
-    if (!r.ok) {
-        var text = await r.text().catch(function(){ return ''; });
-        var hint = 'HTTP ' + r.status;
-        if (r.status === 413) { hint += ' 数据仍过大，请清理旧频道或刷新页面'; }
-        else if (r.status === 403) { hint += text.indexOf('Origin') >= 0 ? ' 当前访问域名不在允许列表' : ' 请求被代理或安全规则拒绝: ' + text.slice(0, 100); }
-        else { hint += ' ' + text.slice(0, 200); }
-        throw new Error(hint);
-    }
-    var d = await r.json();
     if (d._rejected) {
         if (mergeSyncEnabled()) {
             console.warn('🛡️ [版本落后] 服务端有更新，拉取合并后重试');
@@ -896,7 +880,14 @@ async function _doSave() {
         console.log('[save:ABORT] rejected (merge disabled) ' + (Date.now()-_t0) + 'ms');
         throw new Error('版本落后，保存被拒绝，请刷新页面');
     }
-    if (d._version) _dataVersion = d._version;
+    if (d.success !== true || !d._version) throw new Error('服务器未确认保存，稍后重试');
+    _dataVersion = d._version;
+    for (const session of journalSnapshot) {
+        const sentIds = new Set((clone.find(s => s.id === session.id)?.messages || []).map(m => m._id));
+        session.messages = (session.messages || []).filter(m => sentIds.has(m._id));
+    }
+    try { _chatJournal.acknowledge(journalSnapshot); } catch (error) { console.warn('[backup] 确认状态写入失败:', error.message); }
+    if (!_chatJournal.hasPending()) _preservePendingHistory = false;
     _loopCount = 0; _loopLocalOnly = 0;
     console.log('[save:OK] v' + _dataVersion + ' ' + (Date.now()-_t0) + 'ms ' + (payloadBytes/1024).toFixed(0) + 'KB');
 }
@@ -906,6 +897,7 @@ let _saveQueued = false;
 
 function saveToCloud(immediate, preserveMutationEpoch = false) {
     if (!preserveMutationEpoch) _saveMutationEpoch++;
+    saveLocalBackup();
     clearTimeout(_saveTimer);
     const doSave = async () => {
         _saveTimer = null;
@@ -937,9 +929,12 @@ function saveToCloud(immediate, preserveMutationEpoch = false) {
         } finally {
             _savingNow = false;
             if (_saveQueued) { _saveQueued = false; saveToCloud(true, true); }
+            else if (hasUnsavedCloudChanges() && !document.hidden) {
+                _saveTimer = setTimeout(() => saveToCloud(true, true), 30000);
+            }
         }
     };
-    if (immediate) doSave(); else _saveTimer = setTimeout(doSave, 500);
+    if (immediate) return doSave(); else _saveTimer = setTimeout(doSave, 500);
 }
 
 // 💥 焕然一新的模型图标：发光彩色小星星 (Gemini) + 官方原版小菊花 (Claude)
@@ -2836,9 +2831,6 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         getLiveSession(sessionId).messages.push(assistantMsg);
         // 先存本地备份，再尝试云端同步
         // 🛡️ 拒绝备份脏兜底状态
-        if (!_hasDirtyFallbackState()) {
-            try { localStorage.setItem('syzygy_urgent_bak', JSON.stringify({ sessions: chatSessions, ver: _dataVersion, ts: Date.now() })); } catch(_) {}
-        }
         saveToCloud(true);
         fetchPulseStatus();
         if (window._coreStreamEnd) window._coreStreamEnd();
@@ -2894,7 +2886,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         if (_renderDeferred) { _renderDeferred = false; renderChatMessages(); }
         if (_resyncPendingReason) {
             var _pr = _resyncPendingReason; _resyncPendingReason = null;
-            setTimeout(function(){ resyncAndMerge(_pr); }, 1500);
+            setTimeout(function(){ resyncIfStale(_pr); }, 1500);
         }
     }
     } catch (e) {
@@ -4242,6 +4234,8 @@ async function revealEarlierChatMessages() {
             return;
         }
         for (const message of data.messages || []) normalizeMessageVersionFields(message);
+        ContextContinuity.ensureMessageIds([{ messages: data.messages || [] }], () => crypto.randomUUID());
+        _chatJournal.observe([{ id: session.id, messages: data.messages || [] }]);
         const beforeLength = session.messages.length;
         session.messages = mergeMessageLists(data.messages || [], session.messages);
         const added = Math.max(0, session.messages.length - beforeLength);
@@ -4558,7 +4552,7 @@ async function regenerateSend(aiMsgIndex) {
         if (_renderDeferred) { _renderDeferred=false; renderChatMessages(); }
         if (_resyncPendingReason) {
             const reason = _resyncPendingReason; _resyncPendingReason = null;
-            setTimeout(() => resyncAndMerge(reason), 1500);
+            setTimeout(() => resyncIfStale(reason), 1500);
         }
     }
 }
@@ -5013,24 +5007,13 @@ function _hasDirtyFallbackState() {
 }
 
 function saveLocalBackup() {
-    // 🛡️ 拒绝备份脏兜底状态
-    if (_hasDirtyFallbackState()) { console.warn('[backup] 跳过：数据为脏兜底状态'); return; }
+    if (_hasDirtyFallbackState()) return;
     try {
-        var clone;
-        try { clone = structuredClone(chatSessions); } catch (_) { clone = JSON.parse(JSON.stringify(chatSessions)); }
-        // 剥掉图片 base64，只保留文本（不占用 localStorage 配额）
-        for (var si = 0; si < clone.length; si++) {
-            var s = clone[si]; if (!s.messages) continue;
-            for (var mi = 0; mi < s.messages.length; mi++) {
-                var m = s.messages[mi];
-                delete m.image; delete m.images;
-                if (m.versions) m.versions.forEach(function(v) { delete v.image; delete v.images; });
-            }
-        }
-        localStorage.setItem('syzygy_local_backup', JSON.stringify({ sessions: clone, suppliers: suppliers, activeSupIndex: activeSupIndex, activeChatId: activeChatId, time: Date.now() }));
-    } catch(e) {
-        console.warn('[backup] localStorage write failed:', e.message);
-        if (!document.hidden) toast('本地备份失败：存储空间不足');
+        ContextContinuity.ensureMessageIds(chatSessions, () => crypto.randomUUID());
+        _chatJournal.capture(chatSessions);
+    } catch (error) {
+        console.warn('[backup] 本机待同步记录写入失败:', error.message);
+        _showSaveWarning(true, '本机备份失败，请保持页面打开直到云端同步完成');
     }
 }
 
@@ -5042,7 +5025,7 @@ function buildSavePayload() {
     try { clone = structuredClone(chatSessions); } catch (_) { clone = JSON.parse(JSON.stringify(chatSessions)); }
     for (var si = 0; si < clone.length; si++) {
         var s = clone[si]; if (!s.messages) continue;
-        ContextContinuity.trimContextWindow(s, getActiveVersion);
+        if (!_preservePendingHistory) ContextContinuity.trimContextWindow(s, getActiveVersion);
         for (var mi = 0; mi < s.messages.length; mi++) { delete s.messages[mi]._zepDirty; }
     }
     return JSON.stringify({ suppliers: suppliers, chatSessions: clone, activeSupIndex: activeSupIndex, activeChatId: activeChatId, _version: _dataVersion, _historyWindows: historyWindowsForPayload(clone) });

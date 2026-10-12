@@ -10,6 +10,7 @@ public/assets/celestial-orbit.jpg
 public/assets/winter-home-v2.png
 public/cache-history.js
 public/chat-transport.js
+public/chat-persistence.js
 public/chat-window-context.js
 public/clipboard-images.js
 public/comets.html
