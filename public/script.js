@@ -451,10 +451,13 @@ function _showSaveWarning(show, errMsg) {
         if (!el) {
             el = document.createElement('div');
             el.id = 'saveWarning';
-            el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(255,82,82,0.92);color:#fff;padding:6px 16px;border-radius:20px;font-size:12px;z-index:9999;white-space:nowrap;pointer-events:none;';
+            el.style.cssText = 'position:fixed;bottom:80px;right:16px;max-width:calc(100vw - 32px);color:inherit;background:var(--bg-color,rgba(128,128,128,.12));padding:4px 9px;border-radius:10px;font-size:10px;opacity:.65;z-index:9999;white-space:normal;';
+            el.setAttribute('role', 'status');
+            el.setAttribute('aria-live', 'polite');
             document.body.appendChild(el);
         }
-        el.textContent = '⚠️ 同步失败: ' + (_lastSaveError || '未知错误');
+        el.textContent = '暂未同步 · 稍后重试';
+        el.title = _lastSaveError || '同步暂未完成';
         el.style.display = 'block';
     } else if (el) {
         el.style.display = 'none';
@@ -818,7 +821,7 @@ async function _doSave() {
             throw new Error('云端数据未加载');
         }
     }
-    var MAX_SYNC_BYTES = 3 * 1024 * 1024; // 3 MB
+    var MAX_SYNC_BYTES = 15 * 1024 * 1024; // Below the server's 50 MB request limit.
 
     // 1. 深拷贝 chatSessions — 不影响内存中的原始数据
     ContextContinuity.ensureMessageIds(chatSessions, () => crypto.randomUUID());
@@ -855,8 +858,8 @@ async function _doSave() {
             payloadBytes = new Blob([payloadText]).size;
         }
         if (payloadBytes > MAX_SYNC_BYTES) {
-            console.error('[sync-config] 逐轮移除后仍超限制 (' + (payloadBytes / 1024 / 1024).toFixed(1) + ' MB)，最新图片过大');
-            throw new Error('最新图片过大，云端同步失败。请减少图片或清理旧频道后重试。');
+            console.error('[sync-config] 请求仍超限制 (' + (payloadBytes / 1024 / 1024).toFixed(1) + ' MB)，包含文字、设置及保留的媒体');
+            throw new Error('待同步数据超过 15 MB，请导出备份后整理过大的频道或附件。');
         }
     }
 
