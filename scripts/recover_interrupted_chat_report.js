@@ -35,6 +35,10 @@ function normalizeMessage(message, source) {
     };
 }
 
+
+const incidentFrom = Date.parse('2026-10-12T01:30:00Z');
+const incidentTo = Date.parse('2026-10-12T04:15:00Z');
+const inIncident = message => { const time = Date.parse(message.time); return time >= incidentFrom && time <= incidentTo; };
 const transcriptMessages = [];
 const transcriptsDir = path.join(dataDir, 'transcripts');
 if (fs.existsSync(transcriptsDir)) {
@@ -64,16 +68,18 @@ const sessions = (Array.isArray(config.chatSessions) ? config.chatSessions : [])
     messages: (Array.isArray(session.messages) ? session.messages : [])
         .map(message => normalizeMessage(message, `web_config:${session.id}`))
         .filter(Boolean)
-        .slice(-30)
+        .filter(inIncident)
 }));
 
 const report = {
     generatedAt: new Date().toISOString(),
     configVersion: config._version || 0,
     activeChatId: config.activeChatId || null,
-    transcriptTail: transcriptMessages.slice(-40),
+    transcriptTail: transcriptMessages.filter(inIncident),
     sessions: sessions.filter(session => session.id === config.activeChatId || session.id === 'main')
 };
 
+
+report.incidentRange = { from: new Date(incidentFrom).toISOString(), to: new Date(incidentTo).toISOString() };
 fs.writeFileSync(outputFile, JSON.stringify(report, null, 2), { mode: 0o600 });
 console.log(`wrote recovery report: ${report.transcriptTail.length} transcript messages, ${report.sessions.length} sessions`);
