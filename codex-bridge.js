@@ -58,13 +58,18 @@ function createCodexBridge(options = {}) {
             addEvent(task, 'codex/work-record-error', { message: String(error.message || '工作记录保存失败') });
         }
     }
+    function processEnv() {
+        const env = buildCodexEnv();
+        if (options.codexHome) env.CODEX_HOME = options.codexHome;
+        return env;
+    }
     const config = {
         enabled: process.env.CODEX_ENABLED !== 'false',
         bin: process.env.CODEX_BIN || 'codex',
         model: process.env.CODEX_MODEL || 'gpt-5.6-terra',
-        cwd: path.resolve(process.env.CODEX_WORKDIR || options.cwd || process.cwd()),
+        cwd: path.resolve(options.isolated ? options.cwd : process.env.CODEX_WORKDIR || options.cwd || process.cwd()),
         timeoutMs: Math.max(60_000, Number(process.env.CODEX_TIMEOUT_MS || 20 * 60 * 1000)),
-        networkAccess: process.env.CODEX_NETWORK_ACCESS === 'true'
+        networkAccess: !options.isolated && process.env.CODEX_NETWORK_ACCESS === 'true'
     };
 
     const tasks = new Map();
@@ -333,6 +338,11 @@ function createCodexBridge(options = {}) {
         // Persist the result and broadcast completion before allowing deployment.
         task.releaseDeploymentLock?.();
         task.releaseDeploymentLock = null;
+        if (options.isolated) {
+            try { task.proc?.kill(); } catch (_) {}
+            task.proc = null;
+            return;
+        }
         if (task.idleTimeout) clearTimeout(task.idleTimeout);
         task.idleTimeout = setTimeout(() => {
             task.idleTimeout = null;
@@ -345,6 +355,14 @@ function createCodexBridge(options = {}) {
 
     function threadSandboxMode(mode) {
         return mode === 'workspaceWrite' ? 'workspace-write' : 'read-only';
+    }
+
+    function sandboxPolicy(task) {
+        if (task.mode === 'workspaceWrite') return { type: 'workspaceWrite', writableRoots: [task.cwd], networkAccess: config.networkAccess };
+        // Explicit networkAccess is supported by older and newer CLI schemas.
+        // Keep the manual bridge's existing policy unchanged.
+        return options.isolated ? { type: 'readOnly', networkAccess: false }
+            : { type: 'readOnly', access: { type: 'fullAccess' } };
     }
 
     function approvalPolicy(mode) {
@@ -386,9 +404,7 @@ function createCodexBridge(options = {}) {
                     model: task.model,
                     effort: task.effort,
                     approvalPolicy: approvalPolicy(task.mode),
-                    sandboxPolicy: task.mode === 'workspaceWrite'
-                        ? { type: 'workspaceWrite', writableRoots: [task.cwd], networkAccess: config.networkAccess }
-                        : { type: 'readOnly', access: { type: 'fullAccess' } },
+                    sandboxPolicy: sandboxPolicy(task),
                     summary: 'concise',
                     personality: 'friendly'
                 }
@@ -416,6 +432,13 @@ function createCodexBridge(options = {}) {
     function handleServerRequest(task, message) {
         const method = String(message.method || '');
         if (method.includes('requestApproval') || method === 'applyPatchApproval' || method === 'execCommandApproval') {
+            if (options.isolated) {
+                // Background jobs cannot acquire broader permissions through a
+                // missing UI client. Decline using the existing protocol mapper.
+                task.pending.set(String(message.id), message);
+                sendClientCommand(task, { type: 'approval', requestId: message.id, decision: 'decline' });
+                return;
+            }
             if (task.source === 'workroom' && task.mode === 'readOnly') return failTask(task, '讨论模式不能申请执行权限；需要修改请点击让 Codex 开工');
             task.pending.set(String(message.id), message);
             addEvent(task, method, { requestId: message.id, ...(message.params || {}) });
@@ -439,7 +462,7 @@ function createCodexBridge(options = {}) {
         try {
             child = spawnProcess(config.bin, ['app-server', '--listen', 'stdio://'], {
                 cwd: task.cwd,
-                env: buildCodexEnv(),
+                env: processEnv(),
                 stdio: ['pipe', 'pipe', 'pipe']
             });
         } catch (error) {
@@ -663,7 +686,7 @@ function createCodexBridge(options = {}) {
             status: 'starting',
             prompt: displayPrompt,
             input: turnInput(prompt + (isWorkroom && !executing ? '\n【服务端讨论约束】本轮未点击开工，只能讨论或只读检查。不得修改、部署、推送，也不得通过外部工具绕过只读限制。' : ''), images),
-            source: isWorkroom ? 'workroom' : 'dev',
+            source: options.isolated ? 'background' : isWorkroom ? 'workroom' : 'dev',
             model: /^[a-zA-Z0-9._-]{1,80}$/.test(selection.model || '') ? selection.model : config.model,
             effort,
             mode,
@@ -740,9 +763,7 @@ function createCodexBridge(options = {}) {
                         model: task.model,
                         effort: task.effort,
                         approvalPolicy: approvalPolicy(task.mode),
-                        sandboxPolicy: task.mode === 'workspaceWrite'
-                            ? { type: 'workspaceWrite', writableRoots: [task.cwd], networkAccess: config.networkAccess }
-                            : { type: 'readOnly', access: { type: 'fullAccess' } },
+                        sandboxPolicy: sandboxPolicy(task),
                         summary: 'concise',
                         personality: 'friendly'
                     }

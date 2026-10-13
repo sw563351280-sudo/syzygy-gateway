@@ -184,6 +184,18 @@ function handleWSMessage(msg) {
             if (document.getElementById('sec-private-journal')?.classList.contains('active')) privateJournalLoad(true);
             break;
         case 'proactive_message': handleProactiveMessage(msg); break;
+        case 'codex_dispatch_result': {
+            const session = chatSessions.find(s => s.id === msg.sessionId);
+            if (session && msg.message?._id) {
+                session.messages ||= [];
+                if (!session.messages.some(m => m._id === msg.message._id)) session.messages.push(msg.message);
+                // Already persisted by the server; a stale local snapshot must
+                // not overwrite another tab's conversation changes.
+                if (activeChatId === session.id) renderChatMessages({ forceBottom: true });
+                toast('Codex 后台任务已交回');
+            }
+            break;
+        }
         case 'todo_added':
         case 'todo_updated':
         case 'todo_deleted': neuRenderTodos(); break;
