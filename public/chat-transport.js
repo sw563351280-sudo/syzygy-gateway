@@ -2,10 +2,14 @@
 (function (root) {
     function createRequest({ streaming = true, onState = () => {}, timeoutMs } = {}) {
         const controller = new AbortController();
-        let timer, reason = null;
+        let timer, reason = null, stage = '准备请求';
+        const id = root.crypto?.randomUUID?.() || ('chat-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10));
         const request = {
+            id,
             signal: controller.signal,
             get reason() { return reason; },
+            get stage() { return stage; },
+            mark(next) { if (next) stage = next; },
             touch() {
                 clearTimeout(timer);
                 if (!controller.signal.aborted) timer = setTimeout(() => {
@@ -60,9 +64,16 @@
     function errorMessage(error, request) {
         if (request?.reason === 'timeout') return '连接长时间没有响应，已停止等待';
         if (error?.name === 'AbortError') return '回复连接被中断';
-        return error?.message || '连接失败';
+        const message = String(error?.message || '');
+        if (/^(load failed|failed to fetch|networkerror when attempting to fetch resource\.?)$/i.test(message.trim())) {
+            return '连接意外中断，请重试';
+        }
+        return message || '连接失败，请重试';
     }
-    const api = { createRequest, readStream, errorMessage };
+    function diagnostics(request) {
+        return request ? { requestId: request.id, stage: request.stage, reason: request.reason || null } : null;
+    }
+    const api = { createRequest, readStream, errorMessage, diagnostics };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.ChatTransport = api;
 })(typeof window !== 'undefined' ? window : globalThis);

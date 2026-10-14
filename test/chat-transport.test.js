@@ -5,7 +5,7 @@ const http = require('node:http');
 const { once, EventEmitter } = require('node:events');
 const { setTimeout: delay } = require('node:timers/promises');
 const { createChatRequestLifecycle } = require('../chat-request-lifecycle');
-const { createRequest, readStream, errorMessage } = require('../public/chat-transport');
+const { createRequest, readStream, errorMessage, diagnostics } = require('../public/chat-transport');
 const { createSummarizer } = require('../rolling-context');
 
 test('SSE handles fragmented UTF8, comments, data without spaces and terminal event without EOF', async () => {
@@ -45,6 +45,9 @@ test('user stop and transport timeout are distinct and timers are cleaned', asyn
     const completed = createRequest({ timeoutMs: 10 });
     completed.finish(); await delay(25);
     assert.equal(completed.signal.aborted, false);
+    completed.mark('接收工具调用结果');
+    assert.equal(errorMessage(Error('Load failed'), completed), '连接意外中断，请重试');
+    assert.deepEqual(diagnostics(completed), { requestId: completed.id, stage: '接收工具调用结果', reason: null });
 });
 
 test('quiet gateway heartbeats keep client alive, abort closes the real upstream HTTP request', async t => {

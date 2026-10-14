@@ -6,7 +6,7 @@ const source = fs.readFileSync(require.resolve('../public/script.js'), 'utf8');
 const section = source.slice(source.indexOf('let workroomCodexSocket ='), source.indexOf('// ==================== 供应商与模型库'));
 
 function setup() {
-    const room = { codexTaskId: 'task-1', messages: [], codexLastTurnId: null };
+    const room = { id: 'room', codexTaskId: 'task-1', messages: [], codexLastTurnId: null };
     const sockets = [];
     const timers = [];
     class Socket {
@@ -18,7 +18,7 @@ function setup() {
         console, crypto: require('node:crypto'), WORKROOM_ID: 'room', activeChatId: 'main',
         ensureWorkroomSession: () => room, document: { getElementById: () => null },
         getActiveVersion: message => message.versions?.[0] || message,
-        saveToCloud() {}, renderChatMessages() {}, toast() {}, renderMarkdown: text => text,
+        saveToCloud() {}, saveMessageChangesToCloud() {}, renderChatMessages() {}, toast() {}, renderMarkdown: text => text,
         location: { protocol: 'https:', host: 'example.test' }, WebSocket: Socket,
         setTimeout(fn) { timers.push(fn); return timers.length; }, clearTimeout() {}
     });

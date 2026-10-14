@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../public/script.js'), 'utf8');
-const begin = source.indexOf('async function _doSave()');
+const begin = source.indexOf('function compactMessageForPersistence(');
 const end = source.indexOf('let _savingNow', begin);
 function context(size) {
     const state = { chatSessions: [{ id: 'main', messages: [{ _id: 'm1', role: 'user', content: 'x'.repeat(size) }] }],
@@ -12,7 +12,7 @@ function context(size) {
         Blob, structuredClone, console: { log() {}, warn() {}, error() {} }, crypto: { randomUUID: () => 'unused' },
         _hasDirtyFallbackState: () => false, ContextContinuity: { ensureMessageIds() {} }, cleanupOldImages() {},
         _stripOldestImgRound: () => false, _countImgRounds: () => 0, historyWindowsForPayload: () => ({}),
-        _chatJournal: { acknowledge() {}, hasPending: () => false }, _loopCount: 0, _loopLocalOnly: 0,
+        _chatJournal: { pendingSnapshot: () => [], acknowledge() {}, hasPending: () => false }, _loopCount: 0, _loopLocalOnly: 0,
         ChatPersistence: { async requestJson(url, options) { state.sent = JSON.parse(options.body); return { success: true, _version: 2 }; } } };
     vm.createContext(state);
     vm.runInContext(source.slice(begin, end), state);

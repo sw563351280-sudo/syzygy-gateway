@@ -17,6 +17,7 @@ async function main() {
         suppliers: [{ name: 'fixture', url: 'https://fixture.invalid/v1', key: 'fixture-key' }],
         chatSessions: [{ id: 'main', name: '测试', messages }] }));
     app.post('/api/sync-config', (_req, res) => res.json({ success: true, _version: 2 }));
+    app.post('/api/chat-messages', (_req, res) => res.json({ success: true, _version: 2, inserted: 1, updated: 0 }));
     app.post('/api/fetch-models', (_req, res) => res.json({ data: [{ id: 'fixture-model' }] }));
     app.get('/api/todos', (_req, res) => res.json({ active: [], shen: [], fish: [] }));
     app.get('/api/favorites', (_req, res) => res.json({ favorites: [] }));
@@ -44,7 +45,7 @@ async function main() {
     let browser;
     try {
         const executablePath = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(p => p && fs.existsSync(p));
-        browser = await puppeteer.launch({ executablePath, headless: true, args: ['--mute-audio'], defaultViewport: { width: 393, height: 852 } });
+        browser = await puppeteer.launch({ executablePath, headless: true, args: ['--mute-audio', '--no-sandbox', '--disable-setuid-sandbox'], defaultViewport: { width: 393, height: 852 } });
         const page = await browser.newPage();
         const errors = [];
         page.on('pageerror', e => errors.push(e.message));
@@ -133,7 +134,8 @@ async function main() {
         assert.equal(state.messages.at(-1).versions.at(-1).messageUsage.read, 29500);
         console.log('Usage previews: ' + previewDirectory);
         mode = 'error'; await send(); await idle(); state = await snapshot();
-        assert.match(state.messages.at(-1).versions[0].content, /测试供应商错误/);
+        assert.equal(state.messages.at(-1).role, 'user', 'empty transport failures stay temporary and out of chat history');
+        assert.match(state.text, /测试供应商错误/);
         mode = 'broken'; await send(); await idle(); state = await snapshot();
         assert.equal(state.messages.at(-1).versions[0].content, '已经收到的半段回复');
         assert.match(state.messages.at(-1).versions[0]._interrupted, /提前断开/);

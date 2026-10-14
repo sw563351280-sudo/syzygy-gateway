@@ -135,6 +135,26 @@ test('real sync endpoints page main history and merge a versioned partial save',
     assert.equal(secondConcurrent.body._rejected, true);
     assert.equal(JSON.parse(stored)._version, 9);
     assert.equal(JSON.parse(stored).chatSessions[0].messages.at(-1)._id, 'm241');
+
+    const staleIncremental = response();
+    await handlers.get('POST /api/chat-messages')({ body: {
+        _version: 7,
+        sessions: [{ id: 'main', messages: [{ ...message(200), content: 'incrementally edited' }, message(242)] }]
+    }, headers: {}, ip: 'test' }, staleIncremental);
+    assert.equal(staleIncremental.body._rejected, true, 'stale incremental patches resync instead of masking unseen remote messages');
+
+    const incremental = response();
+    await handlers.get('POST /api/chat-messages')({ body: {
+        _version: 9,
+        sessions: [{ id: 'main', messages: [{ ...message(200), content: 'incrementally edited' }, message(242)] }]
+    }, headers: {}, ip: 'test' }, incremental);
+    assert.equal(incremental.body.success, true);
+    assert.equal(incremental.body.inserted, 1);
+    assert.equal(incremental.body.updated, 1);
+    const incrementallyPersisted = JSON.parse(stored);
+    assert.equal(incrementallyPersisted._version, 10);
+    assert.equal(incrementallyPersisted.chatSessions[0].messages.find(row => row._id === 'm200').content, 'incrementally edited');
+    assert.equal(incrementallyPersisted.chatSessions[0].messages.at(-1)._id, 'm242');
 });
 
 test('frontend save metadata follows messages omitted by the cloud cap', () => {

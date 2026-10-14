@@ -191,8 +191,18 @@ function createCodexDispatch(options) {
 
 async function deliverDispatchResult(store, job) {
     const messageId = 'codex-dispatch:' + job.id;
-    const report = [job.error && '阻碍：' + job.error, job.report].filter(Boolean).join('\n\n') || '未提供报告，请查看任务记录';
-    const content = `【Codex 后台交回】${job.title}\n${job.status === 'completed' ? '处理结束' : job.status === 'interrupted' ? '任务中断' : '任务未完成'}${job.mode === 'repair' ? '；修复副本供审查，尚未上线' : '；只读检查'}\n任务：${job.id}\n\n${report}${job.diffStat ? '\n\n改动统计：\n' + job.diffStat : ''}`;
+    const statCount = String(job.diffStat || '').match(/(\d+) files? changed/);
+    const statusCount = String(job.diffStat || '').split('\n').filter(line => /^\s*[ MADRCU?!]{1,2}\s+\S/.test(line)).length;
+    const changedFiles = statusCount || (statCount ? Number(statCount[1]) : 0);
+    const oneLine = value => String(value || '').replace(/<work_record>[\s\S]*?(?:<\/work_record>|$)/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
+    let content;
+    if (job.status === 'completed') {
+        content = `✅ ${job.title} · ${job.mode === 'repair' ? changedFiles + ' 个文件变更' : '检查完成'}`;
+    } else if (job.status === 'interrupted') {
+        content = `⚠️ ${job.title} · ${oneLine(job.error) || '任务中断，完整情况见工作记录'}`;
+    } else {
+        content = `❌ ${job.title} · ${oneLine(job.error) || '任务未完成，完整情况见工作记录'}`;
+    }
     const fullTime = job.finishedAt;
     const message = { _id: messageId, role: 'assistant', speaker: 'codex', versions: [{ content, fullTime, model: 'codex-dispatch' }], activeVersion: 0 };
     const outcome = await store.transaction(config => {

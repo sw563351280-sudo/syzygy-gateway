@@ -370,7 +370,7 @@ async function syncFromCloud() {
         renderChatMessages();
         updateWorkroomChrome();
         fetchModels();
-        if (recovery.restored) saveToCloud(true);
+        if (recovery.restored) saveMessageChangesToCloud(true);
 
         const viewTitle = document.getElementById('chatViewTitle');
         if (viewTitle) {
@@ -635,10 +635,11 @@ function messageRichness(m) {
 
 /* 🛡️ 检测兜底脏消息（断连时生成的假消息） */
 function isDirtyFallbackMessage(m) {
-  if (!m) return true;
-  const v = (typeof getActiveVersion === 'function' ? getActiveVersion(m) : {}) || {};
-  const c = (typeof msgContentOf === 'function') ? msgContentOf(m) : (v.content || m.content || '');
-  return String(c).indexOf('数据加载失败，请刷新页面重试') !== -1;
+    if (!m) return true;
+    const v = (typeof getActiveVersion === 'function' ? getActiveVersion(m) : {}) || {};
+    const c = (typeof msgContentOf === 'function') ? msgContentOf(m) : (v.content || m.content || '');
+    return String(c).indexOf('数据加载失败，请刷新页面重试') !== -1
+        || ((m._failed || v._failed) && String(c).startsWith('【发送失败】'));
 }
 
 // 合并两条消息数组，按 key 去重，按时间排序
@@ -795,7 +796,7 @@ let _loopLocalOnly = 0; let _loopCount = 0;
 async function resyncIfStale(reason) {
     if (!mergeSyncEnabled()) return;
     if (Date.now() - _lastResyncAt < 10000) {
-        if (hasUnsavedCloudChanges()) saveToCloud(true, true);
+        if (hasUnsavedCloudChanges()) saveToCloud(true, true, true);
         return;   // 10 秒内不重复拉；未保存改动仍继续保存
     }
     _lastResyncAt = Date.now();
@@ -811,11 +812,63 @@ async function resyncIfStale(reason) {
             }
         } else { _loopCount = 0; }
         _loopLocalOnly = res.localOnly;
-        saveToCloud(true, pendingLocalSave);
+        saveToCloud(true, pendingLocalSave, true);
     }
 }
 
-async function _doSave() {
+function compactMessageForPersistence(message) {
+    if (message.versions && message.versions.length > 5) {
+        message.versions = [message.versions[0], ...message.versions.slice(-4)];
+        if (message.activeVersion >= message.versions.length) message.activeVersion = message.versions.length - 1;
+    }
+    const versions = Array.isArray(message.versions) && message.versions.length ? message.versions : [message];
+    for (const version of versions) {
+        if (typeof version.rawContent === 'string' && version.rawContent === version.content) delete version.rawContent;
+        if (typeof version.reasoning === 'string' && version.reasoning === version.thinking) delete version.reasoning;
+    }
+    delete message._zepDirty;
+    return message;
+}
+
+function prepareIncrementalChatPatch() {
+    const snapshot = _chatJournal.pendingSnapshot();
+    for (const session of snapshot) {
+        session.messages = (session.messages || []).filter(message => !isDirtyFallbackMessage(message));
+        for (const message of session.messages) compactMessageForPersistence(message);
+    }
+    return snapshot.filter(session => session.messages.length);
+}
+
+async function _doIncrementalSave(startedAt) {
+    const journalSnapshot = _chatJournal.pendingSnapshot();
+    const patchSnapshot = prepareIncrementalChatPatch();
+    if (!patchSnapshot.length) {
+        try { _chatJournal.acknowledge(journalSnapshot); } catch (error) { console.warn('[backup] 清理临时失败状态失败:', error.message); }
+        console.log('[save:SKIP] no pending messages ' + (Date.now() - startedAt) + 'ms');
+        return;
+    }
+    const payloadText = JSON.stringify({ _version: _dataVersion, sessions: patchSnapshot });
+    const payloadBytes = new Blob([payloadText]).size;
+    if (payloadBytes > 15 * 1024 * 1024) throw new Error('本轮消息或附件超过 15 MB，请减少图片数量');
+    const d = await ChatPersistence.requestJson('/api/chat-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payloadText
+    });
+    if (d._rejected) {
+        const res = await resyncAndMerge('incremental-version-conflict');
+        if (!res) throw new Error('增量保存发生版本冲突，重新同步失败，稍后重试');
+        throw new Error('增量保存发生版本冲突，已重新同步并准备重试');
+    }
+    if (d.success !== true || !d._version) throw new Error(d.message || '服务器未确认增量保存，稍后重试');
+    _dataVersion = d._version;
+    try { _chatJournal.acknowledge(journalSnapshot); } catch (error) { console.warn('[backup] 确认状态写入失败:', error.message); }
+    if (!_chatJournal.hasPending()) _preservePendingHistory = false;
+    _loopCount = 0; _loopLocalOnly = 0;
+    console.log('[save:OK] incremental v' + _dataVersion + ' ' + (Date.now() - startedAt) + 'ms ' + (payloadBytes / 1024).toFixed(0) + 'KB');
+}
+
+async function _doSave(incrementalOnly = false) {
     var _t0 = Date.now();
     // 🛡️ 拒绝保存脏兜底状态（防止断连时把空数据覆盖到服务端）
     if (_hasDirtyFallbackState()) {
@@ -833,6 +886,7 @@ async function _doSave() {
             throw new Error('云端数据未加载');
         }
     }
+    if (incrementalOnly) return _doIncrementalSave(_t0);
     var MAX_SYNC_BYTES = 15 * 1024 * 1024; // Below the server's 50 MB request limit.
 
     // 1. 深拷贝 chatSessions — 不影响内存中的原始数据
@@ -849,11 +903,7 @@ async function _doSave() {
         if (!_preservePendingHistory) ContextContinuity.trimContextWindow(s, getActiveVersion);
         for (var mi = 0; mi < s.messages.length; mi++) {
             var m = s.messages[mi];
-            if (m.versions && m.versions.length > 5) {
-                m.versions = [m.versions[0], ...m.versions.slice(-4)];
-                if (m.activeVersion >= m.versions.length) m.activeVersion = m.versions.length - 1;
-            }
-            delete m._zepDirty;
+            compactMessageForPersistence(m);
         }
     }
 
@@ -909,22 +959,39 @@ async function _doSave() {
 
 let _savingNow = false;
 let _saveQueued = false;
+let _fullSaveRequiredEpoch = 0;
+let _fullSaveCommittedEpoch = 0;
 
-function saveToCloud(immediate, preserveMutationEpoch = false) {
+function saveMessageChangesToCloud(immediate) {
+    return saveToCloud(immediate, false, true);
+}
+
+function saveToCloud(immediate, preserveMutationEpoch = false, messagesOnly = false) {
     if (!preserveMutationEpoch) _saveMutationEpoch++;
+    if (!messagesOnly) _fullSaveRequiredEpoch = Math.max(_fullSaveRequiredEpoch, _saveMutationEpoch);
     saveLocalBackup();
     clearTimeout(_saveTimer);
+    if ((typeof activeChatRequest !== 'undefined' && activeChatRequest)
+        || (typeof _isStreamingReply !== 'undefined' && _isStreamingReply)) {
+        _saveTimer = null;
+        _saveQueued = true;
+        console.log('[save:DEFER] chat request active');
+        return Promise.resolve();
+    }
     const doSave = async () => {
         _saveTimer = null;
         if (_savingNow) { _saveQueued = true; console.log('[save:LOCK] queued'); return; }
         const targetEpoch = _saveMutationEpoch;
+        const targetFullEpoch = _fullSaveRequiredEpoch;
+        const needsFullSave = _fullSaveCommittedEpoch < targetFullEpoch;
         _savingNow = true;
         try {
             const delays = [1000, 2000, 4000]; // 指数退避
             for (let attempt = 0; attempt <= delays.length; attempt++) {
                 try {
-                    await _doSave();
+                    await _doSave(!needsFullSave);
                     _saveCommittedEpoch = Math.max(_saveCommittedEpoch, targetEpoch);
+                    if (needsFullSave) _fullSaveCommittedEpoch = Math.max(_fullSaveCommittedEpoch, targetFullEpoch);
                     _saveFailCount = 0;
                     _showSaveWarning(false);
                     return; // 成功
@@ -943,9 +1010,9 @@ function saveToCloud(immediate, preserveMutationEpoch = false) {
             _showSaveWarning(true, lastErr);
         } finally {
             _savingNow = false;
-            if (_saveQueued) { _saveQueued = false; saveToCloud(true, true); }
+            if (_saveQueued) { _saveQueued = false; saveToCloud(true, true, true); }
             else if (hasUnsavedCloudChanges() && !document.hidden) {
-                _saveTimer = setTimeout(() => saveToCloud(true, true), 30000);
+                _saveTimer = setTimeout(() => saveToCloud(true, true, true), 30000);
             }
         }
     };
@@ -2449,8 +2516,13 @@ function beginChatRequest() {
 }
 function finishChatRequest(request) {
     if (activeChatRequest === request) activeChatRequest = null;
+    _isStreamingReply = false;
     request?.finish();
     if (window._coreStreamEnd) window._coreStreamEnd();
+    if (_saveQueued && !_savingNow) {
+        _saveQueued = false;
+        saveToCloud(true, true, true);
+    }
 }
 
 async function sendChat(options = {}) {
@@ -2533,7 +2605,7 @@ async function sendChat(options = {}) {
     const savedImages = currentImgBase64List.length > 0 ? [...currentImgBase64List] : null;
     submittedMessageId = crypto.randomUUID();
     session.messages.push({ _id: submittedMessageId, role: 'user', speaker: isWorkroomSession(session) ? 'jiangyu' : undefined, workroomTarget: isWorkroomSession(session) ? workroomTarget : undefined, versions: [{ content: val, fullTime: curFullTime, image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
-    saveToCloud(true);  // 立即保存，不延迟
+    saveMessageChangesToCloud(true);  // 先写本机日志；生成结束后增量同步
 
     }  // end if (!reuseLastUser)
 
@@ -2697,6 +2769,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             }));
         }
 
+        request.mark('等待服务器响应');
         const response = await fetch(apiUrl, {
             method: 'POST',
             signal: request.signal,
@@ -2704,10 +2777,12 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${currentSup.key}`,
                 'X-Tab-Id': SYZYGY_TAB_ID,
+                'X-Request-Id': request.id,
                 ...(submittedMessageId ? { 'X-Message-Id': submittedMessageId } : {})
             },
             body: payloadText
         });
+        request.mark(isStream ? '接收流式回复' : '接收完整回复');
 
         if (!response.ok) {
             const errText = await response.text().catch(() => '');
@@ -2756,6 +2831,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
 
                         // 🔧 工具调用事件
                         if (parsed.type === 'tool_call') {
+                            request.mark('接收工具调用结果');
                             toolCallRecords.push({ name: parsed.name, arguments: parsed.arguments || {}, result: parsed.result || '', elapsed: parsed.elapsed || 0 });
                             toolGroupEl.style.display = 'block';
                             updateToolGroupDOM(toolGroupEl, toolCallRecords, true);
@@ -2776,6 +2852,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
 
                         // 2. 处理正文内容 (content) — 用累计全文解析，避免 chunk 边界截断标签
                         if (delta.content) {
+                            request.mark('接收模型回复');
                             if (!firstChunkReceived) {
                                 firstChunkReceived = true;
                                 clearTimeout(toolHintTimer);
@@ -2846,7 +2923,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         getLiveSession(sessionId).messages.push(assistantMsg);
         // 先存本地备份，再尝试云端同步
         // 🛡️ 拒绝备份脏兜底状态
-        saveToCloud(true);
+        saveMessageChangesToCloud(true);
         fetchPulseStatus();
         if (window._coreStreamEnd) window._coreStreamEnd();
         triggerStarEffects(val, fullReply);
@@ -2873,21 +2950,23 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
     } catch (err) {
         const stopped = request?.reason === 'user';
         const detail = stopped ? '已停止生成' : ChatTransport.errorMessage(err, request);
+        const transport = ChatTransport.diagnostics(request);
         if (fullReply || thinkContent) {
             getLiveSession(sessionId).messages.push({ _id: crypto.randomUUID(), role: 'assistant',
                 speaker: isWorkroomSession(session) ? 'shenwang' : undefined,
                 versions: [{ content: fullReply, thinking: thinkContent, rawContent: rawAssistantText,
                     reasoning: reasoningContent, model: selectedModel, fullTime: new Date().toISOString(),
-                    _interrupted: detail, toolCalls: toolCallRecords, messageUsage: messageUsage.finish() }], activeVersion: 0 });
-            saveToCloud(true);
+                    _interrupted: detail, _requestId: transport?.requestId, _interruptedStage: transport?.stage,
+                    toolCalls: toolCallRecords, messageUsage: messageUsage.finish() }], activeVersion: 0 });
+            saveMessageChangesToCloud(true);
             _renderDeferred = true;
         } else if (stopped) {
             sRow?.remove();
         } else {
+            console.warn('[chat transport interrupted]', transport);
             recordChatTransportFailure(session, sessionId, detail, selectedModel);
-            sDiv.textContent = '【通讯中断】' + detail;
+            sDiv.innerHTML = '<div>【通讯中断】' + escapeHtml(detail) + '</div><button class="msg-retry-btn" onclick="retryLastMessage()">↻ 重试</button>';
             sDiv.classList.add('msg-failed');
-            _renderDeferred = true;
         }
         toast(detail);
         if (!stopped && isWorkroomSession(session) && workroomTarget === 'all') {
@@ -2931,21 +3010,10 @@ let workroomApprovalQueue = [];
 let workroomSending = false;
 
 function recordChatTransportFailure(session, sessionId, message, model) {
-    // 工作区的网络/供应商故障属于运行状态，不写成沈望的正式发言。
-    if (isWorkroomSession(session)) {
-        toast('沈望本轮通讯中断：' + message);
-        return false;
-    }
-    // 私聊维持原有可重试的失败占位记录。
-    getLiveSession(sessionId).messages.push({
-        _id: crypto.randomUUID(),
-        role: 'assistant',
-        versions: [{ content: '【发送失败】' + message, fullTime: new Date().toISOString(), time: new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}), model, _failed: true }],
-        activeVersion: 0,
-        _failed: true
-    });
-    saveToCloud(true);
-    return true;
+    // 传输故障只是本轮运行状态：保留用户消息供重试，但绝不写入正式聊天记录。
+    console.warn('[chat transport] session=' + sessionId + ' model=' + model + ' ' + message);
+    if (isWorkroomSession(session)) toast('沈望本轮通讯中断：' + message);
+    return false;
 }
 
 function workroomRecipientFor(text, selected, execute = false) {
@@ -4401,10 +4469,10 @@ function switchVersion(msgIndex, direction) {
     if (newIdx >= msg.versions.length) newIdx = msg.versions.length - 1;
     msg.activeVersion = newIdx;
     if (msg.role === 'assistant') msg._zepDirty = true;
-    saveToCloud(); renderChatMessages();
+    saveMessageChangesToCloud(); renderChatMessages();
 }
 
-function editUserMessage(msgIndex) {
+async function editUserMessage(msgIndex) {
     if (activeChatRequest || _isStreamingReply) return toast('请先点击方块停止生成，再编辑消息');
     const session = getActiveSession();
     const msg = session.messages[msgIndex];
@@ -4416,22 +4484,22 @@ function editUserMessage(msgIndex) {
     msg.versions.push({ content: newContent.trim(), fullTime: new Date().toISOString(), image: v.image, images: v.images });
     msg.activeVersion = msg.versions.length - 1;
     session.messages.splice(msgIndex + 1);
-    saveToCloud();
+    await saveToCloud(true);
     renderChatMessages();
     sendChat({ reuseLastUser: true });
 }
 
-function resendUserMessage(msgIndex) {
+async function resendUserMessage(msgIndex) {
     if (activeChatRequest || _isStreamingReply) return toast('请先点击方块停止生成，再重新发送');
     const session = getActiveSession();
     const msg = session.messages[msgIndex];
     if (!msg || msg.role !== 'user') return;
     session.messages.splice(msgIndex + 1);
-    saveToCloud(); renderChatMessages();
+    await saveToCloud(true); renderChatMessages();
     sendChat({ reuseLastUser: true });
 }
 
-function regenerateAt(msgIndex) {
+async function regenerateAt(msgIndex) {
     if (_isStreamingReply || activeChatRequest) { toast('请先停止当前回复，再重新生成'); return; }
     const session = getActiveSession();
     const msg = session.messages[msgIndex];
@@ -4440,7 +4508,7 @@ function regenerateAt(msgIndex) {
     ensureVersioned(msg);
     session.messages.splice(msgIndex + 1);
     window._regenerateTargetIndex = msgIndex;
-    saveToCloud(); renderChatMessages();
+    await saveToCloud(true); renderChatMessages();
     regenerateSend(msgIndex);
 }
 
@@ -4506,7 +4574,9 @@ async function regenerateSend(aiMsgIndex) {
         const isStream = streamToggle ? streamToggle.checked : true;
         request.signal.throwIfAborted();
         request.touch();
-        const response = await fetch(apiUrl, { method:'POST', signal:request.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,cacheClientVersion:2,messages:historyMsgs,stream:isStream,activeChatId:session.id,...(useRollingContext?{contextProtocol:{version:1,mode:isFrozenCacheRoute(currentSup.url,selectedModel)?'frozen-v1':'summary-v1',sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
+        request.mark('等待服务器响应');
+        const response = await fetch(apiUrl, { method:'POST', signal:request.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID,'X-Request-Id':request.id}, body:JSON.stringify({model:selectedModel,cacheClientVersion:2,messages:historyMsgs,stream:isStream,activeChatId:session.id,...(useRollingContext?{contextProtocol:{version:1,mode:isFrozenCacheRoute(currentSup.url,selectedModel)?'frozen-v1':'summary-v1',sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
+        request.mark(isStream ? '接收流式回复' : '接收完整回复');
         if (!response.ok) { const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         if(isStream) {
             sDiv.innerHTML='<span class="loading-indicator">⟡ 正在等待回复…</span>';
@@ -4515,6 +4585,7 @@ async function regenerateSend(aiMsgIndex) {
             await ChatTransport.readStream(response, p => {
                 messageUsage.accept(p);
                 if (p.type === 'tool_call') {
+                    request.mark('接收工具调用结果');
                     toolCallRecords.push({name:p.name, arguments:p.arguments||{}, result:p.result||'', elapsed:p.elapsed||0});
                     toolGroupEl.style.display='block';
                     updateToolGroupDOM(toolGroupEl,toolCallRecords,true);
@@ -4522,7 +4593,7 @@ async function regenerateSend(aiMsgIndex) {
                 }
                 const d = p.choices?.[0]?.delta || {};
                 if (d.reasoning_content) reasoningAcc += d.reasoning_content;
-                if (d.content) { rawAcc += d.content; sDiv.querySelector('.loading-indicator')?.remove(); }
+                if (d.content) { request.mark('接收模型回复'); rawAcc += d.content; sDiv.querySelector('.loading-indicator')?.remove(); }
                 const parsed = extractThinkingFromContent(rawAcc);
                 fullReply = parsed.visibleContent;
                 thinkContent = [reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n');
@@ -4540,10 +4611,11 @@ async function regenerateSend(aiMsgIndex) {
         const liveAiMsg = aiMsgId ? liveSession.messages.find(m => (m._id || m.id) === aiMsgId) : liveSession.messages[aiMsgIndex];
         if (!liveAiMsg) throw new Error('重新生成的目标消息已不在当前会话中');
         ensureVersioned(liveAiMsg); liveAiMsg.versions.push({content:fullReply,thinking:stripDisplayTimestamp(thinkContent),time:timeStr,model:selectedModel,fullTime:new Date().toISOString(), messageUsage: messageUsage.finish(), toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined}); liveAiMsg.activeVersion=liveAiMsg.versions.length-1; liveAiMsg._zepDirty=true;
-        saveToCloud(); renderChatMessages();
+        saveMessageChangesToCloud(); renderChatMessages();
     } catch (err) {
         const stopped = request.reason === 'user';
         const detail = stopped ? '已停止生成' : ChatTransport.errorMessage(err, request);
+        const transport = ChatTransport.diagnostics(request);
         if (fullReply || thinkContent) {
             const liveSession = getLiveSession(sessionId) || session;
             const liveAiMsg = aiMsgId ? liveSession.messages.find(m => (m._id || m.id) === aiMsgId) : liveSession.messages[aiMsgIndex];
@@ -4551,10 +4623,11 @@ async function regenerateSend(aiMsgIndex) {
                 ensureVersioned(liveAiMsg);
                 liveAiMsg.versions.push({content:fullReply,thinking:thinkContent,rawContent:rawAcc,reasoning:reasoningAcc,
                     model:document.getElementById('modelSelect')?.value,fullTime:new Date().toISOString(),
-                    _interrupted:detail,toolCalls:toolCallRecords,messageUsage:messageUsage.finish()});
+                    _interrupted:detail,_requestId:transport?.requestId,_interruptedStage:transport?.stage,
+                    toolCalls:toolCallRecords,messageUsage:messageUsage.finish()});
                 liveAiMsg.activeVersion=liveAiMsg.versions.length-1;
                 liveAiMsg._zepDirty=true;
-                saveToCloud(true);
+                saveMessageChangesToCloud(true);
             }
         }
         // A cancelled empty regeneration leaves the previous version intact.
@@ -4790,7 +4863,7 @@ async function toggleFavorite(index) {
         if (!r.ok || !d.success) throw new Error(d.error || '取消收藏失败');
         _favCache = _favCache.filter(f => f.id !== msg._favoriteId);
         msg._favoriteId = null;
-        saveToCloud();
+        saveMessageChangesToCloud();
         renderChatMessages();
         toast('已取消收藏');
     } catch (e) {
@@ -4834,7 +4907,7 @@ async function confirmFavorite() {
             closeFavModal();
             aiMsg._favoriteId = d.favorite?.id || true;
             if (d.favorite) _favCache.unshift(normalizeFavoriteRecord(d.favorite));
-            saveToCloud();
+            saveMessageChangesToCloud();
             renderChatMessages();
         } else {
             toast('收藏失败: ' + (d.error || '未知'));
@@ -5046,6 +5119,11 @@ function buildSavePayload() {
     return JSON.stringify({ suppliers: suppliers, chatSessions: clone, activeSupIndex: activeSupIndex, activeChatId: activeChatId, _version: _dataVersion, _historyWindows: historyWindowsForPayload(clone) });
 }
 
+function buildIncrementalSavePayload() {
+    const sessions = prepareIncrementalChatPatch();
+    return sessions.length ? JSON.stringify({ _version: _dataVersion, sessions }) : null;
+}
+
 document.addEventListener('visibilitychange', function () {
     if (!document.hidden) { resyncIfStale('visible'); }
     else {
@@ -5055,9 +5133,16 @@ document.addEventListener('visibilitychange', function () {
         if (hasUnsavedCloudChanges() && !_savingNow) {
             clearTimeout(_saveTimer);
             _saveTimer = null;
-            const payload = buildSavePayload();
+            // Never start an upload beside a live generation stream. The local
+            // journal already makes these messages recoverable after suspension.
+            if ((typeof activeChatRequest !== 'undefined' && activeChatRequest)
+                || (typeof _isStreamingReply !== 'undefined' && _isStreamingReply)) return;
+            const hasSaveEpochs = typeof _fullSaveCommittedEpoch !== 'undefined' && typeof _fullSaveRequiredEpoch !== 'undefined';
+            const needsFullSave = !hasSaveEpochs || _fullSaveCommittedEpoch < _fullSaveRequiredEpoch;
+            const payload = needsFullSave ? buildSavePayload() : buildIncrementalSavePayload();
             if (payload) {
-                try { navigator.sendBeacon('/api/sync-config', new Blob([payload], { type: 'application/json' })); } catch(_) {}
+                const endpoint = needsFullSave ? '/api/sync-config' : '/api/chat-messages';
+                try { navigator.sendBeacon(endpoint, new Blob([payload], { type: 'application/json' })); } catch(_) {}
             }
         }
     }

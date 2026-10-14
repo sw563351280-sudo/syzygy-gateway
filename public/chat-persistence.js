@@ -36,21 +36,25 @@
         }
         function observe(sessions) {
             for (const session of sessions) {
-                const ids = known.get(session.id) || new Set();
-                for (const message of session.messages || []) if (idOf(message)) ids.add(idOf(message));
-                known.set(session.id, ids);
+                const messages = known.get(session.id) || new Map();
+                for (const message of session.messages || []) {
+                    if (idOf(message)) messages.set(idOf(message), JSON.stringify(message));
+                }
+                known.set(session.id, messages);
             }
             ready = true;
         }
         function capture(sessions) {
             if (!ready) return;
             pending = sessions.map(session => {
-                const ids = known.get(session.id) || new Set();
+                const messages = known.get(session.id) || new Map();
                 const previous = pending.find(s => s.id === session.id);
                 const unconfirmed = new Set((previous?.messages || []).map(idOf));
                 return { id: session.id, name: session.name, type: session.type,
                     newSession: previous?.newSession ?? !known.has(session.id),
-                    messages: (session.messages || []).filter(m => idOf(m) && (!ids.has(idOf(m)) || unconfirmed.has(idOf(m)))) };
+                    messages: (session.messages || []).filter(m => idOf(m) && (
+                        messages.get(idOf(m)) !== JSON.stringify(m) || unconfirmed.has(idOf(m))
+                    )) };
             }).filter(s => s.messages.length);
             pending = copy(pending);
             persist();
@@ -84,7 +88,11 @@
                 sent.get(s.id)?.get(idOf(m)) !== JSON.stringify(m)) })).filter(s => s.messages.length);
             persist();
         }
-        return { capture, observe, restore, acknowledge, hasPending: () => pending.some(s => s.messages.length) };
+        return {
+            capture, observe, restore, acknowledge,
+            pendingSnapshot: () => copy(pending),
+            hasPending: () => pending.some(s => s.messages.length)
+        };
     }
 
     async function requestJson(url, options = {}, timeoutMs = 20000) {

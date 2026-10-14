@@ -107,11 +107,21 @@ test('result delivery is idempotent, stays in the originating chat and never rec
     const directory = temporary(t), file = path.join(directory, 'web_config.json');
     fs.writeFileSync(file, JSON.stringify({ _version: 1, chatSessions: [{ id: 'main', messages: [] }, { id: 'other', messages: [] }] }));
     const store = createWebConfigStore(file);
-    const job = { id: 'job1', title: '检查保存', sessionId: 'other', status: 'completed', mode: 'inspect', report: '已定位', finishedAt: '2026-10-13T12:00:00Z' };
+    const job = { id: 'job1', title: '检查保存', sessionId: 'other', status: 'completed', mode: 'inspect', report: '这是一段不应进入聊天的完整报告', finishedAt: '2026-10-13T12:00:00Z' };
     await deliverDispatchResult(store, job); await deliverDispatchResult(store, job);
     const config = await store.readShared();
     assert.equal(config.chatSessions[0].messages.length, 0); assert.equal(config.chatSessions[1].messages.length, 1);
     assert.equal(config.chatSessions[1].messages[0].speaker, 'codex');
+    assert.equal(config.chatSessions[1].messages[0].versions[0].content, '✅ 检查保存 · 检查完成');
+    assert.doesNotMatch(config.chatSessions[1].messages[0].versions[0].content, /完整报告|job1/);
+    const repair = { ...job, id: 'job-repair', mode: 'repair', diffStat: '1 file changed\n M one.js\n?? two.js' };
+    await deliverDispatchResult(store, repair);
+    const repaired = await store.readShared();
+    assert.equal(repaired.chatSessions[1].messages.at(-1).versions[0].content, '✅ 检查保存 · 2 个文件变更');
+    const failed = { ...job, id: 'job-failed', status: 'failed', error: '', report: '很长的完整报告不应进入对话' };
+    await deliverDispatchResult(store, failed);
+    const afterFailure = await store.readShared();
+    assert.equal(afterFailure.chatSessions[1].messages.at(-1).versions[0].content, '❌ 检查保存 · 任务未完成，完整情况见工作记录');
     assert.equal(await deliverDispatchResult(store, { ...job, id: 'job2', sessionId: 'deleted' }), null);
 });
 test('real local Git preparation excludes live uncommitted files and ignored credentials, disables push and keeps auth outside the workspace', async t => {

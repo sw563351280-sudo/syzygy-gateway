@@ -7549,8 +7549,14 @@ function stripTransportTimePrefix(content) {
 // 🌟 核心聊天接口
 // ==========================================
 app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (req, res) => {
+    const suppliedRequestId = String(req.headers['x-request-id'] || '');
+    const requestId = /^[A-Za-z0-9._:-]{1,120}$/.test(suppliedRequestId) ? suppliedRequestId : crypto.randomUUID();
+    const requestStartedAt = Date.now();
+    let requestStage = 'gateway-start';
+    res.setHeader('X-Syzygy-Request-Id', requestId);
     const lifecycle = createChatRequestLifecycle(req, res);
     if (req.body?.stream === true) lifecycle.startStream();
+    console.log(`📡 [chat:${requestId}] 开始 model=${req.body?.model || '?'} stream=${req.body?.stream === true}`);
     console.log('🧪 [CacheDebug] ENTER via handler', { routeKey: req.params?.platform, path: req.path, originalUrl: req.originalUrl });
     let _tr = null;
     try {
@@ -7559,6 +7565,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             stream: req.body?.stream === true,
             tabId: req.headers['x-tab-id'] || null,
             noMemory: req.headers['x-no-memory'] === 'true',
+            requestId,
             userPreview: ''
         });
         let body = req.body;
@@ -7662,6 +7669,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             } catch(e) {}
         }
 
+        requestStage = 'loading-context';
         lifecycle.signal.throwIfAborted();
         const [zepHistory, sessionRes] = await Promise.all([
             loadZepConversationHistory(100, lifecycle.signal),
@@ -8136,7 +8144,8 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 
             toolRound++;
             const roundLabel = `第${toolRound}轮`;
-            console.log(`🔧 [工具] ${roundLabel}请求（${enabledTools.length}个工具）...`);
+            requestStage = `tool-model-round-${toolRound}`;
+            console.log(`🔧 [chat:${requestId}] ${roundLabel}工具模型请求（${enabledTools.length}个工具）...`);
             const toolWireBody = prepareCachedRequest(apiUrl, toolBody, { historyEnd: bodyMessages.indexOf(contextParts.currentMessage) - 1, scope: cacheScope });
             const budgetCall = contextBudget.request(toolWireBody);
             const toolResponse = await fetchCachedProvider(apiUrl, toolWireBody, { headers: apiHeaders, signal: lifecycle.signal, protocolState: lifecycle });
@@ -8201,6 +8210,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                     ...(curMessage._anthropic_content ? { _anthropic_content: curMessage._anthropic_content } : {}) });
                 for (const tc of curMessage.tool_calls) {
                     lifecycle.signal.throwIfAborted();
+                    requestStage = `tool-execution-${toolRound}:${tc.function.name}`;
                     let fnArgs = {};
                     try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
                     const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name);
@@ -8305,6 +8315,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             if (body.messages.at(-1)?.role === 'assistant') body.messages.push({ role: 'user', content: '请根据已取得的信息回答当前问题，不再调用工具。' });
         }
         const finalWireBody = prepareCachedRequest(apiUrl, body, { historyEnd: body.messages.indexOf(contextParts.currentMessage) - 1, scope: cacheScope });
+        requestStage = 'final-model-request';
         const finalBudgetCall = contextBudget.request(finalWireBody);
         lifecycle.signal.throwIfAborted();
         const response = await fetchCachedProvider(apiUrl, finalWireBody, { headers: apiHeaders, signal: lifecycle.signal, protocolState: lifecycle });
@@ -8318,6 +8329,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         if (response?.headers) console.log('📦 [UpstreamUsage:stream] headers:', { 'x-ratelimit-limit': response.headers.get('x-ratelimit-limit'), 'x-ratelimit-remaining': response.headers.get('x-ratelimit-remaining') });
         // 流式与非流式处理
         if (isStreamMode) {
+            requestStage = 'streaming-final-response';
             if (!streamingSetup) {
                 res.setHeader('Content-Type', 'text/event-stream');
                 res.setHeader('Cache-Control', 'no-cache');
@@ -8495,6 +8507,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         }
     } catch (error) {
         if (lifecycle.signal.aborted) {
+            console.warn(`📡 [chat:${requestId}] 中断 stage=${requestStage} elapsed=${Date.now() - requestStartedAt}ms reason=${lifecycle.signal.reason?.message || 'aborted'}`);
             traceEnd(_tr, { ok: false, cancelled: true, error: lifecycle.signal.reason?.message });
             if (!res.destroyed && !res.writableEnded) {
                 if (res.headersSent) { res.write('data: [ERROR]生成已停止或超时\n\n'); res.end(); }
@@ -8502,12 +8515,14 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             }
             return;
         }
+        console.error(`📡 [chat:${requestId}] 失败 stage=${requestStage} elapsed=${Date.now() - requestStartedAt}ms error=${error.message}`);
         traceEnd(_tr, { ok: false, error: error.message });
         _boom.last = { at: new Date().toISOString(), error: error.message, stack: (error.stack || '').substring(0, 600), model: req.body?.model };
         console.error('大门重组异常:', error.stack?.substring(0, 300));
         if (res.headersSent) { res.write(`data: [ERROR]${JSON.stringify(error.message)}\n\n`); res.end(); }
         else res.status(500).json({ error: "大门重组异常：" + error.message });
     } finally {
+        console.log(`📡 [chat:${requestId}] 结束 stage=${requestStage} elapsed=${Date.now() - requestStartedAt}ms`);
         lifecycle.cleanup();
     }
 });
@@ -11127,6 +11142,7 @@ function clientVisibleMessage(message) {
     const content = typeof version.content === 'string' ? stripOpenClawInternalContext(version.content) : (version.content || message?.content || '');
     return !contentHasOpenClawInternalContext(content)
         && String(content).indexOf('数据加载失败，请刷新页面重试') === -1
+        && !((message?._failed || version?._failed) && String(content).startsWith('【发送失败】'))
         && contentHasVisibleText(content);
 }
 
@@ -11204,6 +11220,78 @@ app.get('/api/chat-history/:sessionId', async (req, res) => {
     } catch (error) {
         console.error('❌ [chat-history] 读取失败:', error.message);
         res.status(500).json({ error: 'LOAD_FAILED', message: error.message });
+    }
+});
+
+app.post('/api/chat-messages', async (req, res) => {
+    try {
+        const patches = Array.isArray(req.body?.sessions) ? req.body.sessions : [];
+        const rawLen = JSON.stringify(req.body || {}).length;
+        if (!patches.length) return res.status(400).json({ error: 'EMPTY_PATCH', message: '没有待同步消息' });
+        if (patches.length > 20) return res.status(400).json({ error: 'PATCH_TOO_LARGE', message: '单次同步频道过多' });
+        console.log('💬 [chat-messages] 收到增量请求 ' + (rawLen / 1024).toFixed(0) + ' KB');
+        const outcome = await webConfigStore.transaction(existingData => {
+            const config = existingData || { suppliers: [], chatSessions: [], activeSupIndex: 0, activeChatId: 'main' };
+            const serverVersion = config._version || 0;
+            const clientVersion = Number(req.body?._version) || 0;
+            if (!clientVersion || clientVersion !== serverVersion) {
+                console.log(`🛡️ [chat-messages] 拒绝版本不一致的增量写入 (client v${clientVersion}, server v${serverVersion})`);
+                return { commit: false, value: { response: { success: false, _version: serverVersion, _rejected: true, message: '聊天记录已更新，请重新同步' } } };
+            }
+            const sessions = Array.isArray(config.chatSessions) ? config.chatSessions : [];
+            let inserted = 0, updated = 0;
+            for (const patch of patches) {
+                if (!patch || typeof patch.id !== 'string' || !patch.id || !Array.isArray(patch.messages)) continue;
+                let session = sessions.find(item => item.id === patch.id);
+                if (!session) {
+                    if (patch.newSession !== true) continue;
+                    session = { id: patch.id, name: String(patch.name || '新频道').slice(0, 120), messages: [] };
+                    if (patch.type) session.type = String(patch.type).slice(0, 80);
+                    sessions.push(session);
+                }
+                session.messages = Array.isArray(session.messages) ? session.messages : [];
+                const indexes = new Map(session.messages.map((message, index) => [String(message?._id || message?.id || ''), index]));
+                for (const incoming of patch.messages) {
+                    const messageId = String(incoming?._id || incoming?.id || '');
+                    if (!messageId || messageId.length > 240 || !['user', 'assistant'].includes(incoming?.role)) continue;
+                    const versions = Array.isArray(incoming.versions) && incoming.versions.length ? incoming.versions : null;
+                    const sanitized = versions
+                        ? { ...incoming, versions: versions.map(version => ({ ...version, content: sanitizeOpenClawContent(version.content) })) }
+                        : { ...incoming, content: sanitizeOpenClawContent(incoming.content) };
+                    const active = sanitized.versions?.[sanitized.activeVersion || 0] || sanitized.versions?.[0] || sanitized;
+                    if (contentHasOpenClawInternalContext(active?.content) || !clientVisibleMessage(sanitized)) continue;
+                    const index = indexes.get(messageId);
+                    if (index === undefined) {
+                        indexes.set(messageId, session.messages.length);
+                        session.messages.push(sanitized);
+                        inserted++;
+                    } else {
+                        session.messages[index] = sanitized;
+                        updated++;
+                    }
+                }
+            }
+            if (!inserted && !updated) {
+                return { commit: false, value: { response: { success: false, _version: config._version || 0, message: '没有有效的待同步消息' } } };
+            }
+            const newVersion = (config._version || 0) + 1;
+            config._version = newVersion;
+            config.chatSessions = sessions;
+            workroomTranscriptArchive.archive(sessions);
+            config.chatSessions = sessions.map(session => (
+                session.id === 'syzygy-workroom' || session.type === 'codex-workroom'
+                    ? { ...session, messages: recentWorkroomMessages(session.messages, 50) }
+                    : session
+            ));
+            return { data: config, value: { response: { success: true, _version: newVersion, inserted, updated }, newVersion } };
+        });
+        if (outcome.committed) {
+            console.log('✅ [chat-messages] 增量写入成功 v' + outcome.value.newVersion + ' 文件 ' + (outcome.fileSize / 1024).toFixed(0) + ' KB');
+        }
+        res.json(outcome.value.response);
+    } catch (error) {
+        console.error('❌ [chat-messages] 保存失败:', error.message);
+        res.status(500).json({ error: 'SAVE_FAILED', message: error.message });
     }
 });
 

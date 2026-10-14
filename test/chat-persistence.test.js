@@ -52,6 +52,43 @@ test('loading older pages does not journal old history; local deletion removes p
     assert.equal(createJournal(disk).hasPending(), false);
 });
 
+test('journal exposes only new or modified messages for incremental sync', () => {
+    const disk = storage(), journal = createJournal(disk);
+    journal.observe(session(msg('old')));
+    const edited = msg('old'); edited.versions[0].content = 'edited';
+    journal.capture(session(edited, msg('new')));
+    const pending = journal.pendingSnapshot();
+    assert.deepEqual(pending[0].messages.map(message => message._id), ['old', 'new']);
+    journal.acknowledge(pending);
+    assert.equal(journal.hasPending(), false);
+});
+
+test('incremental save posts only journaled messages and removes duplicate model fields', async () => {
+    const disk = storage(), journal = createJournal(disk);
+    journal.observe(session(msg('old')));
+    const fresh = msg('new');
+    Object.assign(fresh.versions[0], { content: 'reply', rawContent: 'reply', thinking: 'thought', reasoning: 'thought' });
+    journal.capture(session(msg('old'), fresh));
+    let url, posted;
+    const context = vm.createContext({
+        console: { log() {}, warn() {}, error() {} }, Blob,
+        _dataVersion: 7, _preservePendingHistory: false, _loopCount: 0, _loopLocalOnly: 0,
+        _hasDirtyFallbackState: () => false, isDirtyFallbackMessage: () => false,
+        _chatJournal: journal, resyncAndMerge: async () => ({ serverAdded: 0 }),
+        ChatPersistence: { requestJson: async (nextUrl, options) => {
+            url = nextUrl; posted = JSON.parse(options.body); return { success: true, _version: 8 };
+        } }
+    });
+    vm.runInContext(source.slice(source.indexOf('function compactMessageForPersistence('), source.indexOf('let _savingNow = false;')), context);
+    await context._doSave(true);
+    assert.equal(url, '/api/chat-messages');
+    assert.deepEqual(posted.sessions[0].messages.map(message => message._id), ['new']);
+    assert.equal(posted.sessions[0].messages[0].versions[0].rawContent, undefined);
+    assert.equal(posted.sessions[0].messages[0].versions[0].reasoning, undefined);
+    assert.equal(posted.chatSessions, undefined);
+    assert.equal(journal.hasPending(), false);
+});
+
 test('deleted cloud channels are not resurrected, but an unsaved new channel survives restart', () => {
     const disk = storage(), journal = createJournal(disk);
     journal.observe([{id:'removed',messages:[msg('old')]}]);
@@ -92,7 +129,7 @@ test('real startup merges the new journal even when cloud GET succeeds and queue
         updateHistoryWindows(){},ensureWorkroomSession(){},normalizeMessageVersionFields(){},
         mergeMessageLists:(_,messages)=>messages,isDirtyFallbackMessage:()=>false,
         renderSuppliers(){},renderChatSidebar(){},renderChatMessages(){},updateWorkroomChrome(){},fetchModels(){},
-        saveToCloud:()=>saves++,document:{getElementById:()=>null},console,chatSessions:[],setTimeout
+        saveToCloud:()=>saves++,saveMessageChangesToCloud:()=>saves++,document:{getElementById:()=>null},console,chatSessions:[],setTimeout
     });
     vm.runInContext(source.slice(source.indexOf('async function syncFromCloud()'),source.indexOf('let _saveTimer = null;')), context);
     await context.syncFromCloud();
@@ -133,7 +170,7 @@ function saveContext(reply) {
         _chatJournal:{acknowledge(){acknowledgements++;},hasPending:()=>false},
         ChatPersistence:{requestJson:async(_url,options)=>{posted=JSON.parse(options.body);return reply;}}
     });
-    vm.runInContext(source.slice(source.indexOf('async function _doSave()'),source.indexOf('let _savingNow = false;')),context);
+    vm.runInContext(source.slice(source.indexOf('function compactMessageForPersistence('),source.indexOf('let _savingNow = false;')),context);
     return {context,posted:()=>posted,acknowledgements:()=>acknowledgements};
 }
 
