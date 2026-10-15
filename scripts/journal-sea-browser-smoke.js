@@ -37,7 +37,6 @@ async function main() {
     page.on('pageerror',e=>errors.push(e.message));
     await page.setRequestInterception(true);
     page.on('request',r=>r.url().startsWith('http') && !r.url().startsWith('http://127.0.0.1:') ? r.abort() : r.continue());
-    await page.evaluateOnNewDocument(()=>localStorage.setItem('syzygy_visual_theme','new'));
     await page.setViewport({ width:1280,height:1000 });
     await page.goto(`http://127.0.0.1:${server.address().port}/`,{ waitUntil:'networkidle0' });
     await page.evaluate(()=>goView('private-journal'));
@@ -100,12 +99,7 @@ async function main() {
       await page.click('[data-entry-id="journal_fixture_1"]');
       await page.screenshot({ path:path.join(root,`qa-journal-sea-reader-${width}.png`) });
       assert.ok(await page.$eval('#journalSeaReader',d=>d.scrollWidth<=d.clientWidth),'reader fits screen');
-      await page.evaluate(()=>applyVisualTheme('classic'));
-      assert.equal(await page.$eval('#journalSeaReader',d=>d.open),false);
-      assert.equal(await page.$eval('#privateJournalSea',e=>getComputedStyle(e).display),'none');
-      assert.equal(await page.$eval('#privateJournalSea',e=>e.inert),true);
-      assert.notEqual(await page.$eval('.private-journal-page',e=>getComputedStyle(e).display),'none');
-      await page.evaluate(()=>applyVisualTheme('new'));
+      assert.notEqual(await page.$eval('#privateJournalSea',e=>getComputedStyle(e).display),'none');
     }
     failList = true; await page.evaluate(()=>privateJournalLoad(true));
     await page.waitForFunction(()=>document.querySelector('#journalSeaList button'));
@@ -114,7 +108,7 @@ async function main() {
     await page.click('#journalSeaBack');
     assert.equal(await page.evaluate(()=>document.body.dataset.seaPage),'false');
     assert.deepEqual(errors,[]);
-    console.log(JSON.stringify({ ok:true,layout,widths:[1280,1024,393,320],checks:['directory','sealed marks','reveal update','request failure and chat handoff','pagination retry','XSS','keyboard focus','theme rollback'],pageErrors:errors }));
+    console.log(JSON.stringify({ ok:true,layout,widths:[1280,1024,393,320],checks:['directory','sealed marks','reveal update','request failure and chat handoff','pagination retry','XSS','keyboard focus','single appearance'],pageErrors:errors }));
   } finally { await browser?.close(); ws.close(); await new Promise(r=>server.close(r)); }
 }
 main().catch(e=>{ console.error(e); process.exitCode=1; });

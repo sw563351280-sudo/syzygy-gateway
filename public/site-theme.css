@@ -2,14 +2,21 @@
 :root {
   --sea-day-image:url('assets/ice-sea-home-v2.webp');
   --sea-night-image:url('assets/ice-sea-night-v1.webp');
+  --sea-card-opacity:.68;
+  --sea-surface-opacity:.38;
+  --sea-day-dim:0;
+  --sea-night-dim:0;
+  --sea-background-dim:var(--sea-day-dim);
+  --sea-background-blur:0px;
+  --sea-background-scale:1;
 }
 html[data-visual-theme="new"] {
   --sea-image:var(--sea-day-image);
   --sea-base:#a9c3d8;
   --sea-foreground:#244a65;
   --sea-muted:#48647b;
-  --sea-panel:rgba(235,243,250,.68);
-  --sea-surface:rgba(235,243,250,.38);
+  --sea-panel:rgb(235 243 250 / var(--sea-card-opacity));
+  --sea-surface:rgb(235 243 250 / var(--sea-surface-opacity));
   --sea-accent:#756347;
   --sea-edge:rgba(255,255,255,.2);
   --ink:var(--sea-foreground); --muted:var(--sea-muted); --blue:var(--sea-accent); --gold:var(--sea-accent);
@@ -19,11 +26,12 @@ html[data-visual-theme="new"] {
 }
 html[data-visual-theme="new"][data-sea-cycle="night"] {
   --sea-image:var(--sea-night-image);
+  --sea-background-dim:var(--sea-night-dim);
   --sea-base:#081a2d;
   --sea-foreground:#edf3f7;
   --sea-muted:#aebbc8;
-  --sea-panel:rgba(9,24,42,.78);
-  --sea-surface:rgba(235,243,250,.07);
+  --sea-panel:rgb(9 24 42 / var(--sea-card-opacity));
+  --sea-surface:rgb(235 243 250 / var(--sea-surface-opacity));
   --sea-accent:#c8b28e;
   color-scheme:dark;
 }
@@ -39,12 +47,13 @@ html[data-visual-theme="new"] body::before {
   /* Match the status-area canvas at the top, then blend into the sea.
      Keep the existing viewport and chat/composer geometry intact. */
   background:
+    linear-gradient(rgb(0 0 0 / var(--sea-background-dim)),rgb(0 0 0 / var(--sea-background-dim))),
     linear-gradient(180deg,
       var(--sea-base) 0,
       var(--sea-base) calc(env(safe-area-inset-top, 0px) + 8px),
       transparent calc(env(safe-area-inset-top, 0px) + 120px)) top / 100% 100% no-repeat,
     var(--sea-image) center 43% / cover no-repeat !important;
-  opacity:1; filter:none; mix-blend-mode:normal;
+  opacity:1; filter:blur(var(--sea-background-blur)); transform:scale(var(--sea-background-scale)); mix-blend-mode:normal;
 }
 /* Existing page-specific art no longer covers or tints the shared sea. */
 html[data-visual-theme="new"] body.neu-mode .section,
@@ -59,7 +68,7 @@ html[data-visual-theme="new"] body.neu-mode .section {
   --celestial-card:var(--sea-surface); --celestial-reader:var(--sea-panel); --celestial-soft:var(--sea-surface);
   color:var(--sea-foreground);
 }
-html[data-visual-theme="new"] body.neu-mode :is(.view-topbar,.page-floating-topbar,.chat-main-header,.chat-bottom-bar,.chat-floating-title,.chat-floating-actions,.chat-tool-menu,.chat-composer-shell,.neu-bottom-nav) {
+html[data-visual-theme="new"] body.neu-mode :is(.view-topbar,.page-floating-topbar,.chat-main-header,.chat-bottom-bar,.chat-floating-title,.chat-floating-actions,.chat-tool-menu,.chat-composer-shell) {
   background:var(--sea-panel) !important; color:var(--sea-foreground) !important;
   border-color:var(--sea-edge) !important; box-shadow:none !important;
 }
@@ -102,8 +111,6 @@ html[data-visual-theme="new"] body.neu-mode :is(.cal-cell.today .cal-cell-num,.c
 html[data-visual-theme="new"] body.neu-mode :is(.app-settings-card,.fav-filter-panel,#favDetail .fav-detail-sheet) { background:var(--sea-panel) !important; color:var(--sea-foreground); box-shadow:none; }
 html[data-visual-theme="new"] body.neu-mode :is(.app-settings-heading h1,.app-settings-heading h2,.app-settings-link strong,.fav-card-preview,#favDetail .fav-detail-text,.fav-filter-label,.flo-summary-copy h2,.flo-cycle-label span:first-child,.flo-metrics strong,.flo-history-head,.flo-history-card h3,.flo-history-card>strong) { color:var(--sea-foreground) !important; }
 html[data-visual-theme="new"] body.neu-mode :is(.app-settings-heading p,.app-settings-link small,.fav-card-time,.fav-card-note,.flo-summary-copy p,.flo-cycle-label,.flo-cycle-key,.flo-metrics small,.flo-history-card p,.flo-history-state,.flo-disclaimer) { color:var(--sea-muted) !important; }
-html[data-visual-theme="new"] .visual-theme-option { background:var(--sea-surface); color:var(--sea-foreground); }
-html[data-visual-theme="new"] .visual-theme-option:is(.is-selected,[aria-pressed="true"]) { background:var(--sea-surface); border-color:var(--sea-accent); }
 /* Pages which have not received a bespoke layout still get a legible shared shell. */
 html[data-visual-theme="new"] body[data-sea-standalone] { --card:rgba(245,240,232,.94); --line:rgba(200,184,160,.3); }
 html[data-visual-theme="new"] body[data-sea-standalone] :is(.card,.item,.crumb,.stat,main>section) { background:var(--card); color:#34383d; box-shadow:none; border-color:var(--line); }
@@ -111,4 +118,27 @@ html[data-visual-theme="new"] body[data-sea-standalone] :is(.meta,.label,.candid
 html[data-visual-theme="new"] body[data-sea-standalone] :is(.tools select,.tools .count,.chip,.refresh,.more,button:not(.on):not(.off)) { background:var(--sea-panel); color:var(--sea-foreground); border:1px solid var(--sea-edge); }
 html[data-visual-theme="new"] body[data-sea-standalone] .top { background:var(--sea-panel); }
 html[data-visual-theme="new"] body[data-sea-standalone] :is(.hero h2,main>h1,.day) { color:var(--sea-foreground); }
+
+/* Keep the composer on one stable layer. Older chat skins still define blur values,
+   but the shared appearance owns the final material and never swaps layers. */
+html[data-visual-theme="new"] body.neu-mode #sec-chat .chat-bottom-bar {
+  isolation:isolate;
+  background:transparent !important;
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+}
+html[data-visual-theme="new"] body.neu-mode #sec-chat .chat-bottom-bar::before {
+  content:'';
+  position:absolute;
+  inset:0;
+  z-index:-1;
+  border-radius:inherit;
+  background:var(--sea-panel);
+  pointer-events:none;
+}
+html[data-visual-theme="new"] body.neu-mode #sec-chat #chatInput {
+  background:transparent !important;
+  backdrop-filter:none !important;
+  -webkit-backdrop-filter:none !important;
+}
 @media(prefers-reduced-motion:reduce) { html[data-visual-theme="new"] body::before { transition:none; } }

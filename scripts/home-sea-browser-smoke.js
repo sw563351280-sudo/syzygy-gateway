@@ -23,7 +23,6 @@ async function main() {
         const page = await browser.newPage(), errors = [];
         page.on('pageerror', e => errors.push(e.message));
         await page.setRequestInterception(true); page.on('request', r => r.url().startsWith('http') && !r.url().startsWith('http://127.0.0.1:') ? r.abort() : r.continue());
-        await page.evaluateOnNewDocument(() => localStorage.setItem('syzygy_visual_theme','new'));
         await page.setViewport({ width:1024,height:900 });
         await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil:'networkidle0' });
         await page.waitForFunction(() => document.querySelector('#seaNote').textContent.includes('早点睡'));
@@ -68,18 +67,15 @@ async function main() {
             await page.click('#homeV2MoreToggle'); await page.screenshot({ path:path.join(root,`qa-sea-more-${width}.png`) });
             assert.ok(await page.$eval('#seaMoreDialog',e=>e.scrollWidth<=e.clientWidth),'drawer fits mobile');
             await page.click('#seaMoreDialog [data-sea-action="settings"]'); await page.waitForFunction(() => document.body.dataset.view==='settings');
-            await page.evaluate(() => { applyVisualTheme('classic'); goView('home'); });
-            assert.equal(await page.$eval('#homeV2',e=>getComputedStyle(e).display),'none');
-            assert.notEqual(await page.$eval('.neu-home',e=>getComputedStyle(e).display),'none');
-            await page.evaluate(() => applyVisualTheme('new')); await page.waitForFunction(() => document.querySelector('#homeV2').classList.contains('sea-active'));
-            assert.equal(await page.$eval('#homeV2DayCount',e=>e.textContent), String(fixture.days), 'theme switch keeps summary and counter consistent');
+            await page.evaluate(() => goView('home')); await page.waitForFunction(() => document.querySelector('#homeV2').classList.contains('sea-active'));
+            assert.equal(await page.$eval('#homeV2DayCount',e=>e.textContent), String(fixture.days), 'the only home keeps summary and counter consistent');
         }
         failSummary = true; await page.evaluate(() => SeaHome.refresh(true));
         assert.match(await page.$eval('#seaStatus',e=>e.textContent),/重试/); failSummary = false; await page.click('#seaStatus button');
         await page.waitForFunction(() => !document.querySelector('#seaStatus').textContent);
         await page.emulateMediaFeatures([{ name:'prefers-reduced-motion',value:'reduce' }]);
         assert.equal(await page.$eval('.sea-paperboat svg',e=>getComputedStyle(e).animationName),'none');
-        assert.deepEqual(errors,[]); console.log(JSON.stringify({ ok:true, widths:[1024,393,320], checks:['data','dialogs','navigation','miss retry and reset','todo completion','theme rollback','no overflow','reduced motion'], pageErrors:errors }));
+        assert.deepEqual(errors,[]); console.log(JSON.stringify({ ok:true, widths:[1024,393,320], checks:['data','dialogs','navigation','miss retry and reset','todo completion','single appearance','no overflow','reduced motion'], pageErrors:errors }));
     } finally { await browser?.close(); ws.close(); await new Promise(r=>server.close(r)); }
 }
 main().catch(e=>{ console.error(e); process.exitCode=1; });

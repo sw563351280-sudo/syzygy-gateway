@@ -8,6 +8,7 @@ public/assets/celestial-favorites.jpg
 public/assets/celestial-hanging.jpg
 public/assets/celestial-orbit.jpg
 public/assets/winter-home-v2.png
+public/appearance-settings.js
 public/cache-history.js
 public/chat-transport.js
 public/chat-persistence.js

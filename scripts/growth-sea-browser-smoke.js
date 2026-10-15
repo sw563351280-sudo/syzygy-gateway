@@ -23,7 +23,6 @@ async function main(){
         browser=await puppeteer.launch({executablePath,headless:true});const page=await browser.newPage(),errors=[];
         page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>confirmAction?d.accept():d.dismiss());
         await page.setRequestInterception(true);page.on('request',r=>r.url().startsWith('http')&&!r.url().startsWith('http://127.0.0.1:')?r.abort():r.continue());
-        await page.evaluateOnNewDocument(()=>{if(!localStorage.getItem('syzygy_visual_theme'))localStorage.setItem('syzygy_visual_theme','new');});
         const url=`http://127.0.0.1:${server.address().port}/relationship-growth.html`;
         await page.setViewport({width:1536,height:1024});await page.goto(url,{waitUntil:'networkidle0'});await page.evaluate(()=>document.fonts.ready);
         assert.equal(await page.$eval('.top h1',e=>e.textContent),'成长');
@@ -68,10 +67,8 @@ async function main(){
         empty=true;await page.evaluate(()=>loadData());assert.match(await page.$eval('#content',e=>e.textContent),/走过之后/);
         readFails=true;await page.evaluate(()=>loadData());assert.ok(await page.$('.growth-retry'));
         readFails=false;empty=false;await page.click('.growth-retry');await page.waitForSelector('.next-time');
-        await page.evaluate(()=>localStorage.setItem('syzygy_visual_theme','classic'));await page.reload({waitUntil:'networkidle0'});
-        assert.equal(await page.$eval('.top h1',e=>e.textContent),'记忆脉络');assert.equal(await page.$('#growthTools'),null);
-        assert.notEqual(await page.$eval('.organizer',e=>getComputedStyle(e).display),'none');
-        assert.deepEqual(errors,[]);console.log(JSON.stringify({ok:true,widths:[1536,1024,393,320],checks:['shared sea','plain paper without edge','four categories','source quotes','chapter keyboard and refresh','manual backfill cancel/success/failure','mobile dialogs','read retry','classic rollback']}));
+        assert.equal(await page.$eval('.top h1',e=>e.textContent),'记忆脉络');
+        assert.deepEqual(errors,[]);console.log(JSON.stringify({ok:true,widths:[1536,1024,393,320],checks:['shared sea','plain paper without edge','four categories','source quotes','chapter keyboard and refresh','manual backfill cancel/success/failure','mobile dialogs','read retry','single appearance']}));
     }finally{await browser?.close();await new Promise(r=>server.close(r));}
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

@@ -16,13 +16,27 @@ async function main(){
  app.get('/diary-logs',(_q,r)=>r.json([]));app.use(express.static(path.join(root,'public')));
  const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));const ws=new WebSocketServer({server});let browser;
  try{
-  const executablePath=['C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(fs.existsSync);
-  browser=await puppeteer.launch({executablePath,headless:true,args:['--mute-audio']});const errors=[];
-  async function tab(){const p=await browser.newPage();p.on('pageerror',e=>errors.push(e.message));p.on('dialog',d=>d.dismiss());await p.setRequestInterception(true);p.on('request',r=>r.url().startsWith('http')&&!r.url().startsWith('http://127.0.0.1:')?r.abort():r.continue());await p.evaluateOnNewDocument(()=>{if(!localStorage.getItem('syzygy_visual_theme'))localStorage.setItem('syzygy_visual_theme','new');window.__themeNow=Date.parse('2026-10-09T12:00:00+08:00');Date.now=()=>window.__themeNow;});return p;}
+  const executablePath=[process.env.PUPPETEER_EXECUTABLE_PATH,'/snap/bin/chromium','/usr/bin/chromium','/usr/bin/google-chrome','C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].filter(Boolean).find(fs.existsSync);
+  browser=await puppeteer.launch({executablePath,headless:true,args:['--mute-audio','--no-sandbox','--disable-setuid-sandbox']});const errors=[];
+  async function tab(){const p=await browser.newPage();p.on('pageerror',e=>errors.push(e.message));p.on('dialog',d=>d.dismiss());await p.setRequestInterception(true);p.on('request',r=>r.url().startsWith('http')&&!r.url().startsWith('http://127.0.0.1:')?r.abort():r.continue());await p.evaluateOnNewDocument(()=>{window.__themeNow=Date.parse('2026-10-09T12:00:00+08:00');Date.now=()=>window.__themeNow;});return p;}
   async function phase(p,time){await p.evaluate(value=>{window.__themeNow=Date.parse(value);SeaCycle.update();},time);}
-  async function check(p,phaseName){const state=await p.evaluate(()=>({phase:document.documentElement.dataset.seaCycle,theme:document.documentElement.dataset.visualTheme,image:getComputedStyle(document.body,'::before').backgroundImage,overflow:document.documentElement.scrollWidth>innerWidth,section:document.querySelector('.section.active')?getComputedStyle(document.querySelector('.section.active')).backgroundImage:'none',oldArt:document.querySelector('.section.active')?getComputedStyle(document.querySelector('.section.active'),'::before').content:'none'}));assert.equal(state.theme,'new');assert.equal(state.phase,phaseName);assert.match(state.image,phaseName==='day'?/ice-sea-home-v2/:/ice-sea-night-v1/);assert.equal(state.overflow,false,p.url());assert.equal(state.section,'none');assert.equal(state.oldArt,'none');}
+  async function check(p,phaseName){const state=await p.evaluate(()=>({phase:document.documentElement.dataset.seaCycle,theme:document.documentElement.dataset.visualTheme,image:getComputedStyle(document.body,'::before').backgroundImage,overflow:document.documentElement.scrollWidth>innerWidth,section:document.querySelector('.section.active')?getComputedStyle(document.querySelector('.section.active')).backgroundImage:'none',oldArt:document.querySelector('.section.active')?getComputedStyle(document.querySelector('.section.active'),'::before').content:'none'}));assert.equal(state.theme,'new');assert.equal(state.phase,phaseName);assert.match(state.image,phaseName==='day'?/(ice-sea-home-v2|blob:)/:/(ice-sea-night-v1|blob:)/);assert.equal(state.overflow,false,p.url());assert.equal(state.section,'none');assert.equal(state.oldArt,'none');}
   const p=await tab();await p.setViewport({width:1280,height:950});const base=`http://127.0.0.1:${server.address().port}`;
-  await p.goto(base,{waitUntil:'networkidle0'});await check(p,'day');await p.evaluate(()=>{getActiveSession().messages=[{role:'user',content:'今天的海面很好看。'},{role:'assistant',versions:[{content:'我在。慢慢说，不用急着把所有的话讲完。\n\n那些想留下来的事，我们就一点点记下来。',time:'14:19',fullTime:'2026-10-09T06:19:00Z'}],activeVersion:0}];});
+  await p.goto(base,{waitUntil:'networkidle0'});await check(p,'day');
+  assert.equal(await p.$eval('#appearanceController',e=>e.childElementCount),0,'hidden appearance previews should stay lazy');
+  await p.evaluate(()=>{getActiveSession().messages=[{role:'user',content:'今天的海面很好看。'},{role:'assistant',versions:[{content:'我在。慢慢说，不用急着把所有的话讲完。\n\n那些想留下来的事，我们就一点点记下来。',time:'14:19',fullTime:'2026-10-09T06:19:00Z'}],activeVersion:0}];});
+  await p.evaluate(()=>goView('settings'));await p.waitForSelector('[data-appearance-range="cardTransparency"]');
+  const slider=await p.evaluate(async()=>{
+   const input=document.querySelector('[data-appearance-range="cardTransparency"]'),same=input,before=localStorage.getItem('syzygy_appearance_v1');let changes=0;
+   addEventListener('sea-appearance-change',()=>changes++);input.value='61';input.dispatchEvent(new Event('input',{bubbles:true}));await new Promise(requestAnimationFrame);
+   const during=localStorage.getItem('syzygy_appearance_v1'),nodeStayed=document.querySelector('[data-appearance-range="cardTransparency"]')===same,preview=getComputedStyle(document.documentElement).getPropertyValue('--sea-card-opacity').trim();
+   input.dispatchEvent(new Event('change',{bubbles:true}));
+   return {before,during,after:localStorage.getItem('syzygy_appearance_v1'),nodeStayed,preview,changes};
+  });
+  assert.equal(slider.during,slider.before,'range input should not persist while dragging');assert.notEqual(slider.after,slider.before);assert.equal(slider.nodeStayed,true);assert.equal(slider.preview,'0.39');assert.equal(slider.changes,1);
+  await p.evaluate(()=>goView('chat'));
+  const composer=await p.evaluate(()=>{const bar=document.querySelector('.chat-bottom-bar'),input=document.querySelector('#chatInput'),style=getComputedStyle(bar),glass=getComputedStyle(bar,'::before');return {barBackground:style.backgroundColor,barBackdrop:style.backdropFilter,inputBackground:getComputedStyle(input).backgroundColor,inputBackdrop:getComputedStyle(input).backdropFilter,glassBackground:glass.backgroundColor};});
+  assert.equal(composer.barBackdrop,'none');assert.equal(composer.inputBackdrop,'none');assert.equal(composer.barBackground,'rgba(0, 0, 0, 0)');assert.equal(composer.inputBackground,'rgba(0, 0, 0, 0)');assert.notEqual(composer.glassBackground,'rgba(0, 0, 0, 0)');
   const views=['home','chat','private-journal','favorites','flo','state','codex-settings','settings','work-records','tt-memories','ledger','calendar','album','dev','console','shen-settings'];
   for(const width of [1280,393]){
    await p.setViewport({width,height:950});
@@ -37,15 +51,20 @@ async function main(){
   await p.setViewport({width:1280,height:950});await p.evaluate(()=>goView('private-journal'));await p.waitForSelector('.journal-sea-row');await p.screenshot({path:path.join(root,'qa-global-journal-day.png')});
   await phase(p,'2026-10-09T20:00:00+08:00');await p.screenshot({path:path.join(root,'qa-global-journal-night.png')});
   const second=await tab();await second.goto(base+'/comets.html',{waitUntil:'networkidle0'});await check(second,'day');
-  await p.evaluate(()=>applyVisualTheme('classic'));await second.waitForFunction(()=>document.documentElement.dataset.visualTheme==='classic');
-  await p.evaluate(()=>applyVisualTheme('new'));await second.waitForFunction(()=>document.documentElement.dataset.visualTheme==='new');await check(second,'day');
-  // A standalone theme choice must update the already-open main app without losing its draft.
-  await second.evaluate(()=>{localStorage.setItem('syzygy_visual_theme','classic');SeaTheme.sync();});await p.waitForFunction(()=>document.documentElement.dataset.visualTheme==='classic');
-  await second.evaluate(()=>{localStorage.setItem('syzygy_visual_theme','new');SeaTheme.sync();});await p.waitForFunction(()=>document.documentElement.dataset.visualTheme==='new');assert.equal(await p.$eval('#chatInput',e=>e.value),'还没有发出去的话');
+  await p.evaluate(()=>SeaTheme.setAdjustments({cardTransparency:47,dayDim:12,nightDim:23,blur:4}));
+  await second.waitForFunction(()=>getComputedStyle(document.documentElement).getPropertyValue('--sea-background-blur').trim()==='4px');
+  assert.equal(await second.$eval('html',e=>getComputedStyle(e).getPropertyValue('--sea-card-opacity').trim()),'0.53');
+  await p.evaluate(async()=>SeaTheme.saveWallpaper('global','day',new Blob(['global-day'],{type:'image/png'})));
+  await second.waitForFunction(()=>getComputedStyle(document.body,'::before').backgroundImage.includes('blob:'));
+  await p.evaluate(async()=>SeaTheme.saveWallpaper('chat','night',new Blob(['chat-night'],{type:'image/png'})));
+  await p.evaluate(()=>goView('chat'));await phase(p,'2026-10-09T20:00:00+08:00');
+  assert.deepEqual(await p.evaluate(async()=>({direct:(await SeaTheme.directWallpaper('chat','night')).size,exceptions:Object.keys(SeaTheme.settings().exceptions)})),{direct:10,exceptions:['chat']});
+  await p.evaluate(async()=>SeaTheme.removeWallpaper('chat','night'));assert.deepEqual(await p.evaluate(()=>Object.keys(SeaTheme.settings().exceptions)),[]);
+  assert.equal(await p.$eval('#chatInput',e=>e.value),'还没有发出去的话');
   const documents=['long-term','relationship-growth','comets','stardust','memory-vault','sensors','xhs-walk'];
   for(const doc of documents){await second.goto(base+'/'+doc+'.html',{waitUntil:'networkidle0'});for(const width of [1280,393]){await second.setViewport({width,height:950});await phase(second,'2026-10-09T12:00:00+08:00');await check(second,'day');await phase(second,'2026-10-09T20:00:00+08:00');await check(second,'night');} }
   await second.goto(base+'/long-term.html',{waitUntil:'networkidle0'});assert.equal(await second.$eval('.pill',e=>getComputedStyle(e).color),'rgb(117, 99, 71)');await second.screenshot({path:path.join(root,'qa-global-memory-day.png')});await phase(second,'2026-10-09T20:00:00+08:00');await second.screenshot({path:path.join(root,'qa-global-memory-night.png')});
-  assert.deepEqual(errors,[]);console.log(JSON.stringify({ok:true,views,documents,widths:[1280,393],checks:['shared backgrounds','automatic 07:00 and 18:00 boundaries','draft retained','cross-window classic/new sync'],pageErrors:errors}));
+  assert.deepEqual(errors,[]);console.log(JSON.stringify({ok:true,views,documents,widths:[1280,393],checks:['shared backgrounds','lazy appearance previews','range preview and commit','stable chat composer layer','automatic 07:00 and 18:00 boundaries','draft retained','cross-window adjustments','wallpaper inheritance and page exceptions'],pageErrors:errors}));
  }finally{await browser?.close();ws.clients.forEach(c=>c.terminate());ws.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

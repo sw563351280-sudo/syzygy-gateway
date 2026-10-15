@@ -12,7 +12,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
     <title>沈望 × 江鱼 | 溯星小屋</title>
     <script src="/sea-cycle.js?v=20261009-global"></script>
-    <script src="/site-theme.js?v=20261009-global"></script>
+    <script src="/site-theme.js?v=20261015-appearance-fix1"></script>
     <script>
       (() => {
         const mobileUA = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
@@ -21,11 +21,11 @@
       })();
     </script>
 
-    <link rel="stylesheet" href="style.css?v=109">
+    <link rel="stylesheet" href="style.css?v=110">
     <link rel="stylesheet" href="home-sea.css?v=3">
     <link rel="stylesheet" href="sea-pages.css?v=2">
     <link rel="stylesheet" href="journal-sea.css?v=3">
-    <link rel="stylesheet" href="/site-theme.css?v=20261011-top-blend">
+    <link rel="stylesheet" href="/site-theme.css?v=20261015-appearance-fix1">
 </head>
 <body class="neu-mode">
     <svg id="syzygy-line-svg" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999;"><defs><linearGradient id="syzygy-grad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" style="stop-color:#4fc3f7;stop-opacity:0.8"/><stop offset="100%" style="stop-color:#c9a961;stop-opacity:0.8"/></linearGradient></defs><line id="syzygy-line" x1="0" y1="0" x2="0" y2="0" style="stroke:url(#syzygy-grad);stroke-width:1.5;opacity:0;transition:opacity 0.3s ease-in-out;"/></svg>
@@ -33,100 +33,8 @@
     <div class="binding-right"></div>
     <div class="toast" id="toast"></div>
 
-<div class="section active" id="sec-home">
-    <div class="home-v2" id="homeV2" aria-hidden="true"></div>
-
-    <div class="neu-home">
-
-        <div class="neu-together-card" id="neuTogetherCard">
-            <svg class="neu-together-deco" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200" fill="none" stroke="#C8A96E">
-                <!-- 三圈同心椭圆 -->
-                <ellipse cx="200" cy="100" rx="120" ry="80" stroke-width="1.2" opacity="0.45" stroke-dasharray="5 4"/>
-                <ellipse cx="200" cy="100" rx="80" ry="55" stroke-width="0.8" opacity="0.45"/>
-                <ellipse cx="200" cy="100" rx="45" ry="30" stroke-width="0.8" opacity="0.5"/>
-                <!-- 中心鱼符 -->
-                <text x="200" y="105" font-size="14" fill="#fcfa1d" opacity="0.6" text-anchor="middle" dominant-baseline="middle">𓆝</text>
-                <!-- 星尘 -->
-                <circle cx="105" cy="75" r="1" fill="#C8A96E" opacity="0.35"/>
-                <circle cx="250" cy="45" r="0.8" fill="#C8A96E" opacity="0.3"/>
-                <circle cx="290" cy="110" r="1.2" fill="#C8A96E" opacity="0.4"/>
-                <circle cx="155" cy="168" r="0.9" fill="#C8A96E" opacity="0.32"/>
-                <circle cx="230" cy="172" r="1" fill="#C8A96E" opacity="0.35"/>
-                <circle cx="115" cy="130" r="0.8" fill="#C8A96E" opacity="0.3"/>
-                <circle cx="270" cy="80" r="1.1" fill="#C8A96E" opacity="0.38"/>
-            </svg>
-            <div class="neu-together-left">
-                <span class="neu-together-num"><span id="neuDayCount">---</span></span>
-                <span class="neu-together-label">days together</span>
-            </div>
-        </div>
-
-        <div class="neu-card neu-todo-card">
-            <div class="neu-todo-header">
-                <span class="neu-todo-title">To Do</span>
-                <button class="neu-todo-add-btn" onclick="neuAddTodo()">+</button>
-            </div>
-            <div id="neuTodoList" class="neu-todo-list"></div>
-            <div class="neu-todo-new-row">
-                <input id="neuTodoInput" class="neu-todo-new-input" placeholder="添加江鱼的待办…" onkeydown="neuTodoInputKey(event)">
-            </div>
-        </div>
-
-        <div class="neu-card neu-week-strip" id="neuWeekStrip" onclick="goView('calendar')" style="cursor:pointer"></div>
-
-        <!-- 距下次月经倒计时 -->
-        <div id="neuPeriodCountdown" class="neu-period-countdown"></div>
-
-        <div class="neu-grid">
-            <div class="neu-card neu-grid-card" onclick="openCommunication()">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-                <span>通讯</span>
-            </div>
-            <div class="neu-card neu-grid-card" onclick="goView('favorites')">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
-                <span>收藏夹</span>
-            </div>
-            <div class="neu-card neu-grid-card" onclick="goView('private-journal')">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5A2.5 2.5 0 0 1 7.5 2H20v18H7.5A2.5 2.5 0 0 0 5 22Z"/><path d="M5 4.5v15M10 9V7a2 2 0 0 1 4 0v2"/><rect x="8.5" y="9" width="7" height="5.5" rx="1.2"/></svg>
-                <span>锁页日记</span>
-            </div>
-            <div class="neu-card neu-grid-card" onclick="openStarCrossing()">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12,2 22,9 12,17 2,9"/><polygon points="12,17 22,9 12,22 2,9"/></svg>
-                <span>星渡</span>
-            </div>
-            <!-- 状态入口已合并到日历页，不再单独展示 -->
-            <div class="neu-card neu-grid-card" onclick="goView('settings')">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.6v-.09A1.7 1.7 0 0 0 8.5 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.1 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H2V9.6h.4A1.7 1.7 0 0 0 4.1 8.5a1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.56 3.7l.06.06A1.7 1.7 0 0 0 8.5 4.1a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V2h4.04v.4A1.7 1.7 0 0 0 15 4.1a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 8.5a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4h.9v4.04h-.9A1.7 1.7 0 0 0 19.4 15Z"/></svg>
-                <span>设置</span>
-            </div>
-            <div class="neu-card neu-grid-card" onclick="goView('flo')">
-                <svg width="24" height="24" viewBox="0 0 64 64" fill="none" stroke="#D4A856" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M32 58 C32 58 30 48 24 40C18 32 10 28 10 20C10 12 16 6 24 6C32 6 32 14 32 14C32 14 32 6 40 6C48 6 54 12 54 20C54 28 46 32 40 40C34 48 32 58 32 58Z"/><path d="M32 14L32 58"/></svg>
-                <span>Flo</span>
-            </div>
-            <div class="neu-card neu-grid-card" onclick="goView('ledger')">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#D4A856" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h4"/><path d="M5 3v18"/></svg>
-                <span>账本</span>
-            </div>
-            <div class="neu-card neu-grid-card" onclick="openWorkroom()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openWorkroom()}" aria-label="打开江鱼、沈望和 Codex 的共创工作区">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6D93B5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="8" r="2.5"/><circle cx="18" cy="8" r="2.5"/><circle cx="12" cy="17" r="2.5"/><path d="m8.2 9.3 2.6 5.2M15.8 9.3l-2.6 5.2M8.5 8h7"/></svg>
-                <span>共创工作区</span>
-            </div>
-            <button class="neu-card neu-grid-card" onclick="goView('album')" aria-label="打开相册"><span aria-hidden="true">▧</span><span>相册</span></button>
-        </div>
-
-        <div class="neu-bottom-nav">
-            <div class="neu-nav-item active" data-nav="home" data-label="首页" onclick="goView('home')">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
-            </div>
-            <div class="neu-nav-item" data-nav="chat" data-label="通讯" onclick="openCommunication()">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-            </div>
-            <div class="neu-nav-item" data-nav="dev" data-label="开发中枢" onclick="goView('dev')" title="开发中枢">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,17 10,11 4,5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-            </div>
-        </div>
-
-    </div>
+<div class="section active home-layout-v2" id="sec-home">
+    <div class="home-v2" id="homeV2"></div>
 </div>
 
 <div class="section" id="sec-chat">
@@ -523,21 +431,10 @@
         <section class="app-settings-card app-appearance-card">
             <div class="app-settings-heading">
                 <span class="app-settings-kicker">外观与氛围</span>
-                <h1>美化</h1>
-                <p>选择整套小屋的视觉风格。首页、通讯和其他页面会一起切换，内容与数据保持不变。</p>
+                <h1>小屋外观</h1>
+                <p>从这里布置整个小屋。早上 7 点到晚上 6 点使用白天壁纸，其余时间使用夜晚壁纸；夜晚没有单独设置时会沿用白天。</p>
             </div>
-            <div class="visual-theme-options" role="group" aria-label="全局视觉主题">
-                <button type="button" class="visual-theme-option" data-visual-theme-option="classic" onclick="applyVisualTheme('classic')" aria-pressed="true">
-                    <span class="visual-theme-preview visual-theme-preview-classic" aria-hidden="true"><i></i><i></i><i></i></span>
-                    <span class="visual-theme-copy"><strong>旧版</strong><small>星尘 · 柔蓝拟态</small></span>
-                    <span class="visual-theme-check" aria-hidden="true">✓</span>
-                </button>
-                <button type="button" class="visual-theme-option" data-visual-theme-option="new" onclick="applyVisualTheme('new')" aria-pressed="false">
-                    <span class="visual-theme-preview visual-theme-preview-new" aria-hidden="true"><i></i><i></i><i></i></span>
-                    <span class="visual-theme-copy"><strong>新版</strong><small>冰海 · 水色玻璃</small></span>
-                    <span class="visual-theme-check" aria-hidden="true">✓</span>
-                </button>
-            </div>
+            <div id="appearanceController" class="appearance-controller" aria-live="polite"></div>
         </section>
 
         <section class="app-settings-card app-settings-links">
@@ -727,6 +624,7 @@
 <script src="home-sea.js?v=2"></script>
 <script src="sea-pages.js?v=1"></script>
 <script src="journal-sea.js?v=1"></script>
+<script src="appearance-settings.js?v=2"></script>
 <script src="chat-transport.js?v=20261014-1"></script>
 <script src="message-usage.js?v=2"></script>
 <script src="chat-persistence.js?v=20261014-1"></script>

@@ -24,7 +24,7 @@ async function main() {
         browser = await puppeteer.launch({ executablePath, headless: true });
         const page = await browser.newPage(), errors = []; page.on('pageerror', e => errors.push(e.message));
         await page.setRequestInterception(true); page.on('request', r => r.url().startsWith('http') && !r.url().startsWith('http://127.0.0.1:') ? r.abort() : r.continue());
-        await page.evaluateOnNewDocument(() => { Date.now = () => Date.parse('2026-10-09T20:00:00+08:00'); if (!localStorage.getItem('syzygy_visual_theme')) localStorage.setItem('syzygy_visual_theme', 'new'); });
+        await page.evaluateOnNewDocument(() => { Date.now = () => Date.parse('2026-10-09T20:00:00+08:00'); });
         await page.setViewport({ width: 1536, height: 1024 });
         const url = `http://127.0.0.1:${server.address().port}/comets.html?pwd=fixture`;
         await page.goto(url, { waitUntil: 'networkidle0' }); await page.evaluate(() => document.fonts.ready);
@@ -58,12 +58,9 @@ async function main() {
         readFails = true; await page.reload({ waitUntil: 'networkidle0' }); assert.ok(await page.$('.care-retry'));
         readFails = false; await page.click('.care-retry'); await page.waitForSelector('.comet');
         empty = true; await page.reload({ waitUntil: 'networkidle0' }); assert.match(await page.$eval('.empty', x => x.textContent), /没有悬着/);
-        empty = false; await page.evaluate(() => localStorage.setItem('syzygy_visual_theme', 'classic')); await page.reload({ waitUntil: 'networkidle0' });
-        assert.equal(await page.$eval('html', x => x.dataset.visualTheme), 'classic');
-        assert.equal(await page.$eval('.hero p', x => getComputedStyle(x).display), 'block');
-        assert.match(await page.$eval('body', x => getComputedStyle(x).backgroundImage), /gradient/);
+        empty = false; assert.equal(await page.$eval('html', x => x.dataset.visualTheme), 'new');
         assert.deepEqual(errors, []);
-        console.log(JSON.stringify({ ok: true, checks: ['sea shell', 'context and reason', 'source quote escaped', 'legacy missing source', 'minute precision', 'keyboard and touch actions', 'write failure retained', 'read retry', 'empty state', 'classic rollback'], widths: [1536, 1024, 393, 320] }));
+        console.log(JSON.stringify({ ok: true, checks: ['sea shell', 'context and reason', 'source quote escaped', 'legacy missing source', 'minute precision', 'keyboard and touch actions', 'write failure retained', 'read retry', 'empty state', 'single appearance'], widths: [1536, 1024, 393, 320] }));
     } finally { await browser?.close(); await new Promise(r => server.close(r)); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

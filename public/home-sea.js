@@ -1,4 +1,4 @@
-/* New home is isolated from the classic layout and loads no secondary page assets. */
+/* The home sea loads no secondary page assets. */
 (() => {
     'use strict';
     const home = document.getElementById('homeV2');
@@ -46,7 +46,7 @@
 
     let data, request, refreshedAt = 0, missId, resetTimer, whisperTimer, recentTimer;
     const $ = id => document.getElementById(id);
-    const isHome = () => document.documentElement.dataset.visualTheme === 'new' && $('sec-home').classList.contains('active');
+    const isHome = () => $('sec-home').classList.contains('active');
     async function api(url, body, method = 'POST') {
         const response = await fetch(url, body === undefined ? { cache: 'no-store' } : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const result = await response.json();
@@ -193,7 +193,6 @@
         document.getElementById('syzygy-music')?.toggleAttribute('home-minimal', active);
         if (!active) { closeDialogs(); clearInterval(recentTimer); } else { refresh(); if (data) renderRecent(); }
     }
-    new MutationObserver(sync).observe(document.documentElement, { attributes: true, attributeFilter: ['data-visual-theme'] });
     new MutationObserver(sync).observe(document.body, { attributes: true, attributeFilter: ['data-view'] });
     document.addEventListener('visibilitychange', () => { clearInterval(recentTimer); if (!document.hidden) { refresh(true); if (data) renderRecent(); } });
     window.addEventListener('focus', () => refresh());

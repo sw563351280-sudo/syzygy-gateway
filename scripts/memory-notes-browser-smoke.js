@@ -26,7 +26,6 @@ async function main(){
         browser=await puppeteer.launch({executablePath,headless:true});const page=await browser.newPage(),errors=[];
         page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
         await page.setRequestInterception(true);page.on('request',r=>r.url().startsWith('http')&&!r.url().startsWith('http://127.0.0.1:')?r.abort():r.continue());
-        await page.evaluateOnNewDocument(()=>{if(!localStorage.getItem('syzygy_visual_theme'))localStorage.setItem('syzygy_visual_theme','new');});
         const url=`http://127.0.0.1:${server.address().port}/long-term.html`;
         await page.setViewport({width:1536,height:1024});await page.goto(url,{waitUntil:'networkidle0'});
         const count=()=>page.$$eval('#memoryList .memory-card',c=>c.length);
@@ -79,13 +78,8 @@ async function main(){
             await page.screenshot({path:path.join(root,`qa-memory-notes-${width}.png`)});
             await page.click('.notes-filter');await page.keyboard.press('Escape');assert.equal(await page.$eval('.notes-tools',e=>e.open),false);
         }
-        await page.evaluate(()=>localStorage.setItem('syzygy_visual_theme','classic'));await page.reload({waitUntil:'networkidle0'});
-        assert.equal(await count(),memories.filter(m=>m.category==='active').length,'classic renders current range');
-        await page.click('.pill-everywhere');assert.equal(await count(),memories.length,'classic supports all ranges');
-        await page.type('#searchInput','稀有关键词');assert.equal(await count(),1,'classic searches stored content');
-        assert.equal(await page.evaluate(()=>!!window.MemoryNotes),false);
         assert.deepEqual(errors,[]);
-        console.log(JSON.stringify({ok:true,widths:[1536,1024,393,320],checks:['ten recent','offscreen search','independent source and scope filters','all ranges','no content-tag filter or heat sorting','real date sorting','result counts','safe quote','edit','full browse','partial batch deletion','restore','mobile dialogs','classic theme']}));
+        console.log(JSON.stringify({ok:true,widths:[1536,1024,393,320],checks:['ten recent','offscreen search','independent source and scope filters','all ranges','no content-tag filter or heat sorting','real date sorting','result counts','safe quote','edit','full browse','partial batch deletion','restore','mobile dialogs','single appearance']}));
     }finally{await browser?.close();await new Promise(r=>server.close(r));}
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

@@ -1171,7 +1171,6 @@ function goView(viewId) {
             if (document.body.dataset.view === viewId) toast('页面资源加载失败，请重试');
         });
     } else initializeView(viewId);
-    if (document.body.classList.contains('neu-mode')) neuUpdateNav();
 }
 
 // ==================== 控制台 Tab 切换 ====================
@@ -1689,121 +1688,13 @@ if (document.readyState === 'loading') { document.addEventListener('DOMContentLo
 
 function egg(pos){}
 
-// ==================== 新拟态首页 ====================
+// ==================== 水色玻璃首页 ====================
 function neuInitHome() {
     window.SeaHome?.refresh();
-    neuRenderWeek();
-    neuRenderTodos();
-    neuUpdateNav();
-    neuRenderPeriodCountdown();
 }
 
-function neuRenderWeek() {
-    const strip = document.getElementById('neuWeekStrip');
-    if (!strip) return;
-    const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    const now = new Date();
-    const today = now.getDay(); // 0=Sun
-    // 找到本周一
-    const mon = new Date(now);
-    mon.setDate(now.getDate() - (today === 0 ? 6 : today - 1));
-
-    let html = '';
-    for (let i = 0; i < 7; i++) {
-        const d = new Date(mon);
-        d.setDate(mon.getDate() + i);
-        const dayNum = d.getDay();
-        const isToday = dayNum === today && Math.abs(d.getDate() - now.getDate()) < 1;
-        html += '<div class="neu-week-day' + (isToday ? ' today' : '') + '">'
-            + '<span class="day-dot">' + d.getDate() + '</span>'
-            + days[i]
-            + '<span class="day-event"></span>'
-            + '</div>';
-    }
-    strip.innerHTML = html;
-}
-
-// ═══ To Do (共享待办，服务器存储) ═══
-async function neuFetchTodos() {
-    try {
-        const r = await fetch('/api/todos');
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return { ok: true, ...(await r.json()) };
-    } catch(e) {
-        return { ok: false, error: e?.message || '同步失败', todos:[], active:[], done:[], shen:[], fish:[] };
-    }
-}
-
-async function neuRenderTodos() {
+function neuRenderTodos() {
     window.SeaHome?.refresh(true);
-    const list = document.getElementById('neuTodoList');
-    if (!list) return;
-    const data = await neuFetchTodos();
-    if (!data.ok) {
-        list.innerHTML = '<div class="neu-todo-sync-error">待办同步失败，稍后会自动重试</div>';
-        return;
-    }
-    const active = data.active || [];
-    const shenItems = Array.isArray(data.shen) ? data.shen : active.filter(t => t.owner === 'shen');
-    const fishItems = Array.isArray(data.fish) ? data.fish : active.filter(t => t.owner === 'fish');
-    const renderItems = (items, emptyText) => items.length
-        ? items.map(t => '<div class="neu-todo-item">'
-            + '<input type="checkbox" aria-label="完成待办" onchange="neuToggleTodo(\'' + t.id + '\')">'
-            + '<span>' + escHtml(t.text) + '</span>'
-            + '<button class="neu-todo-rm-btn" aria-label="删除待办" onclick="neuDeleteTodo(\'' + t.id + '\')">×</button>'
-            + '</div>').join('')
-        : '<div class="neu-todo-empty">' + emptyText + '</div>';
-
-    const html = '<section class="neu-todo-section shen" aria-label="沈望写的待办">'
-        + '<div class="neu-todo-section-head"><span class="neu-todo-owner-mark">S</span><span>沈望写的</span><small>' + shenItems.length + '</small></div>'
-        + '<div class="neu-todo-items">' + renderItems(shenItems, '他暂时还没有记下新的事') + '</div>'
-        + '</section>'
-        + '<section class="neu-todo-section fish" aria-label="江鱼写的待办">'
-        + '<div class="neu-todo-section-head"><span class="neu-todo-owner-mark">J</span><span>江鱼写的</span><small>' + fishItems.length + '</small></div>'
-        + '<div class="neu-todo-items">' + renderItems(fishItems, '你的列表还是空的') + '</div>'
-        + '</section>';
-    list.innerHTML = html;
-}
-
-async function neuAddTodo() {
-    const input = document.getElementById('neuTodoInput');
-    if (!input) return;
-    const text = input.value.trim();
-    if (!text) { input.focus(); return; }
-    input.value = '';
-    try {
-        await fetch('/api/todos', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, owner: 'fish' })
-        });
-        neuRenderTodos();
-    } catch(e) { console.error('添加待办失败', e); }
-}
-
-// 回车添加
-function neuTodoInputKey(e) { if (e.key === 'Enter') neuAddTodo(); }
-
-async function neuToggleTodo(id) {
-    try {
-        const data = await neuFetchTodos();
-        const t = data.todos.find(x => x.id === id);
-        if (t) {
-            await fetch('/api/todos/' + id, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ done: !t.done })
-            });
-            neuRenderTodos();
-        }
-    } catch(e) { console.error('切换待办状态失败', e); }
-}
-
-async function neuDeleteTodo(id) {
-    try {
-        await fetch('/api/todos/' + id, { method: 'DELETE' });
-        neuRenderTodos();
-    } catch(e) { console.error('删除待办失败', e); }
 }
 
 // ═══ 周期记录详情页 ═══
@@ -1811,25 +1702,6 @@ let floShowAllHistory = false;
 
 async function floFetchPeriod() {
     try { const r = await fetch('/api/period'); return await r.json(); } catch(e) { return null; }
-}
-
-// 首页 — 倒计时文字
-async function neuRenderPeriodCountdown() {
-    const el = document.getElementById('neuPeriodCountdown');
-    if (!el) return;
-    const data = await floFetchPeriod();
-    if (!data) { el.innerText = ''; return; }
-    if (data.status.inPeriod) {
-        el.innerText = '经期第 ' + data.status.days + ' 天';
-    } else if (data.prediction) {
-        const predDate = new Date(data.prediction.date + 'T00:00:00+08:00');
-        const daysUntil = Math.round((predDate - new Date()) / 86400000);
-        if (daysUntil > 0) el.innerText = '距下次月经还有 ' + daysUntil + ' 天';
-        else if (daysUntil === 0) el.innerText = '预测今天会来';
-        else el.innerText = '预测日已过 ' + Math.abs(daysUntil) + ' 天';
-    } else {
-        el.innerText = '暂无生理期数据';
-    }
 }
 
 function floFormatDate(yyyymmdd) {
@@ -1947,7 +1819,7 @@ async function floPeriodAction(action) {
             body: JSON.stringify({ action })
         });
         const data = await r.json();
-        if (data.ok) { floRender(); neuRenderPeriodCountdown(); }
+        if (data.ok) { floRender(); window.SeaHome?.refresh(true); }
         toast(data.message || data.error || '已记录');
     } catch(e) { console.error(e); }
 }
@@ -1971,106 +1843,30 @@ async function floDoBackfill() {
             document.getElementById('floBackfillRow').style.display = 'none';
             s.value = ''; e.value = '';
             floRender();
-            neuRenderPeriodCountdown();
+            window.SeaHome?.refresh(true);
         }
         toast(data.message || data.error || '已补录');
     } catch(e) { console.error(e); }
 }
 
-// ═══ 底部导航高亮 ═══
-function neuUpdateNav() {
-    const view = document.querySelector('.section.active')?.id || 'sec-home';
-    const map = { 'sec-home': 'home', 'sec-chat': 'chat', 'sec-favorites': 'favorites', 'sec-dev': 'dev', 'sec-console': 'dev' };
-    const active = map[view] || 'home';
-    document.querySelectorAll('.neu-nav-item').forEach(el => {
-        el.classList.toggle('active', el.dataset.nav === active);
-    });
-}
-
-// ═══ 全局视觉主题 + Together 天数 ═══
-const VISUAL_THEME_KEY = 'syzygy_visual_theme';
-const LEGACY_HOME_LAYOUT_KEY = 'syzygy_home_layout';
-
-function getVisualTheme() {
-    return document.documentElement.dataset.visualTheme === 'new' ? 'new' : 'classic';
-}
-
+// ═══ 小屋外观 + Together 天数 ═══
 function getVisualThemeColor(viewId = document.body?.dataset?.view || 'home') {
-    const isNew = getVisualTheme() === 'new';
-    if (!isNew) return viewId === 'chat' ? '#EFF6FD' : '#E8EFF7';
     return document.documentElement.dataset.seaCycle === 'night' ? '#081A2D' : '#A9C3D8';
 }
-
-function applyVisualTheme(theme, persist = true) {
-    const normalized = theme === 'new' ? 'new' : 'classic';
-    const isNew = normalized === 'new';
-    document.documentElement.dataset.visualTheme = normalized;
-    document.body.dataset.visualTheme = normalized;
-    const home = document.getElementById('sec-home');
-    if (!home) return;
-    home.classList.toggle('home-layout-v2', isNew);
-    home.dataset.homeLayout = normalized;
-    document.querySelectorAll('[data-visual-theme-option]').forEach(button => {
-        const selected = button.dataset.visualThemeOption === normalized;
-        button.setAttribute('aria-pressed', String(selected));
-        button.classList.toggle('is-selected', selected);
-    });
-    const classicHome = home.querySelector('.neu-home');
-    const newHome = document.getElementById('homeV2');
-    if (classicHome) {
-        classicHome.setAttribute('aria-hidden', String(isNew));
-        classicHome.inert = isNew;
-    }
-    if (newHome) {
-        newHome.setAttribute('aria-hidden', String(!isNew));
-        newHome.inert = !isNew;
-    }
-    window.SeaHome?.sync();
-    window.SeaJournal?.sync();
-    if (persist) {
-        try {
-            localStorage.setItem(VISUAL_THEME_KEY, normalized);
-            localStorage.setItem(LEGACY_HOME_LAYOUT_KEY, normalized);
-        } catch (_) {}
-    }
-    const metaTheme = document.getElementById('theme-color-meta');
-    if (metaTheme) metaTheme.setAttribute('content', getVisualThemeColor());
-}
-
-// 兼容旧缓存页面里可能残留的首页切换调用。
-function setHomeLayout(layout, persist = true) { applyVisualTheme(layout, persist); }
 
 window.addEventListener('sea-cycle-change', () => {
     const meta = document.getElementById('theme-color-meta');
     if (meta) meta.setAttribute('content', getVisualThemeColor());
 });
 
-function toggleHomeV2More() {
-    const panel = document.getElementById('homeV2More');
-    const toggle = document.getElementById('homeV2MoreToggle');
-    if (!panel || !toggle) return;
-    panel.hidden = !panel.hidden;
-    toggle.setAttribute('aria-expanded', String(!panel.hidden));
-    toggle.innerHTML = panel.hidden ? '···&nbsp; 更多' : '收起&nbsp; ···';
-}
-
-function initVisualTheme() {
-    let saved = 'classic';
-    try { saved = localStorage.getItem(VISUAL_THEME_KEY) || localStorage.getItem(LEGACY_HOME_LAYOUT_KEY) || 'classic'; } catch (_) {}
-    applyVisualTheme(saved, false);
-}
-
 function updateDays(){
     const start = new Date(START_DATE);
     const diff  = Math.floor((new Date() - start) / (1000 * 60 * 60 * 24));
     const dayEl = document.getElementById('dayCount');
     if(dayEl) dayEl.innerText = diff >= 0 ? diff : '∞';
-    const neuDay = document.getElementById('neuDayCount');
-    if(neuDay) neuDay.innerText = diff >= 0 ? diff : '∞';
     const homeV2Day = document.getElementById('homeV2DayCount');
     if(homeV2Day) homeV2Day.innerText = diff >= 0 ? diff : '∞';
 }
-initVisualTheme();
 updateDays();
 
 let hbInterval;
@@ -4291,7 +4087,7 @@ function toggleLightMode() { enforceNeuTheme(); }
 // ==================== 终极点火装置 ====================
 function enforceNeuTheme() {
     document.body.classList.add('neu-mode');
-    document.body.dataset.visualTheme = getVisualTheme();
+    document.body.dataset.visualTheme = 'new';
     const metaTheme = document.getElementById('theme-color-meta');
     if (metaTheme) metaTheme.setAttribute('content', getVisualThemeColor());
 }
