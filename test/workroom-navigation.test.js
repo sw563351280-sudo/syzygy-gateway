@@ -35,6 +35,12 @@ test('workroom composer removes thread menu and exposes TT memory drawer', () =>
     assert.match(html, /id="sec-tt-memories"/);
 });
 
+test('standalone chat covers the home-indicator area without moving its controls', () => {
+    assert.match(css, /@media\s*\(display-mode:\s*standalone\)\s*\{[\s\S]*body\[data-view="chat"\][\s\S]*#sec-chat\.section\s*\{\s*height:\s*100vh!important/);
+    assert.match(css, /#sec-chat \.chat-bottom-bar\s*\{[^}]*padding-bottom:\s*calc\(10px \+ env\(safe-area-inset-bottom, 0px\)\)!important/);
+    assert.match(html, /style\.css\?v=111/);
+});
+
 test('the same gear opens Shenwang settings in communication and Codex settings in workroom', () => {
     let active = true;
     const attributes = {};
