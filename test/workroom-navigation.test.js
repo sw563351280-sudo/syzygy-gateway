@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const html = fs.readFileSync(require.resolve('../public/index.html'), 'utf8');
 const script = fs.readFileSync(require.resolve('../public/script.js'), 'utf8');
 const css = fs.readFileSync(require.resolve('../public/style.css'), 'utf8');
+const siteThemeCss = fs.readFileSync(require.resolve('../public/site-theme.css'), 'utf8');
 const workroomCss = fs.readFileSync(require.resolve('../public/workroom-pages.css'), 'utf8');
 
 test('legacy Codex UI and executable client are removed while shared features remain', () => {
@@ -35,10 +36,13 @@ test('workroom composer removes thread menu and exposes TT memory drawer', () =>
     assert.match(html, /id="sec-tt-memories"/);
 });
 
-test('standalone chat covers the home-indicator area without moving its controls', () => {
-    assert.match(css, /@media\s*\(display-mode:\s*standalone\)\s*\{[\s\S]*body\[data-view="chat"\][\s\S]*#sec-chat\.section\s*\{\s*height:\s*100vh!important/);
+test('standalone chat declares a non-fixed root wallpaper path and keeps control safe-area padding', () => {
+    assert.match(siteThemeCss, /@media\s*\(display-mode:\s*standalone\)\s*\{[\s\S]*html\[data-visual-theme="new"\]:has\(body\.neu-mode\[data-view="chat"\]\)\s*\{\s*background-attachment:\s*scroll\s*!important/);
+    assert.match(siteThemeCss, /html\[data-visual-theme="new"\]:has\(body\.neu-mode\[data-view="chat"\]\) body::before\s*\{\s*content:\s*none/);
+    assert.doesNotMatch(css, /@media\s*\(display-mode:\s*standalone\)\s*\{[\s\S]*#sec-chat\.section\s*\{\s*height:\s*100vh!important/);
     assert.match(css, /#sec-chat \.chat-bottom-bar\s*\{[^}]*padding-bottom:\s*calc\(10px \+ env\(safe-area-inset-bottom, 0px\)\)!important/);
-    assert.match(html, /style\.css\?v=111/);
+    assert.match(html, /style\.css\?v=112/);
+    assert.match(html, /site-theme\.css\?v=20261015-home-indicator/);
 });
 
 test('the same gear opens Shenwang settings in communication and Codex settings in workroom', () => {
