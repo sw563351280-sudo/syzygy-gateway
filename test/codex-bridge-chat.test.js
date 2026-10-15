@@ -91,6 +91,31 @@ test('snapshot preserves long replies and approvals after event log truncation',
     } finally { child.kill(); }
 });
 
+test('reply snapshots preserve text and tool boundaries for reconnects', async () => {
+    const child = createFakeChatProcess();
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });
+    const task = bridge.taskById(bridge.startTask({ prompt: '检查', mode: 'workspaceWrite' }).id);
+    try {
+        await waitFor(() => task.status === 'running');
+        child.stdout.write(JSON.stringify({ method: 'item/agentMessage/delta', params: { delta: '先看一下。' } }) + '\n');
+        child.stdout.write(JSON.stringify({ method: 'item/commandExecution/started', params: { command: 'rg -n replySnapshot codex-bridge.js' } }) + '\n');
+        child.stdout.write(JSON.stringify({ method: 'item/agentMessage/delta', params: { delta: '已经找到了。' } }) + '\n');
+        await waitFor(() => task.replySnapshot?.timeline?.length === 3);
+        assert.equal(task.replySnapshot.text, '先看一下。\n\n已经找到了。');
+        assert.deepEqual(task.replySnapshot.timeline, [
+            { type: 'text', text: '先看一下。' },
+            { type: 'activity', kind: 'reading' },
+            { type: 'text', text: '已经找到了。' }
+        ]);
+        const ws = new EventEmitter();
+        ws.readyState = 1;
+        const sent = [];
+        ws.send = value => sent.push(JSON.parse(value));
+        bridge.attachSocket(ws, task.id);
+        assert.deepEqual(sent[0].reply.timeline, task.replySnapshot.timeline);
+    } finally { child.kill(); }
+});
+
 test('missing task sockets receive a machine-readable recoverable error', () => {
     const bridge = createCodexBridge({ cwd: process.cwd(), spawn: createFakeChatProcess });
     const ws = new EventEmitter();
@@ -222,7 +247,9 @@ test('workspace-write mode uses the correct thread wire enum and structured turn
     const firstTurn = child.writes.find(message => message.method === 'turn/start' && message.id === 3);
     assert.equal(threadStart.params.sandbox, 'workspace-write');
     assert.equal(threadStart.params.approvalPolicy, 'on-request');
+    assert.equal(threadStart.params.approvalsReviewer, 'auto_review');
     assert.equal(firstTurn.params.approvalPolicy, 'on-request');
+    assert.equal(firstTurn.params.approvalsReviewer, 'auto_review');
     assert.equal(firstTurn.params.sandboxPolicy.type, 'workspaceWrite');
     assert.deepEqual(firstTurn.params.sandboxPolicy.writableRoots, [process.cwd()]);
     assert.deepEqual(firstTurn.params.input[1], { type: 'image', url: TEST_IMAGE, detail: 'auto' });

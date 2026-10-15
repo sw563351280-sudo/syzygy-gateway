@@ -2889,6 +2889,37 @@ body.neu-mode #sec-chat .chat-bottom-bar { background: rgba(232, 239, 247, .78) 
 }
 .workroom-speaker-jiangyu { text-align: right; }
 .msg-row.is-codex { align-items: flex-start; }
+.workroom-codex-turn {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+}
+.workroom-codex-turn > .msg { max-width: 94%; }
+.workroom-codex-activity {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    max-width: min(88%, 520px);
+    margin: -1px 0;
+    padding: 0 10px;
+    color: rgba(79, 112, 139, .72);
+    font-size: 10px;
+    line-height: 1.55;
+    letter-spacing: .035em;
+}
+.workroom-codex-activity i {
+    width: 4px;
+    height: 4px;
+    flex: 0 0 4px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 0 3px rgba(91, 143, 181, .08);
+}
+.workroom-codex-activity span { min-width: 0; }
+.workroom-codex-turn .workroom-codex-activity:last-child i { animation: corePulse 1.5s ease-in-out infinite; }
 .msg.sys.codex {
     border-color: rgba(86, 143, 191, .2) !important;
     background: linear-gradient(135deg, rgba(228, 241, 252, .88), rgba(240, 246, 252, .74)) !important;

@@ -17,6 +17,47 @@ function shortText(value, max = 4000) {
     return String(value || '').replace(/\u0000/g, '').slice(0, max);
 }
 
+function replyActivityKind(method, params = {}) {
+    if (!method || method.includes('requestApproval')) return '';
+    const itemType = String(params.item?.type || '');
+    if (method.startsWith('item/fileChange') || method === 'turn/diff/updated' || itemType === 'fileChange') return 'editing';
+    if (method.startsWith('item/commandExecution') || itemType === 'commandExecution') {
+        const command = String(params.command || params.item?.command || params.item?.aggregatedOutput || '').toLowerCase();
+        if (/\b(test|vitest|jest|pytest|mocha|lint|typecheck|check)\b/.test(command)) return 'testing';
+        if (/\b(git\s+push|gh\s+pr)\b/.test(command)) return 'sending';
+        if (/\b(screenshot|chromium|chrome|playwright)\b/.test(command)) return 'looking';
+        return 'reading';
+    }
+    if (itemType && !['agentMessage', 'reasoning', 'plan'].includes(itemType)) return 'working';
+    if (/^item\/(?:mcpToolCall|dynamicToolCall|webSearch)/.test(method)) return 'working';
+    return '';
+}
+
+function appendReplyText(snapshot, value) {
+    const delta = String(value || '');
+    if (!snapshot || !delta) return;
+    const timeline = snapshot.timeline ||= [];
+    const previous = timeline[timeline.length - 1];
+    if (previous?.type === 'text') previous.text += delta;
+    else {
+        timeline.push({ type: 'text', text: delta });
+        if (snapshot.text) snapshot.text += '\n\n';
+    }
+    snapshot.text += delta;
+}
+
+function appendReplyActivity(snapshot, method, params) {
+    const kind = replyActivityKind(method, params);
+    if (!snapshot || !kind) return;
+    const timeline = snapshot.timeline ||= [];
+    const previous = timeline[timeline.length - 1];
+    const hasCommandDetail = Boolean(params.command || params.item?.command || params.item?.aggregatedOutput);
+    if (previous?.type === 'activity') {
+        if (kind !== 'reading' || previous.kind === 'reading' || hasCommandDetail) previous.kind = kind;
+    }
+    else timeline.push({ type: 'activity', kind });
+}
+
 function normalizeImages(value) {
     if (!Array.isArray(value)) return [];
     if (value.length > MAX_IMAGE_COUNT) throw new Error(`一次最多发送 ${MAX_IMAGE_COUNT} 张图片`);
@@ -294,8 +335,9 @@ function createCodexBridge(options = {}) {
         if (method.startsWith('item/commandExecution') || method.startsWith('item/fileChange')
             || (['item/started', 'item/completed'].includes(method) && ['commandExecution', 'fileChange'].includes(params.item?.type))) task.didWork = true;
         // Preserve the reply independently of the bounded diagnostic event log.
-        if (method === 'codex/started') task.replySnapshot = { turnId: params.turnId, text: '', status: 'running' };
-        if (method === 'item/agentMessage/delta' && task.replySnapshot) task.replySnapshot.text += String(params.delta || params.text || '');
+        if (method === 'codex/started') task.replySnapshot = { turnId: params.turnId, text: '', timeline: [], status: 'running' };
+        if (method === 'item/agentMessage/delta') appendReplyText(task.replySnapshot, params.delta || params.text || '');
+        else appendReplyActivity(task.replySnapshot, method, params);
         if (method === 'turn/completed' && task.replySnapshot) task.replySnapshot.status = params.turn?.status || 'completed';
         if (method === 'codex/error' && task.replySnapshot) {
             task.replySnapshot.status = 'failed';
@@ -369,6 +411,13 @@ function createCodexBridge(options = {}) {
         return mode === 'workspaceWrite' ? 'on-request' : 'never';
     }
 
+    function approvalsReviewer(mode) {
+        // Keep the workspace sandbox and on-request policy in place. Codex's
+        // reviewer resolves eligible low-risk requests; anything it cannot
+        // safely resolve still reaches the user through the normal queue.
+        return mode === 'workspaceWrite' ? 'auto_review' : 'user';
+    }
+
     function handleResponse(task, message) {
         if (message.error) {
             failTask(task, message.error.message || 'Codex RPC 请求失败');
@@ -383,6 +432,7 @@ function createCodexBridge(options = {}) {
                     model: task.model,
                     cwd: task.cwd,
                     approvalPolicy: approvalPolicy(task.mode),
+                    approvalsReviewer: approvalsReviewer(task.mode),
                     // thread/start uses the SandboxMode wire enum, whose values are kebab-case.
                     // turn/start below uses the structured SandboxPolicy enum and remains camelCase.
                     sandbox: threadSandboxMode(task.mode),
@@ -404,6 +454,7 @@ function createCodexBridge(options = {}) {
                     model: task.model,
                     effort: task.effort,
                     approvalPolicy: approvalPolicy(task.mode),
+                    approvalsReviewer: approvalsReviewer(task.mode),
                     sandboxPolicy: sandboxPolicy(task),
                     summary: 'concise',
                     personality: 'friendly'
@@ -763,6 +814,7 @@ function createCodexBridge(options = {}) {
                         model: task.model,
                         effort: task.effort,
                         approvalPolicy: approvalPolicy(task.mode),
+                        approvalsReviewer: approvalsReviewer(task.mode),
                         sandboxPolicy: sandboxPolicy(task),
                         summary: 'concise',
                         personality: 'friendly'

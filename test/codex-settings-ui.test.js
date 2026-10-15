@@ -29,7 +29,8 @@ test('picker loads real model capabilities and saves settings with revision', as
     assert.equal(document.getElementById('codexSettingsEffort').options.length, 2);
     document.getElementById('codexSettingsEffort').value = 'high';
     await context.codexSettingsSave();
-    assert.deepEqual(JSON.parse(requests[2].options.body), { prompt: '原设定', model: 'custom-model', effort: 'high', expectedUpdatedAt: null });
+    const save = requests.find(request => request.options.method === 'PUT');
+    assert.deepEqual(JSON.parse(save.options.body), { prompt: '原设定', model: 'custom-model', effort: 'high', expectedUpdatedAt: null });
     assert.equal(storage.has('syzygy.codex-settings.draft.v1'), false);
     assert.equal(storage.has('syzygy.codex-settings.saved.v1'), true);
     assert.match(document.getElementById('codexSettingsStatus').textContent, /已保存/);
@@ -38,6 +39,20 @@ test('settings save button cannot trigger native form navigation', () => {
     const html = fs.readFileSync(require.resolve('../public/index.html'), 'utf8');
     assert.match(html, /id="codexSettingsForm"[^>]*onsubmit="event\.preventDefault\(\);window\.codexSettingsSave\(\)"/);
     assert.match(html, /id="codexSettingsSave" type="button" onclick="window\.codexSettingsSave\(\)"/);
+    assert.match(html, /id="codexUsageCard" class="codex-usage-card"/);
+    assert.match(html, /class="codex-settings-section"/);
+});
+
+test('usage dial selects the tightest real rate-limit window', () => {
+    const { context } = fixture();
+    const rows = JSON.parse(JSON.stringify(context.codexUsageWindows({ rateLimits: { rateLimits: {
+        primary: { usedPercent: 18, windowDurationMins: 300, resetsAt: 100 },
+        secondary: { usedPercent: 73, windowDurationMins: 10080, resetsAt: 200 }
+    } } })));
+    assert.deepEqual(rows.map(row => ({ label: row.label, remaining: row.remaining })), [
+        { label: '1 周', remaining: 27 },
+        { label: '5 小时', remaining: 82 }
+    ]);
 });
 test('refresh preserves unsaved draft and restoration is explicit', async () => {
     const { context, document } = fixture();

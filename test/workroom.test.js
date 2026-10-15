@@ -19,6 +19,7 @@ function setup() {
         ensureWorkroomSession: () => room, document: { getElementById: () => null },
         getActiveVersion: message => message.versions?.[0] || message,
         saveToCloud() {}, saveMessageChangesToCloud() {}, renderChatMessages() {}, toast() {}, renderMarkdown: text => text,
+        escapeHtml: text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
         location: { protocol: 'https:', host: 'example.test' }, WebSocket: Socket,
         setTimeout(fn) { timers.push(fn); return timers.length; }, clearTimeout() {}
     });
@@ -140,6 +141,38 @@ test('structured work records are hidden from live and saved chat text', () => {
     assert.equal(run("workroomVisibleReply('完成。<work_record>{')"), '完成。');
 });
 
+test('Codex tool work splits one turn into bubbles with a quiet activity row', () => {
+    const { room, context, run } = setup();
+    context.workroomHandleCodexEvent({ method: 'codex/started', params: { turnId: 'turn-split' } });
+    context.workroomHandleCodexEvent({ method: 'item/agentMessage/delta', params: { delta: '我先看一下。' } });
+    context.workroomHandleCodexEvent({ method: 'item/commandExecution/started', params: { command: 'rg -n bubble public/script.js' } });
+    context.workroomHandleCodexEvent({ method: 'item/commandExecution/completed', params: { command: 'node --test test/workroom.test.js' } });
+    context.workroomHandleCodexEvent({ method: 'item/agentMessage/delta', params: { delta: '找到原因啦。' } });
+    assert.deepEqual(JSON.parse(run('JSON.stringify(workroomCodexTimeline)')), [
+        { type: 'text', text: '我先看一下。' },
+        { type: 'activity', kind: 'testing', text: 'TT 正在试一试改动…' },
+        { type: 'text', text: '找到原因啦。' }
+    ]);
+    assert.equal(run('workroomCodexReply'), '我先看一下。\n\n找到原因啦。');
+    context.workroomHandleCodexEvent({ method: 'turn/completed', params: { turn: { status: 'completed' } } });
+    assert.equal(room.messages.length, 1);
+    assert.equal(room.messages[0].versions[0].content, '我先看一下。\n\n找到原因啦。');
+    assert.equal(room.messages[0].versions[0].codexTimeline.length, 3);
+});
+
+test('Codex activity labels render between separate visual bubbles', () => {
+    const { run } = setup();
+    const html = run(`workroomCodexTimelineHTML([
+        {type:'text',text:'前一段'},
+        {type:'activity',kind:'reading'},
+        {type:'text',text:'后一段'}
+    ])`);
+    assert.equal((html.match(/class="msg sys codex/g) || []).length, 2);
+    assert.match(html, /TT 正在翻代码/);
+    assert.ok(html.indexOf('前一段') < html.indexOf('TT 正在翻代码'));
+    assert.ok(html.indexOf('TT 正在翻代码') < html.indexOf('后一段'));
+});
+
 test('snapshot replay is idempotent and uses stable message IDs', () => {
     const { room, context } = setup();
     const snapshot = { type: 'codex_snapshot', task: { id: 'task-1' }, reply: { turnId: 'turn-1', text: '完成', status: 'completed' } };
@@ -192,6 +225,25 @@ test('approval queue retains concurrent requests, including ID zero', () => {
     assert.equal(run('workroomCodexApprovalId'), 0);
     context.workroomHandleCodexEvent({ method: 'codex/approval-resolved', params: { requestId: 0 } });
     assert.equal(run('workroomCodexApprovalId'), 1);
+});
+
+test('manual approval card keeps a short purpose above collapsed command details', () => {
+    const { context } = setup();
+    const elements = {
+        workroomCodexApproval: { hidden: true },
+        workroomCodexApprovalText: { textContent: '' },
+        workroomCodexApprovalSummary: { textContent: '' },
+        workroomCodexApprovalDetails: { open: true },
+        workroomCodexStatus: { textContent: '' },
+        workroomCodexBar: { classList: { toggle() {} } }
+    };
+    context.document.getElementById = id => elements[id] || null;
+    context.activeChatId = 'room';
+    context.workroomShowApproval({ params: { requestId: 7, reason: '需要运行手机尺寸截图检查\n不应显示第二行', command: 'node scripts/smoke.js --very-long-option', cwd: '/opt/syzygy' } });
+    assert.equal(elements.workroomCodexApprovalSummary.textContent, '需要运行手机尺寸截图检查');
+    assert.match(elements.workroomCodexApprovalText.textContent, /命令\nnode scripts\/smoke\.js/);
+    assert.equal(elements.workroomCodexApprovalDetails.open, false);
+    assert.equal(elements.workroomCodexApproval.hidden, false);
 });
 
 test('Codex transport errors stay out of formal workroom messages', () => {

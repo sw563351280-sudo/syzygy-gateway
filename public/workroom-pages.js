@@ -4,6 +4,7 @@ let codexSettingsLoading = false;
 let codexSettingsRevision = null;
 let codexModels = [];
 let codexDefaultModel = '';
+let codexUsageRequest = 0;
 const codexDraftKey = 'syzygy.codex-settings.draft.v1';
 const codexSavedKey = 'syzygy.codex-settings.saved.v1';
 let codexRecovery = null;
@@ -14,6 +15,7 @@ function codexSettingsValues() {
 }
 function codexSettingsDraft() {
     if (codexSettingsLoading) return;
+    codexSettingsRefreshOverview();
     try {
         localStorage.setItem(codexDraftKey, JSON.stringify(codexSettingsValues()));
         document.getElementById('codexSettingsStatus').textContent = '未保存 · 草稿已留在本机，点击保存后同步到服务器';
@@ -39,6 +41,20 @@ function codexSettingsModelChanged() {
     codexSettingsEfforts(document.getElementById('codexSettingsEffort').value);
     codexSettingsDraft();
 }
+function codexSettingsRefreshOverview() {
+    const modelValue = document.getElementById('codexSettingsModel')?.value || '';
+    const model = codexModels.find(row => row.model === modelValue);
+    const modelName = model?.displayName || modelValue || (codexDefaultModel ? '服务器默认 · ' + codexDefaultModel : '读取中');
+    const effortValue = document.getElementById('codexSettingsEffort')?.value || '';
+    const effortLabels = { none: '不启用', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最高', ultra: '超高' };
+    const overview = document.getElementById('codexModelOverview');
+    if (overview) overview.textContent = [modelName, effortLabels[effortValue] || effortValue].filter(Boolean).join(' · ');
+    const prompt = document.getElementById('codexSettingsPrompt')?.value || '';
+    const preview = document.getElementById('codexPromptPreview');
+    const count = document.getElementById('codexPromptCharCount');
+    if (preview) preview.textContent = prompt.trim().replace(/\s+/g, ' ') || '还没有内容';
+    if (count) count.textContent = String(prompt.length);
+}
 function codexSettingsFill(values) {
     document.getElementById('codexSettingsPrompt').value = values.prompt;
     const select = document.getElementById('codexSettingsModel');
@@ -47,6 +63,7 @@ function codexSettingsFill(values) {
     }
     select.value = values.model || '';
     codexSettingsEfforts(values.effort || 'high');
+    codexSettingsRefreshOverview();
 }
 function codexSettingsRestoreDraft() {
     try {
@@ -66,6 +83,101 @@ async function codexWorkspaceRequest(url, options = {}) {
     return data;
 }
 
+function codexUsageWindows(data) {
+    const payload = data?.rateLimits || {};
+    const buckets = payload.rateLimitsByLimitId && Object.keys(payload.rateLimitsByLimitId).length
+        ? Object.entries(payload.rateLimitsByLimitId)
+        : payload.rateLimits ? [[payload.rateLimits.limitId || '', payload.rateLimits]]
+            : (payload.primary || payload.secondary) ? [[payload.limitId || '', payload]] : [];
+    const rows = [];
+    for (const [limitId, snapshot] of buckets) {
+        for (const [kind, window] of [['primary', snapshot?.primary], ['secondary', snapshot?.secondary]]) {
+            if (!window || !Number.isFinite(Number(window.usedPercent))) continue;
+            const duration = Number(window.windowDurationMins);
+            let windowLabel = kind === 'primary' ? '当前周期' : '长期周期';
+            if (Number.isFinite(duration) && duration > 0) {
+                if (duration % 10080 === 0) windowLabel = duration / 10080 + ' 周';
+                else if (duration % 1440 === 0) windowLabel = duration / 1440 + ' 天';
+                else if (duration % 60 === 0) windowLabel = duration / 60 + ' 小时';
+                else windowLabel = duration + ' 分钟';
+            }
+            const bucketName = snapshot.limitName || (limitId && limitId !== 'codex' ? limitId : '');
+            rows.push({
+                label: [bucketName, windowLabel].filter(Boolean).join(' · '),
+                remaining: Math.max(0, Math.min(100, 100 - Number(window.usedPercent))),
+                resetsAt: Number(window.resetsAt) || null,
+                duration: Number.isFinite(duration) ? duration : Number.MAX_SAFE_INTEGER
+            });
+        }
+    }
+    return rows.sort((a, b) => a.remaining - b.remaining || a.duration - b.duration);
+}
+
+function codexUsageResetLabel(resetsAt) {
+    if (!resetsAt) return '未提供重置时间';
+    const date = new Date(resetsAt * 1000);
+    if (Number.isNaN(date.getTime())) return '未提供重置时间';
+    return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(date) + ' 重置';
+}
+
+function codexUsageRender(data) {
+    const rows = codexUsageWindows(data);
+    const dial = document.getElementById('codexUsageDial');
+    const percent = document.getElementById('codexUsagePercent');
+    const windowLabel = document.getElementById('codexUsageWindow');
+    const reset = document.getElementById('codexUsageReset');
+    const list = document.getElementById('codexUsageWindows');
+    if (!rows.length) throw new Error('没有读到可用的额度窗口');
+    const tightest = rows[0];
+    dial?.style?.setProperty('--remaining', String(tightest.remaining));
+    dial?.setAttribute?.('aria-label', `Codex ${tightest.label}剩余 ${tightest.remaining}%`);
+    if (percent) percent.textContent = tightest.remaining + '%';
+    if (windowLabel) windowLabel.textContent = tightest.label;
+    if (reset) reset.textContent = codexUsageResetLabel(tightest.resetsAt);
+    if (list) {
+        list.replaceChildren();
+        for (const row of rows) {
+            const item = document.createElement('div');
+            item.className = 'codex-usage-row';
+            const head = document.createElement('div');
+            const label = document.createElement('span');
+            label.textContent = row.label;
+            const value = document.createElement('strong');
+            value.textContent = row.remaining + '%';
+            head.append(label, value);
+            const track = document.createElement('i');
+            const fill = document.createElement('b');
+            fill.style.width = row.remaining + '%';
+            track.append(fill);
+            const time = document.createElement('small');
+            time.textContent = codexUsageResetLabel(row.resetsAt);
+            item.append(head, track, time);
+            list.append(item);
+        }
+    }
+}
+
+async function codexUsageLoad() {
+    const request = ++codexUsageRequest;
+    const status = document.getElementById('codexUsageStatus');
+    if (status) status.textContent = '正在读取…';
+    try {
+        const data = await codexWorkspaceRequest('/api/codex/usage');
+        if (request !== codexUsageRequest) return;
+        codexUsageRender(data);
+        if (status) status.textContent = data.fetchedAt ? '刚刚更新' : '已更新';
+    } catch (error) {
+        if (request !== codexUsageRequest) return;
+        const percent = document.getElementById('codexUsagePercent');
+        const windowLabel = document.getElementById('codexUsageWindow');
+        const reset = document.getElementById('codexUsageReset');
+        if (percent) percent.textContent = '—';
+        if (windowLabel) windowLabel.textContent = '暂时读不到';
+        if (reset) reset.textContent = '—';
+        if (status) status.textContent = error.message;
+    }
+}
+
 async function codexSettingsLoad() {
     const input = document.getElementById('codexSettingsPrompt');
     const button = document.getElementById('codexSettingsSave');
@@ -76,6 +188,7 @@ async function codexSettingsLoad() {
     document.getElementById('codexSettingsEffort').disabled = true;
     button.disabled = true;
     status.textContent = '正在读取设定…';
+    void codexUsageLoad();
     try {
         const data = await codexWorkspaceRequest('/api/codex/settings');
         if (data.version !== 2 || typeof data.defaultModel !== 'string') throw new Error('服务器设定接口尚未更新，请等待部署完成。没有覆盖本机草稿。');
@@ -97,8 +210,8 @@ async function codexSettingsLoad() {
         effort.disabled = false;
         input.disabled = false;
         button.disabled = false;
-        status.textContent = '保存后从下一轮 Codex 消息生效，正在执行的任务不受影响。';
-        document.getElementById('codexSettingsModelHelp').textContent = catalogError || '来自服务器 Codex 的可用模型；思考程度随模型切换。';
+        status.textContent = '';
+        document.getElementById('codexSettingsModelHelp').textContent = catalogError;
         const restore = document.getElementById('codexSettingsRestore');
         restore.hidden = true;
         codexRecovery = null;
@@ -112,6 +225,7 @@ async function codexSettingsLoad() {
                 status.textContent = '发现本机草稿。可点击「恢复草稿」找回；当前显示服务器已保存的设定。';
             }
         } catch (_) {}
+        codexSettingsRefreshOverview();
     } catch (error) { status.textContent = error.message; }
     finally { codexSettingsLoading = false; }
 }

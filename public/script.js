@@ -2443,7 +2443,13 @@ function renderChatMessages(options = {}){
         actionsHtml += '</div>';
         htmlContent += actionsHtml;
 
-        div.innerHTML = htmlContent;
+        if (speaker === 'codex' && Array.isArray(v.codexTimeline) && v.codexTimeline.length) {
+            div.className = 'workroom-codex-turn';
+            const tailHTML = (timeStr ? '<div class="msg-meta">' + timeStr + '</div>' : '')
+                + (v._interrupted ? '<div class="msg-meta">' + escapeHtml(v._interrupted) + ' · 已保留部分回复</div>' : '')
+                + actionsHtml;
+            div.innerHTML = workroomCodexTimelineHTML(v.codexTimeline, { tailHTML });
+        } else div.innerHTML = htmlContent;
         if (m.role === 'assistant' && finalThinking.trim()) {
             rowDiv.classList.add('has-think-marker');
             rowDiv.appendChild(createThinkingMarker(finalThinking).element);
@@ -3000,6 +3006,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
 let workroomCodexSocket = null;
 let workroomCodexSocketTaskId = null;
 let workroomCodexReply = '';
+let workroomCodexTimeline = [];
 let workroomCodexTurnId = null;
 let workroomCodexSavedForTurn = false;
 let workroomCodexLiveBubble = null;
@@ -3031,6 +3038,111 @@ function workroomSpeakerHTML(speaker) {
 
 function workroomVisibleReply(text) {
     return String(text || '').replace(/<work_record>[\s\S]*?(?:<\/work_record>|$)/g, '').trim();
+}
+
+function workroomCodexActivity(event) {
+    const method = String(event?.method || '');
+    const params = event?.params || {};
+    if (!method || method.includes('requestApproval')) return null;
+    const itemType = String(params.item?.type || '');
+    let kind = '';
+    if (method.startsWith('item/fileChange') || method === 'turn/diff/updated' || itemType === 'fileChange') kind = 'editing';
+    else if (method.startsWith('item/commandExecution') || itemType === 'commandExecution') {
+        const command = String(params.command || params.item?.command || params.item?.aggregatedOutput || '').toLowerCase();
+        if (/\b(test|vitest|jest|pytest|mocha|lint|typecheck|check)\b/.test(command)) kind = 'testing';
+        else if (/\b(git\s+push|gh\s+pr)\b/.test(command)) kind = 'sending';
+        else if (/\b(screenshot|chromium|chrome|playwright)\b/.test(command)) kind = 'looking';
+        else kind = 'reading';
+    } else if (itemType && !['agentMessage', 'reasoning', 'plan'].includes(itemType)) kind = 'working';
+    else if (/^item\/(?:mcpToolCall|dynamicToolCall|webSearch)/.test(method)) kind = 'working';
+    if (!kind) return null;
+    const labels = {
+        reading: 'TT 正在翻代码…', editing: 'TT 正在和小屋里的零件讲道理…', testing: 'TT 正在试一试改动…',
+        looking: 'TT 正在看看页面…', sending: 'TT 正在把改动送回小屋…', working: 'TT 正在埋头干活…'
+    };
+    return { type: 'activity', kind, text: labels[kind] };
+}
+
+function workroomCodexActivityLabel(block) {
+    const labels = {
+        reading: 'TT 正在翻代码…', editing: 'TT 正在和小屋里的零件讲道理…', testing: 'TT 正在试一试改动…',
+        looking: 'TT 正在看看页面…', sending: 'TT 正在把改动送回小屋…', working: 'TT 正在埋头干活…'
+    };
+    return labels[block?.kind] || String(block?.text || labels.working);
+}
+
+function workroomNormalizeCodexTimeline(timeline, fallbackText = '') {
+    const normalized = [];
+    for (const block of Array.isArray(timeline) ? timeline : []) {
+        if (block?.type === 'text' && typeof block.text === 'string' && block.text) normalized.push({ type: 'text', text: block.text });
+        else if (block?.type === 'activity') normalized.push({ type: 'activity', kind: String(block.kind || 'working') });
+    }
+    if (!normalized.length && fallbackText) normalized.push({ type: 'text', text: String(fallbackText) });
+    return normalized;
+}
+
+function workroomAppendCodexText(value) {
+    const delta = String(value || '');
+    if (!delta) return;
+    const previous = workroomCodexTimeline[workroomCodexTimeline.length - 1];
+    if (previous?.type === 'text') previous.text += delta;
+    else workroomCodexTimeline.push({ type: 'text', text: delta });
+    workroomCodexReply = workroomCodexTimeline.filter(block => block.type === 'text').map(block => block.text).join('\n\n');
+}
+
+function workroomAppendCodexActivity(event) {
+    const activity = workroomCodexActivity(event);
+    if (!activity) return false;
+    const previous = workroomCodexTimeline[workroomCodexTimeline.length - 1];
+    const params = event?.params || {};
+    const hasCommandDetail = Boolean(params.command || params.item?.command || params.item?.aggregatedOutput);
+    if (previous?.type === 'activity') {
+        if (activity.kind !== 'reading' || previous.kind === 'reading' || hasCommandDetail) Object.assign(previous, activity);
+    }
+    else workroomCodexTimeline.push(activity);
+    return true;
+}
+
+function workroomVisibleCodexTimeline(timeline, keepTrailingActivity = false) {
+    const visible = [];
+    let reachedRecord = false;
+    for (const block of workroomNormalizeCodexTimeline(timeline)) {
+        if (reachedRecord) break;
+        if (block.type === 'activity') {
+            visible.push(block);
+            continue;
+        }
+        const marker = block.text.indexOf('<work_record>');
+        const text = workroomVisibleReply(marker >= 0 ? block.text.slice(0, marker) : block.text);
+        if (text) visible.push({ type: 'text', text });
+        if (marker >= 0) reachedRecord = true;
+    }
+    if (!keepTrailingActivity) while (visible.at(-1)?.type === 'activity') visible.pop();
+    return visible;
+}
+
+function workroomCodexTimelineHTML(timeline, options = {}) {
+    const blocks = workroomVisibleCodexTimeline(timeline, options.streaming);
+    const textBlocks = blocks.filter(block => block.type === 'text');
+    const lastText = textBlocks[textBlocks.length - 1];
+    let showedSpeaker = false;
+    let html = '';
+    for (const block of blocks) {
+        if (block.type === 'activity') {
+            html += '<div class="workroom-codex-activity is-' + escapeHtml(block.kind || 'working') + '" role="status"><i aria-hidden="true"></i><span>' + escapeHtml(workroomCodexActivityLabel(block)) + '</span></div>';
+            continue;
+        }
+        const isLast = block === lastText;
+        html += '<div class="msg sys codex' + (options.streaming && isLast ? ' is-streaming' : '') + '">';
+        if (!showedSpeaker) { html += workroomSpeakerHTML('codex'); showedSpeaker = true; }
+        html += '<div class="md-content">' + renderMarkdown(block.text) + (options.streaming && isLast ? '<span class="typing-cursor"></span>' : '') + '</div>';
+        if (isLast && options.tailHTML) html += options.tailHTML;
+        html += '</div>';
+    }
+    if (!textBlocks.length && options.streaming && !blocks.length) {
+        html = '<div class="msg sys codex is-streaming">' + workroomSpeakerHTML('codex') + '<div class="md-content"><span class="loading-indicator">TT 正在理一理这件事…</span></div></div>';
+    }
+    return html;
 }
 
 function workroomSetCodexStatus(text, active = false) {
@@ -3098,20 +3210,19 @@ function workroomEnsureLiveBubble() {
     if (!win) return null;
     const row = document.createElement('div');
     row.className = 'msg-row sys is-codex';
-    const bubble = document.createElement('div');
-    bubble.className = 'msg sys codex is-streaming';
-    bubble.innerHTML = workroomSpeakerHTML('codex') + '<div class="md-content"><span class="loading-indicator">正在进入工作区…</span></div>';
-    row.appendChild(bubble);
+    const turn = document.createElement('div');
+    turn.className = 'workroom-codex-turn';
+    turn.innerHTML = workroomCodexTimelineHTML(workroomCodexTimeline, { streaming: true });
+    row.appendChild(turn);
     win.appendChild(row);
     win.scrollTop = win.scrollHeight;
-    workroomCodexLiveBubble = bubble;
-    return bubble;
+    workroomCodexLiveBubble = turn;
+    return turn;
 }
 
 function workroomUpdateLiveReply() {
-    const bubble = workroomEnsureLiveBubble();
-    const content = bubble?.querySelector('.md-content');
-    if (content) content.innerHTML = workroomVisibleReply(workroomCodexReply) ? renderMarkdown(workroomVisibleReply(workroomCodexReply)) + '<span class="typing-cursor"></span>' : '<span class="loading-indicator">Codex 正在分析并执行…</span>';
+    const turn = workroomEnsureLiveBubble();
+    if (turn) turn.innerHTML = workroomCodexTimelineHTML(workroomCodexTimeline, { streaming: true });
     const win = document.getElementById('chatWindow');
     if (win) win.scrollTop = win.scrollHeight;
 }
@@ -3123,9 +3234,16 @@ function workroomShowApproval(event) {
     workroomCodexApprovalId = params.requestId ?? null;
     const box = document.getElementById('workroomCodexApproval');
     const text = document.getElementById('workroomCodexApprovalText');
+    const summary = document.getElementById('workroomCodexApprovalSummary');
+    const details = document.getElementById('workroomCodexApprovalDetails');
     if (!box || !text || workroomCodexApprovalId === null) return;
     const command = Array.isArray(params.command) ? params.command.join(' ') : params.command;
-    text.textContent = [params.reason, command, params.cwd, params.permissions ? devDescribeCodexPermissions(params.permissions) : ''].filter(Boolean).join('\n');
+    const permissionText = params.permissions && typeof devDescribeCodexPermissions === 'function' ? devDescribeCodexPermissions(params.permissions) : '';
+    const reason = String(params.reason || '').trim().split(/\r?\n/, 1)[0];
+    const shortReason = reason.length > 96 ? reason.slice(0, 95).trimEnd() + '…' : reason;
+    if (summary) summary.textContent = shortReason || (permissionText ? '需要额外访问权限' : '需要确认一项操作');
+    text.textContent = [command && '命令\n' + command, params.cwd && '位置\n' + params.cwd, permissionText && '权限\n' + permissionText].filter(Boolean).join('\n\n') || '没有附带更多细节。';
+    if (details) details.open = false;
     box.hidden = activeChatId !== WORKROOM_ID;
     workroomSetCodexStatus('Codex 等待确认', true);
 }
@@ -3133,7 +3251,9 @@ function workroomShowApproval(event) {
 function workroomSaveCodexReply(status = 'completed') {
     const room = ensureWorkroomSession();
     if (workroomCodexSavedForTurn || !workroomCodexTurnId) return;
-    const clean = workroomVisibleReply(workroomCodexReply) || (workroomCodexReply.includes('<work_record>') ? '本轮工作已结束，工作记录的保存状态请查看工作记录页。' : '');
+    const visibleTimeline = workroomVisibleCodexTimeline(workroomCodexTimeline);
+    const clean = visibleTimeline.filter(block => block.type === 'text').map(block => block.text).join('\n\n')
+        || (workroomCodexReply.includes('<work_record>') ? '本轮工作已结束，工作记录的保存状态请查看工作记录页。' : '');
     const messageId = 'codex:' + room.codexTaskId + ':' + workroomCodexTurnId;
     if (clean && !room.messages.some(message => message._id === messageId)) {
         room.messages.push({
@@ -3145,6 +3265,7 @@ function workroomSaveCodexReply(status = 'completed') {
                 fullTime: new Date().toISOString(),
                 time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
                 model: 'codex',
+                codexTimeline: visibleTimeline.length ? visibleTimeline : [{ type: 'text', text: clean }],
                 _failed: status === 'failed'
             }],
             activeVersion: 0,
@@ -3161,6 +3282,7 @@ function workroomSaveCodexReply(status = 'completed') {
 
 function workroomDiscardCodexReply() {
     workroomCodexReply = '';
+    workroomCodexTimeline = [];
     workroomCodexTurnId = null;
     workroomCodexSavedForTurn = false;
     workroomCodexLiveBubble = null;
@@ -3217,22 +3339,29 @@ function workroomHandleCodexEvent(event) {
     if (method === 'codex/started') {
         workroomCodexTurnId = params.turnId || workroomCodexTurnId || ('turn-' + Date.now());
         workroomCodexReply = '';
+        workroomCodexTimeline = [];
         workroomCodexSavedForTurn = false;
         workroomSetCodexStatus('Codex 正在工作', true);
         workroomUpdateLiveReply();
         return;
     }
     if (method === 'item/agentMessage/delta') {
-        workroomCodexReply += String(params.delta || params.text || '');
+        workroomAppendCodexText(params.delta || params.text || '');
         workroomUpdateLiveReply();
         return;
     }
     if (method.startsWith('item/commandExecution')) {
+        if (workroomAppendCodexActivity(event)) workroomUpdateLiveReply();
         workroomSetCodexStatus('Codex 正在执行命令', true);
         return;
     }
     if (method.startsWith('item/fileChange') || method === 'turn/diff/updated') {
+        if (workroomAppendCodexActivity(event)) workroomUpdateLiveReply();
         workroomSetCodexStatus('Codex 正在修改工作区', true);
+        return;
+    }
+    if (method === 'item/started' || method === 'item/completed' || method.startsWith('item/mcpToolCall') || method.startsWith('item/dynamicToolCall') || method.startsWith('item/webSearch')) {
+        if (workroomAppendCodexActivity(event)) workroomUpdateLiveReply();
         return;
     }
     if (method.startsWith('item/reasoning') || method === 'item/plan/delta') {
@@ -3268,6 +3397,7 @@ function workroomHandleCodexMessage(message) {
             const reply = message.reply;
             workroomCodexTurnId = reply.turnId;
             workroomCodexReply = reply.text || '';
+            workroomCodexTimeline = workroomNormalizeCodexTimeline(reply.timeline, workroomCodexReply);
             workroomCodexSavedForTurn = room.codexLastTurnId === reply.turnId;
             if (reply.status === 'running') {
                 workroomSetCodexStatus('Codex 正在工作', true);

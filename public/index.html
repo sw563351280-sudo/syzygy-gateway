@@ -21,7 +21,7 @@
       })();
     </script>
 
-    <link rel="stylesheet" href="style.css?v=106">
+    <link rel="stylesheet" href="style.css?v=107">
     <link rel="stylesheet" href="home-sea.css?v=3">
     <link rel="stylesheet" href="sea-pages.css?v=2">
     <link rel="stylesheet" href="journal-sea.css?v=3">
@@ -176,13 +176,15 @@
         </div>
     </div>
     <div id="workroomCodexApproval" class="workroom-codex-approval" hidden>
-        <strong>Codex 请求确认</strong>
-        <p id="workroomCodexApprovalText"></p>
-        <div>
-            <button type="button" onclick="workroomApproveCodex('accept')">允许本次</button>
-            <button type="button" onclick="workroomApproveCodex('acceptForSession')">本会话允许</button>
-            <button type="button" onclick="workroomApproveCodex('decline')">拒绝</button>
+        <div class="workroom-approval-head">
+            <div class="workroom-approval-copy"><strong>Codex 请求确认</strong><span id="workroomCodexApprovalSummary">需要你看一眼</span></div>
+            <div class="workroom-approval-actions">
+                <button type="button" onclick="workroomApproveCodex('accept')">允许本次</button>
+                <button type="button" onclick="workroomApproveCodex('acceptForSession')">本会话允许</button>
+                <button type="button" onclick="workroomApproveCodex('decline')">拒绝</button>
+            </div>
         </div>
+        <details id="workroomCodexApprovalDetails"><summary>查看命令与权限</summary><pre id="workroomCodexApprovalText"></pre></details>
     </div>
     <div class="chat-model-row">
         <div class="chat-model-control">
@@ -473,19 +475,46 @@
 
 <div class="section" id="sec-codex-settings">
     <div class="view-topbar"><button class="view-back" onclick="openWorkroom()" aria-label="返回工作区">←</button><span class="view-title">Codex 设定</span></div>
-    <form id="codexSettingsForm" class="codex-page-content codex-settings-card" onsubmit="event.preventDefault();window.codexSettingsSave()">
-        <h2><span class="workroom-codex-avatar" aria-hidden="true">&gt;_</span> 小屋里的技术伙伴</h2>
-        <p>写下你希望 Codex 如何交流、如何参与讨论。这份设定只影响小屋里的 Codex，不改变沈望的设定，也不扩大执行权限。</p>
-        <label for="codexSettingsModel">Codex 模型</label>
-        <select id="codexSettingsModel" onchange="codexSettingsModelChanged()" disabled><option value="">正在读取模型…</option></select>
-        <p id="codexSettingsModelHelp" class="codex-page-status">正在读取服务器可用模型…</p>
-        <label for="codexSettingsEffort">Codex 思考程度</label>
-        <select id="codexSettingsEffort" onchange="codexSettingsDraft()" disabled><option value="high">高</option></select>
-        <p class="codex-page-status">只影响 Codex，不影响沈望。思考程度也需要所选模型支持。</p>
-        <label for="codexSettingsPrompt">自定义 prompt（最多 6000 字符）</label>
-        <textarea id="codexSettingsPrompt" maxlength="6000" oninput="codexSettingsDraft()" disabled></textarea>
-        <div class="codex-page-actions"><button id="codexSettingsSave" type="button" onclick="window.codexSettingsSave()" disabled>保存设定</button><button id="codexSettingsRestore" type="button" hidden onclick="codexSettingsRestoreDraft()">恢复草稿</button><button type="button" onclick="codexSettingsReset()">填入默认设定</button></div>
-        <p id="codexSettingsStatus" class="codex-page-status" role="status"></p>
+    <form id="codexSettingsForm" class="codex-page-content codex-settings-card codex-settings-shell" onsubmit="event.preventDefault();window.codexSettingsSave()">
+        <details id="codexUsageCard" class="codex-usage-card">
+            <summary>
+                <span id="codexUsageDial" class="codex-usage-dial" style="--remaining:0" role="img" aria-label="Codex 剩余额度读取中"><span><strong id="codexUsagePercent">—</strong><small>剩余</small></span></span>
+                <span class="codex-usage-overview"><span>Codex 额度</span><strong id="codexUsageWindow">正在读取</strong><small id="codexUsageReset">—</small></span>
+                <span class="codex-section-toggle" aria-hidden="true"><span class="when-closed">全部</span><span class="when-open">收起</span></span>
+            </summary>
+            <div class="codex-section-body">
+                <div id="codexUsageWindows" class="codex-usage-windows"></div>
+                <div class="codex-usage-footer"><button type="button" onclick="codexUsageLoad()">刷新额度</button><span id="codexUsageStatus" class="codex-page-status" role="status"></span></div>
+            </div>
+        </details>
+        <details class="codex-settings-section">
+            <summary>
+                <span class="codex-section-title">模型与思考</span>
+                <span id="codexModelOverview" class="codex-section-overview">读取中</span>
+                <span class="codex-section-toggle" aria-hidden="true"><span class="when-closed">调整</span><span class="when-open">收起</span></span>
+            </summary>
+            <div class="codex-section-body">
+                <label for="codexSettingsModel">模型</label>
+                <select id="codexSettingsModel" onchange="codexSettingsModelChanged()" disabled><option value="">正在读取模型…</option></select>
+                <p id="codexSettingsModelHelp" class="codex-page-status"></p>
+                <label for="codexSettingsEffort">思考程度</label>
+                <select id="codexSettingsEffort" onchange="codexSettingsDraft()" disabled><option value="high">高</option></select>
+            </div>
+        </details>
+        <details class="codex-settings-section codex-prompt-settings">
+            <summary>
+                <span class="codex-section-title">相处设定</span>
+                <span id="codexPromptPreview" class="codex-prompt-preview">读取中</span>
+                <span class="codex-prompt-count"><span id="codexPromptCharCount">0</span> 字</span>
+                <span class="codex-section-toggle" aria-hidden="true"><span class="when-closed">展开编辑</span><span class="when-open">收起</span></span>
+            </summary>
+            <div class="codex-section-body">
+                <label for="codexSettingsPrompt">设定内容</label>
+                <textarea id="codexSettingsPrompt" maxlength="6000" oninput="codexSettingsDraft()" disabled></textarea>
+                <div class="codex-page-actions"><button id="codexSettingsSave" type="button" onclick="window.codexSettingsSave()" disabled>保存设定</button><button id="codexSettingsRestore" type="button" hidden onclick="codexSettingsRestoreDraft()">恢复草稿</button><button type="button" onclick="codexSettingsReset()">填入默认设定</button></div>
+                <p id="codexSettingsStatus" class="codex-page-status" role="status"></p>
+            </div>
+        </details>
     </form>
 </div>
 <div class="section" id="sec-app-settings">
@@ -691,8 +720,8 @@
 <script src="context-cache-status.js?v=10"></script>
 <script src="context-continuity.js?v=1"></script>
 <script src="cache-history.js?v=5"></script>
-<link rel="stylesheet" href="workroom-pages.css?v=6">
-<script src="workroom-pages.js?v=6"></script>
+<link rel="stylesheet" href="workroom-pages.css?v=7">
+<script src="workroom-pages.js?v=7"></script>
 <script src="shen-settings-page.js?v=3"></script>
 <script src="chat-window-context.js?v=1"></script>
 <script src="home-sea.js?v=2"></script>
@@ -701,7 +730,7 @@
 <script src="chat-transport.js?v=20261014-1"></script>
 <script src="message-usage.js?v=2"></script>
 <script src="chat-persistence.js?v=20261014-1"></script>
-<script src="script.js?v=20261014-chat-sync"></script>
+<script src="script.js?v=20261015-codex-bubbles"></script>
 <script src="music-player.js?v=8" defer></script>
         <div id="msgContextMenu" class="msg-context-menu" role="menu" aria-label="消息操作" hidden></div>
 
