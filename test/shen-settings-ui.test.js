@@ -49,6 +49,8 @@ test('loads both prompts and saves the selected variant with revision', async ()
     });
     assert.equal(storage.has('syzygy.shen-settings.draft.v1'), false);
     assert.match(document.getElementById('shenSettingsStatus').textContent, /B 版已保存并启用/);
+    assert.equal(document.getElementById('shenPromptEnabledBadge').textContent, 'B 版 · 启用中');
+    assert.equal(document.getElementById('shenSettingsSaveButton').textContent, '保存并启用');
 });
 
 test('unsaved prompt drafts survive refresh and require explicit restore', async () => {
@@ -71,9 +73,34 @@ test('copying a prompt creates an editable other variant without saving', async 
     assert.equal(document.getElementById('shenSettingsPromptB').value, '复制我');
     assert.equal(requests.length, 1);
     assert.match(document.getElementById('shenSettingsStatus').textContent, /保存后才会启用/);
+    assert.equal(document.getElementById('shenSettingsSyncButton').textContent, '同步到 A 版');
 });
+
+test('collapsed prompt overview follows the selected draft without changing the enabled badge', async () => {
+    const { context, document } = fixture();
+    await context.shenSettingsLoad();
+    context.shenSettingsSelect('B');
+    document.getElementById('shenSettingsPromptB').value = '第一行\n第二行';
+    context.shenSettingsDraft();
+    assert.equal(document.getElementById('shenPromptPreview').textContent, '第一行 第二行');
+    assert.equal(document.getElementById('shenPromptCharCount').textContent, '7');
+    assert.equal(document.getElementById('shenPromptEnabledBadge').textContent, 'A 版 · 启用中');
+});
+
 test('save control cannot shadow the inline save handler', () => {
     const html = fs.readFileSync(require.resolve('../public/index.html'), 'utf8');
     assert.match(html, /id="shenSettingsSaveButton"[^>]*onclick="shenSettingsSave\(\)"/);
     assert.doesNotMatch(html, /id="shenSettingsSave"/);
+});
+
+test('settings page keeps model and prompt controls collapsed in the agreed order', () => {
+    const html = fs.readFileSync(require.resolve('../public/index.html'), 'utf8');
+    const modelPanel = html.indexOf('<details class="shen-supplier-panel">');
+    const promptPanel = html.indexOf('<details class="shen-prompt-settings">');
+    assert.ok(modelPanel >= 0 && promptPanel > modelPanel);
+    assert.doesNotMatch(html.slice(modelPanel, promptPanel), /<details class="shen-supplier-panel" open/);
+    assert.doesNotMatch(html.slice(promptPanel), /<details class="shen-prompt-settings" open/);
+    assert.match(html, />模型与接口</);
+    assert.match(html, />相处设定</);
+    assert.doesNotMatch(html, /小屋里的沈望|供应商与模型接口|复制到另一版/);
 });

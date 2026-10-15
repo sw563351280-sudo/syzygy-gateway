@@ -4,7 +4,22 @@
 const shenSettingsDraftKey = 'syzygy.shen-settings.draft.v1';
 let shenSettingsRevision = null;
 let shenSettingsActive = 'A';
+let shenSettingsEnabled = 'A';
 let shenSettingsServerValue = null;
+
+function shenSettingsRefreshOverview() {
+    const prompt = document.getElementById('shenSettingsPrompt' + shenSettingsActive)?.value || '';
+    const preview = document.getElementById('shenPromptPreview');
+    const count = document.getElementById('shenPromptCharCount');
+    const badge = document.getElementById('shenPromptEnabledBadge');
+    const supplier = document.getElementById('shenSupplierCurrent');
+    const model = document.getElementById('shenModelCurrent');
+    if (preview) preview.textContent = prompt.trim().replace(/\s+/g, ' ') || '还没有内容';
+    if (count) count.textContent = String(prompt.length);
+    if (badge) badge.textContent = `${shenSettingsEnabled} 版 · 启用中`;
+    if (supplier && typeof suppliers !== 'undefined') supplier.textContent = suppliers[activeSupIndex]?.name || '未配置接口';
+    if (model) model.textContent = document.getElementById('modelSelect')?.value || '未选择模型';
+}
 
 function shenSettingsValues() {
     return {
@@ -31,11 +46,15 @@ function shenSettingsRenderSelection() {
         if (tab) {
             tab.classList.toggle('active', selected);
             tab.setAttribute('aria-checked', selected ? 'true' : 'false');
+            tab.textContent = `${version} 版${version === shenSettingsEnabled ? ' · 启用中' : ''}`;
         }
         if (panel) panel.hidden = !selected;
     }
     const save = document.getElementById('shenSettingsSaveButton');
-    if (save) save.textContent = `保存并启用 ${shenSettingsActive} 版`;
+    if (save) save.textContent = '保存并启用';
+    const sync = document.getElementById('shenSettingsSyncButton');
+    if (sync) sync.textContent = `同步到 ${shenSettingsActive === 'A' ? 'B' : 'A'} 版`;
+    shenSettingsRefreshOverview();
 }
 
 function shenSettingsFill(value) {
@@ -54,6 +73,7 @@ function shenSettingsSelect(version) {
 
 function shenSettingsDraft() {
     if (!shenSettingsServerValue) return;
+    shenSettingsRefreshOverview();
     try {
         localStorage.setItem(shenSettingsDraftKey, JSON.stringify({
             ...shenSettingsValues(),
@@ -89,6 +109,7 @@ async function shenSettingsLoad() {
         if (!response.ok || data.version !== 1 || !data.settings) throw new Error(data.error || '无法读取沈望设定');
         shenSettingsRevision = data.settings.updatedAt || null;
         shenSettingsServerValue = data.settings;
+        shenSettingsEnabled = data.settings.active === 'B' ? 'B' : 'A';
         shenSettingsFill(data.settings);
         shenSettingsSetEnabled(true);
         if (typeof renderSuppliers === 'function') renderSuppliers();
@@ -96,9 +117,7 @@ async function shenSettingsLoad() {
         const different = draft && JSON.stringify({ active: draft.active, prompts: draft.prompts }) !== JSON.stringify({ active: data.settings.active, prompts: data.settings.prompts });
         const restore = document.getElementById('shenSettingsRestore');
         if (restore) restore.hidden = !different;
-        if (status) status.textContent = different
-            ? `服务器当前启用 ${data.settings.active} 版；本机还有一份未保存草稿。`
-            : `当前启用 ${data.settings.active} 版。切换需点击保存。`;
+        if (status) status.textContent = different ? '有一份未保存草稿。' : '';
     } catch (error) {
         if (status) status.textContent = '读取失败：' + error.message;
     }
@@ -125,10 +144,11 @@ async function shenSettingsSave() {
         if (!response.ok || data.version !== 1 || !data.settings) throw new Error(data.error || '保存失败');
         shenSettingsRevision = data.settings.updatedAt;
         shenSettingsServerValue = data.settings;
+        shenSettingsEnabled = data.settings.active === 'B' ? 'B' : 'A';
         shenSettingsFill(data.settings);
         localStorage.removeItem(shenSettingsDraftKey);
         document.getElementById('shenSettingsRestore').hidden = true;
-        if (status) status.textContent = `${data.settings.active} 版已保存并启用，将从下一条消息开始使用。`;
+        if (status) status.textContent = `${data.settings.active} 版已保存并启用。`;
     } catch (error) {
         if (status) status.textContent = '保存失败：' + error.message + ' 草稿已保留。';
     } finally {
@@ -156,3 +176,4 @@ window.shenSettingsSelect = shenSettingsSelect;
 window.shenSettingsDraft = shenSettingsDraft;
 window.shenSettingsRestoreDraft = shenSettingsRestoreDraft;
 window.shenSettingsCopyToOther = shenSettingsCopyToOther;
+window.shenSettingsRefreshOverview = shenSettingsRefreshOverview;

@@ -57,17 +57,44 @@ body.neu-mode #sec-chat .chat-floating-actions > button { flex: 0 0 32px; width:
 
 /* Shenwang settings: two persistent prompt variants plus provider controls. */
 #sec-shen-settings { min-height: 100dvh; }
-.shen-settings-card { width: min(calc(100% - 32px), 820px); }
-.shen-prompt-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 22px 0 6px; padding: 5px; border-radius: 16px; background: #e4edf5; box-shadow: inset 2px 2px 6px #aab8c333, inset -2px -2px 6px #ffffffaa; }
-.shen-prompt-switch button { border: 0; background: transparent; color: #71869a; }
-.shen-prompt-switch button.active { background: #f7fbff; color: #365d75; box-shadow: 0 5px 15px #4a65731a; }
+html[data-visual-theme="new"] body.neu-mode #sec-shen-settings .view-topbar { background: rgba(222,235,244,.52) !important; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+html[data-visual-theme="new"] body.neu-mode #sec-shen-settings .shen-settings-card { color: var(--sea-foreground) !important; background: transparent !important; }
+body[data-view="shen-settings"] #syzygy-music::part(launcher) { display: none; }
+.shen-settings-card { display: grid; width: min(calc(100% - 32px), 680px); gap: 14px; margin: 26px auto 100px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.shen-settings-card > details { overflow: hidden; margin: 0; padding: 0; border: 1px solid rgba(255,255,255,.42); border-radius: 21px; background: rgba(220,233,242,.58); box-shadow: 0 12px 36px rgba(31,62,83,.08); backdrop-filter: blur(22px) saturate(115%); -webkit-backdrop-filter: blur(22px) saturate(115%); }
+.shen-settings-card > details[open] { background: rgba(226,237,245,.7); }
+.shen-settings-card > details > summary { position: relative; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 5px 16px; min-height: 92px; padding: 19px 52px 19px 21px; box-sizing: border-box; color: #2f526b; cursor: pointer; list-style: none; }
+.shen-settings-card > details > summary::-webkit-details-marker { display: none; }
+.shen-settings-card > details > summary::after { content: ''; position: absolute; top: 27px; right: 22px; width: 8px; height: 8px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; opacity: .58; transform: rotate(45deg); transition: transform .18s ease; }
+.shen-settings-card > details[open] > summary::after { transform: rotate(225deg) translate(-2px,-2px); }
+.shen-settings-card > details > summary:focus-visible { outline: 2px solid #7499b0; outline-offset: -4px; border-radius: 20px; }
+.shen-section-title { grid-column: 1; font-size: 16px; font-weight: 650; letter-spacing: .03em; }
+.shen-section-current { display: flex; min-width: 0; flex-direction: column; gap: 4px; grid-column: 1; }
+.shen-section-current strong { overflow: hidden; color: #365a70; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.shen-section-current small { overflow: hidden; color: #6e8798; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.shen-section-toggle { align-self: end; grid-column: 2; grid-row: 2 / span 2; color: #58758a; font-size: 11px; white-space: nowrap; }
+.when-open { display: none; }
+details[open] > summary .when-closed { display: none; }
+details[open] > summary .when-open { display: inline; }
+.shen-section-body { padding: 2px 21px 22px; border-top: 1px solid rgba(255,255,255,.38); }
+.shen-prompt-settings > summary { min-height: 124px !important; }
+.shen-enabled-badge { justify-self: end; align-self: start; padding: 4px 9px; border: 1px solid rgba(78,116,139,.16); border-radius: 999px; background: rgba(238,246,250,.45); color: #58758a; font-size: 10px; }
+.shen-prompt-preview { display: -webkit-box; overflow: hidden; grid-column: 1 / -1; color: #5e7789; font-size: 12px; line-height: 1.65; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.shen-prompt-count { grid-column: 1; color: #79909f; font-size: 10px; }
+.shen-prompt-settings .shen-section-toggle { grid-row: 3; }
+.shen-prompt-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: 18px 0 5px; padding: 4px; border-radius: 15px; background: rgba(115,149,171,.12); }
+.shen-prompt-switch button { border: 0; background: transparent; color: #71869a; font-size: 12px; }
+.shen-prompt-switch button.active { background: rgba(247,251,255,.72); color: #365d75; box-shadow: 0 4px 13px rgba(74,101,115,.09); }
 .shen-prompt-panel[hidden] { display: none; }
-.shen-settings-card .shen-prompt-panel textarea { min-height: 340px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; }
+.shen-settings-card .shen-prompt-panel label { margin-top: 17px; color: #607b8e; font-size: 11px; }
+.shen-settings-card .shen-prompt-panel textarea { min-height: min(50dvh,420px); border-color: rgba(96,129,151,.2); background: rgba(246,250,253,.58); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; line-height: 1.8; }
 .shen-settings-card #shenSettingsSave { background: #476879; color: #fff; border-color: transparent; }
-.shen-supplier-panel { margin-top: 28px; padding: 0 16px 16px; border: 1px solid #d0dfeb; border-radius: 18px; background: #eff6fbb8; }
-.shen-supplier-panel > summary { padding: 16px 0; color: #526b87; cursor: pointer; font-weight: 650; }
-.shen-supplier-panel > p { margin: 0 0 14px; color: #71869a; font-size: 12px; }
+.shen-settings-card #shenSettingsSaveButton { background: #476879; color: #fff; border-color: transparent; }
+.shen-settings-card .codex-page-actions { margin: 14px 0 0; }
+.shen-settings-card .codex-page-status { min-height: 0; margin: 8px 0 0; }
+.shen-settings-card .codex-page-status:empty { display: none; }
 .supplier-add-form { display: grid; grid-template-columns: minmax(0,.72fr) minmax(0,1.28fr); gap: 8px; }
+.shen-supplier-panel .supplier-add-form { margin-top: 18px; }
 .supplier-add-form > * { min-width: 0; width: 100%; box-sizing: border-box; }
 .supplier-add-form > button { min-height: 42px; }
 #supplierList { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
@@ -84,7 +111,11 @@ body.neu-mode #sec-chat .chat-floating-actions > button { flex: 0 0 32px; width:
 #supplierList .supplier-edit-row input { width: 100%; }
 .supplier-edit-actions { display: flex; gap: 8px; }
 @media (max-width: 520px) {
-  .shen-settings-card .shen-prompt-panel textarea { min-height: 300px; }
+  .shen-settings-card { width: calc(100% - 28px); margin-top: 18px; padding: 0; }
+  .shen-settings-card > details > summary { padding: 17px 47px 17px 17px; }
+  .shen-settings-card > details > summary::after { right: 19px; }
+  .shen-section-body { padding: 2px 17px 18px; }
+  .shen-settings-card .shen-prompt-panel textarea { min-height: 46dvh; }
   .supplier-add-form { grid-template-columns: 1fr; }
   #supplierList .supplier-card { grid-template-columns: minmax(0,1fr) auto; }
   #supplierList .sup-del-btn { grid-column: 2; }

@@ -1080,6 +1080,7 @@ function onModelChange(sel){
     if(wrap) wrap.innerHTML = getModelIcon(sel.value);
     // 🧠 核心新增：只要你手动选了模型，就立刻刻在浏览器的记忆里
     localStorage.setItem('preferredModel', sel.value);
+    window.shenSettingsRefreshOverview?.();
 }
 
 // ==================== 通用工具 & 防黑屏 ====================
@@ -3432,6 +3433,7 @@ function renderSuppliers(){
             </div>
         </div>`;
     }).join('');
+    window.shenSettingsRefreshOverview?.();
 }
 
 function editSupplier(index){
@@ -3557,6 +3559,7 @@ async function fetchModels(){
         }
     } finally {
         clearTimeout(timeout);
+        window.shenSettingsRefreshOverview?.();
     }
 }
 
