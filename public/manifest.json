@@ -4,7 +4,6 @@
   "start_url": ".",
   "display": "standalone",
   "background_color": "#E8EFF7",
-  "theme_color": "#E8EFF7",
   "description": "沈望的专属通讯终端",
   "icons": [
     {

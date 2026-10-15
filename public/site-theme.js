@@ -216,9 +216,10 @@
         html.style.setProperty('--sea-background-scale', (1 + config.blur / 250).toFixed(3));
     }
     function updateChrome() {
-        let meta = document.querySelector('meta[name="theme-color"]');
-        if (!meta) { meta = document.createElement('meta'); meta.name = 'theme-color'; document.head.append(meta); }
-        meta.content = html.dataset.seaCycle === 'night' ? '#081A2D' : '#A9C3D8';
+        /* A solid theme-color becomes an opaque status-bar strip on older
+           iOS releases. The translucent standalone bar should expose the
+           wallpaper painted on the root canvas instead. */
+        document.querySelector('meta[name="theme-color"]')?.remove();
     }
     async function refresh() {
         const id = ++refreshId;

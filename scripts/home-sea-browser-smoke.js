@@ -34,7 +34,8 @@ async function main() {
         assert.equal(await page.evaluate(() => document.documentElement.dataset.seaCycle),'night');
         assert.match(await page.$eval('body',e=>getComputedStyle(e,'::before').backgroundImage),/ice-sea-night-v1/);
         assert.equal(await page.$eval('.home-v2-hero',e=>getComputedStyle(e).color),'rgb(237, 243, 247)');
-        assert.equal(await page.$eval('#theme-color-meta',e=>e.content),'#081A2D');
+        assert.equal(await page.$('meta[name="theme-color"]'),null,'solid theme color must not cover the iOS wallpaper');
+        assert.match(await page.$eval('html',e=>getComputedStyle(e).backgroundImage),/ice-sea-night-v1/);
         await page.screenshot({ path:path.join(root,'qa-sea-home-night-1024.png') });
         await cycle('2026-10-07T07:00:00+08:00');
         await page.evaluate(() => document.fonts.ready);

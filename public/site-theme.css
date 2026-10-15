@@ -22,7 +22,16 @@ html[data-visual-theme="new"] {
   --ink:var(--sea-foreground); --muted:var(--sea-muted); --blue:var(--sea-accent); --gold:var(--sea-accent);
   --text:var(--sea-foreground); --dim:var(--sea-muted); --cream:var(--sea-foreground);
   --sea-home-image:var(--sea-image);
-  background:var(--sea-base) !important;
+  /* iOS paints the standalone status area from the root canvas. Keep the
+     actual wallpaper there too instead of exposing a solid fallback strip. */
+  background-color:var(--sea-base) !important;
+  background-image:
+    linear-gradient(rgb(0 0 0 / var(--sea-background-dim)),rgb(0 0 0 / var(--sea-background-dim))),
+    var(--sea-image) !important;
+  background-position:center,center 43% !important;
+  background-size:cover,cover !important;
+  background-repeat:no-repeat !important;
+  background-attachment:fixed !important;
 }
 html[data-visual-theme="new"][data-sea-cycle="night"] {
   --sea-image:var(--sea-night-image);
@@ -39,7 +48,7 @@ html[data-visual-theme="new"] body,
 html[data-visual-theme="new"] body.neu-mode {
   isolation:isolate;
   min-height:100dvh;
-  background:var(--sea-base) !important;
+  background:transparent !important;
   color:var(--sea-foreground);
 }
 html[data-visual-theme="new"] body::before {

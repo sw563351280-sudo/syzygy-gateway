@@ -12,7 +12,7 @@ function browserFixture() {
     const style = { setProperty: (key, value) => properties.set(key, value), removeProperty: key => properties.delete(key) };
     const html = { dataset: {}, style };
     const body = { dataset: {} };
-    const meta = { content: '' };
+    const meta = { content: '', remove() {} };
     const document = {
         documentElement: html, body, readyState: 'loading', head: { append() {} },
         querySelector: selector => selector === 'meta[name="theme-color"]' ? meta : null,
