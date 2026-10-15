@@ -2555,8 +2555,8 @@ async function sendChat(options = {}) {
         workroomTarget = workroomRecipientFor(val, document.getElementById('workroomRecipient')?.value, workroomExecute);
         if (workroomExecute) {
             workroomTarget = 'codex';
-            if (!val && !session.messages.length) return toast('先说明你希望 Codex 做什么');
-            if (!val) val = '请根据工作区最近讨论执行已经明确的要求；存在歧义时先问我，不要自行扩大范围。';
+            if (!val) return toast('先写一句想交给 TT 做的事吧');
+            val = workroomExecuteText(val);
         }
         if (workroomTarget !== 'shenwang' && (workroomCodexBusy || workroomDispatching)) return toast('Codex 正在处理上一条，请等完成后再发给它；也可以切换为只和沈望聊');
     }
@@ -3031,6 +3031,13 @@ function workroomRecipientFor(text, selected, execute = false) {
     return ['all', 'shenwang', 'codex'].includes(selected) ? selected : 'all';
 }
 
+const WORKROOM_EXECUTE_BADGE = '✦ TT开工';
+function workroomExecuteText(text) {
+    const value = String(text || '').trim();
+    if (!value || value.endsWith(WORKROOM_EXECUTE_BADGE)) return value;
+    return value + '  ' + WORKROOM_EXECUTE_BADGE;
+}
+
 function workroomSpeakerHTML(speaker) {
     if (speaker === 'codex') return '<div class="workroom-speaker workroom-speaker-codex"><span class="workroom-codex-avatar" role="img" aria-label="Codex 头像">&gt;_</span><span>CODEX</span></div>';
     return '<div class="workroom-speaker workroom-speaker-' + (speaker === 'jiangyu' ? 'jiangyu' : 'shenwang') + '">' + (speaker === 'jiangyu' ? '江鱼' : '沈望') + '</div>';
@@ -3064,11 +3071,21 @@ function workroomCodexActivity(event) {
 }
 
 function workroomCodexActivityLabel(block) {
-    const labels = {
-        reading: 'TT 正在翻代码…', editing: 'TT 正在和小屋里的零件讲道理…', testing: 'TT 正在试一试改动…',
-        looking: 'TT 正在看看页面…', sending: 'TT 正在把改动送回小屋…', working: 'TT 正在埋头干活…'
+    const presentations = {
+        reading: ['🦉', 'TT 正在翻代码…'], editing: ['🛠️', 'TT 正在和小屋里的零件讲道理…'], testing: ['🧪', 'TT 正在试一试改动…'],
+        looking: ['🔎', 'TT 正在看看页面…'], sending: ['✨', 'TT 正在把改动送回小屋…'], working: ['🌌', 'TT 正在埋头干活…']
     };
-    return labels[block?.kind] || String(block?.text || labels.working);
+    const presentation = presentations[block?.kind] || presentations.working;
+    return { emoji: presentation[0], text: presentation[1], label: presentation.join(' ') };
+}
+
+function workroomCodexActivityHTML(block, live = false) {
+    const activity = workroomCodexActivityLabel(block);
+    const letters = Array.from(activity.text).map((letter, index) => {
+        if (/\s/.test(letter)) return letter;
+        return '<span class="tt-activity-char" style="--tt-hop-order:' + index + '">' + escapeHtml(letter) + '</span>';
+    }).join('');
+    return '<div class="workroom-codex-activity is-' + escapeHtml(block.kind || 'working') + (live ? ' is-live' : '') + '" role="status" aria-label="' + escapeHtml(activity.label) + '"><span class="tt-activity-emoji" aria-hidden="true">' + activity.emoji + '</span><span class="tt-activity-letters" aria-hidden="true">' + letters + '</span></div>';
 }
 
 function workroomNormalizeCodexTimeline(timeline, fallbackText = '') {
@@ -3129,7 +3146,7 @@ function workroomCodexTimelineHTML(timeline, options = {}) {
     let html = '';
     for (const block of blocks) {
         if (block.type === 'activity') {
-            html += '<div class="workroom-codex-activity is-' + escapeHtml(block.kind || 'working') + '" role="status"><i aria-hidden="true"></i><span>' + escapeHtml(workroomCodexActivityLabel(block)) + '</span></div>';
+            html += workroomCodexActivityHTML(block, Boolean(options.streaming && block === blocks.at(-1)));
             continue;
         }
         const isLast = block === lastText;

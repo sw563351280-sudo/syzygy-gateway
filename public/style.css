@@ -2901,25 +2901,39 @@ body.neu-mode #sec-chat .chat-bottom-bar { background: rgba(232, 239, 247, .78) 
 .workroom-codex-activity {
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 6px;
     max-width: min(88%, 520px);
     margin: -1px 0;
     padding: 0 10px;
-    color: rgba(79, 112, 139, .72);
-    font-size: 10px;
+    color: #c48d29;
+    font-size: 11px;
+    font-weight: 650;
     line-height: 1.55;
     letter-spacing: .035em;
+    text-shadow: 0 1px 0 rgba(255,255,255,.72), 0 1px 4px rgba(31,53,70,.48), 0 0 10px rgba(219,170,69,.16);
 }
-.workroom-codex-activity i {
-    width: 4px;
-    height: 4px;
-    flex: 0 0 4px;
-    border-radius: 50%;
-    background: currentColor;
-    box-shadow: 0 0 0 3px rgba(91, 143, 181, .08);
+.tt-activity-emoji {
+    display: inline-block;
+    flex: 0 0 auto;
+    color: initial;
+    font-size: 13px;
+    text-shadow: 0 1px 4px rgba(31,53,70,.38);
 }
-.workroom-codex-activity span { min-width: 0; }
-.workroom-codex-turn .workroom-codex-activity:last-child i { animation: corePulse 1.5s ease-in-out infinite; }
+.tt-activity-letters { min-width: 0; }
+.tt-activity-char { display: inline-block; transform-origin: 50% 100%; }
+.workroom-codex-activity.is-live .tt-activity-char {
+    animation: ttActivityHop 5.2s ease-in-out infinite;
+    animation-delay: calc(var(--tt-hop-order) * 55ms);
+}
+.workroom-codex-activity.is-live .tt-activity-emoji { animation: ttActivityEmoji 5.2s ease-in-out infinite; }
+@keyframes ttActivityHop {
+    0%, 2%, 9%, 100% { transform: translateY(0); }
+    5% { transform: translateY(-3px) rotate(-1deg); }
+}
+@keyframes ttActivityEmoji {
+    0%, 2%, 12%, 100% { transform: translateY(0) rotate(0); }
+    6% { transform: translateY(-2px) rotate(-6deg); }
+}
 .msg.sys.codex {
     border-color: rgba(86, 143, 191, .2) !important;
     background: linear-gradient(135deg, rgba(228, 241, 252, .88), rgba(240, 246, 252, .74)) !important;

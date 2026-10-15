@@ -48,12 +48,14 @@ test('Codex avatar is distinct and has an accessible label', () => {
     assert.doesNotMatch(run("workroomSpeakerHTML('shenwang')"), /workroom-codex-avatar/);
 });
 test('recipient selection and mentions are independent of execute permission', () => {
-    const { context } = setup();
+    const { context, run } = setup();
     assert.equal(context.workroomRecipientFor('你好', 'shenwang'), 'shenwang');
     assert.equal(context.workroomRecipientFor('@Codex 你觉得呢', 'all'), 'codex');
     assert.equal(context.workroomRecipientFor('@沈望 看看', 'codex'), 'shenwang');
     assert.equal(context.workroomRecipientFor('就这么改吧', 'all'), 'all');
     assert.equal(context.workroomRecipientFor('执行', 'shenwang', true), 'codex');
+    assert.equal(run("workroomExecuteText('把小字变成金色')"), '把小字变成金色  ✦ TT开工');
+    assert.equal(run("workroomExecuteText('把小字变成金色  ✦ TT开工')"), '把小字变成金色  ✦ TT开工');
 });
 test('sending only to Codex bypasses Shenwang and needs no chat provider', async () => {
     const { context, room, run } = setup();
@@ -169,8 +171,35 @@ test('Codex activity labels render between separate visual bubbles', () => {
     ])`);
     assert.equal((html.match(/class="msg sys codex/g) || []).length, 2);
     assert.match(html, /TT 正在翻代码/);
+    assert.match(html, /🦉/);
+    assert.match(html, /tt-activity-char/);
     assert.ok(html.indexOf('前一段') < html.indexOf('TT 正在翻代码'));
     assert.ok(html.indexOf('TT 正在翻代码') < html.indexOf('后一段'));
+});
+
+test('only the execute button appends the visible trusted-action badge', async () => {
+    const { context, room } = setup();
+    const elements = {
+        chatInput: { value: '把小字变成金色' },
+        workroomRecipient: { value: 'all' },
+        chatWindow: { appendChild() {}, scrollHeight: 0, scrollTop: 0 }
+    };
+    context.document = { getElementById: id => elements[id] || null, createElement: () => ({ innerHTML: '', appendChild() {} }) };
+    context._isStreamingReply = false;
+    context.activeChatRequest = null;
+    context.finishChatRequest = () => {};
+    context.getActiveSession = () => room;
+    context.isWorkroomSession = () => true;
+    context.currentImgBase64List = [];
+    context.clearImage = () => {};
+    const calls = [];
+    context.workroomDispatchToCodex = async (...args) => calls.push(args);
+    const sendSource = source.slice(source.indexOf('async function sendChat(options = {})'), source.indexOf('// ==================== 江鱼 · 沈望 · Codex 共创工作区'));
+    vm.runInContext(sendSource, context);
+    await context.sendChat({ workroomExecute: true });
+    assert.equal(calls[0][0], '把小字变成金色  ✦ TT开工');
+    assert.equal(calls[0][3], true);
+    assert.equal(room.messages[0].versions[0].content, '把小字变成金色  ✦ TT开工');
 });
 
 test('snapshot replay is idempotent and uses stable message IDs', () => {
