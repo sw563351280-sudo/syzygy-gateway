@@ -60,17 +60,6 @@ html[data-visual-theme="new"] body::before {
     var(--sea-image) center 43% / cover no-repeat !important;
   opacity:1; filter:blur(var(--sea-background-blur)); transform:scale(var(--sea-background-scale)); mix-blend-mode:normal;
 }
-/* WebKit can clip fixed layers above the Home Indicator in an installed PWA.
-   On the chat view, let the root canvas paint the wallpaper without a fixed
-   attachment; controls keep their independent safe-area padding. */
-@media (display-mode:standalone) {
-  html[data-visual-theme="new"]:has(body.neu-mode[data-view="chat"]) {
-    background-attachment:scroll !important;
-  }
-  html[data-visual-theme="new"]:has(body.neu-mode[data-view="chat"]) body::before {
-    content:none;
-  }
-}
 /* Existing page-specific art no longer covers or tints the shared sea. */
 html[data-visual-theme="new"] body.neu-mode .section,
 html[data-visual-theme="new"] body.neu-mode #sec-home.home-layout-v2,

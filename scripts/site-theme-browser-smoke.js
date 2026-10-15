@@ -14,15 +14,14 @@ async function main(){
  app.get('/api/private-journal',(_q,r)=>r.json({entries:[{id:'fixture',title:'海面还很安静',created_at:'2026-10-09T06:19:00Z',visibility:'sealed',content:null}],total:1}));
  app.use('/api',(_q,r)=>r.json({success:true,config:{},data:[],status:{},favorites:[],todos:[],active:[],records:[],items:[],entries:[]}));
  app.get('/diary-logs',(_q,r)=>r.json([]));app.use(express.static(path.join(root,'public')));
- const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));const ws=new WebSocketServer({server});let browser,appBrowser;
+ const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));const ws=new WebSocketServer({server});let browser;
  try{
   const executablePath=[process.env.PUPPETEER_EXECUTABLE_PATH,'/snap/bin/chromium','/usr/bin/chromium','/usr/bin/google-chrome','C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].filter(Boolean).find(fs.existsSync);
-  const base=`http://127.0.0.1:${server.address().port}`;
   browser=await puppeteer.launch({executablePath,headless:true,args:['--mute-audio','--no-sandbox','--disable-setuid-sandbox']});const errors=[];
   async function tab(){const p=await browser.newPage();p.on('pageerror',e=>errors.push(e.message));p.on('dialog',d=>d.dismiss());await p.setRequestInterception(true);p.on('request',r=>r.url().startsWith('http')&&!r.url().startsWith('http://127.0.0.1:')?r.abort():r.continue());await p.evaluateOnNewDocument(()=>{window.__themeNow=Date.parse('2026-10-09T12:00:00+08:00');Date.now=()=>window.__themeNow;});return p;}
   async function phase(p,time){await p.evaluate(value=>{window.__themeNow=Date.parse(value);SeaCycle.update();},time);}
   async function check(p,phaseName){const state=await p.evaluate(()=>({phase:document.documentElement.dataset.seaCycle,theme:document.documentElement.dataset.visualTheme,image:getComputedStyle(document.body,'::before').backgroundImage,rootImage:getComputedStyle(document.documentElement).backgroundImage,bodyBackground:getComputedStyle(document.body).backgroundColor,themeMeta:document.querySelector('meta[name="theme-color"]'),overflow:document.documentElement.scrollWidth>innerWidth,section:document.querySelector('.section.active')?getComputedStyle(document.querySelector('.section.active')).backgroundImage:'none',oldArt:document.querySelector('.section.active')?getComputedStyle(document.querySelector('.section.active'),'::before').content:'none'}));assert.equal(state.theme,'new');assert.equal(state.phase,phaseName);const expected=phaseName==='day'?/(ice-sea-home-v2|blob:)/:/(ice-sea-night-v1|blob:)/;assert.match(state.image,expected);assert.match(state.rootImage,expected,'root canvas must carry the wallpaper into the iOS status area');assert.equal(state.bodyBackground,'rgba(0, 0, 0, 0)');assert.equal(state.themeMeta,null,'a solid theme-color must not cover the translucent iOS status area');assert.equal((state.image.match(/linear-gradient/g)||[]).length,1,'only the dim layer may cover the full-viewport wallpaper');assert.equal(state.overflow,false,p.url());assert.equal(state.section,'none');assert.equal(state.oldArt,'none');}
-  const p=await tab();await p.setViewport({width:1280,height:950});
+  const p=await tab();await p.setViewport({width:1280,height:950});const base=`http://127.0.0.1:${server.address().port}`;
   await p.goto(base,{waitUntil:'networkidle0'});await check(p,'day');
   assert.equal(await p.$eval('#appearanceController',e=>e.childElementCount),0,'hidden appearance previews should stay lazy');
   await p.evaluate(()=>{getActiveSession().messages=[{role:'user',content:'今天的海面很好看。'},{role:'assistant',versions:[{content:'我在。慢慢说，不用急着把所有的话讲完。\n\n那些想留下来的事，我们就一点点记下来。',time:'14:19',fullTime:'2026-10-09T06:19:00Z'}],activeVersion:0}];});
@@ -38,15 +37,6 @@ async function main(){
   await p.evaluate(()=>goView('chat'));
   const composer=await p.evaluate(()=>{const bar=document.querySelector('.chat-bottom-bar'),input=document.querySelector('#chatInput'),style=getComputedStyle(bar),glass=getComputedStyle(bar,'::before');return {barBackground:style.backgroundColor,barBackdrop:style.backdropFilter,inputBackground:getComputedStyle(input).backgroundColor,inputBackdrop:getComputedStyle(input).backdropFilter,glassBackground:glass.backgroundColor};});
   assert.equal(composer.barBackdrop,'none');assert.equal(composer.inputBackdrop,'none');assert.equal(composer.barBackground,'rgba(0, 0, 0, 0)');assert.equal(composer.inputBackground,'rgba(0, 0, 0, 0)');assert.notEqual(composer.glassBackground,'rgba(0, 0, 0, 0)');
-  appBrowser=await puppeteer.launch({executablePath,headless:true,args:['--mute-audio','--no-sandbox','--disable-setuid-sandbox',`--app=${base}`]});
-  const standaloneTarget=await appBrowser.waitForTarget(target=>target.url().startsWith(base));const standalone=await standaloneTarget.page();assert.ok(standalone,'Chromium app window should open the house');
-  await standalone.waitForFunction(()=>document.documentElement.dataset.visualTheme==='new'&&typeof goView==='function');await standalone.evaluate(()=>goView('chat'));
-  const standaloneChat=await standalone.evaluate(()=>({matches:matchMedia('(display-mode: standalone)').matches,rootAttachment:getComputedStyle(document.documentElement).backgroundAttachment,fixedLayer:getComputedStyle(document.body,'::before').content}));
-  assert.equal(standaloneChat.matches,true);assert.ok(standaloneChat.rootAttachment.split(',').every(value=>value.trim()==='scroll'));assert.equal(standaloneChat.fixedLayer,'none','standalone chat should resolve to the non-fixed root wallpaper path');
-  await standalone.evaluate(()=>goView('home'));
-  const standaloneHome=await standalone.evaluate(()=>({rootAttachment:getComputedStyle(document.documentElement).backgroundAttachment,fixedLayer:getComputedStyle(document.body,'::before').content}));
-  assert.ok(standaloneHome.rootAttachment.split(',').every(value=>value.trim()==='fixed'));assert.notEqual(standaloneHome.fixedLayer,'none','the workaround must stay scoped to chat');
-  await appBrowser.close();appBrowser=null;
   const views=['home','chat','private-journal','favorites','flo','state','codex-settings','settings','work-records','tt-memories','ledger','calendar','album','dev','console','shen-settings'];
   for(const width of [1280,393]){
    await p.setViewport({width,height:950});
@@ -74,7 +64,7 @@ async function main(){
   const documents=['long-term','relationship-growth','comets','stardust','memory-vault','sensors','xhs-walk'];
   for(const doc of documents){await second.goto(base+'/'+doc+'.html',{waitUntil:'networkidle0'});for(const width of [1280,393]){await second.setViewport({width,height:950});await phase(second,'2026-10-09T12:00:00+08:00');await check(second,'day');await phase(second,'2026-10-09T20:00:00+08:00');await check(second,'night');} }
   await second.goto(base+'/long-term.html',{waitUntil:'networkidle0'});assert.equal(await second.$eval('.pill',e=>getComputedStyle(e).color),'rgb(117, 99, 71)');await second.screenshot({path:path.join(root,'qa-global-memory-day.png')});await phase(second,'2026-10-09T20:00:00+08:00');await second.screenshot({path:path.join(root,'qa-global-memory-night.png')});
-  assert.deepEqual(errors,[]);console.log(JSON.stringify({ok:true,views,documents,widths:[1280,393],checks:['full-viewport shared backgrounds','standalone chat computed wallpaper path','lazy appearance previews','range preview and commit','stable chat composer layer','automatic 07:00 and 18:00 boundaries','draft retained','cross-window adjustments','wallpaper inheritance and page exceptions'],pageErrors:errors}));
- }finally{await appBrowser?.close();await browser?.close();ws.clients.forEach(c=>c.terminate());ws.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
+  assert.deepEqual(errors,[]);console.log(JSON.stringify({ok:true,views,documents,widths:[1280,393],checks:['full-viewport shared backgrounds','lazy appearance previews','range preview and commit','stable chat composer layer','automatic 07:00 and 18:00 boundaries','draft retained','cross-window adjustments','wallpaper inheritance and page exceptions'],pageErrors:errors}));
+ }finally{await browser?.close();ws.clients.forEach(c=>c.terminate());ws.close();server.closeAllConnections();await new Promise(r=>server.close(r));}
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});
