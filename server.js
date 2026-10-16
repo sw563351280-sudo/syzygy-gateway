@@ -84,6 +84,7 @@ const app = express();
     const missing = [];
     if (!process.env.SITE_PASSWORD) missing.push('SITE_PASSWORD');
     if (!process.env.SESSION_SECRET) missing.push('SESSION_SECRET');
+    if (!process.env.MEMORY_PASSWORD) missing.push('MEMORY_PASSWORD');
     if (process.env.SESSION_SECRET && process.env.SESSION_SECRET.length < 32) {
         console.error('❌ SESSION_SECRET 长度不足 32 字符');
         process.exit(1);

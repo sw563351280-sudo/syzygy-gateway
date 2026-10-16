@@ -11,6 +11,16 @@ const read = file => process.env.AUDIT_BASELINE === '1' ? execFileSync('git', ['
 const script = read('public/script.js');
 const server = read('server.js');
 
+test('startup refuses to run without every required authentication secret', () => {
+    const check = server.slice(
+        server.indexOf('(function checkEnv()'),
+        server.indexOf('// ==========================================', server.indexOf('(function checkEnv()') + 1)
+    );
+    assert.match(check, /!process\.env\.SITE_PASSWORD/);
+    assert.match(check, /!process\.env\.SESSION_SECRET/);
+    assert.match(check, /!process\.env\.MEMORY_PASSWORD/);
+});
+
 test('home initializes before slow chat sync; completing sync does not reset a newly opened view', async () => {
     const source = script.slice(script.indexOf('async function startSystem()'), script.indexOf('\nstartSystem();'));
     const events = [];
