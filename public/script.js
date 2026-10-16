@@ -1634,7 +1634,18 @@ function neuOpenLongTerm() {
 }
 
 let _isOpeningArchiveRoom = false;
-function openStarCrossing() {
+async function checkStarCrossingPassword(pwd) {
+    const response = await fetch('/long-term?pwd=' + encodeURIComponent(pwd), {
+        method: 'HEAD',
+        cache: 'no-store',
+        redirect: 'manual'
+    });
+    if (response.status === 401) return 'rejected';
+    if (response.type === 'opaqueredirect' || (response.status >= 200 && response.status < 400)) return 'accepted';
+    return 'unavailable';
+}
+
+async function openStarCrossing() {
     if (_isOpeningArchiveRoom) return;
     _isOpeningArchiveRoom = true;
 
@@ -1642,18 +1653,42 @@ function openStarCrossing() {
     const btn = document.querySelector('[onclick*="openStarCrossing"]');
     if (btn) btn.style.opacity = '0.6';
 
-    let pwd = localStorage.getItem('memoryPwd');
-    if (!pwd) {
-        pwd = prompt('星渡访问密码:');
-        if (!pwd) {
-            _isOpeningArchiveRoom = false;
-            if (btn) btn.style.opacity = '';
-            return;
+    try {
+        let pwd = localStorage.getItem('memoryPwd');
+        if (pwd) {
+            const status = await checkStarCrossingPassword(pwd);
+            if (status === 'rejected') {
+                localStorage.removeItem('memoryPwd');
+                pwd = '';
+            } else if (status === 'unavailable') {
+                toast('星渡暂时无法验证密码，请稍后重试');
+                return;
+            }
         }
-        localStorage.setItem('memoryPwd', pwd);
-    }
 
-    window.location.assign('/long-term.html?pwd=' + encodeURIComponent(pwd));
+        if (!pwd) {
+            pwd = prompt('请输入星渡独立密码（不是小屋登录密码）:');
+            if (!pwd) return;
+            const status = await checkStarCrossingPassword(pwd);
+            if (status === 'rejected') {
+                localStorage.removeItem('memoryPwd');
+                toast('星渡独立密码不正确，请重新输入');
+                return;
+            }
+            if (status === 'unavailable') {
+                toast('星渡暂时无法验证密码，请稍后重试');
+                return;
+            }
+            localStorage.setItem('memoryPwd', pwd);
+        }
+
+        window.location.assign('/long-term.html?pwd=' + encodeURIComponent(pwd));
+    } catch (_) {
+        toast('星渡暂时无法验证密码，请稍后重试');
+    } finally {
+        _isOpeningArchiveRoom = false;
+        if (btn) btn.style.opacity = '';
+    }
 }
 async function triggerDreamFromHome() {
     const pwd = prompt('管理员密码:'); if (!pwd) return;
