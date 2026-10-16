@@ -79,6 +79,7 @@ body.neu-mode #sec-home.home-layout-v2 .home-v2 { display: flex; position: relat
 .sea-menu-secondary .sea-icon { width: 15px; height: 15px; }
 .sea-dev-link { display: block; margin: 20px auto 0; padding: 6px 15px; border: 0; background: none; font-size: 11px !important; opacity: .55; }
 .sea-letter { inset: 0; margin: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; border: 0; border-radius: 0; background: rgba(26,58,81,.6); animation: sea-letter-in .35s ease-out; }
+.sea-letter .sea-close { top: calc(12px + env(safe-area-inset-top, 0px)); }
 .sea-letter .sea-dialog-inner { min-height: 100%; max-width: 660px; margin: auto; padding: max(80px,env(safe-area-inset-top)) 30px 80px; }
 .sea-letter-source { text-align: center; font-size: 11px; opacity: .55; margin: -8px 0 36px; }
 #seaLetterText { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; font-weight: 300; line-height: 2; letter-spacing: .02em; }

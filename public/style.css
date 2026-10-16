@@ -493,10 +493,14 @@ canvas#starmap{
 body[data-view="chat"] { overflow:hidden!important;position:fixed!important;top:0!important;left:0!important;right:0!important;bottom:0!important;height:100dvh!important;width:100%!important }
 #sec-chat.active { display:flex!important;flex-direction:column!important;height:100%!important;overflow:hidden!important }
 #sec-chat.section { padding-top:0!important;padding-bottom:0!important;height:100dvh!important;overflow:hidden!important }
-/* iOS 主屏幕模式会把 100dvh 截在 Home Indicator 安全区上沿；100vh
-   在 standalone 壳里包含整块物理画布。只扩展背景/外壳，内容仍由 safe-area 避让。 */
+/* iOS 主屏幕模式会把 100dvh 截在 Home Indicator 安全区上沿；standalone
+   改由聊天 section 持有 100vh，避免 fixed body 把输入区锁在裁切后的视口内。 */
 @media (display-mode: standalone) {
-    body[data-view="chat"],
+    body[data-view="chat"] {
+        position:static!important;
+        inset:auto!important;
+        height:100vh!important;
+    }
     #sec-chat.section { height:100vh!important }
 }
 /* 输入栏贴合底部安全区：只用padding-bottom吃safe-area */
@@ -1111,6 +1115,7 @@ body.neu-mode .message-usage { color: var(--sea-foreground, #4b5c70); }
 
 /* ═══ 身体状态弹窗（复用对话索引 panel class） ═══ */
 .physio-panel.open { max-height: 60vh; }
+.physio-panel .chat-index-header { padding-top: calc(14px + env(safe-area-inset-top, 0px)); }
 .physio-body { padding: 12px 16px; }
 .physio-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .physio-item { background: rgba(201,169,97,0.04); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; }

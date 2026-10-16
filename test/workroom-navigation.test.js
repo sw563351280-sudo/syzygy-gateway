@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const html = fs.readFileSync(require.resolve('../public/index.html'), 'utf8');
 const script = fs.readFileSync(require.resolve('../public/script.js'), 'utf8');
 const css = fs.readFileSync(require.resolve('../public/style.css'), 'utf8');
+const homeCss = fs.readFileSync(require.resolve('../public/home-sea.css'), 'utf8');
 const workroomCss = fs.readFileSync(require.resolve('../public/workroom-pages.css'), 'utf8');
 
 test('legacy Codex UI and executable client are removed while shared features remain', () => {
@@ -35,10 +36,16 @@ test('workroom composer removes thread menu and exposes TT memory drawer', () =>
     assert.match(html, /id="sec-tt-memories"/);
 });
 
-test('standalone chat covers the home-indicator area without moving its controls', () => {
-    assert.match(css, /@media\s*\(display-mode:\s*standalone\)\s*\{[\s\S]*body\[data-view="chat"\][\s\S]*#sec-chat\.section\s*\{\s*height:\s*100vh!important/);
+test('standalone chat lets its section own the viewport without fixing the body', () => {
+    assert.match(css, /@media\s*\(display-mode:\s*standalone\)\s*\{[\s\S]*body\[data-view="chat"\]\s*\{[^}]*position:\s*static!important[^}]*inset:\s*auto!important[^}]*height:\s*100vh!important[^}]*\}[\s\S]*#sec-chat\.section\s*\{\s*height:\s*100vh!important/);
     assert.match(css, /#sec-chat \.chat-bottom-bar\s*\{[^}]*padding-bottom:\s*calc\(10px \+ env\(safe-area-inset-bottom, 0px\)\)!important/);
-    assert.match(html, /style\.css\?v=111/);
+    assert.match(html, /style\.css\?v=113/);
+});
+
+test('full-screen top close controls stay below the iOS safe area', () => {
+    assert.match(css, /\.physio-panel \.chat-index-header\s*\{[^}]*padding-top:\s*calc\(14px \+ env\(safe-area-inset-top, 0px\)\)/);
+    assert.match(homeCss, /\.sea-letter \.sea-close\s*\{[^}]*top:\s*calc\(12px \+ env\(safe-area-inset-top, 0px\)\)/);
+    assert.match(html, /home-sea\.css\?v=4/);
 });
 
 test('the same gear opens Shenwang settings in communication and Codex settings in workroom', () => {
