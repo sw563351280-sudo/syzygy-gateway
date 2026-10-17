@@ -71,7 +71,8 @@ test('the house has one appearance and keeps day/night wallpaper inheritance exp
     assert.equal(theme.selected(), 'new');
     assert.equal(fixture.html.dataset.visualTheme, 'new');
     assert.deepEqual(JSON.parse(JSON.stringify(theme.settings())), {
-        version: 1, cardTransparency: 32, dayDim: 0, nightDim: 0, blur: 0, exceptions: {}, revision: 0
+        version: 1, cardTransparency: 32, dayDim: 0, nightDim: 0, blur: 0,
+        dayTextColor: '#1a3a5c', nightTextColor: '#e8e0d4', exceptions: {}, revision: 0
     });
 
     theme.setAdjustments({ cardTransparency: 200, dayDim: -4, nightDim: 35, blur: 7 });
@@ -79,6 +80,14 @@ test('the house has one appearance and keeps day/night wallpaper inheritance exp
     assert.equal(theme.settings().dayDim, 0);
     assert.equal(theme.settings().nightDim, 35);
     assert.equal(fixture.properties.get('--sea-background-blur'), '7px');
+    assert.equal(fixture.properties.get('--sea-day-foreground'), '#1a3a5c');
+    assert.equal(fixture.properties.get('--sea-night-foreground'), '#e8e0d4');
+
+    theme.setAdjustments({ dayTextColor: '#7B9EB8', nightTextColor: '#c4956a' });
+    assert.equal(theme.settings().dayTextColor, '#7b9eb8');
+    assert.equal(theme.settings().nightTextColor, '#c4956a');
+    theme.setAdjustments({ dayTextColor: 'not-a-color' });
+    assert.equal(theme.settings().dayTextColor, '#1a3a5c', 'unknown colors fall back safely');
 
     await theme.inspectWallpapers('home');
     assert.equal(fixture.wallpaperReads(), 4, 'one scope should load its unique candidates once');
@@ -115,5 +124,7 @@ test('appearance page exposes confirmed uploads instead of the retired theme cho
     assert.match(controller, /SeaTheme\.clearExceptions/);
     assert.match(controller, /requestAnimationFrame/);
     assert.match(controller, /SeaTheme\.previewAdjustments/);
+    assert.match(controller, /appearanceResetText/);
+    assert.match(controller, /data-text-color-name/);
     assert.match(controller, /document\.body\.dataset\.view !== 'settings'/);
 });

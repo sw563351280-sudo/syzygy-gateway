@@ -2230,14 +2230,11 @@ function renderChatMessages(options = {}){
         for (let imgIdx = 0; imgIdx < imgsToRender.length; imgIdx++) {
             htmlContent += '<img src="' + imgsToRender[imgIdx] + '" style="max-width:200px;border-radius:8px;margin-bottom:5px;margin-right:4px;box-shadow:0 2px 10px rgba(0,0,0,0.3);display:inline-block;">';
         }
-        const rawThinking = v.reasoning || m.reasoning || v.thinking || m.thinking || '';
-        // 兼容正文里混入 <thinking>...</thinking> 或 <think>...</think> 的旧格式
-        const hasRawContent = typeof v.rawContent === 'string' && v.rawContent.trim();
-        let extractedThink = extractThinkingFromContent(hasRawContent ? v.rawContent : (v.content || ''));
-        let displayContent = extractedThink.visibleContent;
-        // rawContent 是模型原始正文。优先重新解析它，可修复旧版前端把
-        // 反引号里的 <thinking> 示例误拆进思考气泡的历史消息。
-        const finalThinking = (v.reasoning || m.reasoning || extractedThink.thinking || (!hasRawContent ? rawThinking : '')) || '';
+        // rawContent 优先用来还原正文与内嵌思考；已单独保存的 thinking
+        // 始终作为兜底，不会再因为 rawContent 存在而被丢掉。
+        const renderState = ChatRenderUtils.resolveMessageRenderState(m, v, extractThinkingFromContent);
+        const displayContent = renderState.visibleContent;
+        const finalThinking = renderState.thinking;
         // 渲染工具调用记录（整组折叠）
         if (v.toolCalls && v.toolCalls.length > 0) htmlContent += renderToolCallGroupHTML(v.toolCalls, false);
         if (isWorkroomSession(session)) {
@@ -2664,6 +2661,19 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             toolGroupEl.style.display = 'none';
             sDiv.appendChild(toolGroupEl);
 
+            const streamPaint = ChatRenderUtils.createFrameScheduler(() => {
+                // 一帧内的多个小分片只解析、重绘一次。
+                const extracted = extractThinkingFromContent(rawAssistantText);
+                fullReply = extracted.visibleContent;
+                thinkContent = [reasoningContent, extracted.thinking].filter(Boolean).join('\n\n');
+                if (thinkContent) {
+                    sRow.classList.add('has-think-marker');
+                    thinkMarker.update(thinkContent);
+                }
+                mainTextDiv.innerHTML = renderMarkdown(fullReply) + '<span class="typing-cursor"></span>';
+                scrollChatToBottomIfNear(win);
+            });
+
             await ChatTransport.readStream(response, parsed => {
                         messageUsage.accept(parsed);
 
@@ -2683,9 +2693,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
                         if (delta.reasoning_content) {
                             thinkContent += delta.reasoning_content;
                             reasoningContent += delta.reasoning_content;
-                            sRow.classList.add('has-think-marker');
-                            thinkMarker.update(thinkContent);
-                            scrollChatToBottomIfNear(win);
+                            streamPaint.schedule();
                         }
 
                         // 2. 处理正文内容 (content) — 用累计全文解析，避免 chunk 边界截断标签
@@ -2699,23 +2707,10 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
                                 sDiv.classList.remove('msg-loading');
                             }
                             rawAssistantText += delta.content;
-
-                            // 对累计全文解析，自动处理 <thinking>/<chain_of_thought>/<reasoning> 及未闭合标签
-                            const parsed = extractThinkingFromContent(rawAssistantText);
-                            fullReply = parsed.visibleContent;
-
-                            // 合并 API 级 reasoning_content + 文本提取的 thinking
-                            const combinedThinking = [reasoningContent, parsed.thinking].filter(Boolean).join('\n\n');
-                            if (combinedThinking) {
-                                thinkContent = combinedThinking;
-                                sRow.classList.add('has-think-marker');
-                                thinkMarker.update(thinkContent);
-                            }
-
-                            if (fullReply) mainTextDiv.innerHTML = stripDisplayTimestamp(fullReply).replace(/\n/g, '<br>') + '<span class="typing-cursor"></span>';
-                            scrollChatToBottomIfNear(win);
+                            streamPaint.schedule();
                         }
             }, () => request.touch());
+            streamPaint.flush();
             sDiv.querySelector('.loading-indicator')?.remove();
             mainTextDiv.innerHTML = renderMarkdown(fullReply);
             // 流结束：将工具调用组从"正在调用"切换为"调用了 N 次"
@@ -4563,6 +4558,14 @@ async function regenerateSend(aiMsgIndex) {
             sDiv.innerHTML='<span class="loading-indicator">⟡ 正在等待回复…</span>';
             const mainTextDiv=document.createElement('div'); mainTextDiv.classList.add('md-content'); sDiv.appendChild(mainTextDiv);
             const toolGroupEl=document.createElement('div'); toolGroupEl.className='tool-call-group-wrap'; toolGroupEl.style.display='none'; sDiv.appendChild(toolGroupEl);
+            const streamPaint=ChatRenderUtils.createFrameScheduler(() => {
+                const parsed=extractThinkingFromContent(rawAcc);
+                fullReply=parsed.visibleContent;
+                thinkContent=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n');
+                if(thinkContent){targetRow.classList.add('has-think-marker');thinkMarker.update(thinkContent);}
+                mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';
+                scrollChatToBottomIfNear(win);
+            });
             await ChatTransport.readStream(response, p => {
                 messageUsage.accept(p);
                 if (p.type === 'tool_call') {
@@ -4573,15 +4576,10 @@ async function regenerateSend(aiMsgIndex) {
                     return;
                 }
                 const d = p.choices?.[0]?.delta || {};
-                if (d.reasoning_content) reasoningAcc += d.reasoning_content;
-                if (d.content) { request.mark('接收模型回复'); rawAcc += d.content; sDiv.querySelector('.loading-indicator')?.remove(); }
-                const parsed = extractThinkingFromContent(rawAcc);
-                fullReply = parsed.visibleContent;
-                thinkContent = [reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n');
-                if (thinkContent) { targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent); }
-                mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';
-                scrollChatToBottomIfNear(win);
+                if (d.reasoning_content) { reasoningAcc += d.reasoning_content; streamPaint.schedule(); }
+                if (d.content) { request.mark('接收模型回复'); rawAcc += d.content; sDiv.querySelector('.loading-indicator')?.remove(); streamPaint.schedule(); }
             }, () => request.touch());
+            streamPaint.flush();
             sDiv.querySelector('.loading-indicator')?.remove();
             mainTextDiv.innerHTML=renderMarkdown(fullReply);
             if(toolCallRecords.length>0)updateToolGroupDOM(toolGroupEl,toolCallRecords,false);

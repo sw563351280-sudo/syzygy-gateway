@@ -7,6 +7,15 @@
     const DB_NAME = 'syzygy-appearance';
     const STORE_NAME = 'wallpapers';
     const html = document.documentElement;
+    const textColors = Object.freeze([
+        Object.freeze({ name: '深蓝', value: '#1a3a5c' }),
+        Object.freeze({ name: '月光白', value: '#e8e0d4' }),
+        Object.freeze({ name: '雾蓝', value: '#7b9eb8' }),
+        Object.freeze({ name: '琥珀', value: '#c4956a' }),
+        Object.freeze({ name: '霜灰', value: '#787878' })
+    ]);
+    const defaultTextColors = Object.freeze({ day: '#1a3a5c', night: '#e8e0d4' });
+    const allowedTextColors = new Map(textColors.map(color => [color.value.toLowerCase(), color.value]));
     const pageNames = Object.freeze({
         home: '首页', chat: '通讯', favorites: '收藏夹', 'private-journal': '锁页日记',
         calendar: '日历', album: '相册', flo: 'Flo', state: '状态', ledger: '共同账本', settings: '小屋设置',
@@ -34,6 +43,9 @@
         const number = Number(value);
         return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
     }
+    function normalizeTextColor(value, fallback) {
+        return allowedTextColors.get(String(value || '').toLowerCase()) || fallback;
+    }
     function normalize(raw) {
         const source = raw && typeof raw === 'object' ? raw : {};
         const exceptions = {};
@@ -46,6 +58,8 @@
             dayDim: clamp(source.dayDim, 0, 70, 0),
             nightDim: clamp(source.nightDim, 0, 70, 0),
             blur: clamp(source.blur, 0, 20, 0),
+            dayTextColor: normalizeTextColor(source.dayTextColor, defaultTextColors.day),
+            nightTextColor: normalizeTextColor(source.nightTextColor, defaultTextColors.night),
             exceptions,
             revision: Number(source.revision) || 0
         };
@@ -214,6 +228,8 @@
         html.style.setProperty('--sea-night-dim', (config.nightDim / 100).toFixed(2));
         html.style.setProperty('--sea-background-blur', `${config.blur}px`);
         html.style.setProperty('--sea-background-scale', (1 + config.blur / 250).toFixed(3));
+        html.style.setProperty('--sea-day-foreground', config.dayTextColor);
+        html.style.setProperty('--sea-night-foreground', config.nightTextColor);
     }
     function updateChrome() {
         /* A solid theme-color becomes an opaque status-bar strip on older
@@ -291,7 +307,8 @@
     window.SeaTheme = Object.freeze({
         selected: () => 'new', sync: refresh, refresh, updateChrome, settings: snapshot, setAdjustments, previewAdjustments,
         saveWallpaper, removeWallpaper, clearExceptions, directWallpaper: directBlob,
-        wallpaper: resolvedWallpaper, inspectWallpapers, wallpaperUrl, setPreviewWallpaperKeys, scope, pages: pageNames
+        wallpaper: resolvedWallpaper, inspectWallpapers, wallpaperUrl, setPreviewWallpaperKeys, scope, pages: pageNames,
+        textColors, defaultTextColors
     });
     html.dataset.visualTheme = 'new';
     applyMetrics();

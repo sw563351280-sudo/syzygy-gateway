@@ -39,6 +39,11 @@
         const available = Object.entries(SeaTheme.pages).filter(([key]) => key !== 'settings' && !exceptionScopes.includes(key));
         root.innerHTML = `
             <div class="appearance-wallpaper-grid">${slotMarkup('global', 'day')}${slotMarkup('global', 'night')}</div>
+            <section class="appearance-text-colors" aria-labelledby="appearanceTextTitle">
+                <div class="appearance-section-head appearance-text-head"><h2 id="appearanceTextTitle">文字颜色</h2><button type="button" id="appearanceResetText">恢复默认色</button></div>
+                ${textColorMarkup('dayTextColor', '白天', settings.dayTextColor)}
+                ${textColorMarkup('nightTextColor', '夜晚', settings.nightTextColor)}
+            </section>
             <section class="appearance-adjustments" aria-labelledby="appearanceAdjustTitle">
                 <h2 id="appearanceAdjustTitle">玻璃与光线</h2>
                 ${rangeMarkup('cardTransparency', '卡片透明度', settings.cardTransparency, 0, 85, '%')}
@@ -54,6 +59,9 @@
                 <button type="button" id="appearanceResetPages" class="appearance-reset-all"${Object.keys(settings.exceptions).length ? '' : ' hidden'}>✦ 全部恢复为跟随整屋</button>
             </section>
             <p id="appearanceStatus" class="appearance-status" role="status"></p>`;
+    }
+    function textColorMarkup(name, label, selected) {
+        return `<div class="appearance-color-row"><span>${label}</span><div class="appearance-color-swatches" role="group" aria-label="${label}文字颜色">${SeaTheme.textColors.map(color => `<button type="button" data-text-color-name="${name}" data-text-color="${color.value}" style="--swatch:${color.value}" title="${color.name}" aria-label="${color.name}" aria-pressed="${String(color.value === selected)}" class="${color.value === selected ? 'is-selected' : ''}"></button>`).join('')}</div></div>`;
     }
     function rangeMarkup(name, label, value, min, max, suffix) {
         return `<label class="appearance-range"><span>${label}<output id="appearance-${name}-value">${value}${suffix}</output></span><input type="range" min="${min}" max="${max}" value="${value}" data-appearance-range="${name}" data-suffix="${escapeHtml(suffix)}"></label>`;
@@ -142,8 +150,27 @@
             range.value = settings[name];
             showRangeValue(range);
         }
+        syncTextColorControls(settings);
+    }
+    function syncTextColorControls(settings) {
+        for (const button of root.querySelectorAll('[data-text-color-name]')) {
+            const selected = settings[button.dataset.textColorName] === button.dataset.textColor;
+            button.classList.toggle('is-selected', selected);
+            button.setAttribute('aria-pressed', String(selected));
+        }
     }
     root.addEventListener('click', async event => {
+        const color = event.target.closest('[data-text-color-name]');
+        if (color) {
+            SeaTheme.setAdjustments({ [color.dataset.textColorName]: color.dataset.textColor });
+            status('文字颜色已经换好了。');
+            return;
+        }
+        if (event.target.closest('#appearanceResetText')) {
+            SeaTheme.setAdjustments({ dayTextColor: SeaTheme.defaultTextColors.day, nightTextColor: SeaTheme.defaultTextColors.night });
+            status('已恢复白天深蓝、夜晚月光白。');
+            return;
+        }
         const add = event.target.closest('#appearanceAddPage');
         if (add) {
             const select = document.getElementById('appearancePageSelect');

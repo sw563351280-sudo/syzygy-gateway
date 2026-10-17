@@ -9,11 +9,13 @@
   --sea-background-dim:var(--sea-day-dim);
   --sea-background-blur:0px;
   --sea-background-scale:1;
+  --sea-day-foreground:#1a3a5c;
+  --sea-night-foreground:#e8e0d4;
 }
 html[data-visual-theme="new"] {
   --sea-image:var(--sea-day-image);
   --sea-base:#a9c3d8;
-  --sea-foreground:#244a65;
+  --sea-foreground:var(--sea-day-foreground);
   --sea-muted:#48647b;
   --sea-panel:rgb(235 243 250 / var(--sea-card-opacity));
   --sea-surface:rgb(235 243 250 / var(--sea-surface-opacity));
@@ -21,6 +23,8 @@ html[data-visual-theme="new"] {
   --sea-edge:rgba(255,255,255,.2);
   --ink:var(--sea-foreground); --muted:var(--sea-muted); --blue:var(--sea-accent); --gold:var(--sea-accent);
   --text:var(--sea-foreground); --dim:var(--sea-muted); --cream:var(--sea-foreground);
+  --sea-emphasis:#1a3a5c;
+  --sea-text-shadow:0 1px 2px rgb(255 255 255 / .24),0 0 4px rgb(255 255 255 / .12);
   --sea-home-image:var(--sea-image);
   /* iOS paints the standalone status area from the root canvas. Keep the
      actual wallpaper there too instead of exposing a solid fallback strip. */
@@ -37,11 +41,13 @@ html[data-visual-theme="new"][data-sea-cycle="night"] {
   --sea-image:var(--sea-night-image);
   --sea-background-dim:var(--sea-night-dim);
   --sea-base:#081a2d;
-  --sea-foreground:#edf3f7;
+  --sea-foreground:var(--sea-night-foreground);
   --sea-muted:#aebbc8;
   --sea-panel:rgb(9 24 42 / var(--sea-card-opacity));
   --sea-surface:rgb(235 243 250 / var(--sea-surface-opacity));
   --sea-accent:#c8b28e;
+  --sea-emphasis:#d87575;
+  --sea-text-shadow:0 1px 2px rgb(0 0 0 / .42),0 0 4px rgb(0 0 0 / .2);
   color-scheme:dark;
 }
 html[data-visual-theme="new"] body,
@@ -50,6 +56,7 @@ html[data-visual-theme="new"] body.neu-mode {
   min-height:100dvh;
   background:transparent !important;
   color:var(--sea-foreground);
+  text-shadow:var(--sea-text-shadow);
 }
 html[data-visual-theme="new"] body::before {
   content:''; position:fixed; inset:0; z-index:-1; pointer-events:none;
@@ -96,6 +103,7 @@ html[data-visual-theme="new"] body.neu-mode #sec-chat .msg.user { background:rgb
 html[data-visual-theme="new"][data-sea-cycle="night"] body.neu-mode #sec-chat :is(.msg.ai,.msg.sys) { background:rgba(10,21,38,.08) !important; }
 html[data-visual-theme="new"][data-sea-cycle="night"] body.neu-mode #sec-chat .msg.user { background:rgba(120,180,190,.12) !important; }
 html[data-visual-theme="new"] body.neu-mode :is(.msg .md-content,.msg .msg-time,.msg blockquote,.chat-tool-heading) { color:inherit !important; }
+html[data-visual-theme="new"] body.neu-mode #sec-chat .msg .md-content :is(strong,b) { color:var(--sea-emphasis) !important; }
 html[data-visual-theme="new"] body.neu-mode :is(.codex-settings-card,.codex-record-card,.tt-memory-group) { color:#34383d; background:#f5f0e8; }
 html[data-visual-theme="new"] body.neu-mode .sea-page-shell { --sea-page-ink:var(--sea-foreground); }
 html[data-visual-theme="new"] .sea-page-reader { color:var(--sea-foreground); background:var(--sea-panel); }
