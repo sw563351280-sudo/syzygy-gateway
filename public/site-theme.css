@@ -4,6 +4,8 @@
   --sea-night-image:url('assets/ice-sea-night-v1.webp');
   --sea-card-opacity:.68;
   --sea-surface-opacity:.38;
+  --sea-composer-opacity:.82;
+  --sea-glass-blur:8.2px;
   --sea-day-dim:0;
   --sea-night-dim:0;
   --sea-background-dim:var(--sea-day-dim);
@@ -11,10 +13,10 @@
   --sea-background-scale:1;
   --sea-day-foreground:#1a3a5c;
   --sea-night-foreground:#e8e0d4;
-  --sea-day-bubble-rgb:235 243 250;
-  --sea-night-bubble-rgb:9 24 42;
-  --sea-day-user-bubble-rgb:210 235 240;
-  --sea-night-user-bubble-rgb:20 48 55;
+  --sea-day-bubble-rgb:222 238 248;
+  --sea-night-bubble-rgb:18 39 58;
+  --sea-day-user-bubble-rgb:201 230 239;
+  --sea-night-user-bubble-rgb:23 51 60;
 }
 html[data-visual-theme="new"] {
   --sea-image:var(--sea-day-image);
@@ -30,6 +32,9 @@ html[data-visual-theme="new"] {
   --sea-emphasis:#1a3a5c;
   --sea-bubble-rgb:var(--sea-day-bubble-rgb);
   --sea-user-bubble-rgb:var(--sea-day-user-bubble-rgb);
+  --sea-glass-edge:rgb(255 255 255 / .62);
+  --sea-glass-highlight:inset 0 1px 1px rgb(255 255 255 / .58);
+  --sea-glass-lift:0 5px 18px rgb(66 91 116 / .08);
   --sea-home-image:var(--sea-image);
   /* iOS paints the standalone status area from the root canvas. Keep the
      actual wallpaper there too instead of exposing a solid fallback strip. */
@@ -54,6 +59,9 @@ html[data-visual-theme="new"][data-sea-cycle="night"] {
   --sea-emphasis:#d87575;
   --sea-bubble-rgb:var(--sea-night-bubble-rgb);
   --sea-user-bubble-rgb:var(--sea-night-user-bubble-rgb);
+  --sea-glass-edge:rgb(255 255 255 / .28);
+  --sea-glass-highlight:inset 0 1px 1px rgb(255 255 255 / .22);
+  --sea-glass-lift:0 5px 18px rgb(0 0 0 / .14);
   color-scheme:dark;
 }
 html[data-visual-theme="new"] body,
@@ -92,10 +100,15 @@ html[data-visual-theme="new"] body.neu-mode :is(.view-topbar,.page-floating-topb
 html[data-visual-theme="new"] body.neu-mode :is(#sec-calendar,#sec-album,#sec-state,#sec-flo,#sec-favorites,#sec-app-settings,#sec-dev,#sec-ledger) :is(.view-topbar,.dev-topbar) {
   background:var(--sea-panel) !important; color:var(--sea-foreground) !important;
 }
-html[data-visual-theme="new"] body.neu-mode #sec-chat :is(.chat-home-pill,.chat-bottom-bar,.chat-tool-menu) {
-  background:var(--sea-panel) !important; color:var(--sea-foreground) !important; border-color:var(--sea-edge) !important; box-shadow:none !important;
+html[data-visual-theme="new"] body.neu-mode #sec-chat :is(.chat-home-pill,.chat-floating-actions>button,.chat-tool-menu) {
+  background:rgb(var(--sea-bubble-rgb) / var(--sea-card-opacity)) !important;
+  color:var(--sea-foreground) !important;
+  border-color:var(--sea-glass-edge) !important;
+  box-shadow:var(--sea-glass-lift),var(--sea-glass-highlight) !important;
+  backdrop-filter:blur(var(--sea-glass-blur)) saturate(108%) !important;
+  -webkit-backdrop-filter:blur(var(--sea-glass-blur)) saturate(108%) !important;
 }
-html[data-visual-theme="new"] body.neu-mode #sec-chat :is(.chat-floating-actions>button,#chatInput,.model-select,.chat-tool-btn) {
+html[data-visual-theme="new"] body.neu-mode #sec-chat :is(#chatInput,.model-select,.chat-tool-btn) {
   color:var(--sea-foreground) !important; background:transparent !important; box-shadow:none !important;
 }
 html[data-visual-theme="new"] body.neu-mode #sec-chat,
@@ -105,6 +118,12 @@ html[data-visual-theme="new"] body.neu-mode :is(.view-title,.view-back,.chat-flo
 html[data-visual-theme="new"] body.neu-mode :is(.view-back,.chat-icon-button,#chatInput,#chatSendBtn,.chat-tool-preferences,.chat-model-selector) { background:var(--sea-surface) !important; color:var(--sea-foreground) !important; box-shadow:none !important; }
 html[data-visual-theme="new"] body.neu-mode :is(#chatInput,.chat-model-selector)::placeholder { color:var(--sea-muted) !important; }
 html[data-visual-theme="new"] body.neu-mode :is(.msg.user,.msg.ai,.msg.sys,.msg.user .bubble,.msg.ai .bubble) { color:var(--sea-foreground) !important; }
+html[data-visual-theme="new"] body.neu-mode #sec-chat :is(.msg.ai,.msg.sys,.msg.user) {
+  border-color:var(--sea-glass-edge) !important;
+  box-shadow:var(--sea-glass-lift),var(--sea-glass-highlight) !important;
+  backdrop-filter:blur(var(--sea-glass-blur)) saturate(108%) !important;
+  -webkit-backdrop-filter:blur(var(--sea-glass-blur)) saturate(108%) !important;
+}
 html[data-visual-theme="new"] body.neu-mode #sec-chat :is(.msg.ai,.msg.sys) { background:rgb(var(--sea-bubble-rgb) / var(--sea-card-opacity)) !important; }
 html[data-visual-theme="new"] body.neu-mode #sec-chat .msg.user { background:rgb(var(--sea-user-bubble-rgb) / var(--sea-card-opacity)) !important; }
 html[data-visual-theme="new"] body.neu-mode :is(.msg .md-content,.msg .msg-time,.msg blockquote,.chat-tool-heading) { color:inherit !important; }
@@ -142,6 +161,8 @@ html[data-visual-theme="new"] body[data-sea-standalone] :is(.hero h2,main>h1,.da
 html[data-visual-theme="new"] body.neu-mode #sec-chat .chat-bottom-bar {
   isolation:isolate;
   background:transparent !important;
+  border-color:var(--sea-glass-edge) !important;
+  box-shadow:var(--sea-glass-lift),var(--sea-glass-highlight) !important;
   backdrop-filter:none !important;
   -webkit-backdrop-filter:none !important;
 }
@@ -151,7 +172,9 @@ html[data-visual-theme="new"] body.neu-mode #sec-chat .chat-bottom-bar::before {
   inset:0;
   z-index:-1;
   border-radius:inherit;
-  background:rgb(var(--sea-bubble-rgb) / var(--sea-card-opacity));
+  background:rgb(var(--sea-bubble-rgb) / var(--sea-composer-opacity));
+  backdrop-filter:blur(var(--sea-glass-blur)) saturate(108%);
+  -webkit-backdrop-filter:blur(var(--sea-glass-blur)) saturate(108%);
   pointer-events:none;
 }
 html[data-visual-theme="new"] body.neu-mode #sec-chat #chatInput {

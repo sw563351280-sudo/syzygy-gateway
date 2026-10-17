@@ -46,17 +46,6 @@
     function normalizeTextColor(value, fallback) {
         return allowedTextColors.get(String(value || '').toLowerCase()) || fallback;
     }
-    function colorLuminance(color) {
-        const channels = String(color || '').match(/[\da-f]{2}/gi)?.slice(0, 3).map(value => parseInt(value, 16) / 255) || [0, 0, 0];
-        const [red, green, blue] = channels.map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
-        return red * .2126 + green * .7152 + blue * .0722;
-    }
-    function contrastTokens(color) {
-        const lightText = colorLuminance(color) > .28;
-        return lightText
-            ? { bubble: '9 24 42', userBubble: '20 48 55' }
-            : { bubble: '235 243 250', userBubble: '210 235 240' };
-    }
     function normalize(raw) {
         const source = raw && typeof raw === 'object' ? raw : {};
         const exceptions = {};
@@ -233,20 +222,18 @@
     }
     function applyMetrics() {
         const opacity = 1 - config.cardTransparency / 100;
-        const dayContrast = contrastTokens(config.dayTextColor);
-        const nightContrast = contrastTokens(config.nightTextColor);
+        const glassBlur = opacity * 12;
+        const composerOpacity = Math.min(.82, Math.max(.08, opacity * 1.2));
         html.style.setProperty('--sea-card-opacity', opacity.toFixed(2));
         html.style.setProperty('--sea-surface-opacity', Math.max(.06, opacity * .56).toFixed(2));
+        html.style.setProperty('--sea-glass-blur', `${glassBlur.toFixed(1)}px`);
+        html.style.setProperty('--sea-composer-opacity', composerOpacity.toFixed(2));
         html.style.setProperty('--sea-day-dim', (config.dayDim / 100).toFixed(2));
         html.style.setProperty('--sea-night-dim', (config.nightDim / 100).toFixed(2));
         html.style.setProperty('--sea-background-blur', `${config.blur}px`);
         html.style.setProperty('--sea-background-scale', (1 + config.blur / 250).toFixed(3));
         html.style.setProperty('--sea-day-foreground', config.dayTextColor);
         html.style.setProperty('--sea-night-foreground', config.nightTextColor);
-        html.style.setProperty('--sea-day-bubble-rgb', dayContrast.bubble);
-        html.style.setProperty('--sea-night-bubble-rgb', nightContrast.bubble);
-        html.style.setProperty('--sea-day-user-bubble-rgb', dayContrast.userBubble);
-        html.style.setProperty('--sea-night-user-bubble-rgb', nightContrast.userBubble);
     }
     function updateChrome() {
         /* A solid theme-color becomes an opaque status-bar strip on older

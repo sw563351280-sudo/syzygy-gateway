@@ -82,13 +82,13 @@ test('the house has one appearance and keeps day/night wallpaper inheritance exp
     assert.equal(fixture.properties.get('--sea-background-blur'), '7px');
     assert.equal(fixture.properties.get('--sea-day-foreground'), '#1a3a5c');
     assert.equal(fixture.properties.get('--sea-night-foreground'), '#e8e0d4');
-    assert.equal(fixture.properties.get('--sea-day-bubble-rgb'), '235 243 250');
-    assert.equal(fixture.properties.get('--sea-night-bubble-rgb'), '9 24 42');
+    assert.equal(fixture.properties.get('--sea-glass-blur'), '1.8px');
+    assert.equal(fixture.properties.get('--sea-composer-opacity'), '0.18');
 
     theme.setAdjustments({ dayTextColor: '#7B9EB8', nightTextColor: '#c4956a' });
     assert.equal(theme.settings().dayTextColor, '#7b9eb8');
     assert.equal(theme.settings().nightTextColor, '#c4956a');
-    assert.equal(fixture.properties.get('--sea-day-bubble-rgb'), '9 24 42', 'light text receives a dark contrasting bubble');
+    assert.equal(fixture.properties.has('--sea-day-bubble-rgb'), false, 'text color no longer switches the glass to a dark fill');
     theme.setAdjustments({ dayTextColor: 'not-a-color' });
     assert.equal(theme.settings().dayTextColor, '#1a3a5c', 'unknown colors fall back safely');
 
