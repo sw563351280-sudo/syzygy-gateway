@@ -15,8 +15,6 @@
   --sea-night-bubble-rgb:9 24 42;
   --sea-day-user-bubble-rgb:210 235 240;
   --sea-night-user-bubble-rgb:20 48 55;
-  --sea-day-text-shadow:0 1px 2px rgb(255 255 255 / .72),0 0 5px rgb(255 255 255 / .42);
-  --sea-night-text-shadow:0 1px 3px rgb(0 0 0 / .72),0 0 5px rgb(0 0 0 / .38);
 }
 html[data-visual-theme="new"] {
   --sea-image:var(--sea-day-image);
@@ -32,7 +30,6 @@ html[data-visual-theme="new"] {
   --sea-emphasis:#1a3a5c;
   --sea-bubble-rgb:var(--sea-day-bubble-rgb);
   --sea-user-bubble-rgb:var(--sea-day-user-bubble-rgb);
-  --sea-text-shadow:var(--sea-day-text-shadow);
   --sea-home-image:var(--sea-image);
   /* iOS paints the standalone status area from the root canvas. Keep the
      actual wallpaper there too instead of exposing a solid fallback strip. */
@@ -57,7 +54,6 @@ html[data-visual-theme="new"][data-sea-cycle="night"] {
   --sea-emphasis:#d87575;
   --sea-bubble-rgb:var(--sea-night-bubble-rgb);
   --sea-user-bubble-rgb:var(--sea-night-user-bubble-rgb);
-  --sea-text-shadow:var(--sea-night-text-shadow);
   color-scheme:dark;
 }
 html[data-visual-theme="new"] body,
@@ -66,7 +62,6 @@ html[data-visual-theme="new"] body.neu-mode {
   min-height:100dvh;
   background:transparent !important;
   color:var(--sea-foreground);
-  text-shadow:var(--sea-text-shadow);
 }
 html[data-visual-theme="new"] body::before {
   content:''; position:fixed; inset:0; z-index:-1; pointer-events:none;
@@ -103,6 +98,8 @@ html[data-visual-theme="new"] body.neu-mode #sec-chat :is(.chat-home-pill,.chat-
 html[data-visual-theme="new"] body.neu-mode #sec-chat :is(.chat-floating-actions>button,#chatInput,.model-select,.chat-tool-btn) {
   color:var(--sea-foreground) !important; background:transparent !important; box-shadow:none !important;
 }
+html[data-visual-theme="new"] body.neu-mode #sec-chat,
+html[data-visual-theme="new"] body.neu-mode #sec-chat * { text-shadow:none !important; }
 html[data-visual-theme="new"] body.neu-mode #sec-chat #chatInput::placeholder { color:var(--sea-muted) !important; }
 html[data-visual-theme="new"] body.neu-mode :is(.view-title,.view-back,.chat-floating-title button,.chat-floating-actions button,.chat-tool-item,.chat-tool-item label,.workroom-switch-btn,.codex-page-content,.app-settings-page,.neu-title,.neu-label,.fav-empty,.tt-memory-intro) { color:var(--sea-foreground) !important; }
 html[data-visual-theme="new"] body.neu-mode :is(.view-back,.chat-icon-button,#chatInput,#chatSendBtn,.chat-tool-preferences,.chat-model-selector) { background:var(--sea-surface) !important; color:var(--sea-foreground) !important; box-shadow:none !important; }

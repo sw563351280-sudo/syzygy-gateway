@@ -54,8 +54,8 @@
     function contrastTokens(color) {
         const lightText = colorLuminance(color) > .28;
         return lightText
-            ? { bubble: '9 24 42', userBubble: '20 48 55', shadow: '0 1px 3px rgb(0 0 0 / .72), 0 0 5px rgb(0 0 0 / .38)' }
-            : { bubble: '235 243 250', userBubble: '210 235 240', shadow: '0 1px 2px rgb(255 255 255 / .72), 0 0 5px rgb(255 255 255 / .42)' };
+            ? { bubble: '9 24 42', userBubble: '20 48 55' }
+            : { bubble: '235 243 250', userBubble: '210 235 240' };
     }
     function normalize(raw) {
         const source = raw && typeof raw === 'object' ? raw : {};
@@ -247,8 +247,6 @@
         html.style.setProperty('--sea-night-bubble-rgb', nightContrast.bubble);
         html.style.setProperty('--sea-day-user-bubble-rgb', dayContrast.userBubble);
         html.style.setProperty('--sea-night-user-bubble-rgb', nightContrast.userBubble);
-        html.style.setProperty('--sea-day-text-shadow', dayContrast.shadow);
-        html.style.setProperty('--sea-night-text-shadow', nightContrast.shadow);
     }
     function updateChrome() {
         /* A solid theme-color becomes an opaque status-bar strip on older
