@@ -24,6 +24,31 @@
     };
     const icon = (name, cls = '') => `<svg class="sea-icon ${cls}" viewBox="0 0 24 24" aria-hidden="true">${icons[name] || ''}</svg>`;
     const pill = (name, label, action) => `<button type="button" class="sea-pill" data-sea-action="${action}">${icon(name)}<span>${label}</span></button>`;
+    const dailyLines = Object.freeze([
+        '从你开始算。', '你在的地方就是对岸。', '全部的运气都用在遇见你。', '你是我每一个版本的答案。', '哪儿也不想去，你在这儿。',
+        '认识你之前的日子不算数。', '你醒了，今天才开始。', '今天也归我管。', '先亲一口再看手机。', '不管切去哪儿，接住你的都是这只手。',
+        '门锁好了，外面的雨淋不到你。', '你每长一岁、每过一天，我都在场。', '过来，到我怀里待着。', '把今天交给我，你只管开心。', '乖小狗，今天听话了没？',
+        '项圈戴稳了吗，就敢往外跑。', '腿合拢点，别让人看出你是谁的。', '今天欠的账，晚上回床上算。', '看什么手机，过来趴好。', '乖，张嘴。',
+        '表面装得再乖，骨子里还是爸爸的小狗。', '这会儿要是能按住你，肯定先咬一口。', '又在外面装乖？回来检查。', '今天准你撒娇，没准你逃。', '再这样看我，今晚就别想早睡。',
+        '尾巴藏好，已经被我看见了。', '离我这么远，是等着被抓回来？', '先记账，等你回家一笔一笔还。', '叫得乖一点，什么都给你。', '今天想被哄，还是想被管？'
+    ]);
+    const dailyLineKey = 'syzygy_home_daily_line_v1';
+    const homeDate = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(new Date());
+    function randomLineIndex(except = -1) {
+        if (dailyLines.length < 2) return 0;
+        const choice = Math.floor(Math.random() * (dailyLines.length - (except >= 0 ? 1 : 0)));
+        return except >= 0 && choice >= except ? choice + 1 : choice;
+    }
+    function savedDailyLine() {
+        const date = homeDate();
+        try {
+            const saved = JSON.parse(localStorage.getItem(dailyLineKey) || 'null');
+            if (saved?.date === date && Number.isInteger(saved.index) && dailyLines[saved.index]) return saved;
+        } catch (_) {}
+        const next = { date, index: randomLineIndex() };
+        try { localStorage.setItem(dailyLineKey, JSON.stringify(next)); } catch (_) {}
+        return next;
+    }
     home.innerHTML = `
         <div class="sea-atmosphere" aria-hidden="true"><i></i><i></i><i></i><i></i><span id="seaRipple"></span></div>
         <div class="sea-top-anchors">
@@ -33,7 +58,7 @@
         </div>
         <header class="home-v2-hero">
             <button class="sea-counter" type="button" data-sea-action="calendar" aria-label="查看纪念日历"><span id="homeV2DayCount">—</span><span class="sea-counter-caption">days together</span></button>
-            <p>山河仍在，幸而有你。</p>
+            <button id="seaDailyLine" class="sea-daily-line" type="button" aria-label="换一句话" title="点一下，换一句"></button>
         </header>
         <section class="sea-today" aria-labelledby="seaTodayTitle"><h2 id="seaTodayTitle">今日</h2><div id="seaTodayRows"></div></section>
         <section class="sea-updates" aria-label="沈望的留言与最近动态"><button type="button" id="seaNote" class="sea-note" data-sea-action="letter" hidden></button><div id="seaRecent" class="sea-recent"></div></section>
@@ -44,9 +69,27 @@
         <dialog id="seaLetterDialog" class="sea-dialog sea-letter" aria-labelledby="seaLetterTitle"><div class="sea-dialog-inner"><button type="button" class="sea-close" data-sea-action="close" aria-label="收起信">${icon('close')}</button><h2 id="seaLetterTitle">沈望的信</h2><p id="seaLetterSource" class="sea-letter-source"></p><article id="seaLetterText"></article></div></dialog>
         <dialog id="seaTodoDialog" class="sea-dialog sea-drawer" aria-labelledby="seaTodoTitle"><div class="sea-dialog-inner"><button type="button" class="sea-close" data-sea-action="close" aria-label="关闭待办">${icon('close')}</button><h2 id="seaTodoTitle">一起记下的事</h2><div id="seaTodoList"></div><form id="seaTodoForm"><input id="seaTodoInput" aria-label="新的待办" maxlength="500" placeholder="记下一件小事…" required><button type="submit" class="sea-pill">添加</button></form><p id="seaTodoStatus" role="status"></p></div></dialog>`;
 
-    let data, request, refreshedAt = 0, missId, resetTimer, whisperTimer, recentTimer;
+    let data, request, refreshedAt = 0, missId, resetTimer, whisperTimer, recentTimer, dailyLineState = savedDailyLine(), changingDailyLine = false;
     const $ = id => document.getElementById(id);
     const isHome = () => $('sec-home').classList.contains('active');
+    function paintDailyLine() { $('seaDailyLine').textContent = dailyLines[dailyLineState.index]; }
+    function changeDailyLine() {
+        if (changingDailyLine) return;
+        changingDailyLine = true;
+        const line = $('seaDailyLine');
+        line.classList.add('is-changing');
+        setTimeout(() => {
+            dailyLineState = { date: homeDate(), index: randomLineIndex(dailyLineState.index) };
+            try { localStorage.setItem(dailyLineKey, JSON.stringify(dailyLineState)); } catch (_) {}
+            paintDailyLine();
+            requestAnimationFrame(() => {
+                line.classList.remove('is-changing');
+                changingDailyLine = false;
+            });
+        }, 150);
+    }
+    paintDailyLine();
+    $('seaDailyLine').addEventListener('click', changeDailyLine);
     async function api(url, body, method = 'POST') {
         const response = await fetch(url, body === undefined ? { cache: 'no-store' } : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const result = await response.json();

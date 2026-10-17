@@ -9,13 +9,14 @@ body.neu-mode #sec-home.home-layout-v2::after { content: ''; position: fixed; in
 body.neu-mode #sec-home.home-layout-v2 .home-v2 { display: flex; position: relative; z-index: 1; box-sizing: border-box; flex-direction: column; align-items: center; gap: 44px; width: 100%; min-height: 100dvh; margin: auto; padding: max(88px, 15dvh) 24px max(94px, 10dvh); font-family: 'Sea Serif','Noto Serif SC','Songti SC','SimSun',serif; font-weight: 400; }
 .home-v2 button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .home-v2 button:focus-visible,.home-v2 input:focus-visible { outline: 2px solid rgba(235,249,255,.9); outline-offset: 4px; }
-.home-v2 .home-v2-hero { text-align: center; color: #183f62; flex-shrink: 0; text-shadow: 0 1px 2px rgba(241,248,255,.12); }
+.home-v2 .home-v2-hero { text-align: center; color: var(--sea-foreground,#183f62); flex-shrink: 0; text-shadow: var(--sea-text-shadow,0 1px 2px rgba(241,248,255,.72)); }
 .sea-counter { display: flex; flex-direction: column; align-items: center; padding: 0; background: none; border: 0; }
 #homeV2DayCount { font-family: 'Cormorant Garamond',Georgia,serif; font-size: 80px; font-weight: 400; font-style: italic; line-height: .95; letter-spacing: -2px; }
 .sea-counter-caption { margin-top: 12px; font: italic 22px/1.2 'Cormorant Garamond',Georgia,serif; letter-spacing: .2em; }
-.home-v2-hero p { margin: 14px 0 0; font-size: 15px; font-weight: 400; letter-spacing: .18em; opacity: .9; }
+.sea-daily-line { display:flex; align-items:center; justify-content:center; width:min(100%,440px); min-height:3.4em; margin:7px auto 0; padding:0 10px; border:0; background:none; font-size:15px !important; font-weight:400; line-height:1.7; letter-spacing:.12em; text-align:center; opacity:.9; transition:opacity .15s ease,transform .15s ease; }
+.sea-daily-line.is-changing { opacity:0; transform:translateY(2px); }
 .sea-icon { width: 17px; height: 17px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.sea-today { width: 260px; max-width: 100%; box-sizing: border-box; border-left: 1px solid rgba(255,255,255,.22); padding-left: 14px; text-align: left; text-shadow: 0 1px 3px rgba(14,39,64,.4); }
+.sea-today { width: 260px; max-width: 100%; box-sizing: border-box; border-left: 1px solid color-mix(in srgb,currentColor 24%,transparent); padding-left: 14px; color:var(--sea-foreground,#edf6fa); text-align: left; text-shadow:var(--sea-text-shadow,0 1px 3px rgba(14,39,64,.55)); }
 .sea-today h2 { margin: 0 0 12px; font-size: 12px; font-weight: 400; letter-spacing: 2px; opacity: .5; }
 #seaTodayRows { display: flex; flex-direction: column; gap: 12px; }
 .sea-data-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 24px; padding: 0; text-align: left; background: none; border: 0; border-radius: 6px; font-size: 14px !important; opacity: .95; transition: background .2s; }
@@ -25,7 +26,7 @@ body.neu-mode #sec-home.home-layout-v2 .home-v2 { display: flex; position: relat
 .sea-data-row:hover,.sea-data-row:active { background: rgba(231,247,255,.1); }
 .sea-shen-dot { height: 5px; width: 5px; flex: 0 0 auto; border-radius: 50%; background: #d5c7a0; }
 .sea-empty { display: block; padding: 0; min-height: 24px; border: 0; background: none; text-align: left; font-size: 12px !important; letter-spacing: .04em; opacity: .5; font-style: italic !important; line-height: 1.7; }
-.sea-updates { width: min(100%,540px); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; text-shadow: 0 1px 3px rgba(14,39,64,.4); }
+.sea-updates { width: min(100%,540px); color:var(--sea-foreground,#edf6fa); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; text-shadow:var(--sea-text-shadow,0 1px 3px rgba(14,39,64,.55)); }
 .sea-note { max-width: 100%; min-height: 22px; padding: 0; background: none; border: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px !important; opacity: .85; }
 .sea-note[hidden] { display: none; }
 .sea-recent { width: 100%; min-height: 23px; display: flex; justify-content: center; gap: 20px; }
@@ -94,7 +95,7 @@ body.sea-modal-open { overflow: hidden !important; }
 .home-v2:not(.sea-active) * { animation-play-state: paused !important; }
 html[data-sea-cycle="night"] { --sea-home-image: url('assets/ice-sea-night-v1.webp'); }
 html[data-sea-cycle="night"] body.neu-mode #sec-home.home-layout-v2 { background: #081a2d; }
-html[data-sea-cycle="night"] .home-v2 .home-v2-hero { color: #edf3f7; text-shadow: 0 1px 12px rgba(0,0,0,.25); }
+html[data-sea-cycle="night"] .home-v2 .home-v2-hero { color:var(--sea-foreground,#edf3f7); text-shadow:var(--sea-text-shadow,0 1px 12px rgba(0,0,0,.55)); }
 html[data-sea-cycle="night"] .home-v2 .sea-whisper { color: #edf3f7; }
 html[data-sea-cycle="night"] .home-v2 .sea-pill { background: rgba(235,243,250,.06); }
 html[data-sea-cycle="night"] .home-v2 .sea-pill:hover { background: rgba(235,243,250,.13); }
@@ -108,7 +109,7 @@ html[data-sea-cycle="night"] .home-v2 .sea-dialog { background: rgba(10,25,43,.7
 @media (min-width: 700px) {
   #homeV2DayCount { font-size: 96px; font-weight: 500; letter-spacing: -1px; }
   .sea-counter-caption { font-size: 24px; letter-spacing: .24em; }
-  .home-v2-hero p { font-size: 16px; }
+  .sea-daily-line { font-size:16px !important; }
   .sea-today { width: 340px; min-height: 230px; }
   .sea-today h2 { font-size: 13px; opacity: .65; }
   .sea-today .sea-data-row { font-size: 16px !important; letter-spacing: .04em; min-height: 27px; }

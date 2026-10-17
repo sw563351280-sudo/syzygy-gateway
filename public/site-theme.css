@@ -11,6 +11,12 @@
   --sea-background-scale:1;
   --sea-day-foreground:#1a3a5c;
   --sea-night-foreground:#e8e0d4;
+  --sea-day-bubble-rgb:235 243 250;
+  --sea-night-bubble-rgb:9 24 42;
+  --sea-day-user-bubble-rgb:210 235 240;
+  --sea-night-user-bubble-rgb:20 48 55;
+  --sea-day-text-shadow:0 1px 2px rgb(255 255 255 / .72),0 0 5px rgb(255 255 255 / .42);
+  --sea-night-text-shadow:0 1px 3px rgb(0 0 0 / .72),0 0 5px rgb(0 0 0 / .38);
 }
 html[data-visual-theme="new"] {
   --sea-image:var(--sea-day-image);
@@ -24,7 +30,9 @@ html[data-visual-theme="new"] {
   --ink:var(--sea-foreground); --muted:var(--sea-muted); --blue:var(--sea-accent); --gold:var(--sea-accent);
   --text:var(--sea-foreground); --dim:var(--sea-muted); --cream:var(--sea-foreground);
   --sea-emphasis:#1a3a5c;
-  --sea-text-shadow:0 1px 2px rgb(255 255 255 / .24),0 0 4px rgb(255 255 255 / .12);
+  --sea-bubble-rgb:var(--sea-day-bubble-rgb);
+  --sea-user-bubble-rgb:var(--sea-day-user-bubble-rgb);
+  --sea-text-shadow:var(--sea-day-text-shadow);
   --sea-home-image:var(--sea-image);
   /* iOS paints the standalone status area from the root canvas. Keep the
      actual wallpaper there too instead of exposing a solid fallback strip. */
@@ -47,7 +55,9 @@ html[data-visual-theme="new"][data-sea-cycle="night"] {
   --sea-surface:rgb(235 243 250 / var(--sea-surface-opacity));
   --sea-accent:#c8b28e;
   --sea-emphasis:#d87575;
-  --sea-text-shadow:0 1px 2px rgb(0 0 0 / .42),0 0 4px rgb(0 0 0 / .2);
+  --sea-bubble-rgb:var(--sea-night-bubble-rgb);
+  --sea-user-bubble-rgb:var(--sea-night-user-bubble-rgb);
+  --sea-text-shadow:var(--sea-night-text-shadow);
   color-scheme:dark;
 }
 html[data-visual-theme="new"] body,
@@ -98,10 +108,8 @@ html[data-visual-theme="new"] body.neu-mode :is(.view-title,.view-back,.chat-flo
 html[data-visual-theme="new"] body.neu-mode :is(.view-back,.chat-icon-button,#chatInput,#chatSendBtn,.chat-tool-preferences,.chat-model-selector) { background:var(--sea-surface) !important; color:var(--sea-foreground) !important; box-shadow:none !important; }
 html[data-visual-theme="new"] body.neu-mode :is(#chatInput,.chat-model-selector)::placeholder { color:var(--sea-muted) !important; }
 html[data-visual-theme="new"] body.neu-mode :is(.msg.user,.msg.ai,.msg.sys,.msg.user .bubble,.msg.ai .bubble) { color:var(--sea-foreground) !important; }
-html[data-visual-theme="new"] body.neu-mode #sec-chat :is(.msg.ai,.msg.sys) { background:rgba(235,243,250,.58) !important; }
-html[data-visual-theme="new"] body.neu-mode #sec-chat .msg.user { background:rgba(210,235,240,.60) !important; }
-html[data-visual-theme="new"][data-sea-cycle="night"] body.neu-mode #sec-chat :is(.msg.ai,.msg.sys) { background:rgba(10,21,38,.08) !important; }
-html[data-visual-theme="new"][data-sea-cycle="night"] body.neu-mode #sec-chat .msg.user { background:rgba(120,180,190,.12) !important; }
+html[data-visual-theme="new"] body.neu-mode #sec-chat :is(.msg.ai,.msg.sys) { background:rgb(var(--sea-bubble-rgb) / var(--sea-card-opacity)) !important; }
+html[data-visual-theme="new"] body.neu-mode #sec-chat .msg.user { background:rgb(var(--sea-user-bubble-rgb) / var(--sea-card-opacity)) !important; }
 html[data-visual-theme="new"] body.neu-mode :is(.msg .md-content,.msg .msg-time,.msg blockquote,.chat-tool-heading) { color:inherit !important; }
 html[data-visual-theme="new"] body.neu-mode #sec-chat .msg .md-content :is(strong,b) { color:var(--sea-emphasis) !important; }
 html[data-visual-theme="new"] body.neu-mode :is(.codex-settings-card,.codex-record-card,.tt-memory-group) { color:#34383d; background:#f5f0e8; }
@@ -146,7 +154,7 @@ html[data-visual-theme="new"] body.neu-mode #sec-chat .chat-bottom-bar::before {
   inset:0;
   z-index:-1;
   border-radius:inherit;
-  background:var(--sea-panel);
+  background:rgb(var(--sea-bubble-rgb) / var(--sea-card-opacity));
   pointer-events:none;
 }
 html[data-visual-theme="new"] body.neu-mode #sec-chat #chatInput {

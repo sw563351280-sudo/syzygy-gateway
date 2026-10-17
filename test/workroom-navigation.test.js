@@ -45,7 +45,7 @@ test('standalone chat lets its section own the viewport without fixing the body'
 test('full-screen top close controls stay below the iOS safe area', () => {
     assert.match(css, /\.physio-panel \.chat-index-header\s*\{[^}]*padding-top:\s*calc\(14px \+ env\(safe-area-inset-top, 0px\)\)/);
     assert.match(homeCss, /\.sea-letter \.sea-close\s*\{[^}]*top:\s*calc\(12px \+ env\(safe-area-inset-top, 0px\)\)/);
-    assert.match(html, /home-sea\.css\?v=4/);
+    assert.match(html, /home-sea\.css\?v=5/);
 });
 
 test('the same gear opens Shenwang settings in communication and Codex settings in workroom', () => {
