@@ -16,6 +16,7 @@ const { createShenSettings, shenSettingsRouter } = require('./shen-settings');
 const { pruneWireImages } = require('./public/chat-window-context');
 const { extractThinkingFromContent } = require('./public/thinking-parser');
 const { extractAssistantReaction } = require('./assistant-reaction');
+const { createAssistantStreamFilter, splitAssistantTerminalTags } = require('./assistant-internal-tags');
 const { applyProviderSettings, applyReactionPreference } = require('./chat-settings');
 const { consumeOpenAIStream } = require('./streaming-chat');
 const { createChatRequestLifecycle } = require('./chat-request-lifecycle');
@@ -3671,6 +3672,7 @@ async function buildSharedSystemPrompt({
     dynamicStatePrompt = '',
     model = '',
     stableCheck = '',
+    reactionInstruction = '',
     modeInstruction = '',
     extraStableText = '',
     tr = null,
@@ -3730,6 +3732,7 @@ async function buildSharedSystemPrompt({
     const stableSystemBlock = [
         modelPromptText,
         stableSystemPrompt,
+        reactionInstruction,
         ANTICIPATION_OUTPUT_INSTRUCTION,
         stableCheck,
         extraStableText,
@@ -7792,12 +7795,16 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 
 【微信日常聊天模式】
 这是微信即时聊天，不是长文问答。默认用 1-4 句短消息回应，先回应最重要的一点；每句尽量短，自然使用口语、停顿和轻微情绪。除非你在解释复杂问题、用户明确要求详细说明，或确实需要列步骤，否则不要写长段落、总结、标题或小作文。不要复述用户刚刚说过的话。` : '';
+        const reactionInst = shenReactionEnabled
+            ? '【表情回应规则】\n是否回应、用什么表情，完全由你根据当下语境自主决定；没有自然反应就不输出，也绝不能为了完成规则而每轮都贴。决定回应时，必须在回复末尾的隐藏标签区另起一行实际输出 <REACT:🐶>，冒号后只能放一个完整 emoji（允许肤色、变体或组合 emoji），每次最多一个。正文里描述“贴了”“盖章了”不能代替机器标签；如果正文明确说自己已经贴出表情，末尾必须有对应标签。REACT 与 SAVE_MEMORY、CRUMB、MOOD_SNAPSHOT 等标签彼此独立，不占它们的数量名额，也可以和它们按任意顺序连续放在末尾。标签会被界面隐藏，并贴到江鱼对应的消息气泡上。'
+            : '';
         const sharedSystem = await buildSharedSystemPrompt({
             query: currentUserMsgText,
             envContext,
             dynamicStatePrompt,
             model: body.model || '',
             stableCheck: STABLE_CHECK,
+            reactionInstruction: reactionInst,
             extraStableText: openClawChatStyle,
             tr: _tr,
         });
@@ -7820,10 +7827,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
             const dialogueCrumbInst = '【生活碎屑输出规则·每轮主动检查】\n像 MOOD_SNAPSHOT 一样，回复前主动检查江鱼这一轮是否说出了以后可能想找回的具体生活事实；有就悄悄输出至多一个隐藏标签，没有就不要为了完成任务硬写。格式：<CRUMB>{"fact":"我记着她说……","source_quote":"她这一轮逐字原话","entities":["对象"],"tags":["短标签"]}</CRUMB>。标签体必须是一个单行、严格合法的 JSON 对象：字段名和字符串均使用英文双引号，内容里的双引号必须写成 \\"，不使用代码块或额外解释。通常 source_quote 必须逐字来自这一轮；但当她明确说“再写一次”“写进生活碎屑”或“没写进去”时，可以引用近期对话里相关的用户原话，绝不能引用助手杜撰的内容。技术讨论、寒暄、纯情绪、重复近况和拿不准的情况不输出。';
             const relationshipStateInst = '【双轴关系状态·由当前对话模型判断】\n你拥有近期完整对话，同时独立判断事件轴与温度轴。事件 transition：friction_started（摩擦）、conflict_started、conflict_continues、paused_unresolved、tentative_contact（冷战后第一次靠近）、repair_started、resolved、conflict_reopened；只有温度变化时用 temperature_changed。温度 temperature：warm、neutral、withdrawn、hostile。只在任一轴真正变化时输出至多一个隐藏标签；无变化不输出。格式：<RELATIONSHIP_STATE>{"transition":"状态","temperature":"可选温度","temperature_direction":"up|down|steady","signal_strength":"ordinary|strong","support_turns":1,"title":"短标题","summary":"状态变化及依据；称呼变化只写在这里","evidence_quote":"江鱼本轮逐字原话","themes":["短主题"],"confidence":0.0,"user_confirmed":false,"resolution_basis":"explicit|implicit_reconnection"}</RELATIONSHIP_STATE>。称呼是实时特征，不单独存储：连续6个有效用户轮次未使用“爸爸/老公/沈望”等亲密称呼，只提高警觉，不能单独降温；短至两三个字的“嗯/哦/行/随便”等仍是有效轮次和语气证据，不得排除；纯技术事务、粘贴内容和引用他人对话不计入这6轮。降温：一轮强信号可变更，普通信号至少连续两轮；升温至少连续两轮。直接“你”需结合语义，冲突中讽刺性“您”可算强信号。冷战后首次主动分享、恢复亲密称呼、接玩笑或允许亲近只用 tentative_contact；后续新的恢复行为才用 repair_started；再持续恢复且未重燃，才可 resolved + implicit_reconnection（confidence≥0.85）。明确说开则 resolved + explicit + user_confirmed=true。“算了/不说了/随便吧”是 paused_unresolved。evidence_quote 必须逐字来自本轮；标签为单行严格 JSON并自动隐藏。';
-            const reactionInst = typeof shenReactionEnabled !== 'undefined' && shenReactionEnabled
-                ? '【表情回应规则】\n你可以在确实想对江鱼本轮这条消息做一个小表情回应时，在完整回复末尾另起一行输出 <REACT:🐶>。冒号后只能放一个完整 emoji（允许肤色、变体或组合 emoji），每次最多一个；没有自然反应就不要输出，绝不能为了完成规则而每轮都贴。标签会被界面隐藏并贴到江鱼对应的消息气泡上。'
-                : '';
-            const fixedOutputRules = [relationshipStateInst, moodSnapshotInst, dialogueCrumbInst, reactionInst].filter(Boolean).join('\n\n');
+            const fixedOutputRules = [relationshipStateInst, moodSnapshotInst, dialogueCrumbInst].filter(Boolean).join('\n\n');
             const cacheFixedRules = supportsBlockCache(resolveApiUrl(req.path), body.model);
             if (cacheFixedRules) systemMsg.content += '\n\n' + fixedOutputRules;
             else dynamicBlocks = fixedOutputRules;
@@ -8061,8 +8065,6 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         let streamingSetup = isStreamMode;
         let toolStreamFullContent = '';
         let toolStreamFullReasoning = '';
-        let toolStreamContentBuffer = '';
-        let toolStreamBufferingInternalTag = false;
         let toolStreamLastTemplate = null;
 
         function writeToolStreamDelta(delta, template) {
@@ -8074,61 +8076,18 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             res.write(`data: ${JSON.stringify(chunk)}\n\n`);
         }
 
+        const toolVisibleStream = createAssistantStreamFilter(text => {
+            writeToolStreamDelta({ content: text }, toolStreamLastTemplate);
+        });
+
         function pushToolStreamVisibleContent(piece, template) {
             if (!piece) return;
             toolStreamLastTemplate = template || toolStreamLastTemplate;
-            toolStreamContentBuffer += piece;
-
-            if (!toolStreamBufferingInternalTag) {
-                const tagOpen = /<\s*(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL|REACT)(?:\b|(?=\s*:))/i;
-                const privateJournalMarker = /(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i;
-                const indexes = [toolStreamContentBuffer.search(tagOpen), toolStreamContentBuffer.search(privateJournalMarker)].filter(index => index >= 0);
-                const internalTagIndex = indexes.length ? Math.min(...indexes) : -1;
-                if (internalTagIndex === -1) {
-                    const possibleTagIndex = toolStreamContentBuffer.lastIndexOf('<');
-                    if (possibleTagIndex !== -1 && toolStreamContentBuffer.substring(possibleTagIndex).length < 30) {
-                        const safe = toolStreamContentBuffer.substring(0, possibleTagIndex);
-                        if (safe) writeToolStreamDelta({ content: safe }, toolStreamLastTemplate);
-                        toolStreamContentBuffer = toolStreamContentBuffer.substring(possibleTagIndex);
-                    } else {
-                        writeToolStreamDelta({ content: toolStreamContentBuffer }, toolStreamLastTemplate);
-                        toolStreamContentBuffer = '';
-                    }
-                } else {
-                    const safe = toolStreamContentBuffer.substring(0, internalTagIndex);
-                    if (safe) writeToolStreamDelta({ content: safe }, toolStreamLastTemplate);
-                    toolStreamContentBuffer = toolStreamContentBuffer.substring(internalTagIndex);
-                    toolStreamBufferingInternalTag = true;
-                }
-            }
-
-            if (toolStreamBufferingInternalTag) {
-                toolStreamContentBuffer = toolStreamContentBuffer.replace(/<\s*\/\s*(SAVE_MEMORY|CRUMB|RELATIONSHIP_STATE)\s*>/gi, (_, name) => '</' + name.toUpperCase() + '>');
-                const closingTags = ['</SAVE_MEMORY>', '</ADD_TODO>', '</MOOD_SNAPSHOT>', '</CRUMB>', '</RELATIONSHIP_STATE>', '</STATE_UPDATE>', '</ANTICIPATION>', '</NEXT_WAKE>', '</PRIVATE_JOURNAL>', '/>'];
-                if (/^<\s*REACT\s*:/i.test(toolStreamContentBuffer)) closingTags.push('>');
-                const matches = closingTags.map(tag => ({ tag, index: toolStreamContentBuffer.indexOf(tag) })).filter(match => match.index !== -1);
-                if (matches.length > 0) {
-                    matches.sort((a, b) => a.index - b.index);
-                    const closing = matches[0];
-                    toolStreamContentBuffer = toolStreamContentBuffer.substring(closing.index + closing.tag.length);
-                    toolStreamBufferingInternalTag = false;
-                    if (toolStreamContentBuffer) {
-                        const remaining = toolStreamContentBuffer;
-                        toolStreamContentBuffer = '';
-                        pushToolStreamVisibleContent(remaining, toolStreamLastTemplate);
-                    }
-                }
-            }
+            toolVisibleStream.push(piece);
         }
 
         function finishToolVisibleStream() {
-            if (toolStreamContentBuffer
-                && !/<\s*(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL|REACT\s*:)/i.test(toolStreamContentBuffer)
-                && !/(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i.test(toolStreamContentBuffer)
-                && !/<[A-Z_]*$/i.test(toolStreamContentBuffer)) {
-                writeToolStreamDelta({ content: toolStreamContentBuffer }, toolStreamLastTemplate);
-            }
-            toolStreamContentBuffer = '';
+            return toolVisibleStream.finish();
         }
 
         while (maxToolRounds-- > 0 && filteredTools.length > 0) {
@@ -8253,47 +8212,47 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 if (match) { thinkFromTag = match[1].trim(); cleanForFinal = aiContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim(); }
             }
             const finalThink = reasoning || thinkFromTag;
-
-            const { cleanText: ntClean, memories: ntMems } = extractSaveMemoryTag(cleanForFinal);
-            if (!noMemory) for (const mem of ntMems) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr, currentMessageSource);
-            const todoClean = processAssistantActionTags(ntMems.length > 0 ? ntClean : cleanForFinal, anticipationWriteContext);
-            const finalContent = todoClean;
+            const processedReply = processAssistantReplyArtifacts(cleanForFinal, {
+                noMemory,
+                reactionEnabled: shenReactionEnabled,
+                currentUserText: currentUserMsgText,
+                currentMessageSource,
+                anticipationContext: anticipationWriteContext,
+                wakeContext: { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText },
+                crumbContext: crumbWriteContext,
+                tr: _tr,
+            });
 
             if (isStreamMode) {
                 // 正文和思考过程已经随上游 SSE 实时发送；这里只收尾并落库。
                 finishToolVisibleStream();
-                moodLog('[MOOD DEBUG] native tool stream before strip has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
-                const toolReaction = extractAssistantReaction(finalContent, { enabled: shenReactionEnabled });
-                const visibleContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(toolReaction.cleanContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
-                if (toolReaction.reaction) {
-                    res.write(`data: ${JSON.stringify({ type: 'shen_reaction', emoji: toolReaction.reaction, sourceMessageId: sourceMessageId || null })}\n\n`);
+                moodLog('[MOOD DEBUG] native tool stream terminal tags: ' + processedReply.terminalTags.length);
+                if (processedReply.reaction) {
+                    res.write(`data: ${JSON.stringify({ type: 'shen_reaction', emoji: processedReply.reaction, sourceMessageId: sourceMessageId || null })}\n\n`);
                 }
                 res.write(`data: ${JSON.stringify({ id: toolData.id || 'chatcmpl-tool', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }], ...(toolData.usage ? { usage: toolData.usage } : {}) })}\n\n`);
                 res.write('data: [DONE]\n\n');
                 res.end();
                 if (!noMemory) {
-                    await saveToZepWithCounter(currentUserMsgText, visibleContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
+                    await saveToZepWithCounter(currentUserMsgText, processedReply.visibleContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
-                    queueDailyStateCuration(currentUserMsgText, visibleContent, _tr); resolveAnticipationsFromUserText(currentUserMsgText);
+                    queueDailyStateCuration(currentUserMsgText, processedReply.visibleContent, _tr); resolveAnticipationsFromUserText(currentUserMsgText);
                 }
-                if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, visibleContent);
-                traceEnd(_tr, { ok: true, replyLen: visibleContent.length, path: 'tool-stream-native' });
+                if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, processedReply.visibleContent);
+                traceEnd(_tr, { ok: true, replyLen: processedReply.visibleContent.length, path: 'tool-stream-native' });
                 return;
             } else {
-                if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
                 if (finalThink) toolData.choices[0].message.reasoning_content = finalThink;
-                const toolReaction = extractAssistantReaction(finalContent, { enabled: shenReactionEnabled });
-                const moodCleaned = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(toolReaction.cleanContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
-                toolData.choices[0].message.content = moodCleaned;
-                if (toolReaction.reaction) toolData.syzygy_reaction = { emoji: toolReaction.reaction, sourceMessageId: sourceMessageId || null };
-                moodLog('[MOOD DEBUG] tool-path non-stream finalContent has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
+                toolData.choices[0].message.content = processedReply.visibleContent;
+                if (processedReply.reaction) toolData.syzygy_reaction = { emoji: processedReply.reaction, sourceMessageId: sourceMessageId || null };
+                moodLog('[MOOD DEBUG] tool-path non-stream terminal tags: ' + processedReply.terminalTags.length);
                 if (!noMemory) {
-                    await saveToZepWithCounter(currentUserMsgText, moodCleaned, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
+                    await saveToZepWithCounter(currentUserMsgText, processedReply.visibleContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
                     tryAutoDream(currentUserMsgText);
-                    queueDailyStateCuration(currentUserMsgText, moodCleaned, _tr); resolveAnticipationsFromUserText(currentUserMsgText);
+                    queueDailyStateCuration(currentUserMsgText, processedReply.visibleContent, _tr); resolveAnticipationsFromUserText(currentUserMsgText);
                 }
-                if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, moodCleaned);
-                traceEnd(_tr, { ok: true, replyLen: (moodCleaned || '').length, path: 'tool-json' });
+                if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, processedReply.visibleContent);
+                traceEnd(_tr, { ok: true, replyLen: processedReply.visibleContent.length, path: 'tool-json' });
                 if (musicToolRecords.length) toolData.music_tool_calls = musicToolRecords;
                 toolData.syzygy_usage = res.locals.messageUsage || null;
                 return res.status(200).json(toolData);
@@ -8353,9 +8312,13 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             }
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
-            let sseBuffer = ''; let contentBuffer = ''; let isBuffering = false; let lastChunkTemplate = null; let fullAiResponse = ''; let fullReasoning = '';
+            let sseBuffer = ''; let lastChunkTemplate = null; let fullAiResponse = ''; let fullReasoning = '';
             let budgetStreamUsage = null;
             let upstreamCompleted = false;
+            const visibleStream = createAssistantStreamFilter(text => {
+                const chunk = buildSSEChunk(text, lastChunkTemplate);
+                if (chunk) res.write(chunk);
+            });
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -8370,15 +8333,6 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                     const dataStr = line.substring(5).trim();
                     if (dataStr === '[DONE]') {
                         upstreamCompleted = true;
-                        // Never flush a partial internal tag at stream end. The
-                        // complete response is parsed below and the plan is
-                        // persisted there, while the tag remains invisible.
-                        if (contentBuffer
-                            && !/<\s*(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL|REACT)(?:\b|(?=\s*:))/i.test(contentBuffer)
-                            && !/(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i.test(contentBuffer)
-                            && !/<[A-Z_]*$/i.test(contentBuffer)) {
-                            res.write(buildSSEChunk(contentBuffer, lastChunkTemplate) || '');
-                        }
                         continue;
                     }
                     let parsed; try { parsed = JSON.parse(dataStr); } catch(e) { res.write(line + '\n'); continue; }
@@ -8394,62 +8348,32 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                     }
                     if ((body.model || '').toLowerCase().includes('gemini')) console.log('🔍 [Gemini诊断] content块:', JSON.stringify(delta).substring(0, 200));
                     lastChunkTemplate = parsed;
-                    const piece = delta.content; contentBuffer += piece; fullAiResponse += piece;
-
-                    let processBufferedContent = true;
-                    while (processBufferedContent) {
-                        processBufferedContent = false;
-                        if (!isBuffering) {
-                            const tagOpen = /<\s*(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL|REACT)(?:\b|(?=\s*:))/i;
-                            const privateJournalMarker = /(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i;
-                            const tagIdx = contentBuffer.search(tagOpen);
-                            const privateJournalIdx = contentBuffer.search(privateJournalMarker);
-                            const internalTagIndexes = [tagIdx, privateJournalIdx].filter(index => index >= 0);
-                            const saveIdx = internalTagIndexes.length ? Math.min(...internalTagIndexes) : -1;
-                            if (saveIdx === -1) {
-                                const ltIdx = contentBuffer.lastIndexOf('<');
-                                if (ltIdx !== -1 && contentBuffer.substring(ltIdx).length < 30) {
-                                    const safe = contentBuffer.substring(0, ltIdx);
-                                    const safeChunk = buildSSEChunk(safe, lastChunkTemplate);
-                                    if (safeChunk) res.write(safeChunk);
-                                    contentBuffer = contentBuffer.substring(ltIdx);
-                                } else {
-                                    const chunk = buildSSEChunk(contentBuffer, lastChunkTemplate);
-                                    if (chunk) res.write(chunk);
-                                    contentBuffer = '';
-                                }
-                            } else {
-                                const safe = contentBuffer.substring(0, saveIdx);
-                                if (safe) res.write(buildSSEChunk(safe, lastChunkTemplate));
-                                contentBuffer = contentBuffer.substring(saveIdx);
-                                isBuffering = true;
-                            }
-                        }
-
-                        if (isBuffering) {
-                            contentBuffer = contentBuffer.replace(/<\s*\/\s*(SAVE_MEMORY|CRUMB|RELATIONSHIP_STATE)\s*>/gi, (_, name) => '</' + name.toUpperCase() + '>');
-                            const closingTags = ['</SAVE_MEMORY>', '</ADD_TODO>', '</MOOD_SNAPSHOT>', '</CRUMB>', '</RELATIONSHIP_STATE>', '</STATE_UPDATE>', '</ANTICIPATION>', '</NEXT_WAKE>', '</PRIVATE_JOURNAL>', '/>'];
-                            if (/^<\s*REACT\s*:/i.test(contentBuffer)) closingTags.push('>');
-                            const matches = closingTags.map(tag => ({ tag, index: contentBuffer.indexOf(tag) })).filter(match => match.index !== -1);
-                            if (matches.length > 0) {
-                                matches.sort((a, b) => a.index - b.index);
-                                const closing = matches[0];
-                                contentBuffer = contentBuffer.substring(closing.index + closing.tag.length);
-                                isBuffering = false;
-                                processBufferedContent = Boolean(contentBuffer);
-                            }
-                        }
-                    }
+                    const piece = delta.content; fullAiResponse += piece;
+                    visibleStream.push(piece);
                 }
                 if (done || upstreamCompleted) break;
             }
             if (upstreamCompleted) await reader.cancel().catch(() => {});
             reader.releaseLock();
-            const streamReaction = typeof extractAssistantReaction === 'function'
-                ? extractAssistantReaction(fullAiResponse, { enabled: shenReactionEnabled })
-                : { cleanContent: fullAiResponse, reaction: null };
-            if (streamReaction.reaction) {
-                res.write(`data: ${JSON.stringify({ type: 'shen_reaction', emoji: streamReaction.reaction, sourceMessageId: sourceMessageId || null })}\n\n`);
+            visibleStream.finish();
+            if ((!fullAiResponse || !fullAiResponse.trim()) && fullReasoning && fullReasoning.trim()) {
+                console.error('⚠️ [流式累加] fullAiResponse 为空但 reasoning 有内容。用 reasoning 兜底。');
+                fullAiResponse = fullReasoning;
+            } else if (!fullAiResponse || !fullAiResponse.trim()) {
+                console.error('⚠️ [流式累加为空] 服务端未累加到任何文本。');
+            }
+            const streamReply = processAssistantReplyArtifacts(fullAiResponse, {
+                noMemory,
+                reactionEnabled: shenReactionEnabled,
+                currentUserText: currentUserMsgText,
+                currentMessageSource,
+                anticipationContext: anticipationWriteContext,
+                wakeContext: { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText },
+                crumbContext: crumbWriteContext,
+                tr: _tr,
+            });
+            if (streamReply.reaction) {
+                res.write(`data: ${JSON.stringify({ type: 'shen_reaction', emoji: streamReply.reaction, sourceMessageId: sourceMessageId || null })}\n\n`);
             }
             res.write('data: [DONE]\n\n');
             res.end();
@@ -8461,34 +8385,16 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 try {
                     console.log('🔬 [StreamFinalize] fullAiResponse length=' + (fullAiResponse ? fullAiResponse.length : 0) +
                         ' fullReasoning length=' + (fullReasoning ? fullReasoning.length : 0) +
-                        ' contentBuffer length=' + (contentBuffer ? contentBuffer.length : 0));
-                    if ((!fullAiResponse || !fullAiResponse.trim()) && fullReasoning && fullReasoning.trim()) {
-                        console.error('⚠️ [流式累加] fullAiResponse 为空但 reasoning 有内容。用 reasoning 兜底。');
-                        fullAiResponse = fullReasoning;
-                    } else if (!fullAiResponse || !fullAiResponse.trim()) {
-                        console.error('⚠️ [流式累加为空] 服务端未累加到任何文本。');
-                    }
-                    moodLog('[MOOD DEBUG] stream finalize start, full length:', fullAiResponse ? fullAiResponse.length : 0);
-                    moodLog('[MOOD DEBUG] fullAiResponse has tag:', fullAiResponse.includes('<MOOD_SNAPSHOT>') || fullAiResponse.includes('[[MOOD_SNAPSHOT]]'));
-                    moodLog('[MOOD DEBUG] fullAiResponse tail:', fullAiResponse.slice(-1200));
-                    const { cleanText: memClean, memories: streamMemories } = extractSaveMemoryTag(fullAiResponse);
-                    if (!noMemory) for (const mem of streamMemories) queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr, currentMessageSource);
-                    let streamCleanText = memClean || fullAiResponse;
-                    const todoCleanMaybe = processAssistantActionTags(streamCleanText, anticipationWriteContext);
-                    if (typeof todoCleanMaybe === 'string') streamCleanText = todoCleanMaybe;
-                    moodLog('[MOOD DEBUG] before mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
-                    const beforeMood = streamCleanText;
-                    streamCleanText = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(streamCleanText, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
-                    moodLog('[MOOD DEBUG] after mood handler has tag:', streamCleanText.includes('<MOOD_SNAPSHOT>') || streamCleanText.includes('[[MOOD_SNAPSHOT]]'));
-                    moodLog('[MOOD DEBUG] mood handler text changed:', beforeMood !== streamCleanText);
-                    if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamCleanText, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr); tryAutoDream(currentUserMsgText); queueDailyStateCuration(currentUserMsgText, streamCleanText, _tr); resolveAnticipationsFromUserText(currentUserMsgText); }
-                    if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, streamCleanText);
+                        ' terminalTags=' + streamReply.terminalTags.length);
+                    moodLog('[MOOD DEBUG] stream finalize terminal tags:', streamReply.terminalTags.length);
+                    if (!noMemory) { await saveToZepWithCounter(currentUserMsgText, streamReply.visibleContent, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr); tryAutoDream(currentUserMsgText); queueDailyStateCuration(currentUserMsgText, streamReply.visibleContent, _tr); resolveAnticipationsFromUserText(currentUserMsgText); }
+                    if (getPhysioEnabled()) updatePhysioState(currentUserMsgText, streamReply.visibleContent);
                     moodLog('[MOOD DEBUG] stream finalize done');
                 } catch(e) { moodLog('[MOOD ERROR] stream finalize error:', e && (e.stack || e.message || e)); }
             }
             contextBudget.response(finalBudgetCall, budgetStreamUsage);
             await finalizeStreamAssistant();
-            traceEnd(_tr, { ok: true, replyLen: fullAiResponse.length, path: 'stream' });
+            traceEnd(_tr, { ok: true, replyLen: streamReply.visibleContent.length, path: 'stream' });
         } else {
             const rawText = await response.text();
             try {
@@ -8496,26 +8402,21 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 contextBudget.response(finalBudgetCall, data?.usage);
                 const assistantContent = data.choices?.[0]?.message?.content;
                 let finalContent = assistantContent || "";
-                if (assistantContent) {
-                    const { cleanText, memories } = extractSaveMemoryTag(assistantContent);
-                    if (!noMemory) {
-                        for (const mem of memories) {
-                           queueSmartMemoryWrite(mem.content, mem.tags, 'ai_active', mem.ttl, 0.5, currentUserMsgText, _tr, currentMessageSource);
-                        }
-                    }
-                    const todoClean = processAssistantActionTags(memories.length > 0 ? cleanText : assistantContent, anticipationWriteContext);
-                    if (memories.length > 0 || todoClean !== (memories.length > 0 ? cleanText : assistantContent)) {
-                        data.choices[0].message.content = todoClean;
-                        finalContent = todoClean;
-                    }
-                }
-                // 非流式：先处理 MOOD_SNAPSHOT，再保存
-                moodLog('[MOOD DEBUG] non-stream content has tag before: ' + String(finalContent || '').includes('<MOOD_SNAPSHOT>'));
+                let processedReply = null;
                 if (finalContent) {
-                    const reactionResult = extractAssistantReaction(finalContent, { enabled: shenReactionEnabled });
-                    finalContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(reactionResult.cleanContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
-                    if (reactionResult.reaction) data.syzygy_reaction = { emoji: reactionResult.reaction, sourceMessageId: sourceMessageId || null };
-                    moodLog('[MOOD DEBUG] non-stream after mood handler has tag: ' + finalContent.includes('<MOOD_SNAPSHOT>'));
+                    processedReply = processAssistantReplyArtifacts(finalContent, {
+                        noMemory,
+                        reactionEnabled: shenReactionEnabled,
+                        currentUserText: currentUserMsgText,
+                        currentMessageSource,
+                        anticipationContext: anticipationWriteContext,
+                        wakeContext: { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText },
+                        crumbContext: crumbWriteContext,
+                        tr: _tr,
+                    });
+                    finalContent = processedReply.visibleContent;
+                    if (processedReply.reaction) data.syzygy_reaction = { emoji: processedReply.reaction, sourceMessageId: sourceMessageId || null };
+                    moodLog('[MOOD DEBUG] non-stream terminal tags: ' + processedReply.terminalTags.length);
                 }
                 if (data.choices?.[0]?.message) data.choices[0].message.content = finalContent;
                 if (!noMemory) {
@@ -10196,6 +10097,39 @@ function cleanAssistantInternalArtifacts(content, tr = null, crumbContext = null
     const withoutRelationshipState = handleRelationshipStateFromAssistantContent(withoutPrivateJournalTag, crumbContext, tr);
     const withoutMoodTags = handleMoodSnapshotsFromAssistantContent(withoutRelationshipState, tr);
     return stripLeakedStateUpdates(handleDialogueCrumbsFromAssistantContent(withoutMoodTags, crumbContext, tr));
+}
+
+function processAssistantReplyArtifacts(content, {
+    noMemory = false,
+    reactionEnabled = false,
+    currentUserText = '',
+    currentMessageSource = null,
+    anticipationContext = {},
+    wakeContext = {},
+    crumbContext = null,
+    tr = null,
+} = {}) {
+    const terminal = splitAssistantTerminalTags(content || '');
+    let protocolText = terminal.protocolContent;
+    const { cleanText, memories } = extractSaveMemoryTag(protocolText);
+    if (!noMemory) {
+        for (const memory of memories) {
+            queueSmartMemoryWrite(memory.content, memory.tags, 'ai_active', memory.ttl, 0.5, currentUserText, tr, currentMessageSource);
+        }
+    }
+    protocolText = processAssistantActionTags(cleanText, anticipationContext);
+    const reactionResult = extractAssistantReaction(protocolText, { enabled: reactionEnabled });
+    protocolText = consumeAssistantWakePlan(reactionResult.cleanContent, wakeContext);
+    // Run the remaining handlers only over the same terminal protocol zone.
+    // Visible prose and Markdown examples never enter the artifact parsers.
+    cleanAssistantInternalArtifacts(protocolText, tr, crumbContext);
+    return {
+        visibleContent: terminal.visibleContent,
+        reaction: reactionResult.reaction,
+        hadReactionTag: reactionResult.hadTag,
+        memories,
+        terminalTags: terminal.tags,
+    };
 }
 
 function queueDailyStateCuration(userText, assistantText, tr = null) {

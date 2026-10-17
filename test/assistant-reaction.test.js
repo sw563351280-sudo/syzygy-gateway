@@ -14,17 +14,29 @@ test('accepts one complete emoji on the final standalone line', () => {
     assert.equal(oneEmoji('1️⃣'), '1️⃣');
 });
 
-test('rejects text, multiple emoji and non-final reaction instructions', () => {
+test('rejects text, multiple emoji and reaction markup outside the terminal protocol zone', () => {
     assert.equal(extractAssistantReaction('正文\n<REACT:好耶>').reaction, null);
     assert.equal(extractAssistantReaction('正文\n<REACT:🐶🐟>').reaction, null);
     assert.equal(extractAssistantReaction('<REACT:🐶>\n后文').reaction, null);
+    assert.equal(extractAssistantReaction('示例：`<REACT:🐶>`').reaction, null);
     assert.equal(oneEmoji('A'), null);
 });
 
-test('always swallows reaction markup even when disabled or incomplete', () => {
+test('swallows terminal reaction markup when disabled but preserves incomplete prose', () => {
     assert.deepEqual(extractAssistantReaction('正文\n<REACT:🐾>', { enabled: false }), {
         cleanContent: '正文', reaction: null, hadTag: true
     });
-    assert.equal(extractAssistantReaction('正文\n<REACT:🐾').cleanContent, '正文');
-    assert.equal(extractAssistantReaction('前面\n<REACT:🐶>\n后面').cleanContent, '前面\n后面');
+    assert.equal(extractAssistantReaction('正文\n<REACT:🐾').cleanContent, '正文\n<REACT:🐾');
+    assert.equal(extractAssistantReaction('前面\n<REACT:🐶>\n后面').cleanContent, '前面\n<REACT:🐶>\n后面');
+});
+
+test('accepts reaction before or after other terminal tags and uses the last valid reaction', () => {
+    const crumb = '<CRUMB>{"fact":"一件事"}</CRUMB>';
+    assert.deepEqual(extractAssistantReaction(`正文\n<REACT:🐶>\n${crumb}`), {
+        cleanContent: `正文\n${crumb}`, reaction: '🐶', hadTag: true
+    });
+    assert.deepEqual(extractAssistantReaction(`正文\n${crumb}\n<REACT:🐟>`), {
+        cleanContent: `正文\n${crumb}`, reaction: '🐟', hadTag: true
+    });
+    assert.equal(extractAssistantReaction('正文\n<REACT:🐶>\n<REACT:文字>\n<REACT:🐟>').reaction, '🐟');
 });

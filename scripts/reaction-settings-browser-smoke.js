@@ -122,6 +122,17 @@ async function main() {
         assert.equal(state.reaction, '🐾');
         assert.equal(state.assistant, '收到啦。');
         assert.ok(state.rendered.includes('🐾'));
+        await page.waitForFunction(() => typeof _savingNow !== 'undefined' && !_savingNow
+            && typeof _saveTimer !== 'undefined' && !_saveTimer);
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await page.waitForFunction(() => typeof _dataVersion !== 'undefined' && chatSessions.length > 0);
+        await page.evaluate(() => goView('chat'));
+        await page.waitForFunction(() => [...document.querySelectorAll('.shen-reaction')].some(item => item.textContent === '🐾'));
+        const restoredReaction = await page.evaluate(() => {
+            const session = chatSessions.find(item => item.id === 'main');
+            return [...session.messages].reverse().find(message => message.role === 'user')?.shenReaction || null;
+        });
+        assert.equal(restoredReaction, '🐾');
         await page.screenshot({ path: '/tmp/syzygy-reaction-smoke.png', fullPage: false });
         assert.equal(lastChatBody.shenReactionEnabled, true);
         assert.ok(lastChatBody.messages.every(message => !String(message.content).includes('<REACT:')));

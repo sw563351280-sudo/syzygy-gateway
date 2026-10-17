@@ -245,10 +245,45 @@ test('main forwarding stream records final usage without trailing newline', asyn
         response: { body: stream }, TextDecoder, mergeUsage, body: { model: 'claude-opus-4-6-think' },
         contextBudget: { response(_id, usage) { usages.push(usage); } }, finalBudgetCall: 1,
         res: { write(text) { output.push(text); }, end() {} },
-        buildSSEChunk: text => text, console,
+        buildSSEChunk: text => text, createAssistantStreamFilter: require('../assistant-internal-tags').createAssistantStreamFilter,
+        processAssistantReplyArtifacts: () => ({ reaction: null, terminalTags: [], visibleContent: '你好' }),
+        noMemory: false, shenReactionEnabled: true, currentUserMsgText: '', currentMessageSource: null,
+        anticipationWriteContext: {}, adaptiveUserMessageId: null, crumbWriteContext: null, _tr: null, sourceMessageId: null,
+        console,
     });
     assert.equal(output.join('').includes('你好'), true);
     assert.deepEqual(normalizeUsage(usages.at(-1)), { total: 9000, uncached: 500, read: 8000, write: 500, output: 100 });
+});
+
+test('reaction instructions stay in the system prefix for cached and uncached models', async () => {
+    const stableStart = source.indexOf('const stableSystemBlock = [');
+    const stableEnd = source.indexOf('].filter(', stableStart);
+    const stableOrder = source.slice(stableStart, stableEnd);
+    assert.ok(stableOrder.indexOf('stableSystemPrompt') < stableOrder.indexOf('reactionInstruction'));
+    assert.ok(stableOrder.indexOf('reactionInstruction') < stableOrder.indexOf('ANTICIPATION_OUTPUT_INSTRUCTION'));
+
+    const buildStart = source.indexOf('async function buildSharedSystemPrompt');
+    const buildEnd = source.indexOf('function buildVolatileContext', buildStart);
+    const context = {
+        buildFinalSystemPrompt: () => ({ stableSystemPrompt: 'A/B PROMPT', volatileParts: [] }),
+        getModelPromptConfig: () => ({ prepend: 'MODEL PREFIX' }),
+        ANTICIPATION_OUTPUT_INSTRUCTION: 'NEXT RULE',
+    };
+    vm.runInNewContext(source.slice(buildStart, buildEnd), context);
+    for (const model of ['gemini-4-argon', 'claude-opus-5-5']) {
+        const result = await context.buildSharedSystemPrompt({
+            injectionQueue: [], model, reactionInstruction: 'REACTION RULE', stableCheck: 'CHECK',
+        });
+        assert.equal(result.systemMessage.content, 'MODEL PREFIX\n\nA/B PROMPT\n\nREACTION RULE\n\nNEXT RULE\n\nCHECK');
+        assert.equal(Boolean(result.systemMessage.cache_control), model.startsWith('claude'));
+    }
+
+    const routeStart = source.indexOf('const reactionInst = shenReactionEnabled');
+    const routeEnd = source.indexOf('// 构建 volatile context', routeStart);
+    const route = source.slice(routeStart, routeEnd);
+    assert.match(route, /reactionInstruction:\s*reactionInst/);
+    assert.match(route, /const fixedOutputRules = \[relationshipStateInst, moodSnapshotInst, dialogueCrumbInst\]/);
+    assert.doesNotMatch(route.match(/const fixedOutputRules[^;]+;/)?.[0] || '', /reactionInst/);
 });
 
 test('status endpoint is authenticated and performs no upstream request', () => {
