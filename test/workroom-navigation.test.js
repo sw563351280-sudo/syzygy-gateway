@@ -39,7 +39,7 @@ test('workroom composer removes thread menu and exposes TT memory drawer', () =>
 test('standalone chat lets its section own the viewport without fixing the body', () => {
     assert.match(css, /@media\s*\(display-mode:\s*standalone\)\s*\{[\s\S]*body\[data-view="chat"\]\s*\{[^}]*position:\s*static!important[^}]*inset:\s*auto!important[^}]*height:\s*100vh!important[^}]*\}[\s\S]*#sec-chat\.section\s*\{\s*height:\s*100vh!important/);
     assert.match(css, /#sec-chat \.chat-bottom-bar\s*\{[^}]*padding-bottom:\s*calc\(10px \+ env\(safe-area-inset-bottom, 0px\)\)!important/);
-    assert.match(html, /style\.css\?v=113/);
+    assert.match(html, /style\.css\?v=114/);
 });
 
 test('full-screen top close controls stay below the iOS safe area', () => {

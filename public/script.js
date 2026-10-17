@@ -259,6 +259,7 @@ let suppliers = [];
 let activeSupIndex = 0;
 let chatSessions = [];
 let activeChatId = 'main';
+let shenReactionEnabled = true;
 const WORKROOM_ID = 'syzygy-workroom';
 const CHAT_HISTORY_INITIAL_LIMIT = 80;
 const CHAT_HISTORY_PAGE_SIZE = 80;
@@ -338,6 +339,17 @@ function isWorkroomSession(session = getActiveSession()) {
 }
 
 let _dataVersion = 0;
+function acceptDataVersion(version) {
+    const next = Number(version) || 0;
+    _dataVersion = Math.max(_dataVersion, next);
+    return _dataVersion;
+}
+
+function syncShenReactionToggle() {
+    const toggle = document.getElementById('shenReactionToggle');
+    if (toggle) toggle.checked = shenReactionEnabled;
+}
+
 async function syncFromCloud() {
     try {
         const data = await loadCloudConfig();
@@ -353,6 +365,8 @@ async function syncFromCloud() {
         ensureWorkroomSession();
         activeSupIndex = data.activeSupIndex || 0;
         activeChatId   = data.activeChatId  || 'main';
+        shenReactionEnabled = data.preferences?.shenReactionEnabled !== false;
+        if (typeof syncShenReactionToggle === 'function') syncShenReactionToggle();
 
         if (!chatSessions.find(s => s.id === activeChatId)) {
             activeChatId = chatSessions[0].id;
@@ -2191,6 +2205,37 @@ function createThinkingMarker(thinking) {
     return { element: marker, detail, update };
 }
 
+function userReactionEmoji(message) {
+    if (!shenReactionEnabled || message?.role !== 'user') return '';
+    return typeof message.shenReaction === 'string' ? message.shenReaction : '';
+}
+
+function mountUserReaction(bubble, message, animate = false) {
+    if (!bubble) return;
+    bubble.querySelector('.shen-reaction')?.remove();
+    bubble.closest('.msg-row')?.classList.remove('has-shen-reaction');
+    const emoji = userReactionEmoji(message);
+    if (!emoji) return;
+    const reaction = document.createElement('span');
+    reaction.className = 'shen-reaction' + (animate ? ' is-new' : '');
+    reaction.setAttribute('aria-label', '沈望回应了 ' + emoji);
+    reaction.textContent = emoji;
+    bubble.appendChild(reaction);
+    bubble.closest('.msg-row')?.classList.add('has-shen-reaction');
+}
+
+function updateUserReaction(sessionId, messageId, emoji, animate = false) {
+    if (!shenReactionEnabled || !messageId) return false;
+    const session = getLiveSession(sessionId);
+    const message = session?.messages?.find(item => String(item?._id || item?.id || '') === String(messageId));
+    if (!message || message.role !== 'user') return false;
+    if (emoji) message.shenReaction = emoji;
+    else delete message.shenReaction;
+    const row = document.querySelector('#chatWindow .msg-row[data-message-id="' + CSS.escape(String(messageId)) + '"]');
+    mountUserReaction(row?.querySelector('.msg.user'), message, animate);
+    return true;
+}
+
 function renderChatMessages(options = {}){
     if (_isStreamingReply) { _renderDeferred = true; return; }
     // Build messages, images and link cards only when the conversation is visible.
@@ -2218,6 +2263,7 @@ function renderChatMessages(options = {}){
         const speaker = ['codex', 'jiangyu', 'shenwang'].includes(m.speaker) ? m.speaker : (m.role === 'user' ? 'jiangyu' : 'shenwang');
         rowDiv.className = 'msg-row ' + (m.role === 'user' ? 'user' : 'sys') + (speaker === 'codex' ? ' is-codex' : '');
         rowDiv.setAttribute('data-msg-index', index);
+        if (m._id || m.id) rowDiv.setAttribute('data-message-id', String(m._id || m.id));
         rowDiv.tabIndex = 0;
         rowDiv.setAttribute('aria-label', (speaker === 'codex' ? 'Codex 的消息' : m.role === 'user' ? '我的消息' : '沈望的消息') + '，长按打开操作');
 
@@ -2278,6 +2324,7 @@ function renderChatMessages(options = {}){
                 + actionsHtml;
             div.innerHTML = workroomCodexTimelineHTML(v.codexTimeline, { tailHTML });
         } else div.innerHTML = htmlContent;
+        if (m.role === 'user') mountUserReaction(div, m);
         if (m.role === 'assistant' && finalThinking.trim()) {
             rowDiv.classList.add('has-think-marker');
             rowDiv.appendChild(createThinkingMarker(finalThinking).element);
@@ -2440,6 +2487,13 @@ async function sendChat(options = {}) {
     const savedImages = currentImgBase64List.length > 0 ? [...currentImgBase64List] : null;
     submittedMessageId = crypto.randomUUID();
     session.messages.push({ _id: submittedMessageId, role: 'user', speaker: isWorkroomSession(session) ? 'jiangyu' : undefined, workroomTarget: isWorkroomSession(session) ? workroomTarget : undefined, versions: [{ content: val, fullTime: curFullTime, image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
+    if (uRow.dataset) {
+        uRow.dataset.msgIndex = String(session.messages.length - 1);
+        uRow.dataset.messageId = submittedMessageId;
+    } else {
+        uRow.setAttribute?.('data-msg-index', String(session.messages.length - 1));
+        uRow.setAttribute?.('data-message-id', submittedMessageId);
+    }
     saveMessageChangesToCloud(true);  // 先写本机日志；生成结束后增量同步
 
     }  // end if (!reuseLastUser)
@@ -2481,6 +2535,7 @@ async function sendChat(options = {}) {
     var sDiv = null; var sRow = null; var toolHintTimer = null; var toolHintTimer2 = null;
     var assistantMsg = null;
     var fullReply = '', thinkContent = '', reasoningContent = '', rawAssistantText = '';
+    var shenReaction = null;
     const messageUsage = MessageUsage.tracker();
 
     const modelEl = document.getElementById('modelSelect');
@@ -2583,7 +2638,8 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             ...(useRollingContext ? { contextProtocol: { version: 1, mode: isFrozenCacheRoute(currentSup.url, selectedModel) ? 'frozen-v1' : 'summary-v1', sessionId: session.id, prefix: session.contextPrefix || null } } : {}),
             activeChatId: session.id,
             messages: historyMsgs,
-            stream: isStream
+            stream: isStream,
+            shenReactionEnabled
         };
         const payloadText = JSON.stringify(reqBody);
         console.log('[chat payload]', {
@@ -2686,6 +2742,10 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
                             scrollChatToBottomIfNear(win);
                             return;
                         }
+                        if (parsed.type === 'shen_reaction') {
+                            if (!parsed.sourceMessageId || parsed.sourceMessageId === submittedMessageId) shenReaction = parsed.emoji || null;
+                            return;
+                        }
 
                         const delta = parsed.choices?.[0]?.delta || {};
                         
@@ -2722,6 +2782,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             // ==========================================
             const data = await response.json();
             fullReply = data.choices[0].message.content || "";
+            shenReaction = data.syzygy_reaction?.emoji || null;
             messageUsage.accept(data);
             if (Array.isArray(data.music_tool_calls)) toolCallRecords.push(...data.music_tool_calls);
             rawAssistantText = fullReply;
@@ -2753,7 +2814,9 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         const domThinking = stripDisplayTimestamp(thinkContent || (thinkTextDiv ? thinkTextDiv.innerText : '') || '');
         assistantMsg = { _id: crypto.randomUUID(), role: 'assistant', speaker: isWorkroomSession(session) ? 'shenwang' : undefined, versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
         assistantMsg.versions[0].messageUsage = messageUsage.finish();
-        getLiveSession(sessionId).messages.push(assistantMsg);
+        const liveSession = getLiveSession(sessionId);
+        liveSession.messages.push(assistantMsg);
+        if (shenReactionEnabled) updateUserReaction(sessionId, submittedMessageId, shenReaction, true);
         // 先存本地备份，再尝试云端同步
         // 🛡️ 拒绝备份脏兜底状态
         saveMessageChangesToCloud(true);
@@ -3417,36 +3480,120 @@ function cancelEditSupplier(index){
     document.getElementById('supEdit-' + index).hidden = true;
 }
 
-function saveEditSupplier(index){
+let providerSettingsSaving = false;
+async function persistProviderSettings() {
+    if (providerSettingsSaving) throw new Error('接口设置正在保存，请稍候');
+    providerSettingsSaving = true;
+    try {
+        const response = await fetch('/api/provider-settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ suppliers, activeSupIndex }),
+            cache: 'no-store',
+            keepalive: true
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success !== true || !data._version) throw new Error(data.message || '服务端没有确认保存');
+        acceptDataVersion(data._version);
+        return data;
+    } finally {
+        providerSettingsSaving = false;
+    }
+}
+
+async function saveEditSupplier(index){
     const name = document.getElementById('supEditName-' + index).value.trim();
     const url  = document.getElementById('supEditUrl-' + index).value.trim();
     const key  = document.getElementById('supEditKey-' + index).value.trim();
     if(!name || !url) return toast('名称和URL不能为空');
+    const previous = { ...suppliers[index] };
     suppliers[index] = { name, url, key };
-    saveToCloud(); renderSuppliers(); toast('已保存'); fetchModels();
+    renderSuppliers();
+    try {
+        await persistProviderSettings();
+        toast('接口与 API Key 已保存');
+        fetchModels();
+    } catch (error) {
+        suppliers[index] = previous;
+        renderSuppliers();
+        toast('保存失败：' + error.message);
+    }
 }
 
-function addSupplier(){
+async function addSupplier(){
     const name = document.getElementById('supName').value.trim();
     const url  = document.getElementById('supUrl').value.trim();
     const key  = document.getElementById('supKey').value.trim();
     if(!name || !url || !key) return toast('请填全信息');
     suppliers.push({ name, url, key });
-    saveToCloud(); renderSuppliers(); toast('供应商已添加');
-    document.getElementById('supName').value = '';
-    document.getElementById('supUrl').value  = '';
-    document.getElementById('supKey').value  = '';
+    renderSuppliers();
+    try {
+        await persistProviderSettings();
+        document.getElementById('supName').value = '';
+        document.getElementById('supUrl').value  = '';
+        document.getElementById('supKey').value  = '';
+        toast('供应商已保存');
+    } catch (error) {
+        suppliers.pop();
+        renderSuppliers();
+        toast('保存失败：' + error.message);
+    }
 }
 
-function setActiveSupplier(index){
-    activeSupIndex = index; saveToCloud(true); renderSuppliers(); toast('已切换'); fetchModels();
+async function setActiveSupplier(index){
+    const previous = activeSupIndex;
+    activeSupIndex = index; renderSuppliers();
+    try {
+        await persistProviderSettings();
+        toast('已切换并保存'); fetchModels();
+    } catch (error) {
+        activeSupIndex = previous; renderSuppliers(); toast('切换失败：' + error.message);
+    }
 }
 
-function deleteSupplier(index){
+async function deleteSupplier(index){
     if(suppliers.length <= 1) return toast('至少保留一个');
+    const previousSuppliers = suppliers.map(item => ({ ...item }));
+    const previousActive = activeSupIndex;
     suppliers.splice(index, 1);
     if(activeSupIndex >= suppliers.length) activeSupIndex = 0;
-    saveToCloud(); renderSuppliers();
+    renderSuppliers();
+    try {
+        await persistProviderSettings();
+        toast('接口已删除');
+    } catch (error) {
+        suppliers = previousSuppliers; activeSupIndex = previousActive; renderSuppliers(); toast('删除失败：' + error.message);
+    }
+}
+
+async function shenReactionToggleChanged(toggle) {
+    const previous = shenReactionEnabled;
+    const next = Boolean(toggle?.checked);
+    shenReactionEnabled = next;
+    toggle.disabled = true;
+    renderChatMessages();
+    const status = document.getElementById('shenReactionStatus');
+    if (status) status.textContent = '正在保存…';
+    try {
+        const response = await fetch('/api/chat-preferences', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shenReactionEnabled: next }),
+            cache: 'no-store',
+            keepalive: true
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success !== true || !data._version) throw new Error(data.message || '服务端没有确认保存');
+        acceptDataVersion(data._version);
+        if (status) status.textContent = next ? '已开启；沈望想回应时会悄悄盖一枚小章。' : '已关闭；历史表情仍保留，重新开启就会回来。';
+    } catch (error) {
+        shenReactionEnabled = previous;
+        syncShenReactionToggle();
+        renderChatMessages();
+        if (status) status.textContent = '保存失败：' + error.message;
+    } finally {
+        toggle.disabled = false;
+    }
 }
 
 function modelListCacheId(supplier){
@@ -4496,7 +4643,8 @@ async function regenerateSend(aiMsgIndex) {
     const aiMsgId = aiMsg && (aiMsg._id || aiMsg.id);
     const win = document.getElementById('chatWindow');
     let userText = '';
-    for (let i = aiMsgIndex - 1; i >= 0; i--) { if (session.messages[i].role === 'user') { userText = getActiveVersion(session.messages[i]).content || ''; break; } }
+    let sourceUserMessageId = null;
+    for (let i = aiMsgIndex - 1; i >= 0; i--) { if (session.messages[i].role === 'user') { userText = getActiveVersion(session.messages[i]).content || ''; sourceUserMessageId = session.messages[i]._id || session.messages[i].id || null; break; } }
     const targetRow = win.querySelector('.msg-row[data-msg-index="' + aiMsgIndex + '"]');
     if (!targetRow) return;
     const sDiv = targetRow.querySelector('.msg.sys');
@@ -4513,7 +4661,7 @@ async function regenerateSend(aiMsgIndex) {
     // 与普通发送一致：生成期间不要让同步把当前会话替换成旧快照。
     _isStreamingReply = true;
     const request = beginChatRequest();
-    let fullReply = '', thinkContent = '', rawAcc = '', reasoningAcc = '';
+    let fullReply = '', thinkContent = '', rawAcc = '', reasoningAcc = '', shenReaction = null;
     const messageUsage = MessageUsage.tracker();
     const toolCallRecords = [];
     try {
@@ -4551,7 +4699,7 @@ async function regenerateSend(aiMsgIndex) {
         request.signal.throwIfAborted();
         request.touch();
         request.mark('等待服务器响应');
-        const response = await fetch(apiUrl, { method:'POST', signal:request.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID,'X-Request-Id':request.id}, body:JSON.stringify({model:selectedModel,cacheClientVersion:2,messages:historyMsgs,stream:isStream,activeChatId:session.id,...(useRollingContext?{contextProtocol:{version:1,mode:isFrozenCacheRoute(currentSup.url,selectedModel)?'frozen-v1':'summary-v1',sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
+        const response = await fetch(apiUrl, { method:'POST', signal:request.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID,'X-Request-Id':request.id,...(sourceUserMessageId?{'X-Message-Id':sourceUserMessageId}:{})}, body:JSON.stringify({model:selectedModel,cacheClientVersion:2,messages:historyMsgs,stream:isStream,activeChatId:session.id,shenReactionEnabled,...(useRollingContext?{contextProtocol:{version:1,mode:isFrozenCacheRoute(currentSup.url,selectedModel)?'frozen-v1':'summary-v1',sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
         request.mark(isStream ? '接收流式回复' : '接收完整回复');
         if (!response.ok) { const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         if(isStream) {
@@ -4575,6 +4723,10 @@ async function regenerateSend(aiMsgIndex) {
                     updateToolGroupDOM(toolGroupEl,toolCallRecords,true);
                     return;
                 }
+                if (p.type === 'shen_reaction') {
+                    if (!p.sourceMessageId || p.sourceMessageId === sourceUserMessageId) shenReaction = p.emoji || null;
+                    return;
+                }
                 const d = p.choices?.[0]?.delta || {};
                 if (d.reasoning_content) { reasoningAcc += d.reasoning_content; streamPaint.schedule(); }
                 if (d.content) { request.mark('接收模型回复'); rawAcc += d.content; sDiv.querySelector('.loading-indicator')?.remove(); streamPaint.schedule(); }
@@ -4583,13 +4735,14 @@ async function regenerateSend(aiMsgIndex) {
             sDiv.querySelector('.loading-indicator')?.remove();
             mainTextDiv.innerHTML=renderMarkdown(fullReply);
             if(toolCallRecords.length>0)updateToolGroupDOM(toolGroupEl,toolCallRecords,false);
-        } else { const data=await response.json(); messageUsage.accept(data); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){thinkMarker.element.hidden=false; targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
+        } else { const data=await response.json(); messageUsage.accept(data); shenReaction=data.syzygy_reaction?.emoji||null; fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){thinkMarker.element.hidden=false; targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
         sDiv.classList.remove('msg-loading');
         const timeStr=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
         const liveSession = getLiveSession(sessionId) || session;
         const liveAiMsg = aiMsgId ? liveSession.messages.find(m => (m._id || m.id) === aiMsgId) : liveSession.messages[aiMsgIndex];
         if (!liveAiMsg) throw new Error('重新生成的目标消息已不在当前会话中');
         ensureVersioned(liveAiMsg); liveAiMsg.versions.push({content:fullReply,thinking:stripDisplayTimestamp(thinkContent),time:timeStr,model:selectedModel,fullTime:new Date().toISOString(), messageUsage: messageUsage.finish(), toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined}); liveAiMsg.activeVersion=liveAiMsg.versions.length-1; liveAiMsg._zepDirty=true;
+        if (shenReactionEnabled) updateUserReaction(sessionId, sourceUserMessageId, shenReaction, true);
         saveMessageChangesToCloud(); renderChatMessages();
     } catch (err) {
         const stopped = request.reason === 'user';

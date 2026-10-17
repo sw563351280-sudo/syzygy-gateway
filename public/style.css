@@ -4060,6 +4060,18 @@ body.neu-mode #favDetail .fav-think-header:focus-visible {
 .app-settings-heading h1 { font-size: 23px; }
 .app-settings-heading h2 { font-size: 17px; }
 .app-settings-heading p { margin: 8px 0 0; color: #75889a; font-size: 13px; line-height: 1.7; }
+.app-settings-toggle { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:13px 2px 3px; color:var(--sea-foreground,#40566c); cursor:pointer; }
+.app-settings-toggle > span { min-width:0; }
+.app-settings-toggle strong,.app-settings-toggle small { display:block; }
+.app-settings-toggle strong { font-size:14px; font-weight:600; }
+.app-settings-toggle small { margin-top:5px; color:var(--sea-muted,#8293a3); font-size:11px; line-height:1.55; }
+.app-settings-toggle input { position:relative; flex:0 0 42px; width:42px; height:24px; margin:0; appearance:none; border:1px solid var(--sea-edge,rgba(112,139,164,.22)); border-radius:999px; background:rgba(104,126,146,.18); cursor:pointer; transition:background .18s,border-color .18s; }
+.app-settings-toggle input::after { content:''; position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:rgba(255,255,255,.9); box-shadow:0 2px 5px rgba(50,72,91,.18); transition:transform .18s; }
+.app-settings-toggle input:checked { border-color:rgba(164,137,91,.34); background:#b69a69; }
+.app-settings-toggle input:checked::after { transform:translateX(18px); }
+.app-settings-toggle input:disabled { cursor:wait; opacity:.62; }
+.app-settings-toggle input:focus-visible { outline:2px solid var(--sea-accent,#aa8953); outline-offset:3px; }
+.app-settings-inline-status { min-height:17px; margin:10px 2px 0; color:var(--sea-muted,#8293a3); font-size:10px; line-height:1.5; }
 .appearance-controller { margin-top: 20px; }
 .appearance-wallpaper-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .wallpaper-slot { min-width:0; overflow:hidden; border:1px solid rgba(255,255,255,.48); border-radius:18px; background:var(--sea-surface,rgba(245,249,253,.46)); }
@@ -4130,6 +4142,14 @@ body.neu-mode #favDetail .fav-think-header:focus-visible {
 .app-settings-link strong { font-size: 14px; font-weight: 600; }
 .app-settings-link small { margin-top: 4px; color: #8293a3; font-size: 11px; }
 .app-settings-link b { color: #9aa9b6; font-size: 24px; font-weight: 300; }
+
+/* 沈望偶尔贴在江鱼气泡边缘的一枚小玻璃章。 */
+#sec-chat .msg.user { position:relative; }
+#sec-chat .msg-row.user.has-shen-reaction { margin-bottom:30px; }
+#sec-chat .shen-reaction { position:absolute; z-index:3; right:10px; bottom:-13px; display:grid; min-width:29px; height:25px; box-sizing:border-box; place-items:center; padding:1px 6px 2px; border:.5px solid rgba(255,255,255,.72); border-radius:999px; background:rgb(var(--sea-bubble-rgb,236 244 249) / max(var(--sea-card-opacity,.15),.18)); box-shadow:0 3px 10px rgba(48,69,89,.1),inset 0 1px 1px rgba(255,255,255,.65); backdrop-filter:blur(var(--sea-glass-blur,2px)) saturate(108%); -webkit-backdrop-filter:blur(var(--sea-glass-blur,2px)) saturate(108%); font-size:16px; line-height:1; pointer-events:none; text-shadow:none; }
+#sec-chat .shen-reaction.is-new { animation:shenReactionStamp .3s cubic-bezier(.2,.9,.35,1.28) both; }
+@keyframes shenReactionStamp { from { opacity:0; transform:scale(.55) translateY(3px); } 70% { opacity:1; transform:scale(1.08) translateY(0); } to { opacity:1; transform:scale(1); } }
+@media (prefers-reduced-motion:reduce) { #sec-chat .shen-reaction.is-new { animation:none; } }
 
 /* 新版是一套全局材质：同一份页面和数据，只替换背景、卡片、顶栏与控件质感。 */
 html[data-visual-theme="new"],

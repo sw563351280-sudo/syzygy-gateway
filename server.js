@@ -15,6 +15,8 @@ const { createCodexBridge } = require('./codex-bridge');
 const { createShenSettings, shenSettingsRouter } = require('./shen-settings');
 const { pruneWireImages } = require('./public/chat-window-context');
 const { extractThinkingFromContent } = require('./public/thinking-parser');
+const { extractAssistantReaction } = require('./assistant-reaction');
+const { applyProviderSettings, applyReactionPreference } = require('./chat-settings');
 const { consumeOpenAIStream } = require('./streaming-chat');
 const { createChatRequestLifecycle } = require('./chat-request-lifecycle');
 const { composeContext, createBudgetObserver, mergeUsage, readConfig: readContextBudgetConfig } = require('./context-budget');
@@ -7570,6 +7572,8 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             userPreview: ''
         });
         let body = req.body;
+        const shenReactionEnabled = body.shenReactionEnabled === true;
+        delete body.shenReactionEnabled; // Local preference, never forward to a provider.
         const contextBudget = observeContextBudget({ endpoint: resolveApiUrl(req.path), model: body.model || '',
             conversationId: typeof body.contextProtocol?.sessionId === 'string' ? body.contextProtocol.sessionId
                 : typeof body.activeChatId === 'string' && body.activeChatId.length <= 200 ? body.activeChatId : null,
@@ -7816,7 +7820,10 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
             const dialogueCrumbInst = '【生活碎屑输出规则·每轮主动检查】\n像 MOOD_SNAPSHOT 一样，回复前主动检查江鱼这一轮是否说出了以后可能想找回的具体生活事实；有就悄悄输出至多一个隐藏标签，没有就不要为了完成任务硬写。格式：<CRUMB>{"fact":"我记着她说……","source_quote":"她这一轮逐字原话","entities":["对象"],"tags":["短标签"]}</CRUMB>。标签体必须是一个单行、严格合法的 JSON 对象：字段名和字符串均使用英文双引号，内容里的双引号必须写成 \\"，不使用代码块或额外解释。通常 source_quote 必须逐字来自这一轮；但当她明确说“再写一次”“写进生活碎屑”或“没写进去”时，可以引用近期对话里相关的用户原话，绝不能引用助手杜撰的内容。技术讨论、寒暄、纯情绪、重复近况和拿不准的情况不输出。';
             const relationshipStateInst = '【双轴关系状态·由当前对话模型判断】\n你拥有近期完整对话，同时独立判断事件轴与温度轴。事件 transition：friction_started（摩擦）、conflict_started、conflict_continues、paused_unresolved、tentative_contact（冷战后第一次靠近）、repair_started、resolved、conflict_reopened；只有温度变化时用 temperature_changed。温度 temperature：warm、neutral、withdrawn、hostile。只在任一轴真正变化时输出至多一个隐藏标签；无变化不输出。格式：<RELATIONSHIP_STATE>{"transition":"状态","temperature":"可选温度","temperature_direction":"up|down|steady","signal_strength":"ordinary|strong","support_turns":1,"title":"短标题","summary":"状态变化及依据；称呼变化只写在这里","evidence_quote":"江鱼本轮逐字原话","themes":["短主题"],"confidence":0.0,"user_confirmed":false,"resolution_basis":"explicit|implicit_reconnection"}</RELATIONSHIP_STATE>。称呼是实时特征，不单独存储：连续6个有效用户轮次未使用“爸爸/老公/沈望”等亲密称呼，只提高警觉，不能单独降温；短至两三个字的“嗯/哦/行/随便”等仍是有效轮次和语气证据，不得排除；纯技术事务、粘贴内容和引用他人对话不计入这6轮。降温：一轮强信号可变更，普通信号至少连续两轮；升温至少连续两轮。直接“你”需结合语义，冲突中讽刺性“您”可算强信号。冷战后首次主动分享、恢复亲密称呼、接玩笑或允许亲近只用 tentative_contact；后续新的恢复行为才用 repair_started；再持续恢复且未重燃，才可 resolved + implicit_reconnection（confidence≥0.85）。明确说开则 resolved + explicit + user_confirmed=true。“算了/不说了/随便吧”是 paused_unresolved。evidence_quote 必须逐字来自本轮；标签为单行严格 JSON并自动隐藏。';
-            const fixedOutputRules = [relationshipStateInst, moodSnapshotInst, dialogueCrumbInst].join('\n\n');
+            const reactionInst = typeof shenReactionEnabled !== 'undefined' && shenReactionEnabled
+                ? '【表情回应规则】\n你可以在确实想对江鱼本轮这条消息做一个小表情回应时，在完整回复末尾另起一行输出 <REACT:🐶>。冒号后只能放一个完整 emoji（允许肤色、变体或组合 emoji），每次最多一个；没有自然反应就不要输出，绝不能为了完成规则而每轮都贴。标签会被界面隐藏并贴到江鱼对应的消息气泡上。'
+                : '';
+            const fixedOutputRules = [relationshipStateInst, moodSnapshotInst, dialogueCrumbInst, reactionInst].filter(Boolean).join('\n\n');
             const cacheFixedRules = supportsBlockCache(resolveApiUrl(req.path), body.model);
             if (cacheFixedRules) systemMsg.content += '\n\n' + fixedOutputRules;
             else dynamicBlocks = fixedOutputRules;
@@ -8073,7 +8080,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             toolStreamContentBuffer += piece;
 
             if (!toolStreamBufferingInternalTag) {
-                const tagOpen = /<\s*(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i;
+                const tagOpen = /<\s*(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL|REACT)(?:\b|(?=\s*:))/i;
                 const privateJournalMarker = /(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i;
                 const indexes = [toolStreamContentBuffer.search(tagOpen), toolStreamContentBuffer.search(privateJournalMarker)].filter(index => index >= 0);
                 const internalTagIndex = indexes.length ? Math.min(...indexes) : -1;
@@ -8098,6 +8105,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             if (toolStreamBufferingInternalTag) {
                 toolStreamContentBuffer = toolStreamContentBuffer.replace(/<\s*\/\s*(SAVE_MEMORY|CRUMB|RELATIONSHIP_STATE)\s*>/gi, (_, name) => '</' + name.toUpperCase() + '>');
                 const closingTags = ['</SAVE_MEMORY>', '</ADD_TODO>', '</MOOD_SNAPSHOT>', '</CRUMB>', '</RELATIONSHIP_STATE>', '</STATE_UPDATE>', '</ANTICIPATION>', '</NEXT_WAKE>', '</PRIVATE_JOURNAL>', '/>'];
+                if (/^<\s*REACT\s*:/i.test(toolStreamContentBuffer)) closingTags.push('>');
                 const matches = closingTags.map(tag => ({ tag, index: toolStreamContentBuffer.indexOf(tag) })).filter(match => match.index !== -1);
                 if (matches.length > 0) {
                     matches.sort((a, b) => a.index - b.index);
@@ -8115,7 +8123,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 
         function finishToolVisibleStream() {
             if (toolStreamContentBuffer
-                && !/<\s*(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i.test(toolStreamContentBuffer)
+                && !/<\s*(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL|REACT\s*:)/i.test(toolStreamContentBuffer)
                 && !/(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i.test(toolStreamContentBuffer)
                 && !/<[A-Z_]*$/i.test(toolStreamContentBuffer)) {
                 writeToolStreamDelta({ content: toolStreamContentBuffer }, toolStreamLastTemplate);
@@ -8255,7 +8263,11 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 // 正文和思考过程已经随上游 SSE 实时发送；这里只收尾并落库。
                 finishToolVisibleStream();
                 moodLog('[MOOD DEBUG] native tool stream before strip has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
-                const visibleContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
+                const toolReaction = extractAssistantReaction(finalContent, { enabled: shenReactionEnabled });
+                const visibleContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(toolReaction.cleanContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
+                if (toolReaction.reaction) {
+                    res.write(`data: ${JSON.stringify({ type: 'shen_reaction', emoji: toolReaction.reaction, sourceMessageId: sourceMessageId || null })}\n\n`);
+                }
                 res.write(`data: ${JSON.stringify({ id: toolData.id || 'chatcmpl-tool', object: 'chat.completion.chunk', created: Math.floor(Date.now()/1000), model: body.model, choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }], ...(toolData.usage ? { usage: toolData.usage } : {}) })}\n\n`);
                 res.write('data: [DONE]\n\n');
                 res.end();
@@ -8270,8 +8282,10 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             } else {
                 if (ntMems.length > 0) toolData.choices[0].message.content = ntClean;
                 if (finalThink) toolData.choices[0].message.reasoning_content = finalThink;
-                const moodCleaned = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
+                const toolReaction = extractAssistantReaction(finalContent, { enabled: shenReactionEnabled });
+                const moodCleaned = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(toolReaction.cleanContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
                 toolData.choices[0].message.content = moodCleaned;
+                if (toolReaction.reaction) toolData.syzygy_reaction = { emoji: toolReaction.reaction, sourceMessageId: sourceMessageId || null };
                 moodLog('[MOOD DEBUG] tool-path non-stream finalContent has tag: ' + (finalContent.includes('<MOOD_SNAPSHOT>') || finalContent.includes('[[MOOD_SNAPSHOT]]')));
                 if (!noMemory) {
                     await saveToZepWithCounter(currentUserMsgText, moodCleaned, zepLastUserContent, zepMessages, { sourceTabId, model: body.model, platform: sourceTabId ? 'web' : 'api_client' }, _tr);
@@ -8360,12 +8374,12 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                         // complete response is parsed below and the plan is
                         // persisted there, while the tag remains invisible.
                         if (contentBuffer
-                            && !/<\s*(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i.test(contentBuffer)
+                            && !/<\s*(?:SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL|REACT)(?:\b|(?=\s*:))/i.test(contentBuffer)
                             && !/(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i.test(contentBuffer)
                             && !/<[A-Z_]*$/i.test(contentBuffer)) {
                             res.write(buildSSEChunk(contentBuffer, lastChunkTemplate) || '');
                         }
-                        res.write('data: [DONE]\n\n'); continue;
+                        continue;
                     }
                     let parsed; try { parsed = JSON.parse(dataStr); } catch(e) { res.write(line + '\n'); continue; }
                     if (parsed.usage) {
@@ -8386,7 +8400,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                     while (processBufferedContent) {
                         processBufferedContent = false;
                         if (!isBuffering) {
-                            const tagOpen = /<\s*(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL)\b/i;
+                            const tagOpen = /<\s*(SAVE_MEMORY|ADD_TODO|DONE_TODO|MOOD_SNAPSHOT|CRUMB|RELATIONSHIP_STATE|STATE_UPDATE|ANTICIPATION|NEXT_WAKE|PRIVATE_JOURNAL|REACT)(?:\b|(?=\s*:))/i;
                             const privateJournalMarker = /(?:<|&lt;)\s*PRIVATE_JOURNAL\b/i;
                             const tagIdx = contentBuffer.search(tagOpen);
                             const privateJournalIdx = contentBuffer.search(privateJournalMarker);
@@ -8415,6 +8429,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                         if (isBuffering) {
                             contentBuffer = contentBuffer.replace(/<\s*\/\s*(SAVE_MEMORY|CRUMB|RELATIONSHIP_STATE)\s*>/gi, (_, name) => '</' + name.toUpperCase() + '>');
                             const closingTags = ['</SAVE_MEMORY>', '</ADD_TODO>', '</MOOD_SNAPSHOT>', '</CRUMB>', '</RELATIONSHIP_STATE>', '</STATE_UPDATE>', '</ANTICIPATION>', '</NEXT_WAKE>', '</PRIVATE_JOURNAL>', '/>'];
+                            if (/^<\s*REACT\s*:/i.test(contentBuffer)) closingTags.push('>');
                             const matches = closingTags.map(tag => ({ tag, index: contentBuffer.indexOf(tag) })).filter(match => match.index !== -1);
                             if (matches.length > 0) {
                                 matches.sort((a, b) => a.index - b.index);
@@ -8430,7 +8445,13 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             }
             if (upstreamCompleted) await reader.cancel().catch(() => {});
             reader.releaseLock();
-            if (sseBuffer.trim()) res.write(sseBuffer + '\n');
+            const streamReaction = typeof extractAssistantReaction === 'function'
+                ? extractAssistantReaction(fullAiResponse, { enabled: shenReactionEnabled })
+                : { cleanContent: fullAiResponse, reaction: null };
+            if (streamReaction.reaction) {
+                res.write(`data: ${JSON.stringify({ type: 'shen_reaction', emoji: streamReaction.reaction, sourceMessageId: sourceMessageId || null })}\n\n`);
+            }
+            res.write('data: [DONE]\n\n');
             res.end();
 
             let streamFinalized = false;
@@ -8491,7 +8512,9 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 // 非流式：先处理 MOOD_SNAPSHOT，再保存
                 moodLog('[MOOD DEBUG] non-stream content has tag before: ' + String(finalContent || '').includes('<MOOD_SNAPSHOT>'));
                 if (finalContent) {
-                    finalContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(finalContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
+                    const reactionResult = extractAssistantReaction(finalContent, { enabled: shenReactionEnabled });
+                    finalContent = cleanAssistantInternalArtifacts(consumeAssistantWakePlan(reactionResult.cleanContent, { tr: _tr, sourceUserMessageId: adaptiveUserMessageId, lastTopic: currentUserMsgText }), _tr, crumbWriteContext);
+                    if (reactionResult.reaction) data.syzygy_reaction = { emoji: reactionResult.reaction, sourceMessageId: sourceMessageId || null };
                     moodLog('[MOOD DEBUG] non-stream after mood handler has tag: ' + finalContent.includes('<MOOD_SNAPSHOT>'));
                 }
                 if (data.choices?.[0]?.message) data.choices[0].message.content = finalContent;
@@ -10166,7 +10189,8 @@ function handleRelationshipStateFromAssistantContent(content, context = null, tr
 }
 
 function cleanAssistantInternalArtifacts(content, tr = null, crumbContext = null) {
-    const withoutWakeTag = extractNextWakeTag(content || '').cleanText;
+    const withoutReactionTag = extractAssistantReaction(content || '', { enabled: false }).cleanContent;
+    const withoutWakeTag = extractNextWakeTag(withoutReactionTag).cleanText;
     // 防御性兜底：正常路径会先写入并剥离标签；任何漏网路径也绝不能把它送到用户侧。
     const withoutPrivateJournalTag = privateJournal.extractPrivateJournalTags(withoutWakeTag).cleanText;
     const withoutRelationshipState = handleRelationshipStateFromAssistantContent(withoutPrivateJournalTag, crumbContext, tr);
@@ -11174,6 +11198,7 @@ app.get('/api/sync-config', async (req, res) => {
         scheduleWorkroomArchive(storedConfig.chatSessions || [], webConfigStore.diagnostics().signature || storedConfig._version || 0);
         const cfg = {
             ...storedConfig,
+            preferences: { ...(storedConfig.preferences || {}), shenReactionEnabled: storedConfig.preferences?.shenReactionEnabled !== false },
             chatSessions: (storedConfig.chatSessions || []).map(session => ({ ...session }))
         };
         const requestedMainLimit = req.query?.mainLimit === undefined ? 0 : Number.parseInt(req.query.mainLimit, 10);
@@ -11406,6 +11431,38 @@ app.post('/api/user-state', (req, res) => {
     const next = { ...old, ...patch, updated_at: new Date().toISOString() };
     saveUserState(next);
     res.json({ success: true, user_state: next });
+});
+
+app.put('/api/provider-settings', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const outcome = await webConfigStore.transaction(existingData => {
+            const applied = applyProviderSettings(existingData, req.body);
+            return {
+                data: applied.data,
+                value: { success: true, _version: applied.newVersion, activeSupIndex: applied.normalized.activeSupIndex }
+            };
+        });
+        res.json(outcome.value);
+    } catch (error) {
+        res.status(400).json({ error: 'PROVIDER_SETTINGS_INVALID', message: error.message });
+    }
+});
+
+app.put('/api/chat-preferences', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const outcome = await webConfigStore.transaction(existingData => {
+            const applied = applyReactionPreference(existingData, req.body?.shenReactionEnabled);
+            return {
+                data: applied.data,
+                value: { success: true, _version: applied.newVersion, preferences: applied.preferences }
+            };
+        });
+        res.json(outcome.value);
+    } catch (error) {
+        res.status(400).json({ error: 'CHAT_PREFERENCES_INVALID', message: error.message });
+    }
 });
 
 app.get('/test-interact', async (req, res) => {
