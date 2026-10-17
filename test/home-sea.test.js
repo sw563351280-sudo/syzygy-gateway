@@ -11,11 +11,13 @@ test('home reads China day, latest note, unfinished tasks and actual listening w
         pages: [{ date: '2026-9-30', shenwang_note: '旧信' }, { date: '2026-10-4', shenwang_note: '<think>私密思考</think>新信' }],
         todos: [{ id: 'a', done: true }, { id: 'b', owner: 'shen', done: false }],
         diaries: [{ type: 'mood_snapshot', text: '不展示快照', date: '2026-10-5' }, { title: '日记', date: '2026-10-4' }],
-        music: { session: { state: 'play', updatedAt: 0, song: { name: '过期播放' } }, events: [{ type: 'play', at: 1, song: { name: '真实历史' } }] } });
+        music: { session: { state: 'play', updatedAt: 0, song: { name: '过期播放' } }, events: [{ type: 'play', at: 1, song: { name: '真实历史' } }] },
+        starOrbit: { scheduled: 3, completed: 2, state: 'active' } });
     assert.equal(snapshot.date, '2026-10-05'); assert.equal(snapshot.days, 533);
     assert.equal(snapshot.letter.text, '新信'); assert.equal(snapshot.todos.length, 1);
     assert.deepEqual(snapshot.schedules, []); assert.equal(snapshot.diary.date, '2026-10-4');
     assert.equal(snapshot.music.name, '真实历史'); assert.equal(snapshot.music.playing, false);
+    assert.equal(snapshot.starOrbit.completed, 2);
 });
 test('missing sources remain absent; visible assistant reply is only a fallback', () => {
     const snapshot = homeSnapshot({ messages: [{ role: 'user', content: '用户' }, { role: 'assistant', content: '回应' }] });

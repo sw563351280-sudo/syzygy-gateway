@@ -828,13 +828,16 @@ try {
 }
 app.use('/api/music', music.router);
 const { createHomeSea, homeSnapshot } = require('./home-sea');
+const { createStarOrbit } = require('./star-orbit');
+const starOrbit = createStarOrbit({ directory: DATA_DIR });
+app.use('/api/star-orbit', starOrbit.router);
 const homeSea = createHomeSea({ directory: DATA_DIR, snapshot: async () => {
     const config = await webConfigStore.readShared();
     const main = config?.chatSessions?.find(s => s.id === 'main');
     const messages = clientVisibleMessages(main?.messages || []).map(m => ({ ...m, content: getActiveVersionForServer(m).content || m.content }));
     let musicData = null;
     try { musicData = music.store?.read() || null; } catch (_) {}
-    return homeSnapshot({ pages: loadDailyPages(), todos: loadTodos(), diaries: loadDiaries(), photos: loadPhotos(), messages, music: musicData, calendarAvailable: calendarEnabled() });
+    return homeSnapshot({ pages: loadDailyPages(), todos: loadTodos(), diaries: loadDiaries(), photos: loadPhotos(), messages, music: musicData, calendarAvailable: calendarEnabled(), starOrbit: starOrbit.summary() });
 } });
 app.use('/api/home', homeSea.router);
 const PRIVATE_JOURNAL_FILE = path.join(DATA_DIR, 'private_journal.enc');

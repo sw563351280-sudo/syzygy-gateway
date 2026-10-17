@@ -6,6 +6,7 @@
     "start": "node server.js",
     "test": "node --test test/*.test.js",
     "test:browser:startup": "node scripts/startup-browser-smoke.js",
+    "test:browser:star-orbit": "node scripts/star-orbit-browser-smoke.js",
     "test:music:browser": "node scripts/music-browser-smoke.js",
     "test:music:live": "node scripts/music-live-probe.js"
   },

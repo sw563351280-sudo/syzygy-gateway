@@ -113,6 +113,14 @@
         const weekday = day.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', weekday: 'long' });
         rows.append(row('calendar', `${day.getUTCMonth() + 1}月${day.getUTCDate()}日 · ${weekday}`, 'calendar'));
         rows.append(row('ring', `距 ${data.nextMilestone} 天纪念日 · 还有 ${data.nextMilestone - data.days} 天`, 'milestone'));
+        if (data.starOrbit?.scheduled) {
+            const orbitText = data.starOrbit.state === 'complete' ? '★ 今天的都照顾好了'
+                : `今日 ${data.starOrbit.completed}/${data.starOrbit.scheduled}${data.starOrbit.highlight ? ` · ${data.starOrbit.highlight.icon} ${data.starOrbit.highlight.value}/${data.starOrbit.highlight.target}` : ''}`;
+            const orbitRow = row('star', orbitText, 'star-orbit');
+            orbitRow.classList.add('sea-orbit-summary');
+            if (data.starOrbit.state === 'complete') orbitRow.classList.add('is-complete');
+            rows.append(orbitRow);
+        }
         rows.append(data.todos.length ? row('todo', `待办 · ${data.todos.length} 项`, 'todos', data.todos.some(t => t.owner === 'shen')) : empty('没什么要赶的，慢慢来。', 'todos'));
         if (data.calendarAvailable) rows.append(data.schedules.length ? row('clock', data.schedules.map(s => [s.time, s.text].filter(Boolean).join(' · ')).join(' / '), 'calendar') : empty('今天没安排，把时间留给你。', 'calendar'));
         $('seaNote').hidden = !data.letter;
@@ -214,6 +222,7 @@
             clearTimeout(whisperTimer); whisperTimer = setTimeout(() => { $('seaWhisper').classList.remove('is-visible'); button.classList.remove('is-lit'); }, 3000); return;
         }
         if (action === 'miss') { miss(); return; }
+        if (action === 'star-orbit') { await window.StarOrbit?.open(); return; }
         if (action === 'todos') { if (!data) await refresh(true); renderTodos(); show('seaTodoDialog'); return; }
         closeDialogs();
         if (action === 'music') { window.SyzygyMusic?.open(); return; }

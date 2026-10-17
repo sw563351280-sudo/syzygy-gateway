@@ -7,7 +7,7 @@ function plain(value) {
         .replace(/⟦ts:[^⟧]*⟧/g, '').replace(/<[^>]*>/g, '').replace(/[*#_`]/g, '').trim();
 }
 function newest(rows, date) { return [...rows].sort((a, b) => String(date(b) || '').localeCompare(String(date(a) || '')))[0]; }
-function homeSnapshot({ now = new Date(), pages = [], todos = [], diaries = [], photos = [], messages = [], music = null, calendarAvailable = true }) {
+function homeSnapshot({ now = new Date(), pages = [], todos = [], diaries = [], photos = [], messages = [], music = null, calendarAvailable = true, starOrbit = null }) {
     const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
     const days = Math.max(0, Math.floor((Date.parse(date) - Date.parse('2025-04-20')) / 86400000));
     const key = d => String(d || '').split('-').map(x => Number(x)).join('-');
@@ -28,7 +28,8 @@ function homeSnapshot({ now = new Date(), pages = [], todos = [], diaries = [], 
         letter, diary: note ? { title: plain(note.title || note.shenwang_note).split('\n')[0].slice(0, 18), date: note.date } : diary ? { title: plain(diary.title || diary.text).split('\n')[0].slice(0, 18), date: diary.date || diary.datetime } : null,
         photo: photo ? { title: plain(photo.title || photo.description || '海边的留影').slice(0, 24), date: photo.date } : null,
         music: song ? { name: song.name, artist: song.artist, at: playing ? music.session.updatedAt : lastPlay.at, playing } : null,
-        musicAvailable: music !== null };
+        musicAvailable: music !== null,
+        starOrbit };
 }
 function createHomeSea({ directory, snapshot, clock = () => new Date() }) {
     const file = path.join(directory, 'home_signals.json');

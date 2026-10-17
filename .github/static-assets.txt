@@ -72,3 +72,5 @@ public/comets-sea.css
 public/comets.js
 public/site-theme.css
 public/site-theme.js
+public/star-orbit.css
+public/star-orbit.js
