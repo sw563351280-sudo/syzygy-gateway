@@ -117,6 +117,7 @@
     }
     function heatDay(date) { return heatYears.get(yearOf(date))?.days?.find(item => item.date === date) || { date, level: 0, score: 0, rounds: 0, userCharacters: 0, messages: 0 }; }
     function heatClass(day) { return day.level ? `is-heat-${day.level}` : 'is-empty'; }
+    function archiveGap(value) { return heatYears.get(yearOf(value))?.archive?.missingMonths?.includes(value.slice(0, 7)) || false; }
     function dateTitle(value) {
         const date = dateAt(value), weekday = new Intl.DateTimeFormat('zh-CN', { weekday: 'long', timeZone: 'UTC' }).format(date);
         return `${date.getUTCMonth() + 1}月${date.getUTCDate()}日 · ${weekday}`;
@@ -185,10 +186,12 @@
             if (marks.mood) labels.push('<i class="orbit-mood-dot" title="有心情快照"></i>');
             if (marks.flow) labels.push('<i class="orbit-flow-dot" title="有今日流水"></i>');
             if (page?.period_flag) labels.push('<i class="orbit-period-dot" title="生理期"></i>');
-            cells.push(`<button type="button" class="orbit-day orbit-heart-day ${heatClass(heat)}${date === selectedDate ? ' is-selected' : ''}${date === todayKey() ? ' is-today' : ''}" data-date="${date}" aria-label="${dateTitle(date)}，聊天热度 ${heat.level} 档"><span>${Number(date.slice(-2))}</span><span class="orbit-day-marks">${labels.join('')}</span></button>`);
+            const gap = archiveGap(date);
+            cells.push(`<button type="button" class="orbit-day orbit-heart-day ${gap ? 'is-archive-gap' : heatClass(heat)}${date === selectedDate ? ' is-selected' : ''}${date === todayKey() ? ' is-today' : ''}" data-date="${date}" aria-label="${dateTitle(date)}，${gap ? '原文存档缺口' : `聊天热度 ${heat.level} 档`}"><span>${Number(date.slice(-2))}</span><span class="orbit-day-marks">${labels.join('')}</span></button>`);
         }
         const current = dateAt(first);
         panel.innerHTML = `${periodNav(`${current.getUTCFullYear()}年 ${current.getUTCMonth() + 1}月`, previous, next, 'month')}
+          ${archiveGap(first) ? '<p class="orbit-archive-gap" role="note">这一月的原文存档缺失，空白不代表没有聊天。</p>' : ''}
           <div class="orbit-week-head">${weekdays.map(day => `<span>${day}</span>`).join('')}</div>
           <div class="orbit-month-grid">${cells.join('')}</div>
           <div class="orbit-legend orbit-heart-legend"><span>○ 安静</span><span><i></i><i></i><i></i> 聊天渐亮</span></div>
@@ -218,8 +221,10 @@
             if (page.shenwang_note) sections += `<div class="orbit-heart-line"><span>沈望手记</span><p>${esc(page.shenwang_note).replace(/\n/g, '<br>')}</p></div>`;
             if (page.shenwang_comment) sections += `<div class="orbit-heart-line"><span>沈望点评</span><p>${esc(page.shenwang_comment).replace(/\n/g, '<br>')}</p></div>`;
         }
-        const summary = heat.rounds || heat.userCharacters ? `聊了 ${heat.rounds} 轮 · 你留下 ${heat.userCharacters} 字` : '这一天的聊天很安静';
-        container.innerHTML = `<section class="orbit-heart-detail"><header><div><h3>${dateTitle(selectedDate)}</h3><p>${summary}</p></div><div><button type="button" data-heart-state>状态</button><button type="button" data-heart-snapshot>＋快照</button></div></header>${sections || '<p class="orbit-heart-empty">这一天还没有留下记录。</p>'}</section>`;
+        const gap = archiveGap(selectedDate);
+        const summary = gap ? '这一天位于原文存档缺口，无法统计聊天热度' : heat.rounds || heat.userCharacters ? `聊了 ${heat.rounds} 轮 · 你留下 ${heat.userCharacters} 字` : '这一天的聊天很安静';
+        const empty = gap ? '聊天原文缺档；其他日历记录仍会照常显示。' : '这一天还没有留下记录。';
+        container.innerHTML = `<section class="orbit-heart-detail"><header><div><h3>${dateTitle(selectedDate)}</h3><p>${summary}</p></div><div><button type="button" data-heart-state>状态</button><button type="button" data-heart-snapshot>＋快照</button></div></header>${sections || `<p class="orbit-heart-empty">${empty}</p>`}</section>`;
     }
 
     function renderDailyMonth() {
@@ -276,10 +281,12 @@
         for (let date = first; date <= last; date = addDays(date, 1)) {
             const parsed = dateAt(date), dayIndex = Math.round((parsed - dateAt(first)) / 86400000), week = Math.floor((offset + dayIndex) / 7) + 1;
             const row = (parsed.getUTCDay() + 6) % 7 + 1;
-            const state = activeSection === 'heart' ? heatClass(heatDay(date)) : ratioClass(dayInfo(date));
-            cells.push(`<button type="button" class="orbit-year-day ${state}${date === todayKey() ? ' is-today' : ''}" style="grid-column:${week + 1};grid-row:${row}" data-date="${date}" aria-label="${dateTitle(date)}"></button>`);
+            const gap = activeSection === 'heart' && archiveGap(date);
+            const state = activeSection === 'heart' ? (gap ? 'is-archive-gap' : heatClass(heatDay(date))) : ratioClass(dayInfo(date));
+            cells.push(`<button type="button" class="orbit-year-day ${state}${date === todayKey() ? ' is-today' : ''}" style="grid-column:${week + 1};grid-row:${row}" data-date="${date}" aria-label="${dateTitle(date)}${gap ? '，原文存档缺口' : ''}"></button>`);
         }
-        const legend = activeSection === 'heart' ? '<span>○ 安静</span><span><i></i><i></i><i></i> 聊天渐亮</span>' : '<span>○ 无安排</span><span><i></i><i></i><i></i> 渐亮</span><span>★ 全部完成</span>';
+        const hasGap = activeSection === 'heart' && heatYears.get(year)?.archive?.missingMonths?.length;
+        const legend = activeSection === 'heart' ? `<span>○ 安静</span><span><i></i><i></i><i></i> 聊天渐亮</span>${hasGap ? '<span class="orbit-gap-legend">▧ 存档缺口</span>' : ''}` : '<span>○ 无安排</span><span><i></i><i></i><i></i> 渐亮</span><span>★ 全部完成</span>';
         panel.innerHTML = `${periodNav(`${year}年 · 一整年的光`, `${year - 1}-01-01`, `${year + 1}-01-01`, 'year')}<div class="orbit-year-scroll" id="orbitYearScroll"><div class="orbit-year-months">${months}</div><div class="orbit-year-grid">${cells.join('')}</div></div><div class="orbit-legend${activeSection === 'heart' ? ' orbit-heart-legend' : ''}">${legend}</div>`;
         requestAnimationFrame(() => panel.querySelector(`[data-date="${todayKey()}"]`)?.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' }));
     }

@@ -16,7 +16,7 @@ const { createShenSettings, shenSettingsRouter } = require('./shen-settings');
 const { pruneWireImages } = require('./public/chat-window-context');
 const { extractThinkingFromContent } = require('./public/thinking-parser');
 const { extractAssistantReaction } = require('./assistant-reaction');
-const { buildChatHeat } = require('./chat-heat');
+const { createTranscriptHeatStore } = require('./transcript-heart-heat');
 const { createAssistantStreamFilter, splitAssistantTerminalTags } = require('./assistant-internal-tags');
 const { applyProviderSettings, applyReactionPreference } = require('./chat-settings');
 const { consumeOpenAIStream } = require('./streaming-chat');
@@ -1363,6 +1363,7 @@ function saveFavorites(items) { fs.writeFileSync(FAVORITES_FILE, JSON.stringify(
 const TRANSCRIPTS_DIR = path.join(DATA_DIR, 'transcripts');
 const TRANSCRIPT_BUFFER_FILE = path.join(DATA_DIR, 'transcript_buffer.json');
 if (!fs.existsSync(TRANSCRIPTS_DIR)) fs.mkdirSync(TRANSCRIPTS_DIR, { recursive: true });
+const transcriptHeatStore = createTranscriptHeatStore({ transcriptsDir: TRANSCRIPTS_DIR, bufferFile: TRANSCRIPT_BUFFER_FILE, cacheFile: path.join(DATA_DIR, 'heart_trail_cache.json') });
 
 function getTranscriptFilePath(date) {
     const d = date || new Date();
@@ -11064,10 +11065,7 @@ app.get('/api/heart-trail', async (req, res) => {
     const year = Number.parseInt(req.query.year, 10);
     if (!Number.isInteger(year) || year < 2000 || year > 2100) return res.status(400).json({ error: 'year 应为有效年份' });
     try {
-        const config = await webConfigStore.readShared();
-        const main = (config?.chatSessions || []).find(session => session.id === 'main');
-        const messages = clientVisibleMessages(main?.messages || []);
-        res.json(buildChatHeat(messages, { year }));
+        res.json(transcriptHeatStore.get(year));
     } catch (error) {
         console.error('❌ [heart trail] 聚合失败:', error.message);
         res.status(500).json({ error: '心迹暂时没有排好' });

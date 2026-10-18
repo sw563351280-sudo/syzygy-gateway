@@ -15,7 +15,7 @@ async function main() {
     const app = express(); app.use(express.json());
     app.use('/api/star-orbit', orbit.router);
     app.get('/api/home/summary', (_req, res) => res.json({ date: today, days: 545, nextMilestone: 600, calendarAvailable: false, todos: [], schedules: [], letter: null, diary: null, photo: null, music: null, musicAvailable: false, starOrbit: orbit.summary(today) }));
-    app.get('/api/heart-trail', (_req, res) => res.json({ year: Number(today.slice(0, 4)), rules: { thresholds: [1, 100, 190] }, days: [{ date: today, level: 3, score: 196, rounds: 60, userCharacters: 5300, messages: 120 }] }));
+    app.get('/api/heart-trail', (req, res) => res.json({ year: Number(req.query.year), rules: { thresholds: [1, 100, 190] }, days: [{ date: today, level: 3, score: 196, rounds: 60, userCharacters: 5300, messages: 120 }], archive: { firstDate: '2025-11-21', lastDate: today, missingMonths: [`${today.slice(0, 4)}-04`] } }));
     app.get('/api/calendar', (_req, res) => res.json({ success: true, data: [{ date: today, mood: '安心', shenwang_note: '今天也好好接住你。', period_flag: true }] }));
     app.post('/api/home/miss-you', (_req, res) => res.json({ ok: true }));
     app.get('/api/sync-config', (_req, res) => res.json({ chatSessions: [], suppliers: [] }));
@@ -50,6 +50,10 @@ async function main() {
         assert.match(await page.$eval('.orbit-heart-detail', node => node.textContent), /聊了 60 轮 · 你留下 5300 字/);
         assert.match(await page.$eval('.orbit-heart-detail', node => node.textContent), /今天也好好接住你/);
         assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.orbit-heart-detail')).color === getComputedStyle(document.body).color), true, 'heart text follows appearance text color');
+        await page.click('[data-orbit-range="year"]');
+        assert.ok(await page.$$eval('.orbit-year-day.is-archive-gap', nodes => nodes.length) >= 30, 'archive gap is distinct from a quiet month');
+        assert.match(await page.$eval('#orbitYearPanel .orbit-heart-legend', node => node.textContent), /存档缺口/);
+        await page.click('#orbitYearPanel [data-orbit-range="month"]');
         await page.screenshot({ path: path.join(os.tmpdir(), 'star-orbit-heart.png') });
         await page.click('[data-orbit-section="daily"]');
         assert.equal(await page.$$eval('.orbit-task-row', nodes => nodes.length), 0, 'empty orbit can be opened');

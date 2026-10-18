@@ -50,3 +50,19 @@ test('many tiny repeated exchanges do not fill the highest heat level by themsel
 test('fixed heat thresholds stay separate from presentation code', () => {
     assert.deepEqual([0, 1, 99, 100, 189, 190].map(value => heatLevel(value)), [0, 1, 1, 2, 2, 3]);
 });
+
+test('archived transcript time fields are accepted without exposing a separate data path', () => {
+    const result = buildChatHeat([
+        { role: 'user', content: '原文里的时间', time: '2026-10-17T08:00:00.000Z' },
+        { role: 'assistant', content: '收到', time: '2026-10-17T08:01:00.000Z' }
+    ], { year: 2026 });
+    assert.equal(result.days[0].rounds, 1);
+});
+
+test('legacy timestamps without a zone are interpreted as Shanghai wall time', () => {
+    const result = buildChatHeat([
+        { role: 'user', content: '深夜', time: '2026-03-01T23:59:00.000' },
+        { role: 'assistant', content: '还在同一天', time: '2026-03-01T23:59:30.000' }
+    ]);
+    assert.equal(result.days[0].date, '2026-03-01');
+});

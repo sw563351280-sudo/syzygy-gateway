@@ -26,6 +26,8 @@
 .orbit-day.is-empty { background:transparent; border-color:rgba(255,255,255,.07); color:rgba(232,242,251,.35); }
 .orbit-day.is-low { background:#1f3d70; }.orbit-day.is-mid { background:#2f5e98; }.orbit-day.is-high { background:#6fa6d6; color:#07152c; }
 .orbit-day.is-heat-1 { background:#1f3d70; }.orbit-day.is-heat-2 { background:#3f76aa; }.orbit-day.is-heat-3 { background:#91c8e8; box-shadow:0 0 10px rgba(145,200,232,.3); }
+.orbit-day.is-archive-gap,.orbit-year-day.is-archive-gap { border-color:rgba(205,220,233,.22); background:repeating-linear-gradient(135deg,rgba(205,220,233,.13) 0 3px,rgba(205,220,233,.035) 3px 6px); color:rgba(232,242,251,.48); }
+.orbit-archive-gap { margin:-5px 0 12px; padding:8px 10px; border:1px solid rgba(205,220,233,.12); border-radius:10px; background:rgba(205,220,233,.05); color:inherit; opacity:.72; text-align:center; font:10px/1.5 system-ui,sans-serif; }
 .orbit-day.is-complete { background:#e8b04b; color:#322006; box-shadow:0 0 10px rgba(232,176,75,.55); }
 .orbit-day.is-skipped { background:rgba(92,111,132,.17); border-color:rgba(164,183,201,.13); color:rgba(216,227,236,.45); }
 .orbit-day.is-today::after { content:''; position:absolute; inset:-3px; border:1px solid #9bcfee; border-radius:13px; pointer-events:none; }
@@ -37,6 +39,7 @@
 .orbit-legend { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:12px; margin:13px 0 5px; color:rgba(232,242,251,.48); font:10px/1.5 system-ui,sans-serif; }
 .orbit-legend i { display:inline-block; width:7px; height:7px; margin-right:2px; border-radius:2px; background:#1f3d70; }.orbit-legend i:nth-child(2){background:#2f5e98}.orbit-legend i:nth-child(3){background:#6fa6d6}
 .orbit-heart-legend i:nth-child(1){background:#1f3d70}.orbit-heart-legend i:nth-child(2){background:#3f76aa}.orbit-heart-legend i:nth-child(3){background:#91c8e8}
+.orbit-gap-legend { color:rgba(232,242,251,.58); }
 .orbit-lit-count { margin:10px 0 18px; color:rgba(232,242,251,.58); text-align:center; font:12px/1.4 system-ui,sans-serif; }.orbit-lit-count strong{color:#e8b04b;font-size:18px;font-weight:500}
 .orbit-day-detail { padding-top:16px; border-top:1px solid rgba(255,255,255,.08); }
 .orbit-day-detail>header { display:flex; justify-content:space-between; align-items:end; margin:0 2px 10px; }

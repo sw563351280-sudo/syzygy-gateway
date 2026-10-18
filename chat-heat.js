@@ -45,9 +45,11 @@ function characterCount(value) {
 
 function timestampOf(message) {
     const version = activeVersion(message);
-    const raw = version.fullTime || message?.fullTime || message?.created_at || message?.createdAt || message?.timestamp || null;
+    const raw = version.fullTime || message?.fullTime || version.time || message?.time || message?.created_at || message?.createdAt || message?.timestamp || null;
     if (!raw) return null;
-    const value = new Date(raw).getTime();
+    const serialized = String(raw);
+    const hasClockWithoutZone = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(serialized) && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(serialized);
+    const value = new Date(hasClockWithoutZone ? `${serialized}+08:00` : serialized).getTime();
     return Number.isFinite(value) ? value : null;
 }
 
