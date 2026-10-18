@@ -16,6 +16,7 @@ const { createShenSettings, shenSettingsRouter } = require('./shen-settings');
 const { pruneWireImages } = require('./public/chat-window-context');
 const { extractThinkingFromContent } = require('./public/thinking-parser');
 const { extractAssistantReaction } = require('./assistant-reaction');
+const { buildChatHeat } = require('./chat-heat');
 const { createAssistantStreamFilter, splitAssistantTerminalTags } = require('./assistant-internal-tags');
 const { applyProviderSettings, applyReactionPreference } = require('./chat-settings');
 const { consumeOpenAIStream } = require('./streaming-chat');
@@ -11056,6 +11057,22 @@ app.delete('/api/photos/:photo_id', (req, res) => {
 // ==========================================
 const CONFIG_FILE = path.join(DATA_DIR, 'web_config.json');
 const webConfigStore = createWebConfigStore(CONFIG_FILE);
+
+// The heart trail exposes daily aggregates only. Chat text never leaves the
+// server through this endpoint.
+app.get('/api/heart-trail', async (req, res) => {
+    const year = Number.parseInt(req.query.year, 10);
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) return res.status(400).json({ error: 'year 应为有效年份' });
+    try {
+        const config = await webConfigStore.readShared();
+        const main = (config?.chatSessions || []).find(session => session.id === 'main');
+        const messages = clientVisibleMessages(main?.messages || []);
+        res.json(buildChatHeat(messages, { year }));
+    } catch (error) {
+        console.error('❌ [heart trail] 聚合失败:', error.message);
+        res.status(500).json({ error: '心迹暂时没有排好' });
+    }
+});
 let pendingWorkroomArchive = null;
 let workroomArchiveScheduled = false;
 let lastWorkroomArchiveKey = '';

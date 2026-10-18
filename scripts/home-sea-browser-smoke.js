@@ -18,8 +18,8 @@ async function main() {
     const server = app.listen(0,'127.0.0.1'); await new Promise(r => server.once('listening',r));
     const ws = new WebSocketServer({ server }); let browser;
     try {
-        const executablePath = ['C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(fs.existsSync);
-        browser = await puppeteer.launch({ executablePath, headless: true, args: ['--mute-audio'] });
+        const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || ['/usr/bin/chromium-browser','/snap/bin/chromium','C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(fs.existsSync);
+        browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox','--disable-dev-shm-usage','--mute-audio'] });
         const page = await browser.newPage(), errors = [];
         page.on('pageerror', e => errors.push(e.message));
         await page.setRequestInterception(true); page.on('request', r => r.url().startsWith('http') && !r.url().startsWith('http://127.0.0.1:') ? r.abort() : r.continue());
@@ -33,7 +33,7 @@ async function main() {
         await cycle('2026-10-07T18:00:00+08:00');
         assert.equal(await page.evaluate(() => document.documentElement.dataset.seaCycle),'night');
         assert.match(await page.$eval('body',e=>getComputedStyle(e,'::before').backgroundImage),/ice-sea-night-v1/);
-        assert.equal(await page.$eval('.home-v2-hero',e=>getComputedStyle(e).color),'rgb(237, 243, 247)');
+        assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.home-v2-hero')).color === getComputedStyle(document.body).color), true, 'home text follows the selected appearance color');
         assert.equal(await page.$('meta[name="theme-color"]'),null,'solid theme color must not cover the iOS wallpaper');
         assert.match(await page.$eval('html',e=>getComputedStyle(e).backgroundImage),/ice-sea-night-v1/);
         await page.screenshot({ path:path.join(root,'qa-sea-home-night-1024.png') });
@@ -58,8 +58,8 @@ async function main() {
         await page.waitForFunction(() => document.querySelector('#seaMissLabel').textContent==='想他了');
         await page.click('[data-sea-action="todos"]'); await page.click('#seaTodoList input');
         await page.waitForFunction(() => document.querySelector('#seaTodoList').textContent.includes('慢慢来')); await page.keyboard.press('Escape');
-        await page.click('[data-sea-action="calendar"]'); await page.waitForFunction(() => document.body.dataset.view==='calendar');
-        await page.evaluate(() => goView('home'));
+        await page.click('[data-sea-action="calendar"]'); await page.waitForFunction(() => document.querySelector('#starOrbitDialog')?.open && document.querySelector('[data-orbit-section="heart"]')?.getAttribute('aria-selected') === 'true');
+        await page.keyboard.press('Escape');
         for (const width of [393,320]) {
             await new Promise(r => setTimeout(r, 700));
             await page.setViewport({ width,height:852 }); await new Promise(r => setTimeout(r,250)); await page.screenshot({ path:path.join(root,`qa-sea-home-${width}.png`) });

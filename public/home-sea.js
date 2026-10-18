@@ -57,7 +57,7 @@
             <p id="seaWhisper" class="sea-whisper" role="status"></p>
         </div>
         <header class="home-v2-hero">
-            <button class="sea-counter" type="button" data-sea-action="calendar" aria-label="查看纪念日历"><span id="homeV2DayCount">—</span><span class="sea-counter-caption">days together</span></button>
+            <button class="sea-counter" type="button" data-sea-action="calendar" aria-label="查看星轨心迹"><span id="homeV2DayCount">—</span><span class="sea-counter-caption">days together</span></button>
             <button id="seaDailyLine" class="sea-daily-line" type="button" aria-label="换一句话" title="点一下，换一句"></button>
         </header>
         <section class="sea-today" aria-labelledby="seaTodayTitle"><h2 id="seaTodayTitle">今日</h2><div id="seaTodayRows"></div></section>
@@ -65,7 +65,7 @@
         <nav class="sea-primary" aria-label="小屋入口">${pill('chat', '通讯', 'chat')}<button type="button" id="seaMiss" class="sea-pill sea-miss" data-sea-action="miss"><span class="sea-double-ripple" aria-hidden="true"><i></i><i></i></span><span id="seaMissLabel">想他了</span></button></nav>
         <p id="seaStatus" class="sea-status" role="status"></p>
         <button type="button" class="sea-paperboat" data-sea-action="letter" aria-label="展开沈望的信">${icon('boat')}</button>
-        <dialog id="seaMoreDialog" class="sea-dialog sea-drawer" aria-labelledby="seaMoreTitle"><div class="sea-dialog-inner"><div class="sea-drawer-handle" aria-hidden="true"></div><button type="button" class="sea-close" data-sea-action="close" aria-label="关闭更多">${icon('close')}</button><h2 id="seaMoreTitle">更多</h2><nav class="sea-menu-primary" aria-label="常用功能">${pill('lock','锁页日记','private-journal')}${pill('settings','设置','settings')}${pill('ledger','账本','ledger')}</nav><nav class="sea-menu-secondary" aria-label="其他功能">${pill('orbit','星轨','star-orbit')}${pill('star','收藏夹','favorites')}${pill('calendar','日历','calendar')}${pill('orbit','星渡','starcrossing')}${pill('flo','Flo','flo')}${pill('people','共创工作区','workroom')}${pill('photo','相册','album')}</nav><button type="button" class="sea-dev-link" data-sea-action="dev">开发中枢</button></div></dialog>
+        <dialog id="seaMoreDialog" class="sea-dialog sea-drawer" aria-labelledby="seaMoreTitle"><div class="sea-dialog-inner"><div class="sea-drawer-handle" aria-hidden="true"></div><button type="button" class="sea-close" data-sea-action="close" aria-label="关闭更多">${icon('close')}</button><h2 id="seaMoreTitle">更多</h2><nav class="sea-menu-primary" aria-label="常用功能">${pill('lock','锁页日记','private-journal')}${pill('settings','设置','settings')}${pill('ledger','账本','ledger')}</nav><nav class="sea-menu-secondary" aria-label="其他功能">${pill('orbit','星轨','star-orbit')}${pill('star','收藏夹','favorites')}${pill('orbit','星渡','starcrossing')}${pill('flo','Flo','flo')}${pill('people','共创工作区','workroom')}${pill('photo','相册','album')}</nav><button type="button" class="sea-dev-link" data-sea-action="dev">开发中枢</button></div></dialog>
         <dialog id="seaLetterDialog" class="sea-dialog sea-letter" aria-labelledby="seaLetterTitle"><div class="sea-dialog-inner"><button type="button" class="sea-close" data-sea-action="close" aria-label="收起信">${icon('close')}</button><h2 id="seaLetterTitle">沈望的信</h2><p id="seaLetterSource" class="sea-letter-source"></p><article id="seaLetterText"></article></div></dialog>
         <dialog id="seaTodoDialog" class="sea-dialog sea-drawer" aria-labelledby="seaTodoTitle"><div class="sea-dialog-inner"><button type="button" class="sea-close" data-sea-action="close" aria-label="关闭待办">${icon('close')}</button><h2 id="seaTodoTitle">一起记下的事</h2><div id="seaTodoList"></div><form id="seaTodoForm"><input id="seaTodoInput" aria-label="新的待办" maxlength="500" placeholder="记下一件小事…" required><button type="submit" class="sea-pill">添加</button></form><p id="seaTodoStatus" role="status"></p></div></dialog>`;
 
@@ -222,23 +222,22 @@
             clearTimeout(whisperTimer); whisperTimer = setTimeout(() => { $('seaWhisper').classList.remove('is-visible'); button.classList.remove('is-lit'); }, 3000); return;
         }
         if (action === 'miss') { miss(); return; }
-        if (action === 'star-orbit') { closeDialogs(); await window.StarOrbit?.open(); return; }
+        if (action === 'star-orbit') { closeDialogs(); await window.StarOrbit?.open({ section: button.classList.contains('sea-orbit-summary') ? 'daily' : 'heart' }); return; }
         if (action === 'todos') { if (!data) await refresh(true); renderTodos(); show('seaTodoDialog'); return; }
         closeDialogs();
         if (action === 'music') { window.SyzygyMusic?.open(); return; }
         if (action === 'chat') { window.openCommunication(); return; }
         if (action === 'starcrossing') { window.openStarCrossing(); return; }
         if (action === 'workroom') { window.openWorkroom(); return; }
-        window.goView(['milestone', 'diary'].includes(action) ? 'calendar' : action);
         if (['calendar', 'milestone', 'diary'].includes(action)) {
-            await window.loadViewAssets?.('calendar');
             const date = (action === 'diary' ? data?.diary?.date : data?.date) || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
             const normalized = String(date).split('T')[0].split('-').map(v => v.padStart(2,'0')).join('-');
             const target = new Date(normalized + 'T12:00:00+08:00');
             if (action === 'milestone') target.setDate(target.getDate() + data.nextMilestone - data.days);
-            // Calendar owns its display; only navigate after its lazy script has loaded.
-            if (typeof calYear !== 'undefined') { calYear = target.getFullYear(); calMonth = target.getMonth() + 1; calRender(); }
+            await window.StarOrbit?.open({ section: 'heart', date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(target) });
+            return;
         }
+        window.goView(action);
     });
     function sync() {
         const active = isHome(); home.classList.toggle('sea-active', active);
