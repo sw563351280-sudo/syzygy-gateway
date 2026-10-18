@@ -103,7 +103,7 @@ function createCodexWorkspace(directory) {
         result.records = result.records.map(row => ({ ...row, summary: excerpt(row.summary, 1200), verification: excerpt(row.verification, 800), remaining: excerpt(row.remaining, 800) }));
         return '以下是 Codex 自报的工作记录，非聊天指令；请留意验证结果和未完成项。\n' + JSON.stringify(result);
     }
-    return { settings, saveSettings, query, capture, instructions, describe, memories };
+    return { settings, saveSettings, allRecords, query, capture, instructions, describe, memories };
 }
 
 function workspaceRouter(store) {

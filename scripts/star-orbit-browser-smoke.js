@@ -116,6 +116,17 @@ async function main() {
         assert.equal(await page.$eval('[data-orbit-section="daily"]', node => node.getAttribute('aria-selected')), 'true', 'home task summary opens the daily track');
         await page.screenshot({ path: path.join(os.tmpdir(), 'star-orbit-month.png') });
         assert.equal(await page.$eval('.orbit-drawer', node => node.scrollWidth <= node.clientWidth), true, 'drawer fits mobile width');
+        assert.deepEqual(await page.$eval('.orbit-task-row', row => {
+            const skip = row.querySelector('.orbit-skip'), style = getComputedStyle(skip);
+            return { opacity: style.opacity, visibility: style.visibility, pointerEvents: style.pointerEvents };
+        }), { opacity: '0', visibility: 'hidden', pointerEvents: 'none' }, 'the hidden 放下 action cannot bleed through the task row');
+        await page.click('.orbit-task-row .orbit-row-more');
+        await page.waitForFunction(() => Number.parseFloat(getComputedStyle(document.querySelector('.orbit-task-row .orbit-skip')).opacity) > .99);
+        assert.deepEqual(await page.$eval('.orbit-task-row', row => {
+            const skip = row.querySelector('.orbit-skip'), style = getComputedStyle(skip);
+            return { opacity: style.opacity, visibility: style.visibility, pointerEvents: style.pointerEvents };
+        }), { opacity: '1', visibility: 'visible', pointerEvents: 'auto' }, 'the 放下 action appears only after explicit reveal');
+        await page.click('.orbit-task-row .orbit-row-more');
         await page.click('[data-record="check"]');
         await page.waitForSelector('[data-record="check"].is-done');
         const fifthDrop = await page.$$('[data-record="count"]'); await fifthDrop[4].click();
@@ -137,7 +148,7 @@ async function main() {
         await page.waitForFunction(() => !document.querySelector('#starOrbitDialog').open);
         await page.waitForFunction(() => document.querySelector('.sea-orbit-summary').textContent.includes('今日 1/4'));
         assert.deepEqual(errors, []);
-        console.log(JSON.stringify({ ok: true, checks: ['chat tail fallback', 'chat placeholders and configured hint color', 'default heart trail', 'day/night orbit glass', 'chat heat and calendar detail', 'appearance text color', 'empty-state menu entry', 'first task creation', 'home summary', 'mobile drawer', 'check', 'water count', 'split dose', 'year view', 'task creation', 'no overflow'], screenshots: [path.join(os.tmpdir(), 'star-orbit-empty-entry.png'), path.join(os.tmpdir(), 'star-orbit-heart.png'), path.join(os.tmpdir(), 'star-orbit-month.png'), path.join(os.tmpdir(), 'star-orbit-mobile.png')] }));
+        console.log(JSON.stringify({ ok: true, checks: ['chat tail fallback', 'chat placeholders and configured hint color', 'default heart trail', 'day/night orbit glass', 'chat heat and calendar detail', 'appearance text color', 'empty-state menu entry', 'first task creation', 'home summary', 'mobile drawer', 'hidden and revealed skip action', 'check', 'water count', 'split dose', 'year view', 'task creation', 'no overflow'], screenshots: [path.join(os.tmpdir(), 'star-orbit-empty-entry.png'), path.join(os.tmpdir(), 'star-orbit-heart.png'), path.join(os.tmpdir(), 'star-orbit-month.png'), path.join(os.tmpdir(), 'star-orbit-mobile.png')] }));
     } finally {
         await browser?.close(); ws.close(); await new Promise(resolve => server.close(resolve)); fs.rmSync(directory, { recursive: true, force: true });
     }

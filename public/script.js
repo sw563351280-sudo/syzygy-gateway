@@ -196,6 +196,9 @@ function handleWSMessage(msg) {
             }
             break;
         }
+        case 'workroom_brief_ready':
+            void loadWorkroomBriefCards();
+            break;
         case 'todo_added':
         case 'todo_updated':
         case 'todo_deleted': neuRenderTodos(); break;
@@ -260,6 +263,7 @@ let activeSupIndex = 0;
 let chatSessions = [];
 let activeChatId = 'main';
 let shenReactionEnabled = true;
+let workroomBriefCards = [];
 const WORKROOM_ID = 'syzygy-workroom';
 const CHAT_HISTORY_INITIAL_LIMIT = 80;
 const CHAT_HISTORY_PAGE_SIZE = 80;
@@ -383,6 +387,7 @@ async function syncFromCloud() {
         renderChatSidebar();
         renderChatMessages();
         updateWorkroomChrome();
+        if (typeof loadWorkroomBriefCards === 'function') void loadWorkroomBriefCards();
         fetchModels();
         if (recovery.restored) saveMessageChangesToCloud(true);
 
@@ -2334,10 +2339,55 @@ function renderChatMessages(options = {}){
 
         win.appendChild(rowDiv);
     });
+    if (session.id === 'main') renderWorkroomBriefCards(win);
     win.querySelectorAll('.xhs-card[data-xhs-url]').forEach(el => hydrateXhsCard(el, decodeURIComponent(el.dataset.xhsUrl)));
     win.querySelectorAll('.github-card[data-github-url]').forEach(el => hydrateGitHubCard(el, decodeURIComponent(el.dataset.githubUrl)));
     if (shouldStickToBottom) forceScrollToChatBottom();
     else restoreChatScrollAnchor(win, scrollAnchor);
+}
+
+async function loadWorkroomBriefCards() {
+    try {
+        const response = await fetch('/api/workroom-notes/briefs?limit=20', { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json();
+        workroomBriefCards = Array.isArray(data.briefs) ? data.briefs : [];
+        if (_isStreamingReply) _renderDeferred = true;
+        else if (activeChatId === 'main' && document.getElementById('sec-chat')?.classList.contains('active')) renderChatMessages({ preserveScroll: true });
+    } catch (_) {}
+}
+
+function renderWorkroomBriefCards(container) {
+    for (const brief of workroomBriefCards.slice().reverse()) {
+        const card = document.createElement('article');
+        card.className = 'workroom-brief-card' + (brief.status === 'pending' ? ' is-pending' : '');
+        const heading = document.createElement('header');
+        const title = document.createElement('strong');
+        title.textContent = '工作区便签';
+        const meta = document.createElement('time');
+        meta.dateTime = brief.createdAt || '';
+        meta.textContent = brief.durationMinutes ? `约 ${brief.durationMinutes} 分钟` : '刚刚';
+        heading.append(title, meta); card.append(heading);
+        if (brief.status === 'pending') {
+            const pending = document.createElement('p'); pending.textContent = brief.message || '正在整理…'; card.append(pending);
+        } else {
+            if (brief.summary) { const summary = document.createElement('p'); summary.textContent = brief.summary; card.append(summary); }
+            const list = document.createElement('ol');
+            for (const topic of brief.topics || []) {
+                const item = document.createElement('li');
+                const name = document.createElement('b'); name.textContent = topic.title;
+                const text = document.createElement('span'); text.textContent = topic.summary || topic.conclusion || '';
+                item.append(name, text); list.append(item);
+            }
+            if (list.children.length) card.append(list);
+        }
+        if ((brief.progress || []).length) {
+            const progress = document.createElement('div'); progress.className = 'workroom-brief-progress';
+            progress.textContent = (brief.progress || []).map(item => `${item.title} · ${item.status === 'completed' ? '已结束' : item.status}`).join('｜');
+            card.append(progress);
+        }
+        container.append(card);
+    }
 }
 
 function newChatWindow(){

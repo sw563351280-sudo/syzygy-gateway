@@ -8,6 +8,7 @@ let codexUsageRequest = 0;
 const codexDraftKey = 'syzygy.codex-settings.draft.v1';
 const codexSavedKey = 'syzygy.codex-settings.saved.v1';
 let codexRecovery = null;
+let codexNoteConfigured = false;
 function codexSettingsValues() {
     return { prompt: document.getElementById('codexSettingsPrompt').value,
         model: document.getElementById('codexSettingsModel').value,
@@ -178,6 +179,66 @@ async function codexUsageLoad() {
     }
 }
 
+function codexNoteOverview() {
+    const overview = document.getElementById('codexNoteOverview');
+    const enabled = document.getElementById('codexNoteEnabled')?.checked;
+    const model = document.getElementById('codexNoteModel')?.value || 'deepseek-chat';
+    if (overview) overview.textContent = enabled ? `已启用 · ${model}` : `未启用 · ${model}`;
+}
+
+async function codexNoteSettingsLoad() {
+    const ids = ['codexNoteEnabled', 'codexNoteBaseUrl', 'codexNoteApiKey', 'codexNoteModel', 'codexNoteSave', 'codexNoteTest'];
+    ids.forEach(id => { const element = document.getElementById(id); if (element) element.disabled = true; });
+    const status = document.getElementById('codexNoteStatus');
+    if (status) status.textContent = '正在读取便签员设置…';
+    try {
+        const data = await codexWorkspaceRequest('/api/workroom-notes/settings');
+        if (data.version !== 1) throw new Error('便签员接口尚未更新');
+        codexNoteConfigured = data.settings.apiKeyConfigured === true;
+        document.getElementById('codexNoteEnabled').checked = data.settings.enabled === true;
+        document.getElementById('codexNoteBaseUrl').value = data.settings.baseUrl || 'https://api.deepseek.com';
+        const key = document.getElementById('codexNoteApiKey');
+        key.value = ''; key.placeholder = codexNoteConfigured ? '已保存 · 留空表示不更换' : 'sk-…';
+        document.getElementById('codexNoteModel').value = data.settings.model || 'deepseek-chat';
+        if (status) status.textContent = codexNoteConfigured ? 'API Key 已保存在服务端' : '还没有保存 API Key';
+        ids.forEach(id => { const element = document.getElementById(id); if (element) element.disabled = false; });
+        codexNoteOverview();
+    } catch (error) { if (status) status.textContent = '读取失败：' + error.message; }
+}
+
+async function codexNoteSettingsSave() {
+    const status = document.getElementById('codexNoteStatus');
+    const button = document.getElementById('codexNoteSave');
+    button.disabled = true;
+    const payload = {
+        enabled: document.getElementById('codexNoteEnabled').checked,
+        baseUrl: document.getElementById('codexNoteBaseUrl').value.trim(),
+        model: document.getElementById('codexNoteModel').value.trim()
+    };
+    const key = document.getElementById('codexNoteApiKey').value.trim();
+    if (key || !codexNoteConfigured) payload.apiKey = key;
+    try {
+        const data = await codexWorkspaceRequest('/api/workroom-notes/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        codexNoteConfigured = data.settings.apiKeyConfigured === true;
+        document.getElementById('codexNoteApiKey').value = '';
+        document.getElementById('codexNoteApiKey').placeholder = codexNoteConfigured ? '已保存 · 留空表示不更换' : 'sk-…';
+        status.textContent = data.settings.enabled ? '便签员已启用 · 下一次回到通讯区时生效' : '便签员设置已保存，目前未启用';
+        codexNoteOverview();
+    } catch (error) { status.textContent = '未保存：' + error.message; }
+    finally { button.disabled = false; }
+}
+
+async function codexNoteSettingsTest() {
+    const status = document.getElementById('codexNoteStatus');
+    const button = document.getElementById('codexNoteTest');
+    button.disabled = true; status.textContent = '正在测试连接…';
+    try {
+        const data = await codexWorkspaceRequest('/api/workroom-notes/test', { method: 'POST' });
+        status.textContent = `连接正常 · ${data.model}`;
+    } catch (error) { status.textContent = '连接失败：' + error.message; }
+    finally { button.disabled = false; }
+}
+
 async function codexSettingsLoad() {
     const input = document.getElementById('codexSettingsPrompt');
     const button = document.getElementById('codexSettingsSave');
@@ -189,6 +250,7 @@ async function codexSettingsLoad() {
     button.disabled = true;
     status.textContent = '正在读取设定…';
     void codexUsageLoad();
+    void codexNoteSettingsLoad();
     try {
         const data = await codexWorkspaceRequest('/api/codex/settings');
         if (data.version !== 2 || typeof data.defaultModel !== 'string') throw new Error('服务器设定接口尚未更新，请等待部署完成。没有覆盖本机草稿。');

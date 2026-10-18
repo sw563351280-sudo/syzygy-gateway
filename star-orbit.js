@@ -118,6 +118,15 @@ function publicTask(task, today) {
     return { ...task, ended, remainingDays: task.schedule.kind === 'range' && !ended ? Math.max(0, daysBetween(today, task.schedule.endDate)) : null };
 }
 
+function formatTaskProgress(task, record = {}) {
+    const progress = taskProgress(task, record);
+    if (progress.skipped) return '今天已放下';
+    if (task.mode === 'check') return progress.done ? '已完成' : '未完成';
+    if (task.mode === 'count') return `${Math.max(0, Number(record.value) || 0)}/${task.target}${progress.done ? '，已完成' : ''}`;
+    const done = task.doses.filter(dose => record.doses?.[dose.id]?.done).map(dose => dose.name);
+    return `${done.length}/${task.doses.length}${done.length ? `，已完成：${done.join('、')}` : ''}${progress.done ? '，全部完成' : ''}`;
+}
+
 function createStarOrbit({ directory, clock = () => new Date() }) {
     const file = path.join(directory, 'star_orbit.json');
     function read() {
@@ -134,6 +143,14 @@ function createStarOrbit({ directory, clock = () => new Date() }) {
         const countTask = store.tasks.find(task => taskOnDate(task, date) && task.mode === 'count' && !taskProgress(task, records[task.id]).done && !records[task.id]?.skipped);
         if (countTask) result.highlight = { icon: countTask.icon, value: Math.max(0, Number(records[countTask.id]?.value) || 0), target: countTask.target };
         return result;
+    }
+    function todayContext(date = dateKey(clock())) {
+        const store = read();
+        const tasks = store.tasks.filter(task => taskOnDate(task, date));
+        if (!tasks.length) return `【星轨·今日任务】\n${date} 没有安排。只代表星轨当天，不包含普通待办或其他日期。`;
+        const records = store.records[date] || {};
+        const summary = daySummary(store, date);
+        return `【星轨·今日任务】\n${date}｜${summary.completed}/${summary.scheduled} 项完成\n${tasks.map(task => `- ${task.icon} ${task.name}：${formatTaskProgress(task, records[task.id] || {})}`).join('\n')}\n只提供今天的实时摘要；不要据此推断昨天或未来的完成情况。`;
     }
     function view(from, to) {
         const today = dateKey(clock());
@@ -200,7 +217,7 @@ function createStarOrbit({ directory, clock = () => new Date() }) {
         try { res.json(patchRecord(req.params.date, req.params.taskId, req.body)); }
         catch (error) { res.status(error.status || 503).json({ error: error.status ? error.message : '记录暂时没有保存好' }); }
     });
-    return { router, read, summary, view, createTask, endTask, patchRecord };
+    return { router, read, summary, todayContext, view, createTask, endTask, patchRecord };
 }
 
-module.exports = { addDays, createStarOrbit, dateKey, daySummary, normalizeTaskInput, taskOnDate, taskProgress };
+module.exports = { addDays, createStarOrbit, dateKey, daySummary, formatTaskProgress, normalizeTaskInput, taskOnDate, taskProgress };

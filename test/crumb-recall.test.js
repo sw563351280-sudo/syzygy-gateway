@@ -20,7 +20,7 @@ test('single-character entities and body/original-quote queries are retrievable 
 });
 
 test('age is not a read barrier: late-active, quiet and legacy states stay searchable; archives require explicit inclusion', () => {
-    const items = [crumb('late', { created_at: '2026-09-01' }), crumb('quiet', { status: 'quiet' }), crumb('archive', { status: 'archived' }), crumb('wrong', { status: 'retracted' })];
+    const items = [crumb('late', { created_at: '2026-09-01' }), crumb('quiet', { status: 'quiet' }), crumb('archive', { status: 'archived' }), crumb('wrong', { status: 'retracted' }), crumb('deleted', { status: 'deleted' })];
     assert.deepEqual(new Set(searchCrumbs(items, { keyword: '猫', now }).results.map(x => x.id)), new Set(['late', 'quiet']));
     assert.equal(searchCrumbs(items, { keyword: '猫', include_archived: true, now }).returned, 3);
 });

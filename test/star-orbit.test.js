@@ -48,6 +48,24 @@ test('store validates tasks, persists records atomically and keeps recorded time
     } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
+test('today context contains only the current day and its live progress', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'star-orbit-context-'));
+    try {
+        const orbit = createStarOrbit({ directory, clock: () => new Date('2026-10-18T02:00:00.000Z') });
+        const water = orbit.createTask({ name: '喝水', icon: '💧', mode: 'count', target: 8, schedule: { kind: 'daily', startDate: '2026-10-18' } });
+        orbit.createTask({ name: '昨日限定', icon: '🌙', mode: 'check', schedule: { kind: 'range', startDate: '2026-10-17', endDate: '2026-10-17' } });
+        orbit.patchRecord('2026-10-18', water.id, { value: 5 });
+        const context = orbit.todayContext('2026-10-18');
+        assert.match(context, /星轨·今日任务[\s\S]*喝水：5\/8/);
+        assert.doesNotMatch(context, /昨日限定|2026-10-17/);
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('both Shen chat paths receive the today-only orbit context', () => {
+    const source = fs.readFileSync(require.resolve('../server'), 'utf8');
+    assert.equal((source.match(/starOrbit\.todayContext\(\)/g) || []).length, 2);
+});
+
 test('HTTP routes create a task, record progress and reject dates without an arrangement', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'star-orbit-route-'));
     const orbit = createStarOrbit({ directory, clock: () => new Date('2026-10-17T08:12:00.000Z') });

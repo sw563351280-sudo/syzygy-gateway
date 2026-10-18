@@ -22,7 +22,7 @@
 
     <link rel="stylesheet" href="style.css?v=114">
     <link rel="stylesheet" href="home-sea.css?v=5">
-    <link rel="stylesheet" href="star-orbit.css?v=3">
+    <link rel="stylesheet" href="star-orbit.css?v=4">
     <link rel="stylesheet" href="sea-pages.css?v=2">
     <link rel="stylesheet" href="journal-sea.css?v=3">
     <link rel="stylesheet" href="/site-theme.css?v=20261017-crystal-glass">
@@ -409,6 +409,25 @@
                 <select id="codexSettingsEffort" onchange="codexSettingsDraft()" disabled><option value="high">高</option></select>
             </div>
         </details>
+        <details class="codex-settings-section codex-note-settings">
+            <summary>
+                <span class="codex-section-title">工作区便签员</span>
+                <span id="codexNoteOverview" class="codex-section-overview">读取中</span>
+                <span class="codex-section-toggle" aria-hidden="true"><span class="when-closed">配置</span><span class="when-open">收起</span></span>
+            </summary>
+            <div class="codex-section-body">
+                <label class="codex-note-toggle" for="codexNoteEnabled"><span><strong>启用自动便签</strong><small>回到通讯区第一次发言时，整理明确共享的工作区共聊</small></span><input id="codexNoteEnabled" type="checkbox" onchange="codexNoteOverview()" disabled></label>
+                <label for="codexNoteBaseUrl">API Base URL</label>
+                <input id="codexNoteBaseUrl" type="url" inputmode="url" placeholder="https://api.deepseek.com" disabled>
+                <label for="codexNoteApiKey">API Key</label>
+                <input id="codexNoteApiKey" type="password" autocomplete="new-password" placeholder="未配置" disabled>
+                <p class="codex-page-status">密钥只保存在服务端；页面只显示是否已配置，不会取回明文。</p>
+                <label for="codexNoteModel">模型名</label>
+                <input id="codexNoteModel" type="text" value="deepseek-chat" maxlength="120" oninput="codexNoteOverview()" disabled>
+                <div class="codex-page-actions"><button id="codexNoteSave" type="button" onclick="codexNoteSettingsSave()" disabled>保存便签员</button><button id="codexNoteTest" type="button" onclick="codexNoteSettingsTest()" disabled>测试连接</button></div>
+                <p id="codexNoteStatus" class="codex-page-status" role="status"></p>
+            </div>
+        </details>
         <details class="codex-settings-section codex-prompt-settings">
             <summary>
                 <span class="codex-section-title">相处设定</span>
@@ -631,19 +650,19 @@
 <script src="context-cache-status.js?v=10"></script>
 <script src="context-continuity.js?v=1"></script>
 <script src="cache-history.js?v=5"></script>
-<link rel="stylesheet" href="workroom-pages.css?v=7">
-<script src="workroom-pages.js?v=7"></script>
+<link rel="stylesheet" href="workroom-pages.css?v=8">
+<script src="workroom-pages.js?v=8"></script>
 <script src="shen-settings-page.js?v=3"></script>
 <script src="chat-window-context.js?v=1"></script>
 <script src="home-sea.js?v=6"></script>
-<script src="star-orbit.js?v=3"></script>
+<script src="star-orbit.js?v=4"></script>
 <script src="sea-pages.js?v=1"></script>
 <script src="journal-sea.js?v=1"></script>
 <script src="appearance-settings.js?v=3"></script>
 <script src="chat-transport.js?v=20261014-1"></script>
 <script src="message-usage.js?v=2"></script>
 <script src="chat-persistence.js?v=20261014-1"></script>
-<script src="script.js?v=20261018-orbit-tail"></script>
+<script src="script.js?v=20261019-workroom-briefs"></script>
 <script src="music-player.js?v=8" defer></script>
         <div id="msgContextMenu" class="msg-context-menu" role="menu" aria-label="消息操作" hidden></div>
 

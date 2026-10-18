@@ -41,6 +41,10 @@ test('settings save button cannot trigger native form navigation', () => {
     assert.match(html, /id="codexSettingsSave" type="button" onclick="window\.codexSettingsSave\(\)"/);
     assert.match(html, /id="codexUsageCard" class="codex-usage-card"/);
     assert.match(html, /class="codex-settings-section"/);
+    assert.match(html, /工作区便签员/);
+    assert.match(html, /id="codexNoteBaseUrl"[^>]*type="url"/);
+    assert.match(html, /id="codexNoteApiKey"[^>]*type="password"/);
+    assert.match(html, /id="codexNoteTest"[^>]*type="button"/);
 });
 
 test('usage dial selects the tightest real rate-limit window', () => {

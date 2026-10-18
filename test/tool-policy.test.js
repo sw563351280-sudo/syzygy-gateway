@@ -70,3 +70,9 @@ test('VPS inspection still works when filesystem MCP is unavailable', () => {
     const kept = keepRequestedReadTools(available, '看看 VPS 的服务日志');
     assert.deepEqual(kept.map(item => item.function.name), ['exec']);
 });
+
+test('an injected workroom note keeps the shared transcript reader available', () => {
+    const available = [tool('query_workspace_conversations'), tool('query_work_records'), tool('exec')];
+    const kept = keepRequestedReadTools(available, '我们接着聊\n工作区便签片段');
+    assert.deepEqual(kept.map(item => item.function.name), ['query_workspace_conversations']);
+});
