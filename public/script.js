@@ -91,7 +91,7 @@ function msgContentOf(msg) {
     const content = version && version.content !== undefined ? version.content : msg.content;
     return typeof content === 'string' ? content : '';
 }
-function renderMarkdown(text) { if (!text) return ''; text = legacyMessagePlain(stripDisplayTimestamp(text)); if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
+function renderMarkdown(text, stripWakeArtifacts = false) { if (!text) return ''; text = legacyMessagePlain(stripDisplayTimestamp(text)); if (stripWakeArtifacts && window.AssistantArtifacts) text = window.AssistantArtifacts.extractNextWakeTag(text).cleanText; if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
 
 // ==================== 版本化消息辅助函数 ====================
 function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; if (v.toolCalls === undefined && msg.toolCalls !== undefined) v.toolCalls = msg.toolCalls; return v; } return msg; }
@@ -2038,7 +2038,7 @@ function updateWorkroomChrome() {
     const renameButtons = document.querySelectorAll('.chat-rename-topbar-btn, .chat-rename-btn');
     if (bar) bar.hidden = !active;
     if (mode) mode.disabled = Boolean(room?.codexTaskId);
-    if (input) input.placeholder = active ? '和沈望、Codex 一起讨论或布置任务…' : '发消息给沈望…';
+    if (input) input.placeholder = active ? '把我们叫来，一起商量点什么……' : '跟我说说话，宝宝……';
     renameButtons.forEach(button => { button.hidden = active; });
     if (!active) document.getElementById('workroomCodexApproval')?.setAttribute('hidden', '');
     else if (workroomApprovalQueue.length) workroomShowApproval(workroomApprovalQueue[0]);
@@ -2293,7 +2293,7 @@ function renderChatMessages(options = {}){
             const githubUrl = findGitHubLink(displayContent);
             if (githubUrl) htmlContent += '<div class="github-card" data-github-url="' + encodeURIComponent(githubUrl) + '">正在读取 GitHub 链接…</div>';
         } else {
-            htmlContent += '<div class="md-content">' + renderMarkdown(displayContent || '') + '</div>';
+            htmlContent += '<div class="md-content">' + renderMarkdown(displayContent || '', speaker === 'shenwang') + '</div>';
         }
 
         const timeStr = v.fullTime ? new Date(v.fullTime).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) : (v.time || '');
@@ -2726,7 +2726,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
                     sRow.classList.add('has-think-marker');
                     thinkMarker.update(thinkContent);
                 }
-                mainTextDiv.innerHTML = renderMarkdown(fullReply) + '<span class="typing-cursor"></span>';
+                mainTextDiv.innerHTML = renderMarkdown(fullReply, true) + '<span class="typing-cursor"></span>';
                 scrollChatToBottomIfNear(win);
             });
 
@@ -2772,7 +2772,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             }, () => request.touch());
             streamPaint.flush();
             sDiv.querySelector('.loading-indicator')?.remove();
-            mainTextDiv.innerHTML = renderMarkdown(fullReply);
+            mainTextDiv.innerHTML = renderMarkdown(fullReply, true);
             // 流结束：将工具调用组从"正在调用"切换为"调用了 N 次"
             if (toolCallRecords.length > 0) updateToolGroupDOM(toolGroupEl, toolCallRecords, false);
 
@@ -2801,7 +2801,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             const mainTextDiv = document.createElement('div');
             mainTextDiv.classList.add('md-content');
             sDiv.appendChild(mainTextDiv);
-            mainTextDiv.innerHTML = renderMarkdown(fullReply);
+            mainTextDiv.innerHTML = renderMarkdown(fullReply, true);
             if (toolCallRecords.length) {
                 const musicCards = document.createElement('div');
                 musicCards.innerHTML = renderToolCallGroupHTML(toolCallRecords, false);
@@ -4711,7 +4711,7 @@ async function regenerateSend(aiMsgIndex) {
                 fullReply=parsed.visibleContent;
                 thinkContent=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n');
                 if(thinkContent){targetRow.classList.add('has-think-marker');thinkMarker.update(thinkContent);}
-                mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';
+                mainTextDiv.innerHTML=renderMarkdown(fullReply,true)+'<span class="typing-cursor"></span>';
                 scrollChatToBottomIfNear(win);
             });
             await ChatTransport.readStream(response, p => {
@@ -4733,9 +4733,9 @@ async function regenerateSend(aiMsgIndex) {
             }, () => request.touch());
             streamPaint.flush();
             sDiv.querySelector('.loading-indicator')?.remove();
-            mainTextDiv.innerHTML=renderMarkdown(fullReply);
+            mainTextDiv.innerHTML=renderMarkdown(fullReply,true);
             if(toolCallRecords.length>0)updateToolGroupDOM(toolGroupEl,toolCallRecords,false);
-        } else { const data=await response.json(); messageUsage.accept(data); shenReaction=data.syzygy_reaction?.emoji||null; fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){thinkMarker.element.hidden=false; targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
+        } else { const data=await response.json(); messageUsage.accept(data); shenReaction=data.syzygy_reaction?.emoji||null; fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){thinkMarker.element.hidden=false; targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply,true);sDiv.appendChild(mtd); }
         sDiv.classList.remove('msg-loading');
         const timeStr=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
         const liveSession = getLiveSession(sessionId) || session;

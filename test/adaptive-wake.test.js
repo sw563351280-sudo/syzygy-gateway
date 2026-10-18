@@ -24,6 +24,27 @@ test('legacy and truncated NEXT_WAKE tags are hidden and fall back safely', () =
     assert.equal(extractNextWakeTag('正文<NEXT_WAKE>{"after_minutes":').cleanText, '正文');
 });
 
+test('strict trailing wake JSON is hidden even when its wrapper is missing or broken', () => {
+    const body = '{"after_minutes":45,"urgency":"low","reason":"稍后再看看"}';
+    for (const source of [
+        `正文\n${body}`,
+        `正文\nNEXT_WAKE>${body}`,
+        `正文\n${body}</NEXT_WAKE>`,
+        `正文\n<NEXT_WAKE>${body}`,
+    ]) {
+        const parsed = extractNextWakeTag(source);
+        assert.equal(parsed.cleanText, '正文');
+        assert.deepEqual(parsed.plan, { after_minutes: 45, urgency: 'low', reason: '稍后再看看' });
+    }
+});
+
+test('ordinary trailing JSON and protocol examples remain visible', () => {
+    const ordinary = '正文\n{"after_minutes":45,"urgency":"low","reason":"说明","extra":true}';
+    const fenced = '示例：\n```json\n{"after_minutes":45,"urgency":"low","reason":"说明"}\n```';
+    assert.equal(extractNextWakeTag(ordinary).cleanText, ordinary);
+    assert.equal(extractNextWakeTag(fenced).cleanText, fenced);
+});
+
 test('adaptive plans clamp ordinary wakes to 15 minutes and critical wakes follow backoff', () => {
     const ordinary = normalizePlan({ after_minutes: 5, urgency: 'high' }, { random: () => 0.5 });
     assert.equal(ordinary.after_minutes, 15);

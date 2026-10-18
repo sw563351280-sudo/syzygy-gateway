@@ -37,6 +37,7 @@ test('static deployment publishes dependencies before replacing the entry page',
     assert.ok(extractAt >= 0, 'workflow must extract the verified dependency bundle');
     assert.ok(replaceAt > extractAt, 'index.html must be replaced after its dependencies');
     assert.match(workflow, /test -s \/opt\/syzygy\/public\/home-tools\.js/);
+    assert.match(workflow, /test -s \/opt\/syzygy\/public\/assistant-artifacts\.js/);
     assert.match(workflow, /test -s \/opt\/syzygy\/public\/workroom-pages\.js/);
     assert.match(workflow, /test -s \/opt\/syzygy\/public\/shen-settings-page\.js/);
 });

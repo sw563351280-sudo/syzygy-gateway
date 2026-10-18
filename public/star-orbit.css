@@ -1,13 +1,14 @@
 .sea-orbit-summary.is-complete { color:#e8b04b; opacity:1; }
 .sea-orbit-summary.is-complete .sea-icon { filter:drop-shadow(0 0 4px rgba(232,176,75,.5)); }
-.orbit-drawer { height:88dvh; max-height:88dvh; color:#e8f2fb; background:rgba(10,20,42,.82); border-color:rgba(255,255,255,.08); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
+.orbit-drawer { --orbit-ink:var(--sea-foreground,#1a3a5c); --orbit-muted:color-mix(in srgb,var(--orbit-ink) 58%,transparent); --orbit-soft:rgba(237,246,252,.32); --orbit-panel:rgba(241,248,252,.7); --orbit-edge:rgba(255,255,255,.64); --orbit-tab-bg:rgba(229,240,248,.94); height:88dvh; max-height:88dvh; color:var(--orbit-ink); background:rgba(229,240,248,.76); border-color:var(--orbit-edge); backdrop-filter:blur(22px) saturate(112%); -webkit-backdrop-filter:blur(22px) saturate(112%); }
+html[data-sea-cycle="night"] .home-v2 .orbit-drawer { --orbit-muted:color-mix(in srgb,var(--orbit-ink) 58%,transparent); --orbit-soft:rgba(235,243,250,.055); --orbit-panel:rgba(10,27,48,.72); --orbit-edge:rgba(255,255,255,.12); --orbit-tab-bg:rgba(7,20,37,.94); background:rgba(7,20,37,.78); }
 .orbit-drawer .orbit-shell { height:100%; padding:18px 18px calc(16px + env(safe-area-inset-bottom)); overflow-y:auto; overscroll-behavior:contain; }
 .orbit-close { position:absolute; top:18px; right:18px; z-index:2; width:38px; height:38px; padding:0; border:0; border-radius:50%; background:rgba(255,255,255,.07); color:inherit; font-size:25px; line-height:1; }
 .orbit-head { display:flex; align-items:center; justify-content:space-between; max-width:620px; margin:0 auto 14px; padding:0 48px 0 2px; }
 .orbit-head p { margin:0 0 3px; color:#6fa6d6; font:10px/1.2 system-ui,sans-serif; letter-spacing:.2em; }
 .orbit-drawer .orbit-head h2 { margin:0; text-align:left; font-size:24px; letter-spacing:.12em; }
 .orbit-head-add { width:36px; height:36px; margin-right:4px; border:1px solid rgba(255,255,255,.12); border-radius:50%; background:rgba(255,255,255,.06); color:inherit; font-size:21px; }
-.orbit-tabs { position:sticky; top:-18px; z-index:6; display:grid; grid-template-columns:repeat(3,1fr); max-width:620px; margin:0 auto 18px; padding:8px 0 7px; background:linear-gradient(rgba(10,20,42,.98) 75%,transparent); }
+.orbit-tabs { position:sticky; top:-18px; z-index:6; display:grid; grid-template-columns:repeat(3,1fr); max-width:620px; margin:0 auto 18px; padding:8px 0 7px; background:linear-gradient(var(--orbit-tab-bg) 75%,transparent); }
 .orbit-tabs button { min-height:40px; padding:0 14px; border:0; border-bottom:1px solid rgba(255,255,255,.1); background:none; color:rgba(232,242,251,.55); font-size:14px; letter-spacing:.08em; }
 .orbit-tabs button[aria-selected="true"] { color:#e8f2fb; border-bottom-color:#6fa6d6; }
 .orbit-panel,.orbit-create { max-width:620px; margin:0 auto; }
@@ -75,3 +76,19 @@
 @media (max-width:380px){.orbit-drawer .orbit-shell{padding-left:12px;padding-right:12px}.orbit-week-head,.orbit-month-grid{gap:4px}.orbit-drops button{width:21px;font-size:15px}.orbit-choice-cards span{font-size:10px}.orbit-task-main{gap:7px;padding-left:7px}}
 @media (prefers-reduced-motion:reduce){.orbit-drawer *{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 .orbit-drawer,.orbit-drawer * { font-family:'Sea Serif','Noto Serif SC','Songti SC','SimSun','Apple Color Emoji','Segoe UI Emoji',sans-serif!important; }
+
+/* The drawer is one piece of translucent sea glass in daylight and a deeper
+   pane at night. Inner surfaces keep their hierarchy without becoming an
+   opaque second background. */
+.orbit-drawer :is(.orbit-head p,.orbit-tabs button,.orbit-status,.orbit-period-nav>button,.orbit-week-head,.orbit-legend,.orbit-lit-count,.orbit-day-detail header p,.orbit-task-copy small,.orbit-drops small,.orbit-no-tasks,.orbit-year-months,.orbit-heart-detail header p,.orbit-heart-entry time,.orbit-heart-line>span,.orbit-heart-empty,.orbit-task-group h3,.orbit-task-group summary,.orbit-managed-task small,.orbit-group-empty,.orbit-field>span,.orbit-create legend,.orbit-date-fields label,.orbit-custom-kind,.orbit-interval) { color:var(--orbit-muted); }
+.orbit-drawer :is(.orbit-tabs button[aria-selected="true"],.orbit-range-tabs button[aria-selected="true"],.orbit-close,.orbit-head-add,.orbit-period-nav>strong,.orbit-day-detail h3,.orbit-heart-detail,.orbit-create-head,.orbit-managed-task strong) { color:var(--orbit-ink); }
+.orbit-close,.orbit-head-add,.orbit-range-tabs,.orbit-heart-detail header button,.orbit-stepper button,.orbit-managed-task>button,.orbit-name-field button,.orbit-choice-cards span,.orbit-schedule-tabs span,.orbit-weekdays span { border-color:var(--orbit-edge); background:var(--orbit-soft); }
+.orbit-day-detail,.orbit-heart-detail,.orbit-heart-line { border-color:color-mix(in srgb,var(--orbit-ink) 13%,transparent); }
+.orbit-task-row,.orbit-task-group,.orbit-heart-entry { border-color:var(--orbit-edge); background:var(--orbit-soft); }
+.orbit-task-main,.orbit-dose,.orbit-create input[type="text"],.orbit-create input[type="number"],.orbit-create input[type="date"],.orbit-create input:not([type]),.orbit-icon-picker { border-color:var(--orbit-edge); background:var(--orbit-panel); color:var(--orbit-ink); }
+.orbit-row-more,.orbit-stepper button,.orbit-managed-task>button { color:var(--orbit-muted); }
+.orbit-day.is-empty,.orbit-year-day.is-empty { border-color:color-mix(in srgb,var(--orbit-ink) 14%,transparent); color:var(--orbit-muted); }
+.orbit-day.is-archive-gap,.orbit-year-day.is-archive-gap { border-color:color-mix(in srgb,var(--orbit-ink) 22%,transparent); background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--orbit-ink) 13%,transparent) 0 3px,color-mix(in srgb,var(--orbit-ink) 3.5%,transparent) 3px 6px); color:var(--orbit-muted); }
+.orbit-archive-gap { border-color:color-mix(in srgb,var(--orbit-ink) 14%,transparent); background:color-mix(in srgb,var(--orbit-ink) 5%,transparent); }
+.orbit-create input::-webkit-calendar-picker-indicator { filter:none; opacity:.62; }
+html[data-sea-cycle="night"] .orbit-create input::-webkit-calendar-picker-indicator { filter:invert(1); }

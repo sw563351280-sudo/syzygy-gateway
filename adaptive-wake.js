@@ -1,5 +1,7 @@
 'use strict';
 
+const { extractNextWakeTag } = require('./public/assistant-artifacts');
+
 const MINUTE_MS = 60 * 1000;
 const LIMITS = Object.freeze({
     minIntervalMinutes: 15,
@@ -21,29 +23,6 @@ function beijingHour(now = new Date()) {
     return Number(new Intl.DateTimeFormat('en-US', {
         timeZone: 'Asia/Shanghai', hour: '2-digit', hourCycle: 'h23'
     }).format(now));
-}
-
-function parseJsonBody(raw) {
-    try {
-        return JSON.parse(String(raw || '').replace(/```(?:json)?/gi, '').replace(/```/g, '').trim());
-    } catch (_) {
-        return null;
-    }
-}
-
-function extractNextWakeTag(content) {
-    const source = String(content || '');
-    const plans = [];
-    let cleanText = source.replace(/<NEXT_WAKE\s*>([\s\S]*?)<\/NEXT_WAKE\s*>/gi, (_match, raw) => {
-        const parsed = parseJsonBody(raw);
-        if (parsed && typeof parsed === 'object') plans.push(parsed);
-        return '';
-    });
-    // Old self-closing drafts and truncated tags must never leak into chat or
-    // persisted history. They are discarded and the scheduler uses fallback.
-    cleanText = cleanText.replace(/<NEXT_WAKE\b[^>]*\/>/gi, '');
-    cleanText = cleanText.replace(/<NEXT_WAKE\b[\s\S]*$/i, '').trim();
-    return { cleanText, plan: plans.length ? plans[plans.length - 1] : null, tagCount: plans.length };
 }
 
 function normalizeUrgency(value) {

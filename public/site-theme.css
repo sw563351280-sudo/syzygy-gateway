@@ -113,10 +113,10 @@ html[data-visual-theme="new"] body.neu-mode #sec-chat :is(#chatInput,.model-sele
 }
 html[data-visual-theme="new"] body.neu-mode #sec-chat,
 html[data-visual-theme="new"] body.neu-mode #sec-chat * { text-shadow:none !important; }
-html[data-visual-theme="new"] body.neu-mode #sec-chat #chatInput::placeholder { color:var(--sea-muted) !important; }
+html[data-visual-theme="new"] body.neu-mode #sec-chat #chatInput::placeholder { color:color-mix(in srgb,var(--sea-foreground) 58%,transparent) !important; }
 html[data-visual-theme="new"] body.neu-mode :is(.view-title,.view-back,.chat-floating-title button,.chat-floating-actions button,.chat-tool-item,.chat-tool-item label,.workroom-switch-btn,.codex-page-content,.app-settings-page,.neu-title,.neu-label,.fav-empty,.tt-memory-intro) { color:var(--sea-foreground) !important; }
 html[data-visual-theme="new"] body.neu-mode :is(.view-back,.chat-icon-button,#chatInput,#chatSendBtn,.chat-tool-preferences,.chat-model-selector) { background:var(--sea-surface) !important; color:var(--sea-foreground) !important; box-shadow:none !important; }
-html[data-visual-theme="new"] body.neu-mode :is(#chatInput,.chat-model-selector)::placeholder { color:var(--sea-muted) !important; }
+html[data-visual-theme="new"] body.neu-mode :is(#chatInput,.chat-model-selector)::placeholder { color:color-mix(in srgb,var(--sea-foreground) 58%,transparent) !important; }
 html[data-visual-theme="new"] body.neu-mode :is(.msg.user,.msg.ai,.msg.sys,.msg.user .bubble,.msg.ai .bubble) { color:var(--sea-foreground) !important; }
 html[data-visual-theme="new"] body.neu-mode #sec-chat :is(.msg.ai,.msg.sys,.msg.user) {
   border-color:var(--sea-glass-edge) !important;

@@ -35,6 +35,30 @@ async function main() {
         await page.setViewport({ width: 393, height: 852, deviceScaleFactor: 1 });
         await page.goto(`http://127.0.0.1:${server.address().port}/`, { waitUntil: 'networkidle0' });
         await page.waitForSelector('#homeV2MoreToggle');
+        const chatUi = await page.evaluate(() => {
+            const html = document.documentElement;
+            html.dataset.seaCycle = 'day';
+            goView('chat');
+            openCommunication();
+            const input = document.querySelector('#chatInput');
+            const mainPlaceholder = input.placeholder;
+            const placeholderBefore = getComputedStyle(input, '::placeholder').color;
+            SeaTheme.setAdjustments({ dayTextColor: '#c4956a' });
+            const placeholderAfter = getComputedStyle(input, '::placeholder').color;
+            const session = getActiveSession();
+            session.messages = [{ role: 'assistant', speaker: 'shenwang', versions: [{ content: '尾巴前正文\n{"after_minutes":45,"urgency":"low","reason":"稍后看看"}', fullTime: '2026-10-18T08:00:00.000Z' }], activeVersion: 0 }];
+            renderChatMessages({ forceBottom: true });
+            const rendered = document.querySelector('#chatWindow .md-content')?.textContent || '';
+            openWorkroom();
+            const workroomPlaceholder = input.placeholder;
+            SeaTheme.setAdjustments({ dayTextColor: '#1a3a5c' });
+            return { mainPlaceholder, workroomPlaceholder, placeholderBefore, placeholderAfter, rendered };
+        });
+        assert.equal(chatUi.mainPlaceholder, '跟我说说话，宝宝……');
+        assert.equal(chatUi.workroomPlaceholder, '把我们叫来，一起商量点什么……');
+        assert.notEqual(chatUi.placeholderBefore, chatUi.placeholderAfter, 'composer hint follows the configured text color');
+        assert.equal(chatUi.rendered.trim(), '尾巴前正文', 'stored naked wake JSON stays hidden in historical rendering');
+        await page.evaluate(() => goView('home'));
         assert.equal(await page.$('.sea-orbit-summary'), null, 'empty orbit stays hidden on the home page');
         await page.click('#homeV2MoreToggle');
         await page.waitForSelector('#seaMoreDialog[open] [data-sea-action="star-orbit"]');
@@ -45,6 +69,20 @@ async function main() {
         assert.equal(await page.$eval('#seaMoreDialog', node => node.open), false, 'more panel closes before orbit opens');
         assert.equal(await page.$eval('[data-orbit-section="heart"]', node => node.getAttribute('aria-selected')), 'true', 'ordinary entry defaults to heart trail');
         assert.equal(await page.$eval('#orbitNewTask', node => node.hidden), true, 'heart trail does not show task add action');
+        const orbitGlass = await page.evaluate(() => {
+            const html = document.documentElement, drawer = document.querySelector('.orbit-drawer'), original = html.dataset.seaCycle;
+            html.dataset.seaCycle = 'day';
+            const day = { background: getComputedStyle(drawer).backgroundColor, color: getComputedStyle(drawer).color, blur: getComputedStyle(drawer).backdropFilter };
+            html.dataset.seaCycle = 'night';
+            const night = { background: getComputedStyle(drawer).backgroundColor, color: getComputedStyle(drawer).color, blur: getComputedStyle(drawer).backdropFilter };
+            html.dataset.seaCycle = original;
+            return { day, night };
+        });
+        assert.notEqual(orbitGlass.day.background, orbitGlass.night.background, 'orbit glass changes with the day/night cycle');
+        assert.match(orbitGlass.day.background, /0\.76/);
+        assert.match(orbitGlass.night.background, /0\.78/);
+        assert.match(orbitGlass.day.blur, /blur\(22px\)/);
+        assert.notEqual(orbitGlass.day.color, orbitGlass.night.color, 'orbit copy follows the active appearance text color');
         assert.equal(await page.$$eval('.orbit-heart-day.is-heat-3', nodes => nodes.length), 1, 'chat heat lights the matching day');
         assert.equal(await page.$$eval('.orbit-heart-day .orbit-period-dot', nodes => nodes.length), 1, 'calendar period marker survives the merge');
         assert.match(await page.$eval('.orbit-heart-detail', node => node.textContent), /聊了 60 轮 · 你留下 5300 字/);
@@ -99,7 +137,7 @@ async function main() {
         await page.waitForFunction(() => !document.querySelector('#starOrbitDialog').open);
         await page.waitForFunction(() => document.querySelector('.sea-orbit-summary').textContent.includes('今日 1/4'));
         assert.deepEqual(errors, []);
-        console.log(JSON.stringify({ ok: true, checks: ['default heart trail', 'chat heat and calendar detail', 'appearance text color', 'empty-state menu entry', 'first task creation', 'home summary', 'mobile drawer', 'check', 'water count', 'split dose', 'year view', 'task creation', 'no overflow'], screenshots: [path.join(os.tmpdir(), 'star-orbit-empty-entry.png'), path.join(os.tmpdir(), 'star-orbit-heart.png'), path.join(os.tmpdir(), 'star-orbit-month.png'), path.join(os.tmpdir(), 'star-orbit-mobile.png')] }));
+        console.log(JSON.stringify({ ok: true, checks: ['chat tail fallback', 'chat placeholders and configured hint color', 'default heart trail', 'day/night orbit glass', 'chat heat and calendar detail', 'appearance text color', 'empty-state menu entry', 'first task creation', 'home summary', 'mobile drawer', 'check', 'water count', 'split dose', 'year view', 'task creation', 'no overflow'], screenshots: [path.join(os.tmpdir(), 'star-orbit-empty-entry.png'), path.join(os.tmpdir(), 'star-orbit-heart.png'), path.join(os.tmpdir(), 'star-orbit-month.png'), path.join(os.tmpdir(), 'star-orbit-mobile.png')] }));
     } finally {
         await browser?.close(); ws.close(); await new Promise(resolve => server.close(resolve)); fs.rmSync(directory, { recursive: true, force: true });
     }
