@@ -44,7 +44,7 @@ function createMusic({ directory, secret, provider: suppliedProvider, ranker = n
     const room = createRoom({ provider, getSession: () => store.read().session,
         update(session, type, extra) {
             store.mutate(data => {
-                data.session = { ...session, epoch: data.session.epoch, snapshot: data.session.snapshot, owner: null };
+                data.session = { ...session, partnerUid: data.session.partnerUid, companionUid: data.session.companionUid, epoch: data.session.epoch, snapshot: data.session.snapshot, owner: null };
                 if (type) event(data, type, session, extra);
             });
         } });
@@ -95,19 +95,29 @@ function createMusic({ directory, secret, provider: suppliedProvider, ranker = n
     async function switchMode(mode, partnerUid) {
         if (!['local', 'netease-room'].includes(mode)) throw fail('INVALID_MODE', '请选择有效播放模式');
         if (modeTask) throw fail('MODE_BUSY', '正在切换模式，请稍候', 409);
-        if (mode === 'netease-room') {
-            id(partnerUid);
-            if (!provider.status().companionLoggedIn) throw fail('LOGIN_REQUIRED', '请先为陪伴账号扫码登录', 409);
-        }
+        if (mode === 'netease-room' && partnerUid) id(partnerUid);
         modeTask = true;
         try {
+            let companionUid = null;
+            if (mode === 'netease-room') {
+                if (!provider.status().companionLoggedIn) throw fail('LOGIN_REQUIRED', '请先为陪伴账号扫码登录', 409);
+                const account = async profile => {
+                    const result = await provider.api('/login/status', {}, profile);
+                    const uid = result.data?.profile?.userId || result.data?.account?.id || result.profile?.userId || result.account?.id;
+                    if (Number(result.code ?? result.data?.code) !== 200 || !uid) throw fail('LOGIN_REQUIRED', `${profile === 'user' ? '我的账号' : '陪伴账号'}登录已失效，请重新扫码登录`, 409);
+                    return id(uid);
+                };
+                const identities = await Promise.all([account('companion'), partnerUid ? Promise.resolve(String(partnerUid)) : account('user')]);
+                [companionUid, partnerUid] = identities;
+                if (companionUid === partnerUid) throw fail('SAME_ACCOUNT', '两个位置登录了同一个网易云账号，请为陪伴账号登录另一个账号', 409);
+            }
             try { await room.stop(); }
             catch (e) {
                 store.mutate(data => { data.session.state = 'disconnected'; data.session.error = 'LEAVE_FAILED'; });
                 throw e;
             }
             store.mutate(data => {
-                data.session = { ...data.session, mode, state: mode === 'local' ? 'closed' : 'waiting', owner: null, song: null, roomId: null, error: null, epoch: crypto.randomUUID(), updatedAt: Date.now() };
+                data.session = { ...data.session, mode, state: mode === 'local' ? 'closed' : 'waiting', partnerUid: mode === 'netease-room' ? partnerUid : null, companionUid, owner: null, song: null, roomId: null, error: null, epoch: crypto.randomUUID(), updatedAt: Date.now() };
                 event(data, 'mode_change', data.session);
             });
             if (mode === 'netease-room') room.start(partnerUid);

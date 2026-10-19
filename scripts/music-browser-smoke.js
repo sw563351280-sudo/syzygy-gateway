@@ -16,12 +16,18 @@ async function main() {
     fs.mkdirSync(output, { recursive: true });
     let qrCount = 0;
     let failQr = false;
+    let validCompanion = true;
+    let searches = 0;
     const song = sid => ({ id: String(sid), name: sid === '1' ? '晚风留声' : '海边来信', artist: '测试歌手', album: '共听测试', provider: 'netease', duration: 20000 });
     const music = createMusic({ directory, secret: 'browser-test-secret', provider: {
         status: () => ({ configured: true, userLoggedIn: true, companionLoggedIn: true }),
-        search: async () => [song('1'), song('2')], detail: async sid => song(String(sid)), audio: async () => 'mock-verified-audio',
+        search: async () => { searches++; return [song('1'), song('2')]; }, detail: async sid => song(String(sid)), audio: async () => 'mock-verified-audio',
         playlist: async () => ({ id: '7', name: '晚安之前', tracks: [song('1'), song('2')] }),
-        api: async (route, params) => {
+        api: async (route, params, profile) => {
+            if (route === '/login/status') {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                return { data: { code: 200, account: profile === 'companion' && !validCompanion ? null : { id: profile === 'companion' ? 8 : 7 } } };
+            }
             if (route === '/login/qr/key') {
                 if (failQr) throw new Error('Temporary QR service failure');
                 return { code: 200, data: { unikey: `qr-${++qrCount}` } };
@@ -78,6 +84,43 @@ async function main() {
         const click = (selector, target = page) => target.evaluate(s => document.querySelector('#syzygy-music').shadowRoot.querySelector(s).click(), selector);
         const waitState = state => page.waitForFunction(async expected => (await (await fetch('/api/music/status')).json()).session?.state === expected, { polling: 250 }, state);
         await click('.launcher');
+        const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+        music.store.mutate(data => { data.cards[today] = { date: today, generatedAt: Date.now(), songs: [song('1')], strategy: { llmRanked: false } }; });
+        await click('[data-tab="daily"]');
+        await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.daily-list .track'));
+        assert.equal(searches, 0, 'cached daily card opens without rerunning discovery');
+        await page.evaluate(() => {
+            const original = window.fetch;
+            window.dailyRequests = 0;
+            window.fetch = (...args) => {
+                if (String(args[0]).endsWith('/daily-discovery') && args[1]?.body) {
+                    window.dailyRequests++;
+                    return new Promise(resolve => { window.rejectDaily = () => {
+                        window.fetch = original;
+                        resolve(new Response(JSON.stringify({ error: '私选验证暂不可用' }), { status: 503 }));
+                    }; });
+                }
+                return original(...args);
+            };
+        });
+        await click('[data-action="refresh-daily"]');
+        await click('[data-action="refresh-daily"]');
+        await click('[data-tab="daily"]');
+        assert.equal(await page.evaluate(() => window.dailyRequests), 1, 'rapid clicks reuse one discovery request');
+        assert.equal(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelectorAll('.daily-list .track').length), 1, 'previous daily songs remain playable during refresh');
+        await page.evaluate(() => window.rejectDaily());
+        await page.waitForFunction(() => !document.querySelector('#syzygy-music').shadowRoot.querySelector('[data-action="refresh-daily"]').disabled);
+        assert.equal(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelectorAll('.daily-list .track').length), 1, 'failed refresh preserves previous songs');
+        await page.evaluate(() => {
+            window.musicFetch = window.fetch; window.musicTimer = window.setTimeout;
+            window.fetch = (...args) => String(args[0]).endsWith('/my-playlists') ? new Promise(() => {}) : window.musicFetch(...args);
+            window.setTimeout = (fn, ms, ...args) => window.musicTimer(fn, ms === 20000 ? 30 : ms, ...args);
+        });
+        await click('[data-action="my-playlists"]');
+        await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.notice').textContent.includes('请求超时'));
+        assert.equal(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('[data-action="my-playlists"]').disabled), false);
+        await page.evaluate(() => { window.fetch = window.musicFetch; window.setTimeout = window.musicTimer; });
+        await click('[data-tab="search"]');
         await page.evaluate(() => {
             const r = document.querySelector('#syzygy-music').shadowRoot;
             r.querySelector('.search input').value = '晚风'; r.querySelector('.search').requestSubmit();
@@ -169,6 +212,7 @@ async function main() {
         await click('[data-tab="playlists"]');
         await page.evaluate(() => { const r = document.querySelector('#syzygy-music').shadowRoot; r.querySelector('.import input').value = '7'; r.querySelector('.import').requestSubmit(); });
         await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.library summary')?.textContent.includes('晚安之前'));
+        assert.equal(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelectorAll('.library .track').length), 0, 'collapsed playlists do not build song rows');
         await click('.library summary'); await click('.library details > button'); await waitState('play');
         await page.evaluate(() => { const audio = document.querySelector('#syzygy-music').shadowRoot.querySelector('audio'); audio.currentTime = audio.duration - 0.1; });
         await page.waitForFunction(async () => { const s = (await (await fetch('/api/music/status')).json()).session; return s?.song?.id === '2' && s.state === 'play'; }, { polling: 250 });
@@ -185,10 +229,15 @@ async function main() {
         await click('.launcher');
         await click('[data-action="settings-toggle"]');
         await click('[data-mode="netease-room"]');
-        await page.evaluate(() => { document.querySelector('#syzygy-music').shadowRoot.querySelector('.partner').value = '7'; });
+        validCompanion = false;
+        await click('[data-action="join"]');
+        await page.waitForFunction(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('.settings-drawer .notice').textContent.includes('登录已失效'));
+        assert.equal(music.status().session.mode, 'local');
+        validCompanion = true;
         await click('[data-action="join"]');
         await page.waitForFunction(async () => { const s = (await (await fetch('/api/music/status')).json()).session; return s?.mode === 'netease-room' && s.state === 'play'; }, { polling: 250 });
         assert.equal(await page.evaluate(() => document.querySelector('#syzygy-music').shadowRoot.querySelector('audio').paused), true);
+        assert.equal(music.status().session.partnerUid, '7', 'blank sender UID uses the logged-in user');
         await page.setViewport({ width: 390, height: 844, isMobile: true, deviceScaleFactor: 1 });
         await page.waitForFunction(() => Boolean(window.SyzygyMusic));
         await page.evaluate(() => window.SyzygyMusic.open());

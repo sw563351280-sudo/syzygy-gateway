@@ -29,6 +29,16 @@
       <section class="lyrics-view" hidden aria-label="歌词"><header><button data-action="close-lyrics" aria-label="返回唱片机">←</button><strong class="lyrics-title"></strong><span></span></header><pre class="lyrics">选一首歌后查看歌词。</pre></section>
       <section class="settings-drawer" hidden aria-label="音乐设置"><header><strong>设置</strong><button data-action="settings-toggle" aria-label="关闭音乐设置">×</button></header><div class="mode"><button data-mode="local">小屋播放器</button><button data-mode="netease-room">网易云一起听</button></div><div class="preferences"><label>音量<input class="volume" type="range" min="0" max="1" step="0.05" value="0.8"></label><label>音质<select class="quality" aria-label="音质"><option value="high">高音质</option><option value="smooth">流畅</option></select></label><label>顺序<select class="play-mode" aria-label="播放模式"><option value="sequence">顺序</option><option value="repeat-one">单曲循环</option><option value="shuffle">随机</option></select></label></div><div class="room" hidden><p>在网易云 App 邀请陪伴账号。歌曲由 App 播放，小屋只同步状态。</p><label>你的网易云 UID<input class="partner" inputmode="numeric" placeholder="发送邀请的账号 ID"></label><button data-action="join">开始等待邀请</button><button data-action="leave">退出房间</button></div><div class="account"><p>你的账号用于音源与收藏；陪伴账号用于网易云一起听。</p><div class="login-status"></div><div class="row"><button data-login="user">登录我的账号</button><button data-logout="user">退出我的账号</button></div><div class="row"><button data-login="companion">登录陪伴账号</button><button data-logout="companion">退出陪伴账号</button></div><img class="qr" alt="用网易云 App 扫码登录" hidden><p class="qr-status"></p><button data-action="summary">生成共听小结</button><pre class="summary"></pre></div><button data-action="stop" class="end-listening">结束共听</button></section>`;
     const $ = selector => root.querySelector(selector);
+    const settingsNotice = document.createElement('p');
+    settingsNotice.className = 'notice';
+    settingsNotice.setAttribute('role', 'status');
+    settingsNotice.setAttribute('aria-live', 'polite');
+    $('.settings-drawer header').after(settingsNotice);
+    const roomStatus = document.createElement('p');
+    roomStatus.className = 'room-status';
+    roomStatus.setAttribute('role', 'status');
+    $('.room').append(roomStatus);
+    $('.partner').placeholder = '留空自动识别已登录的我的账号';
     // Keep native media output outside the collapsible panel. Web Audio can be
     // suspended by iOS in the background while the media clock keeps advancing.
     const audio = document.createElement('audio');
@@ -64,15 +74,42 @@
     let restoredTime = 0;
     let restoredFromServer = false;
     const inRoom = () => remote.mode === 'netease-room';
-    function notice(text, error = false) { $('.notice').textContent = text; $('.notice').classList.toggle('error', error); }
+    function notice(text, error = false) {
+        for (const element of [$('.notice'), settingsNotice]) {
+            element.textContent = text; element.classList.toggle('error', error);
+        }
+    }
     async function api(path, body, method = 'POST') {
-        const response = await fetch('/api/music' + path, { method: body === undefined ? 'GET' : method,
-            headers: body === undefined ? {} : { 'Content-Type': 'application/json', 'X-Music-CSRF': csrf }, body: body === undefined ? undefined : JSON.stringify(body) });
-        const value = await response.json();
-        if (!response.ok) { const error = new Error(value.error || '音乐请求失败'); error.code = value.code; throw error; }
-        return value;
+        if (body !== undefined && !csrf) csrf = (await api('/status')).csrfToken;
+        const controller = new AbortController();
+        const timeoutMs = path === '/daily-discovery' && body !== undefined ? 75000 : ['/playlists/import', '/mode'].includes(path) ? 40000 : 20000;
+        let timer;
+        try {
+            return await Promise.race([
+                (async () => {
+                    const response = await fetch('/api/music' + path, { method: body === undefined ? 'GET' : method, signal: controller.signal,
+                        headers: body === undefined ? {} : { 'Content-Type': 'application/json', 'X-Music-CSRF': csrf }, body: body === undefined ? undefined : JSON.stringify(body) });
+                    const value = await response.json();
+                    if (!response.ok) { const error = new Error(value.error || '音乐请求失败'); error.code = value.code; throw error; }
+                    return value;
+                })(),
+                new Promise((_, reject) => {
+                    timer = setTimeout(() => {
+                        const error = new Error('音乐请求超时，请稍后重试；已有歌单仍然保留。');
+                        error.code = 'MUSIC_TIMEOUT'; reject(error); controller.abort();
+                    }, timeoutMs);
+                })
+            ]);
+        } finally { clearTimeout(timer); }
     }
     function attempt(fn) { return Promise.resolve().then(fn).catch(e => notice(e.message, true)); }
+    async function busyButton(button, action) {
+        if (button.disabled) return;
+        const label = button.textContent;
+        button.disabled = true; button.setAttribute('aria-busy', 'true'); button.textContent = '处理中…';
+        try { return await attempt(action); }
+        finally { button.disabled = false; button.removeAttribute('aria-busy'); button.textContent = label; }
+    }
     function snapshot() { return { version: 2, queue, cursor, currentTime: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
         playMode: $('.play-mode').value, quality: $('.quality').value }; }
     function persist() {
@@ -187,7 +224,7 @@
     }
     function appendButton(parent, text, action) {
         const button = document.createElement('button'); button.textContent = text;
-        button.addEventListener('click', () => attempt(action)); parent.append(button); return button;
+        button.addEventListener('click', () => void busyButton(button, action)); parent.append(button); return button;
     }
     function renderSongs(container, songs, { actor = 'user', lane = false, feedback = false } = {}) {
         container.replaceChildren();
@@ -232,7 +269,13 @@
         });
         if (!playlists.length) notice('没有可写入的自建歌单，请先在网易云创建歌单。');
     }
-    async function loadLibrary() {
+    let libraryTask = null;
+    function loadLibrary() {
+        if (!libraryTask) libraryTask = readLibrary().finally(() => { libraryTask = null; });
+        return libraryTask;
+    }
+    async function readLibrary() {
+        notice('正在读取已保存的歌单…');
         const playlists = await api('/playlists');
         const container = $('.library'); container.replaceChildren();
         for (const p of playlists) {
@@ -241,17 +284,44 @@
             appendButton(section, '播放歌单', async () => { queue = p.tracks.slice(0, 200); cursor = 0; interruption = null; renderQueue(); persist(); if (queue[0]) await play(queue[0], 'user', true); });
             appendButton(section, '刷新', async () => { await api('/playlists/import', { value: p.id }); await loadLibrary(); });
             appendButton(section, '移除本地歌单', async () => { await api('/playlists/' + p.id, {}, 'DELETE'); await loadLibrary(); });
-            const songs = document.createElement('div'); renderSongs(songs, p.tracks); section.append(songs); container.append(section);
+            const songs = document.createElement('div');
+            let rendered = false;
+            section.addEventListener('toggle', () => {
+                if (section.open && !rendered) { renderSongs(songs, p.tracks); rendered = true; }
+            });
+            section.append(songs); container.append(section);
         }
         if (!playlists.length) container.textContent = '导入一个喜欢的歌单，从这里开始。';
+        notice('歌单已就绪。');
     }
-    async function loadDaily(refresh = false) {
-        notice('正在寻找并验证能播放的歌，首次可能需要一分钟…');
-        const card = await api('/daily-discovery', { refresh });
+    let dailyTask = null;
+    function showDaily(card) {
         dailySongs = card.songs;
         $('.daily-note').textContent = `${card.date} · ${card.songs.length} 首 · ${card.strategy.llmRanked ? 'AI 私选' : '品味私选'}`;
         renderSongs($('.daily-list'), card.songs, { actor: 'companion', feedback: true });
         notice(card.warning || '今日私选准备好了。');
+    }
+    function loadDaily(refresh = false) {
+        if (!dailyTask) dailyTask = readDaily(refresh).finally(() => { dailyTask = null; });
+        return dailyTask;
+    }
+    async function readDaily(refresh) {
+        if (!refresh) {
+            notice('正在读取已保存的私选…');
+            const saved = await api('/daily-discovery');
+            const latest = saved.cards?.find(card => card.songs?.length);
+            if (latest) {
+                showDaily(latest);
+                const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+                if (latest.date === today) return;
+            }
+        }
+        notice(dailySongs.length ? '已有私选可以继续播放，正在准备新的一批…' : '正在寻找并验证能播放的歌，首次可能需要一分钟…');
+        const button = $('[data-action="refresh-daily"]');
+        const label = button.textContent;
+        button.disabled = true; button.textContent = '准备中…'; button.setAttribute('aria-busy', 'true');
+        try { showDaily(await api('/daily-discovery', { refresh })); }
+        finally { button.disabled = false; button.textContent = label; button.removeAttribute('aria-busy'); }
     }
     async function loadLyrics() {
         const s = inRoom() ? remote.song : current;
@@ -290,6 +360,13 @@
         if (epoch && (status.session.mode !== 'local' || status.session.owner !== owner || status.session.epoch !== epoch)) passiveStop();
         const oldRoomSong = remote.song?.id;
         remote = status.session;
+        if (inRoom()) {
+            if (!$('.partner').value && remote.partnerUid) $('.partner').value = remote.partnerUid;
+            roomStatus.textContent = remote.error ? ({ ROOM_REJECTED: '邀请已失效，请在网易云 App 重新发送。', UPSTREAM_REJECTED: '网易云拒绝读取邀请，请重新登录陪伴账号。', UPSTREAM_UNAVAILABLE: '连接网易云超时，正在重试。' }[remote.error] || '房间连接暂时失败，请退出后重新等待邀请。')
+                : status.room?.armed === false ? '等待已停止，请重新点击“开始等待邀请”。'
+                : status.room?.connected ? '已加入房间，正在同步网易云播放状态。'
+                : `正在等待账号 ${remote.partnerUid || $('.partner').value} 的邀请；请在网易云 App 邀请陪伴账号 ${remote.companionUid || ''}。`;
+        } else roomStatus.textContent = '';
         if (!restoredFromServer) {
             restoredFromServer = true;
             if (!current && remote.mode === 'local' && remote.song) {
@@ -384,7 +461,7 @@
             'open-lyrics': () => void attempt(openLyrics),
             'close-lyrics': closeLyrics,
             'playlist-import-toggle': () => { const form = $('.import'); form.hidden = !form.hidden; button.setAttribute('aria-expanded', String(!form.hidden)); if (!form.hidden) form.querySelector('input').focus(); },
-            join: async () => { pausePlayback(); const closing = sendEvent('close'); epoch = null; await closing; passiveStop(); announce(); await api('/mode', { mode: 'netease-room', partnerUid: $('.partner').value.trim() }); await refresh(); notice('已开始等待，请在网易云 App 发出一起听邀请。'); },
+            join: async () => { notice('正在检查账号并准备等待邀请…'); await api('/mode', { mode: 'netease-room', partnerUid: $('.partner').value.trim() }); passiveStop(); announce(); await refresh(); notice('已开始等待，请在网易云 App 发出一起听邀请。'); },
             leave: async () => { await api('/mode', { mode: 'local' }); chosenMode = 'local'; await refresh(); renderNow(); },
             toggle: () => wantsPlayback || !audio.paused ? pausePlayback() : resumePlayback(),
             previous: () => next(-1), next: () => next(1),
@@ -393,10 +470,13 @@
             'restore-lane': () => next(),
             'refresh-daily': () => loadDaily(true),
             'play-daily': async () => { queue = [...new Map([...queue, ...dailySongs].map(s => [s.id, s])).values()].slice(0, 200); cursor = queue.findIndex(s => s.id === dailySongs[0]?.id); interruption = null; renderQueue(); if (cursor >= 0) await play(queue[cursor], 'companion', true); },
-            'my-playlists': async () => { const ps = await api('/my-playlists'); $('.library').replaceChildren(); for (const p of ps) appendButton($('.library'), `导入 ${p.name}`, async () => { await api('/playlists/import', { value: p.id }); await loadLibrary(); }); },
+            'my-playlists': async () => { notice('正在读取网易云账号的歌单…'); const ps = await api('/my-playlists'); $('.library').replaceChildren(); for (const p of ps) appendButton($('.library'), `导入 ${p.name}`, async () => { await api('/playlists/import', { value: p.id }); await loadLibrary(); }); notice(ps.length ? '请选择要导入的歌单。' : '账号下暂无自建歌单，可通过歌单链接导入收藏的歌单。'); },
             summary: async () => { const s = await api('/summary', {}); $('.summary').textContent = `最近 ${s.eventCount} 条共听记录\n` + s.topArtists.map(a => `${a.artist} · ${a.plays} 次`).join('\n'); },
         };
-        if (actions[button.dataset.action]) void attempt(actions[button.dataset.action]);
+        if (actions[button.dataset.action]) {
+            if (['join', 'leave', 'my-playlists', 'summary'].includes(button.dataset.action)) void busyButton(button, actions[button.dataset.action]);
+            else void attempt(actions[button.dataset.action]);
+        }
     });
     $('.launcher').addEventListener('click', () => { $('.music-shell').hidden = !$('.music-shell').hidden; if (!$('.music-shell').hidden) void attempt(refresh); });
     const chatSection = document.getElementById('sec-chat');

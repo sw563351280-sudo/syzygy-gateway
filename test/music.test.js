@@ -17,7 +17,7 @@ function fakeProvider(overrides = {}) {
         search: async () => [selected(1), selected(2)], detail: async id => selected(id), audio: async () => 'https://m1.music.126.net/audio.mp3',
         playlist: async id => ({ id: String(id), name: '测试歌单', ownerId: '7', tracks: [selected(1), selected(2)] }),
         check(value) { assert.equal(value.code ?? value.data?.code, 200); return value; },
-        api: async () => ({ code: 200 }), setCookie() {}, ...overrides };
+        api: async (route, args, profile) => route === '/login/status' ? { code: 200, data: { account: { id: profile === 'companion' ? 8 : 7 } } } : { code: 200 }, setCookie() {}, ...overrides };
 }
 function fixture(t, provider = fakeProvider(), ranker) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'syzygy-music-test-'));
@@ -97,6 +97,45 @@ test('mode switch during pending song detail cannot restore an old local player'
     resolve(selected(1));
     await assert.rejects(pending, { code: 'MODE_CONFLICT' });
     assert.equal(music.status().session.mode, 'netease-room');
+});
+
+test('room setup infers the sender and rejects expired or duplicate accounts without stopping playback', async t => {
+    let companion = 8;
+    const { music } = fixture(t, fakeProvider({ api: async (route, args, profile) => {
+        if (route === '/login/status') return { data: { code: 200, account: (profile === 'companion' ? companion : 7) ? { id: profile === 'companion' ? companion : 7 } : null } };
+        return { code: 200, msgs: [] };
+    } }));
+    const claim = await music.localEvent({ type: 'claim', owner: 'test-owner-123', songId: '1' });
+    await music.localEvent({ type: 'play', owner: 'test-owner-123', epoch: claim.epoch });
+    companion = null;
+    await assert.rejects(music.switchMode('netease-room', ''), { code: 'LOGIN_REQUIRED' });
+    assert.equal(music.status().session.state, 'play');
+    companion = 7;
+    await assert.rejects(music.switchMode('netease-room', ''), { code: 'SAME_ACCOUNT' });
+    assert.equal(music.status().session.mode, 'local');
+    companion = 8;
+    await music.switchMode('netease-room', '');
+    assert.equal(music.status().session.partnerUid, '7');
+    assert.equal(music.status().session.companionUid, '8');
+    assert.equal(music.status().room.armed, true);
+});
+
+test('playlist missing metadata is fetched in four parallel batches in original batch order', async t => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'music-batches-'));
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+    const pending = [];
+    const provider = createProvider({ directory, secret: 'test', base: 'https://fixture.invalid', fetchImpl: async (url, options) => {
+        if (url.pathname === '/playlist/detail') return new Response(JSON.stringify({ code: 200, playlist: { name: 'test', tracks: [], trackIds: Array.from({ length: 200 }, (_, i) => ({ id: i + 1 })) } }));
+        return new Promise(resolve => pending.push(() => resolve(new Response(JSON.stringify({ code: 200, songs: JSON.parse(options.body).ids.split(',').map(id => ({ id, name: 'song', ar: [] })) })))));
+    } });
+    const result = provider.playlist('7');
+    for (let i = 0; i < 10 && pending.length < 4; i++) await new Promise(resolve => setImmediate(resolve));
+    const started = pending.length;
+    pending.reverse().forEach(resolve => resolve());
+    assert.equal(started, 4);
+    const playlist = await result;
+    assert.equal(playlist.tracks.length, 200);
+    assert.deepEqual(playlist.tracks.map(s => s.id), Array.from({ length: 200 }, (_, i) => String(i + 1)));
 });
 
 test('restart restores historical song without reviving playback', async t => {

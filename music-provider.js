@@ -118,10 +118,11 @@ function createProvider({ directory, secret, base = process.env.NCM_API_BASE, fe
         if (!p) throw fail('NOT_FOUND', '歌单不存在', 404);
         let tracks = p.tracks || [];
         const missing = (p.trackIds || []).slice(0, 200).map(t => String(t.id)).filter(sid => !tracks.some(t => String(t.id) === sid));
-        for (let start = 0; start < missing.length; start += 50) {
-            const more = check(await api('/song/detail', { ids: missing.slice(start, start + 50).join(',') }));
-            tracks.push(...(more.songs || []));
-        }
+        // At most four batches for the 200-song import cap; fetch concurrently.
+        const batches = [];
+        for (let start = 0; start < missing.length; start += 50) batches.push(missing.slice(start, start + 50));
+        const details = await Promise.all(batches.map(ids => api('/song/detail', { ids: ids.join(',') }).then(check)));
+        for (const more of details) tracks.push(...(more.songs || []));
         return { id: pid, name: String(p.name || '').slice(0, 160), ownerId: String(p.creator?.userId || ''), tracks: tracks.slice(0, 200).map(song), updatedAt: Date.now() };
     }
     return { api, check, detail, search, audio, playlist, setCookie,
