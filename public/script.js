@@ -2192,17 +2192,28 @@ function createThinkingMarker(thinking) {
     const detail = document.createElement('div');
     detail.className = 'think-marker-detail';
     detail.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
 
+    let latestValue = '';
+    let renderedValue = null;
+    const renderDetail = () => {
+        if (renderedValue === latestValue) return;
+        detail.innerHTML = escapeHtml(stripDisplayTimestamp(latestValue)).replace(/\n/g, '<br>');
+        renderedValue = latestValue;
+    };
     const update = (value) => {
-        const clean = stripDisplayTimestamp(value || '');
-        detail.innerHTML = escapeHtml(clean).replace(/\n/g, '<br>');
-        marker.hidden = !clean.trim();
+        latestValue = String(value || '');
+        marker.hidden = !latestValue.trim();
+        // Keep collapsed reasoning as text; only build its DOM when opened.
+        if (!detail.hidden) renderDetail();
     };
     button.addEventListener('click', (event) => {
         event.stopPropagation();
         detail.hidden = !detail.hidden;
         marker.classList.toggle('is-open', !detail.hidden);
         button.setAttribute('aria-expanded', String(!detail.hidden));
+        if (!detail.hidden) renderDetail();
+        else { detail.textContent = ''; renderedValue = null; }
     });
 
     marker.append(button, detail);
@@ -2357,6 +2368,7 @@ function renderChatMessages(options = {}){
         win.appendChild(rowDiv);
     });
     appendBriefsThrough();
+    if (isWorkroomSession(session) && workroomCodexTurnId && !workroomCodexSavedForTurn) workroomUpdateLiveReply();
     win.querySelectorAll('.xhs-card[data-xhs-url]').forEach(el => hydrateXhsCard(el, decodeURIComponent(el.dataset.xhsUrl)));
     win.querySelectorAll('.github-card[data-github-url]').forEach(el => hydrateGitHubCard(el, decodeURIComponent(el.dataset.githubUrl)));
     if (shouldStickToBottom) forceScrollToChatBottom();
@@ -2790,6 +2802,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             toolGroupEl.style.display = 'none';
             sDiv.appendChild(toolGroupEl);
 
+            let paintedReply = null;
             const streamPaint = ChatRenderUtils.createFrameScheduler(() => {
                 // 一帧内的多个小分片只解析、重绘一次。
                 const extracted = extractThinkingFromContent(rawAssistantText);
@@ -2799,10 +2812,14 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
                     sRow.classList.add('has-think-marker');
                     thinkMarker.update(thinkContent);
                 }
-                mainTextDiv.innerHTML = renderMarkdown(fullReply, true) + '<span class="typing-cursor"></span>';
+                if (fullReply !== paintedReply) {
+                    mainTextDiv.innerHTML = renderMarkdown(fullReply, true) + '<span class="typing-cursor"></span>';
+                    paintedReply = fullReply;
+                }
                 scrollChatToBottomIfNear(win);
             });
 
+            try {
             await ChatTransport.readStream(response, parsed => {
                         messageUsage.accept(parsed);
 
@@ -2843,7 +2860,10 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
                             streamPaint.schedule();
                         }
             }, () => request.touch());
-            streamPaint.flush();
+            } finally {
+                // Preserve received text even if a stop/disconnect beats the next frame.
+                streamPaint.flush();
+            }
             sDiv.querySelector('.loading-indicator')?.remove();
             mainTextDiv.innerHTML = renderMarkdown(fullReply, true);
             // 流结束：将工具调用组从"正在调用"切换为"调用了 N 次"
@@ -3191,19 +3211,27 @@ function workroomEnsureLiveBubble() {
     row.className = 'msg-row sys is-codex';
     const turn = document.createElement('div');
     turn.className = 'workroom-codex-turn';
-    turn.innerHTML = workroomCodexTimelineHTML(workroomCodexTimeline, { streaming: true });
     row.appendChild(turn);
     win.appendChild(row);
-    win.scrollTop = win.scrollHeight;
     workroomCodexLiveBubble = turn;
     return turn;
 }
 
+let workroomLivePaint = null;
 function workroomUpdateLiveReply() {
-    const turn = workroomEnsureLiveBubble();
-    if (turn) turn.innerHTML = workroomCodexTimelineHTML(workroomCodexTimeline, { streaming: true });
-    const win = document.getElementById('chatWindow');
-    if (win) win.scrollTop = win.scrollHeight;
+    const visible = () => activeChatId === WORKROOM_ID && !document.hidden
+        && workroomCodexTurnId && !workroomCodexSavedForTurn
+        && document.getElementById('sec-chat')?.classList.contains('active');
+    if (!visible()) return;
+    if (!workroomLivePaint) workroomLivePaint = ChatRenderUtils.createFrameScheduler(() => {
+        if (!visible()) return;
+        const win = document.getElementById('chatWindow');
+        const follow = isChatNearBottom(win);
+        const turn = workroomEnsureLiveBubble();
+        if (turn) turn.innerHTML = workroomCodexTimelineHTML(workroomCodexTimeline, { streaming: true });
+        if (win && follow) win.scrollTop = win.scrollHeight;
+    });
+    workroomLivePaint.schedule();
 }
 
 function workroomShowApproval(event) {
@@ -3228,6 +3256,7 @@ function workroomShowApproval(event) {
 }
 
 function workroomSaveCodexReply(status = 'completed') {
+    workroomLivePaint?.cancel();
     const room = ensureWorkroomSession();
     if (workroomCodexSavedForTurn || !workroomCodexTurnId) return;
     const visibleTimeline = workroomVisibleCodexTimeline(workroomCodexTimeline);
@@ -3260,6 +3289,7 @@ function workroomSaveCodexReply(status = 'completed') {
 }
 
 function workroomDiscardCodexReply() {
+    workroomLivePaint?.cancel();
     workroomCodexReply = '';
     workroomCodexTimeline = [];
     workroomCodexTurnId = null;
@@ -3312,7 +3342,7 @@ function workroomHandleCodexEvent(event) {
     }
     if (method === 'codex/queued') {
         workroomSetCodexStatus('Codex 正在连接工作区', true);
-        workroomEnsureLiveBubble();
+        workroomUpdateLiveReply();
         return;
     }
     if (method === 'codex/started') {
@@ -4503,10 +4533,8 @@ async function revealEarlierChatMessages() {
     if (!state?.hasMore || state.start <= 0) return;
     _historyLoading = true;
     try {
-        const response = await fetch('/api/chat-history/' + encodeURIComponent(session.id)
-            + '?before=' + encodeURIComponent(state.start) + '&limit=' + CHAT_HISTORY_PAGE_SIZE, { cache: 'no-store' });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        const data = await response.json();
+        const data = await ChatPersistence.requestJson('/api/chat-history/' + encodeURIComponent(session.id)
+            + '?before=' + encodeURIComponent(state.start) + '&limit=' + CHAT_HISTORY_PAGE_SIZE);
         if (data._version !== _dataVersion) {
             await resyncAndMerge('history-version-change');
             toast('聊天记录刚刚更新，请再向上翻一次');
@@ -4779,14 +4807,19 @@ async function regenerateSend(aiMsgIndex) {
             sDiv.innerHTML='<span class="loading-indicator">⟡ 正在等待回复…</span>';
             const mainTextDiv=document.createElement('div'); mainTextDiv.classList.add('md-content'); sDiv.appendChild(mainTextDiv);
             const toolGroupEl=document.createElement('div'); toolGroupEl.className='tool-call-group-wrap'; toolGroupEl.style.display='none'; sDiv.appendChild(toolGroupEl);
+            let paintedReply = null;
             const streamPaint=ChatRenderUtils.createFrameScheduler(() => {
                 const parsed=extractThinkingFromContent(rawAcc);
                 fullReply=parsed.visibleContent;
                 thinkContent=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n');
                 if(thinkContent){targetRow.classList.add('has-think-marker');thinkMarker.update(thinkContent);}
-                mainTextDiv.innerHTML=renderMarkdown(fullReply,true)+'<span class="typing-cursor"></span>';
+                if (fullReply !== paintedReply) {
+                    mainTextDiv.innerHTML=renderMarkdown(fullReply,true)+'<span class="typing-cursor"></span>';
+                    paintedReply = fullReply;
+                }
                 scrollChatToBottomIfNear(win);
             });
+            try {
             await ChatTransport.readStream(response, p => {
                 messageUsage.accept(p);
                 if (p.type === 'tool_call') {
@@ -4804,7 +4837,9 @@ async function regenerateSend(aiMsgIndex) {
                 if (d.reasoning_content) { reasoningAcc += d.reasoning_content; streamPaint.schedule(); }
                 if (d.content) { request.mark('接收模型回复'); rawAcc += d.content; sDiv.querySelector('.loading-indicator')?.remove(); streamPaint.schedule(); }
             }, () => request.touch());
-            streamPaint.flush();
+            } finally {
+                streamPaint.flush();
+            }
             sDiv.querySelector('.loading-indicator')?.remove();
             mainTextDiv.innerHTML=renderMarkdown(fullReply,true);
             if(toolCallRecords.length>0)updateToolGroupDOM(toolGroupEl,toolCallRecords,false);
@@ -5330,7 +5365,7 @@ function buildIncrementalSavePayload() {
 }
 
 document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) { resyncIfStale('visible'); }
+    if (!document.hidden) { resyncIfStale('visible'); workroomUpdateLiveReply(); }
     else {
         saveLocalBackup();
         // An idle page must not advance the shared version merely because iOS
