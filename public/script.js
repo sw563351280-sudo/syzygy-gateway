@@ -2359,19 +2359,24 @@ async function loadWorkroomBriefCards() {
 
 function renderWorkroomBriefCards(container) {
     for (const brief of workroomBriefCards.slice().reverse()) {
-        const card = document.createElement('article');
+        const card = document.createElement('details');
         card.className = 'workroom-brief-card' + (brief.status === 'pending' ? ' is-pending' : '');
+        const toggle = document.createElement('summary');
+        toggle.className = 'workroom-brief-toggle';
+        toggle.textContent = '• 便签员贴了一张便签';
+        const content = document.createElement('div');
+        content.className = 'workroom-brief-content';
         const heading = document.createElement('header');
         const title = document.createElement('strong');
         title.textContent = '工作区便签';
         const meta = document.createElement('time');
         meta.dateTime = brief.createdAt || '';
         meta.textContent = brief.durationMinutes ? `约 ${brief.durationMinutes} 分钟` : '刚刚';
-        heading.append(title, meta); card.append(heading);
+        heading.append(title, meta); content.append(heading);
         if (brief.status === 'pending') {
-            const pending = document.createElement('p'); pending.textContent = brief.message || '正在整理…'; card.append(pending);
+            const pending = document.createElement('p'); pending.textContent = brief.message || '正在整理…'; content.append(pending);
         } else {
-            if (brief.summary) { const summary = document.createElement('p'); summary.textContent = brief.summary; card.append(summary); }
+            if (brief.summary) { const summary = document.createElement('p'); summary.textContent = brief.summary; content.append(summary); }
             const list = document.createElement('ol');
             for (const topic of brief.topics || []) {
                 const item = document.createElement('li');
@@ -2379,13 +2384,14 @@ function renderWorkroomBriefCards(container) {
                 const text = document.createElement('span'); text.textContent = topic.summary || topic.conclusion || '';
                 item.append(name, text); list.append(item);
             }
-            if (list.children.length) card.append(list);
+            if (list.children.length) content.append(list);
         }
         if ((brief.progress || []).length) {
             const progress = document.createElement('div'); progress.className = 'workroom-brief-progress';
             progress.textContent = (brief.progress || []).map(item => `${item.title} · ${item.status === 'completed' ? '已结束' : item.status}`).join('｜');
-            card.append(progress);
+            content.append(progress);
         }
+        card.append(toggle, content);
         container.append(card);
     }
 }

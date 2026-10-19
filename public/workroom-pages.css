@@ -37,7 +37,12 @@
 .workroom-codex-approval details { margin-top: 8px; border-top: 1px solid rgba(153,119,77,.16); }
 .workroom-codex-approval details summary { padding-top: 8px; color: #806b53; font-size: 10px; cursor: pointer; }
 .workroom-codex-approval details pre { max-height: 22dvh; margin: 7px 0 0; overflow: auto; white-space: pre-wrap; color: #705b45; font: 10px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap: anywhere; }
-.workroom-brief-card { box-sizing:border-box; width:min(calc(100% - 24px),680px); margin:4px auto 30px; padding:16px 18px; border:1px solid rgba(123,159,182,.22); border-radius:18px; background:rgba(226,238,246,.66); box-shadow:0 8px 28px rgba(43,74,95,.08); color:#36566d; }
+.workroom-brief-card { box-sizing:border-box; width:min(calc(100% - 24px),680px); margin:4px auto 30px; padding:0; border:1px solid rgba(123,159,182,.22); border-radius:18px; background:rgba(226,238,246,.66); box-shadow:0 8px 28px rgba(43,74,95,.08); color:#36566d; }
+.workroom-brief-toggle { padding:13px 18px; cursor:pointer; list-style:none; font-size:13px; line-height:1.5; }
+.workroom-brief-toggle::-webkit-details-marker { display:none; }
+.workroom-brief-toggle:focus-visible { outline:2px solid #7499b0; outline-offset:-3px; border-radius:17px; }
+.workroom-brief-card:not([open]) > .workroom-brief-content { display:none; }
+.workroom-brief-content { padding:14px 18px 16px; border-top:1px solid rgba(123,159,182,.18); }
 .workroom-brief-card header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:9px; }
 .workroom-brief-card header strong { font-size:13px; letter-spacing:.08em; }
 .workroom-brief-card time { color:#718a9c; font-size:10px; }

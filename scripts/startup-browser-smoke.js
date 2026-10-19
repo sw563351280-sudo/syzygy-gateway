@@ -9,8 +9,21 @@ const puppeteer = require('puppeteer-core');
 const { WebSocketServer } = require('ws');
 const directory = path.resolve(__dirname, '..');
 const baseline = process.argv.includes('--baseline');
+const workroomBriefOnly = process.argv.includes('--workroom-brief-only');
 const baselineRef = process.env.AUDIT_BASE_REF || '83317fb';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function verifyWorkroomBrief(page) {
+    await page.evaluate(() => openCommunication());
+    await page.waitForSelector('.workroom-brief-card');
+    assert.equal(await page.$eval('.workroom-brief-card', element => element.open), false, 'brief starts collapsed');
+    assert.equal(await page.$eval('.workroom-brief-toggle', element => element.textContent), '• 便签员贴了一张便签');
+    assert.equal(await page.$eval('.workroom-brief-content', element => element.getClientRects().length), 0, 'brief body is hidden by default');
+    await page.click('.workroom-brief-toggle');
+    assert.equal(await page.$eval('.workroom-brief-card', element => element.open), true, 'click expands the brief');
+    assert.ok(await page.$eval('.workroom-brief-content', element => element.getClientRects().length), 'expanded brief body is visible');
+    await page.click('.workroom-brief-toggle');
+    assert.equal(await page.$eval('.workroom-brief-card', element => element.open), false, 'second click collapses the brief');
+}
 async function main() {
     const app = express(); app.use(express.json());
     const requests = [];
@@ -42,6 +55,11 @@ async function main() {
     app.get('/api/period', (_req, res) => res.json({ status: { inPeriod: false }, records: [] }));
     app.get('/api/music/status', (_req, res) => res.json({ csrfToken: 'fixture', configured: false, session: { mode: 'local', state: 'idle', offers: [] } }));
     app.get('/api/music/session', (_req, res) => res.json({ mode: 'local', state: 'idle', offers: [] }));
+    app.get('/api/workroom-notes/briefs', (_req, res) => res.json({ briefs: [{
+        id: 'brief-fixture', status: 'ready', createdAt: '2026-10-19T00:10:00.000Z', durationMinutes: 3,
+        summary: '三人确认了便签的折叠展示。', topics: [{ title: '呈现', summary: '默认只显示一句提示。' }],
+        progress: [{ title: '便签样式', status: 'completed' }]
+    }] }));
     app.get('/api/ledger/overview', (_req, res) => res.json({ success: true, data: { balance_cents: 1234, income_cents: 2000, expense_cents: 766, savings_rate: 62, daily: {}, category_breakdown: [], count: 0, recent: [], previous_expense_cents: 0 } }));
     app.get('/api/calendar', (_req, res) => res.json({ success: true, data: [] }));
     app.get('/api/photos', (_req, res) => res.json({ photos: [] }));
@@ -68,7 +86,7 @@ async function main() {
     try {
         const executablePath = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium'].find(p => p && fs.existsSync(p));
         assert.ok(executablePath, 'Chromium is required for this smoke test');
-        browser = await puppeteer.launch({ executablePath, headless: true, args: ['--mute-audio'], defaultViewport: { width: 1024, height: 900 } });
+        browser = await puppeteer.launch({ executablePath, headless: true, args: ['--mute-audio', '--no-sandbox', '--disable-setuid-sandbox'], defaultViewport: { width: 1024, height: 900 } });
         const page = await browser.newPage();
         const errors = [], resources = [], external = [];
         page.on('pageerror', error => errors.push(error.message));
@@ -99,6 +117,15 @@ async function main() {
             assert.equal(initial.hiddenChatImageLoaded, false);
             assert.equal(external.length, 0);
             assert.equal(resources.some(url => url.includes('/home-tools.')), false, 'secondary home tools stay unloaded on startup');
+            if (workroomBriefOnly) {
+                await verifyWorkroomBrief(page);
+                await page.setViewport({ width: 393, height: 852, isMobile: true, hasTouch: true });
+                await page.evaluate(() => renderChatMessages());
+                await verifyWorkroomBrief(page);
+                assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'brief does not create mobile overflow');
+                console.log('Workroom brief starts collapsed, toggles open and closed, and fits the mobile viewport.');
+                return;
+            }
             assert.equal(await page.evaluate(() => document.querySelector('#starmap')?.dataset.motion), 'animated');
             for (const endpoint of ['/api/tools-status', '/api/mcp/servers', '/api/toy-status']) assert.equal(requests.includes(endpoint), false);
             await page.waitForFunction(() => document.querySelector('#modelSelect')?.value === 'fixture-model');
@@ -117,7 +144,7 @@ async function main() {
             await page.evaluate(() => window.SyzygyMusic.open());
             await page.waitForFunction(expected => performance.getEntriesByType('resource').filter(entry => entry.name.includes('/api/music/status')).length > expected, {}, idleMusicChecks);
             await page.evaluate(() => { document.querySelector('#syzygy-music').shadowRoot.querySelector('.panel').hidden = true; });
-            await page.evaluate(() => openCommunication());
+            await verifyWorkroomBrief(page);
             await page.waitForSelector('#chatWindow .msg.sys strong');
             assert.equal(await page.evaluate(() => activeChatId), 'main');
             assert.equal(await page.evaluate(() => chatSessions.find(session => session.id === 'main').messages.length), 80);
