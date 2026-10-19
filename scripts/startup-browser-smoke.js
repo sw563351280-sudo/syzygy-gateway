@@ -17,6 +17,16 @@ async function verifyWorkroomBrief(page) {
     await page.waitForSelector('.workroom-brief-card');
     assert.equal(await page.$eval('.workroom-brief-card', element => element.open), false, 'brief starts collapsed');
     assert.equal(await page.$eval('.workroom-brief-toggle', element => element.textContent), '• 便签员贴了一张便签');
+    assert.deepEqual(await page.$eval('.workroom-brief-card', element => {
+        const style = getComputedStyle(element);
+        return { border: style.borderStyle, background: style.backgroundColor, shadow: style.boxShadow };
+    }), { border: 'none', background: 'rgba(0, 0, 0, 0)', shadow: 'none' }, 'collapsed brief has no bubble styling');
+    assert.equal(await page.$eval('.workroom-brief-toggle', element => getComputedStyle(element).fontSize), '10px', 'brief hint matches thinking-detail text size');
+    assert.equal(await page.evaluate(() => {
+        const brief = document.querySelector('.workroom-brief-card');
+        const latestMessage = document.querySelector('#chatWindow .msg-row:last-of-type');
+        return Boolean(brief.compareDocumentPosition(latestMessage) & Node.DOCUMENT_POSITION_FOLLOWING);
+    }), true, 'brief stays before messages sent after it was created');
     assert.equal(await page.$eval('.workroom-brief-content', element => element.getClientRects().length), 0, 'brief body is hidden by default');
     await page.click('.workroom-brief-toggle');
     assert.equal(await page.$eval('.workroom-brief-card', element => element.open), true, 'click expands the brief');
@@ -34,7 +44,7 @@ async function main() {
         role: index % 2 ? 'assistant' : 'user',
         content: index === 169 ? '**hello** from the fixture' : 'fixture message ' + index,
         image: index === 169 ? '/fixture-image.svg' : undefined,
-        fullTime: new Date(Date.UTC(2026, 8, 30, 1, 0, index)).toISOString()
+        fullTime: index === 169 ? '2026-10-20T01:00:00.000Z' : new Date(Date.UTC(2026, 8, 30, 1, 0, index)).toISOString()
     }));
     app.get('/api/sync-config', async (req, res) => {
         await sleep(900);

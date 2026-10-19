@@ -2257,12 +2257,29 @@ function renderChatMessages(options = {}){
     // 私聊默认保留轻量窗口；向上翻时逐页扩大。工作区仍按完整轮次展示最近 50 轮。
     const visibleCount = _visibleMessageCounts[session.id] || 30;
     const msgs = isWorkroomSession(session) ? workroomMessagesByRounds(session.messages, 50) : session.messages.slice(-visibleCount);
+    const briefs = session.id === 'main' ? workroomBriefCards.slice().sort((left, right) => {
+        const leftTime = Date.parse(left.createdAt || '');
+        const rightTime = Date.parse(right.createdAt || '');
+        return (Number.isFinite(leftTime) ? leftTime : Infinity) - (Number.isFinite(rightTime) ? rightTime : Infinity);
+    }) : [];
+    let briefIndex = 0;
+    const appendBriefsThrough = (cutoff = Infinity) => {
+        const due = [];
+        while (briefIndex < briefs.length) {
+            const briefTime = Date.parse(briefs[briefIndex].createdAt || '');
+            if (cutoff !== Infinity && (!Number.isFinite(briefTime) || briefTime > cutoff)) break;
+            due.push(briefs[briefIndex++]);
+        }
+        renderWorkroomBriefCards(win, due);
+    };
     msgs.forEach((m, subIndex) => {
         const index = session.messages.length - msgs.length + subIndex;
 
         const v = getActiveVersion(m);
         const vCount = getVersionCount(m);
         const vIdx = getActiveVersionIndex(m);
+        const messageTime = Date.parse(v.fullTime || m.fullTime || v.createdAt || m.createdAt || '');
+        if (Number.isFinite(messageTime)) appendBriefsThrough(messageTime);
 
         const rowDiv = document.createElement('div');
         const speaker = ['codex', 'jiangyu', 'shenwang'].includes(m.speaker) ? m.speaker : (m.role === 'user' ? 'jiangyu' : 'shenwang');
@@ -2339,7 +2356,7 @@ function renderChatMessages(options = {}){
 
         win.appendChild(rowDiv);
     });
-    if (session.id === 'main') renderWorkroomBriefCards(win);
+    appendBriefsThrough();
     win.querySelectorAll('.xhs-card[data-xhs-url]').forEach(el => hydrateXhsCard(el, decodeURIComponent(el.dataset.xhsUrl)));
     win.querySelectorAll('.github-card[data-github-url]').forEach(el => hydrateGitHubCard(el, decodeURIComponent(el.dataset.githubUrl)));
     if (shouldStickToBottom) forceScrollToChatBottom();
@@ -2357,8 +2374,8 @@ async function loadWorkroomBriefCards() {
     } catch (_) {}
 }
 
-function renderWorkroomBriefCards(container) {
-    for (const brief of workroomBriefCards.slice().reverse()) {
+function renderWorkroomBriefCards(container, briefs = workroomBriefCards.slice().reverse()) {
+    for (const brief of briefs) {
         const card = document.createElement('details');
         card.className = 'workroom-brief-card' + (brief.status === 'pending' ? ' is-pending' : '');
         const toggle = document.createElement('summary');
