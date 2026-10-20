@@ -14,11 +14,11 @@ async function main() {
     let lastChatBody = null;
     const sensorPosts = [];
     let suppliers = [{ name: 'fixture', url: 'https://fixture.example/v1', key: 'old-key' }];
-    let preferences = { shenReactionEnabled: true };
+    let preferences = { shenReactionEnabled: true, modelSwitchNoticeEnabled: true };
     const sessions = [{
         id: 'main', name: '主频道', messages: [
             { _id: 'fixture-user', role: 'user', shenReaction: '🐶', versions: [{ content: '旧消息', fullTime: new Date().toISOString() }], activeVersion: 0 },
-            { _id: 'fixture-ai', role: 'assistant', versions: [{ content: '旧回复', fullTime: new Date().toISOString() }], activeVersion: 0 }
+            { _id: 'fixture-ai', role: 'assistant', versions: [{ content: '旧回复', model: 'gemini-3.8', fullTime: new Date().toISOString() }], activeVersion: 0 }
         ]
     }];
     const app = express();
@@ -31,7 +31,7 @@ async function main() {
     });
     app.put('/api/chat-preferences', (req, res) => {
         preferencePuts++;
-        preferences = { ...preferences, shenReactionEnabled: req.body.shenReactionEnabled };
+        preferences = { ...preferences, ...req.body };
         res.json({ success: true, _version: ++version, preferences });
     });
     app.post('/api/chat-messages', (req, res) => {
@@ -54,7 +54,9 @@ async function main() {
         suppliers = structuredClone(req.body.suppliers || suppliers);
         res.json({ success: true, _version: ++version });
     });
-    app.post('/api/fetch-models', (_req, res) => res.json({ data: [{ id: 'fixture-model' }] }));
+    app.post('/api/fetch-models', (_req, res) => res.json({ data: [
+        { id: 'gemini-3.8' }, { id: 'gemini-4.0' }, { id: 'claude-opus-5-5' }
+    ] }));
     app.get('/api/shen-settings', (_req, res) => res.json({ version: 1, settings: { active: 'A', prompts: { A: 'A', B: 'B' }, updatedAt: 'fixture' } }));
     app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], (req, res) => {
         lastChatBody = req.body;
@@ -100,12 +102,14 @@ async function main() {
             rows: document.querySelectorAll('.app-chat-preferences .app-settings-toggle').length,
             rowHeights: [...document.querySelectorAll('.app-chat-preferences .app-settings-toggle')].map(row => row.getBoundingClientRect().height),
             locationChecked: document.getElementById('locationSharingToggle').checked,
-            locationStatus: document.getElementById('locationSharingStatus').textContent
+            locationStatus: document.getElementById('locationSharingStatus').textContent,
+            modelSwitchNoticeChecked: document.getElementById('modelSwitchNoticeToggle').checked
         }));
-        assert.equal(settingsLayout.rows, 2);
-        assert.ok(settingsLayout.cardHeight < 190);
+        assert.equal(settingsLayout.rows, 3);
+        assert.ok(settingsLayout.cardHeight < 250);
         assert.equal(settingsLayout.locationChecked, false);
         assert.equal(settingsLayout.locationStatus, '尚未配对 · 打开开关完成');
+        assert.equal(settingsLayout.modelSwitchNoticeChecked, true);
         await page.$eval('.app-chat-preferences', card => card.scrollIntoView({ block: 'center' }));
         await page.screenshot({ path: '/tmp/syzygy-settings-smoke.png', fullPage: false });
         await page.click('#shenReactionToggle');
@@ -120,6 +124,16 @@ async function main() {
         await page.evaluate(() => goView('chat'));
         await page.waitForSelector('.shen-reaction');
 
+        await page.evaluate(() => goView('settings'));
+        await page.click('#modelSwitchNoticeToggle');
+        await page.waitForFunction(() => document.getElementById('modelSwitchNoticeStatus').textContent.includes('已关闭'));
+        assert.equal(preferences.modelSwitchNoticeEnabled, false);
+        const disabledNotice = await page.evaluate(() => modelSwitchNoticeFor({ messages: [{ role: 'assistant', versions: [{ model: 'gemini-3.8' }], activeVersion: 0 }] }, 'claude-opus-5-5'));
+        assert.equal(disabledNotice, false);
+        await page.click('#modelSwitchNoticeToggle');
+        await page.waitForFunction(() => document.getElementById('modelSwitchNoticeStatus').textContent.includes('Gemini'));
+        assert.equal(preferences.modelSwitchNoticeEnabled, true);
+
         await page.evaluate(() => goView('shen-settings'));
         await page.waitForFunction(() => document.querySelectorAll('#supplierList .supplier-card').length === 1);
         await page.evaluate(() => editSupplier(0));
@@ -129,8 +143,10 @@ async function main() {
         assert.equal(suppliers[0].key, 'new-key');
         assert.equal(providerPuts, 1);
 
+        await page.evaluate(() => goView('chat'));
+        await page.select('#modelSelect', 'claude-opus-5-5');
+
         await page.evaluate(() => {
-            goView('chat');
             document.getElementById('chatInput').value = '新消息';
             sendChat();
         });
@@ -171,8 +187,10 @@ async function main() {
         assert.equal(restoredReaction, '🐾');
         await page.screenshot({ path: '/tmp/syzygy-reaction-smoke.png', fullPage: false });
         assert.equal(lastChatBody.shenReactionEnabled, true);
+        assert.equal(lastChatBody.modelSwitchNotice, true);
+        assert.equal(lastChatBody.model, 'claude-opus-5-5');
         assert.ok(lastChatBody.messages.every(message => !String(message.content).includes('<REACT:')));
-        assert.equal(preferencePuts, 2);
+        assert.equal(preferencePuts, 4);
         assert.deepEqual(errors, []);
         console.log(JSON.stringify({ providerPuts, preferencePuts, sensorPosts: sensorPosts.length, reaction: state.reaction, keyPersisted: suppliers[0].key === 'new-key', settingsLayout, pageErrors: errors }));
     } finally {

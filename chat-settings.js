@@ -47,12 +47,25 @@ function providerSettingsForFullSync(existingData, input) {
     }
 }
 
-function applyReactionPreference(existingData, enabled) {
-    if (typeof enabled !== 'boolean') throw new Error('表情回应开关值无效');
+function applyChatPreferences(existingData, input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('聊天偏好无效');
+    const allowed = ['shenReactionEnabled', 'modelSwitchNoticeEnabled'];
+    const patch = {};
+    for (const key of allowed) {
+        if (Object.hasOwn(input, key)) {
+            if (typeof input[key] !== 'boolean') throw new Error('聊天偏好开关值无效');
+            patch[key] = input[key];
+        }
+    }
+    if (!Object.keys(patch).length) throw new Error('没有可保存的聊天偏好');
     const config = existingData || { suppliers: [], chatSessions: [], activeSupIndex: 0, activeChatId: 'main' };
     const newVersion = (config._version || 0) + 1;
-    const preferences = { ...(config.preferences || {}), shenReactionEnabled: enabled };
+    const preferences = { ...(config.preferences || {}), ...patch };
     return { data: { ...config, preferences, _version: newVersion }, newVersion, preferences };
 }
 
-module.exports = { normalizeProviderSettings, applyProviderSettings, providerSettingsForFullSync, applyReactionPreference };
+function applyReactionPreference(existingData, enabled) {
+    return applyChatPreferences(existingData, { shenReactionEnabled: enabled });
+}
+
+module.exports = { normalizeProviderSettings, applyProviderSettings, providerSettingsForFullSync, applyChatPreferences, applyReactionPreference };

@@ -263,6 +263,7 @@ let activeSupIndex = 0;
 let chatSessions = [];
 let activeChatId = 'main';
 let shenReactionEnabled = true;
+let modelSwitchNoticeEnabled = true;
 let workroomBriefCards = [];
 const WORKROOM_ID = 'syzygy-workroom';
 const CHAT_HISTORY_INITIAL_LIMIT = 80;
@@ -354,6 +355,28 @@ function syncShenReactionToggle() {
     if (toggle) toggle.checked = shenReactionEnabled;
 }
 
+function syncModelSwitchNoticeToggle() {
+    const toggle = document.getElementById('modelSwitchNoticeToggle');
+    if (toggle) toggle.checked = modelSwitchNoticeEnabled;
+    const status = document.getElementById('modelSwitchNoticeStatus');
+    if (status) status.textContent = modelSwitchNoticeEnabled
+        ? '只在 Gemini 与 Claude 之间切换时告知对话模型'
+        : '已关闭；切换时不会告知对话模型';
+}
+
+function modelSwitchNoticeFor(session, selectedModel) {
+    if (!modelSwitchNoticeEnabled || !window.ModelFamily?.label(selectedModel)) return false;
+    const messages = Array.isArray(session?.messages) ? session.messages : [];
+    for (let index = messages.length - 1; index >= 0; index--) {
+        const message = messages[index];
+        if (message?.role !== 'assistant' || message?.speaker === 'codex') continue;
+        const previousModel = getActiveVersion(message)?.model;
+        if (!window.ModelFamily.label(previousModel)) continue;
+        return window.ModelFamily.switched(previousModel, selectedModel);
+    }
+    return false;
+}
+
 async function syncFromCloud() {
     try {
         const data = await loadCloudConfig();
@@ -370,7 +393,9 @@ async function syncFromCloud() {
         activeSupIndex = data.activeSupIndex || 0;
         activeChatId   = data.activeChatId  || 'main';
         shenReactionEnabled = data.preferences?.shenReactionEnabled !== false;
+        modelSwitchNoticeEnabled = data.preferences?.modelSwitchNoticeEnabled !== false;
         if (typeof syncShenReactionToggle === 'function') syncShenReactionToggle();
+        if (typeof syncModelSwitchNoticeToggle === 'function') syncModelSwitchNoticeToggle();
 
         if (!chatSessions.find(s => s.id === activeChatId)) {
             activeChatId = chatSessions[0].id;
@@ -2725,7 +2750,8 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             activeChatId: session.id,
             messages: historyMsgs,
             stream: isStream,
-            shenReactionEnabled
+            shenReactionEnabled,
+            ...(modelSwitchNoticeFor(session, selectedModel) ? { modelSwitchNotice: true } : {})
         };
         const payloadText = JSON.stringify(reqBody);
         console.log('[chat payload]', {
@@ -2999,6 +3025,9 @@ let workroomReconnectTimer = null;
 let workroomDispatching = false;
 let workroomApprovalQueue = [];
 let workroomSending = false;
+let workroomCodexExecuting = false;
+let workroomCodexInterrupting = false;
+let workroomCodexSending = false;
 
 function recordChatTransportFailure(session, sessionId, message, model) {
     // 传输故障只是本轮运行状态：保留用户消息供重试，但绝不写入正式聊天记录。
@@ -3145,12 +3174,42 @@ function workroomCodexTimelineHTML(timeline, options = {}) {
     return html;
 }
 
+function workroomRenderExecuteButton() {
+    const button = document.getElementById('workroomExecuteButton');
+    if (!button) return;
+    const activeExecution = workroomCodexExecuting && workroomCodexBusy;
+    button.classList.toggle('is-interrupt', activeExecution && !workroomCodexSending);
+    if (activeExecution && workroomDispatching) {
+        button.disabled = true;
+        button.textContent = '准备施工…';
+        button.title = '正在创建安全的施工会话';
+    } else if (activeExecution && workroomCodexInterrupting) {
+        button.disabled = true;
+        button.textContent = '正在收尾…';
+        button.title = '中止请求已经送达，正在安全结束本轮施工';
+    } else if (activeExecution && workroomCodexSending) {
+        button.disabled = true;
+        button.textContent = '正在推送…';
+        button.title = '推送期间不能中止';
+    } else if (activeExecution) {
+        button.disabled = false;
+        button.textContent = '施工中 · 中止';
+        button.title = '中止本轮施工；已经写入工作区的改动会保留';
+    } else {
+        button.disabled = Boolean(workroomDispatching || workroomCodexBusy);
+        button.innerHTML = '✦ 交给 TT <span aria-hidden="true">↗</span>';
+        button.title = '在消息末尾加上开工徽记并交给 TT';
+        button.classList.remove('is-interrupt');
+    }
+}
+
 function workroomSetCodexStatus(text, active = false) {
     const label = document.getElementById('workroomCodexStatus');
     const bar = document.getElementById('workroomCodexBar');
     if (label) label.textContent = text || 'Codex 待命';
     bar?.classList.toggle('is-active', Boolean(active));
     workroomCodexBusy = Boolean(active);
+    workroomRenderExecuteButton();
 }
 
 function workroomMessagesByRounds(messages, limit, beforeIndex = messages.length, maxChars = Infinity) {
@@ -3346,11 +3405,18 @@ function workroomHandleCodexEvent(event) {
         workroomUpdateLiveReply();
         return;
     }
+    if (method === 'codex/interrupt-requested') {
+        workroomCodexInterrupting = true;
+        workroomSetCodexStatus('正在中止，保留已经完成的修改', true);
+        return;
+    }
     if (method === 'codex/started') {
         workroomCodexTurnId = params.turnId || workroomCodexTurnId || ('turn-' + Date.now());
         workroomCodexReply = '';
         workroomCodexTimeline = [];
         workroomCodexSavedForTurn = false;
+        workroomCodexInterrupting = false;
+        workroomCodexSending = false;
         workroomSetCodexStatus('Codex 正在工作', true);
         workroomUpdateLiveReply();
         return;
@@ -3362,6 +3428,14 @@ function workroomHandleCodexEvent(event) {
     }
     if (method.startsWith('item/commandExecution')) {
         if (workroomAppendCodexActivity(event)) workroomUpdateLiveReply();
+        const activity = workroomCodexActivity(event);
+        if (method.endsWith('/completed') && workroomCodexSending) {
+            workroomCodexSending = false;
+            workroomRenderExecuteButton();
+        } else if (activity?.kind === 'sending') {
+            workroomCodexSending = true;
+            workroomRenderExecuteButton();
+        }
         workroomSetCodexStatus('Codex 正在执行命令', true);
         return;
     }
@@ -3382,7 +3456,10 @@ function workroomHandleCodexEvent(event) {
         const status = params.turn?.status || 'completed';
         if (status === 'failed') workroomDiscardCodexReply();
         else workroomSaveCodexReply(status);
-        workroomSetCodexStatus(status === 'failed' ? 'Codex 执行失败' : 'Codex 已完成', false);
+        workroomCodexInterrupting = false;
+        workroomCodexSending = false;
+        workroomCodexExecuting = false;
+        workroomSetCodexStatus(status === 'failed' ? 'Codex 执行失败' : status === 'interrupted' ? '已中止 · 施工现场已保留' : 'Codex 已完成', false);
         return;
     }
     if (method === 'codex/error' || method === 'codex/protocol-error') {
@@ -3397,6 +3474,8 @@ function workroomHandleCodexMessage(message) {
     const room = ensureWorkroomSession();
     if (message.type === 'codex_snapshot') {
         room.codexTaskId = message.task?.id || room.codexTaskId;
+        workroomCodexExecuting = message.task?.mode === 'workspaceWrite' && ['starting', 'running'].includes(message.task?.status);
+        workroomCodexInterrupting = Boolean(message.task?.interruptRequested);
         const mode = document.getElementById('workroomCodexMode');
         if (mode && message.task?.mode) mode.value = message.task.mode;
         if (mode) mode.disabled = Boolean(room.codexTaskId);
@@ -3417,7 +3496,9 @@ function workroomHandleCodexMessage(message) {
                 workroomSetCodexStatus('Codex 执行失败', false);
             } else {
                 workroomSaveCodexReply(reply.status);
-                workroomSetCodexStatus('Codex 已完成', false);
+                workroomCodexExecuting = false;
+                workroomCodexInterrupting = false;
+                workroomSetCodexStatus(reply.status === 'interrupted' ? '已中止 · 施工现场已保留' : 'Codex 已完成', false);
             }
             (message.approvals || []).forEach(workroomShowApproval);
             return;
@@ -3433,13 +3514,21 @@ function workroomHandleCodexMessage(message) {
         const running = message.task?.status === 'running' || message.task?.status === 'starting';
         if (startIndex >= 0) events.slice(startIndex).forEach(workroomHandleCodexEvent);
         if (running && startIndex < 0) workroomSetCodexStatus('Codex 正在工作', true);
-        if (!running && startIndex < 0) workroomSetCodexStatus('Codex 待命', false);
+        if (!running && startIndex < 0) {
+            workroomCodexExecuting = false;
+            workroomCodexInterrupting = false;
+            workroomSetCodexStatus(message.task?.status === 'interrupted' ? '已中止 · 施工现场已保留' : 'Codex 待命', false);
+        }
         (message.approvals || []).forEach(workroomShowApproval);
         return;
     }
     if (message.type === 'codex_event') workroomHandleCodexEvent(message.event);
-    if (message.type === 'codex_state' && message.task?.status === 'failed') {
-        workroomSetCodexStatus('Codex 执行失败', false);
+    if (message.type === 'codex_state') {
+        workroomCodexExecuting = message.task?.mode === 'workspaceWrite' && ['starting', 'running'].includes(message.task?.status);
+        workroomCodexInterrupting = Boolean(message.task?.interruptRequested);
+        if (message.task?.status === 'failed') workroomSetCodexStatus('Codex 执行失败', false);
+        else if (message.task?.status === 'interrupted') workroomSetCodexStatus('已中止 · 施工现场已保留', false);
+        else workroomRenderExecuteButton();
     }
     if (message.type === 'codex_error') {
         if (message.code === 'TASK_NOT_FOUND') {
@@ -3496,6 +3585,9 @@ function workroomConnectCodex(taskId, sendAfterOpen = false, payload = null, tas
 async function workroomDispatchToCodex(userText, shenwangText, images = [], execute = false) {
     if (workroomDispatching) return toast('正在连接 Codex，请稍候再发送');
     workroomDispatching = true;
+    workroomCodexExecuting = Boolean(execute);
+    workroomCodexInterrupting = false;
+    workroomCodexSending = false;
     const room = ensureWorkroomSession();
     const prompt = workroomPrompt(userText, shenwangText, execute);
     workroomSetCodexStatus('正在把两人的想法交给 Codex', true);
@@ -3530,10 +3622,35 @@ async function workroomDispatchToCodex(userText, shenwangText, images = [], exec
             return;
         }
     } catch (error) {
+        workroomCodexExecuting = false;
         workroomSetCodexStatus('Codex 未能接入', false);
         toast('Codex 未能接入：' + error.message);
     } finally {
         workroomDispatching = false;
+        workroomRenderExecuteButton();
+    }
+}
+
+function workroomExecuteOrInterrupt() {
+    if (workroomCodexExecuting && workroomCodexBusy) return workroomInterruptCodex();
+    return sendChat({ workroomExecute: true });
+}
+
+async function workroomInterruptCodex() {
+    if (workroomCodexSending) return toast('正在推送，等这一小步结束后才能中止');
+    if (workroomCodexInterrupting) return;
+    const taskId = ensureWorkroomSession().codexTaskId;
+    if (!taskId) return toast('没有找到正在施工的任务');
+    workroomCodexInterrupting = true;
+    workroomSetCodexStatus('正在中止，保留已经完成的修改', true);
+    try {
+        const response = await fetch('/api/codex/tasks/' + encodeURIComponent(taskId) + '/interrupt', { method: 'POST' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || '中止请求没有送达');
+    } catch (error) {
+        workroomCodexInterrupting = false;
+        workroomSetCodexStatus('中止失败，Codex 仍在工作', true);
+        toast('没能中止：' + error.message);
     }
 }
 
@@ -3694,6 +3811,34 @@ async function shenReactionToggleChanged(toggle) {
         shenReactionEnabled = previous;
         syncShenReactionToggle();
         renderChatMessages();
+        if (status) status.textContent = '保存失败：' + error.message;
+    } finally {
+        toggle.disabled = false;
+    }
+}
+
+async function modelSwitchNoticeToggleChanged(toggle) {
+    const previous = modelSwitchNoticeEnabled;
+    const next = Boolean(toggle?.checked);
+    modelSwitchNoticeEnabled = next;
+    toggle.disabled = true;
+    const status = document.getElementById('modelSwitchNoticeStatus');
+    if (status) status.textContent = '正在保存…';
+    try {
+        const response = await fetch('/api/chat-preferences', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ modelSwitchNoticeEnabled: next }),
+            cache: 'no-store',
+            keepalive: true
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success !== true || !data._version) throw new Error(data.message || '服务端没有确认保存');
+        acceptDataVersion(data._version);
+        syncModelSwitchNoticeToggle();
+    } catch (error) {
+        modelSwitchNoticeEnabled = previous;
+        syncModelSwitchNoticeToggle();
         if (status) status.textContent = '保存失败：' + error.message;
     } finally {
         toggle.disabled = false;
@@ -4801,7 +4946,7 @@ async function regenerateSend(aiMsgIndex) {
         request.signal.throwIfAborted();
         request.touch();
         request.mark('等待服务器响应');
-        const response = await fetch(apiUrl, { method:'POST', signal:request.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID,'X-Request-Id':request.id,...(sourceUserMessageId?{'X-Message-Id':sourceUserMessageId}:{})}, body:JSON.stringify({model:selectedModel,cacheClientVersion:2,messages:historyMsgs,stream:isStream,activeChatId:session.id,shenReactionEnabled,...(useRollingContext?{contextProtocol:{version:1,mode:isFrozenCacheRoute(currentSup.url,selectedModel)?'frozen-v1':'summary-v1',sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
+        const response = await fetch(apiUrl, { method:'POST', signal:request.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID,'X-Request-Id':request.id,...(sourceUserMessageId?{'X-Message-Id':sourceUserMessageId}:{})}, body:JSON.stringify({model:selectedModel,cacheClientVersion:2,messages:historyMsgs,stream:isStream,activeChatId:session.id,shenReactionEnabled,...(modelSwitchNoticeFor(session, selectedModel)?{modelSwitchNotice:true}:{}),...(useRollingContext?{contextProtocol:{version:1,mode:isFrozenCacheRoute(currentSup.url,selectedModel)?'frozen-v1':'summary-v1',sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
         request.mark(isStream ? '接收流式回复' : '接收完整回复');
         if (!response.ok) { const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         if(isStream) {

@@ -18,7 +18,8 @@ const { extractThinkingFromContent } = require('./public/thinking-parser');
 const { extractAssistantReaction } = require('./assistant-reaction');
 const { createTranscriptHeatStore } = require('./transcript-heart-heat');
 const { createAssistantStreamFilter, splitAssistantTerminalTags } = require('./assistant-internal-tags');
-const { applyProviderSettings, providerSettingsForFullSync, applyReactionPreference } = require('./chat-settings');
+const { applyProviderSettings, providerSettingsForFullSync, applyChatPreferences } = require('./chat-settings');
+const ModelFamily = require('./public/model-family');
 const { consumeOpenAIStream } = require('./streaming-chat');
 const { createChatRequestLifecycle } = require('./chat-request-lifecycle');
 const { composeContext, createBudgetObserver, mergeUsage, readConfig: readContextBudgetConfig } = require('./context-budget');
@@ -7636,6 +7637,18 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         let body = req.body;
         const shenReactionEnabled = body.shenReactionEnabled === true;
         delete body.shenReactionEnabled; // Local preference, never forward to a provider.
+        const modelSwitchRequested = body.modelSwitchNotice === true;
+        delete body.modelSwitchNotice; // Local context flag, never forward to a provider.
+        let modelSwitchAllowed = false;
+        if (modelSwitchRequested) {
+            try {
+                const config = await webConfigStore.readShared();
+                modelSwitchAllowed = config?.preferences?.modelSwitchNoticeEnabled !== false;
+            } catch (_) {
+                modelSwitchAllowed = false; // Privacy preference fails closed.
+            }
+        }
+        const modelSwitchContext = ModelFamily.notice(body.model, modelSwitchAllowed);
         const contextBudget = observeContextBudget({ endpoint: resolveApiUrl(req.path), model: body.model || '',
             conversationId: typeof body.contextProtocol?.sessionId === 'string' ? body.contextProtocol.sessionId
                 : typeof body.activeChatId === 'string' && body.activeChatId.length <= 200 ? body.activeChatId : null,
@@ -7940,6 +7953,11 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 
         // Inject timestamp into user message (invisible to frontend, visible to model)
         const timestamp = buildUserMessageTimestamp();
+        if (modelSwitchContext) {
+            finalUserContent = Array.isArray(finalUserContent)
+                ? [{ type: 'text', text: modelSwitchContext + '\n\n' }, ...finalUserContent]
+                : modelSwitchContext + '\n\n' + finalUserContent;
+        }
         if (volatileText) {
             finalUserContent = Array.isArray(finalUserContent)
                 ? [{ type: 'text', text: timestamp + '\n\n' + volatileText + '\n\n' }, ...finalUserContent]
@@ -11230,7 +11248,11 @@ app.get('/api/sync-config', async (req, res) => {
         scheduleWorkroomArchive(storedConfig.chatSessions || [], webConfigStore.diagnostics().signature || storedConfig._version || 0);
         const cfg = {
             ...storedConfig,
-            preferences: { ...(storedConfig.preferences || {}), shenReactionEnabled: storedConfig.preferences?.shenReactionEnabled !== false },
+            preferences: {
+                ...(storedConfig.preferences || {}),
+                shenReactionEnabled: storedConfig.preferences?.shenReactionEnabled !== false,
+                modelSwitchNoticeEnabled: storedConfig.preferences?.modelSwitchNoticeEnabled !== false
+            },
             chatSessions: (storedConfig.chatSessions || []).map(session => ({ ...session }))
         };
         const requestedMainLimit = req.query?.mainLimit === undefined ? 0 : Number.parseInt(req.query.mainLimit, 10);
@@ -11495,7 +11517,7 @@ app.put('/api/chat-preferences', async (req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
         const outcome = await webConfigStore.transaction(existingData => {
-            const applied = applyReactionPreference(existingData, req.body?.shenReactionEnabled);
+            const applied = applyChatPreferences(existingData, req.body);
             return {
                 data: applied.data,
                 value: { success: true, _version: applied.newVersion, preferences: applied.preferences }
@@ -11697,6 +11719,16 @@ app.post('/api/codex/tasks', (req, res) => {
     } catch (error) {
         const message = String(error.message || '无法创建 Codex 任务');
         res.status(message.includes('已有 Codex') ? 409 : 400).json({ ok: false, error: message });
+    }
+});
+app.post('/api/codex/tasks/:taskId/interrupt', (req, res) => {
+    try {
+        const task = codexBridge.taskById(req.params.taskId);
+        if (!task) return res.status(404).json({ ok: false, error: '找不到 Codex 任务' });
+        codexBridge.sendClientCommand(task, { type: 'interrupt' });
+        res.status(202).json({ ok: true, task: codexBridge.listTasks().find(item => item.id === task.id) });
+    } catch (error) {
+        res.status(409).json({ ok: false, error: String(error.message || '无法中止 Codex 任务') });
     }
 });
 

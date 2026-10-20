@@ -303,6 +303,7 @@ function createCodexBridge(options = {}) {
             error: task.error || null,
             usage: task.usage || null,
             pendingApproval: task.pending.size > 0,
+            interruptRequested: Boolean(task.interruptRequested),
             canFollowup: Boolean(task.proc && !task.proc.killed && !task.proc.stdin.destroyed),
             eventCount: task.events.length
         };
@@ -373,6 +374,7 @@ function createCodexBridge(options = {}) {
         if (task.timeout) clearTimeout(task.timeout);
         task.timeout = null;
         task.status = status;
+        task.pending.clear();
         recordTurn(task, status);
         task.error = error ? shortText(error, 1000) : task.error;
         if (activeTaskId === task.id) activeTaskId = null;
@@ -468,6 +470,7 @@ function createCodexBridge(options = {}) {
             if (!task.turnId) return failTask(task, 'Codex 没有返回 turn id');
             task.status = 'running';
             addEvent(task, 'codex/started', { threadId: task.threadId, turnId: task.turnId });
+            if (task.interruptRequested) write(task, { method: 'turn/interrupt', id: `interrupt-${Date.now()}`, params: { threadId: task.threadId, turnId: task.turnId } });
             return;
         }
         if (String(message.id || '').startsWith('followup-')) {
@@ -475,6 +478,7 @@ function createCodexBridge(options = {}) {
             if (!task.turnId) return failTask(task, 'Codex 没有返回 follow-up turn id');
             task.status = 'running';
             addEvent(task, 'codex/started', { threadId: task.threadId, turnId: task.turnId, followup: true });
+            if (task.interruptRequested) write(task, { method: 'turn/interrupt', id: `interrupt-${Date.now()}`, params: { threadId: task.threadId, turnId: task.turnId } });
             return;
         }
         addEvent(task, 'codex/response', { id: message.id, result: message.result || null });
@@ -748,6 +752,7 @@ function createCodexBridge(options = {}) {
             turnId: null,
             usage: null,
             error: null,
+            interruptRequested: false,
             events: [],
             pending: new Map(),
             clients: new Set(),
@@ -774,6 +779,10 @@ function createCodexBridge(options = {}) {
         if (!task || !payload || typeof payload !== 'object') throw new Error('无效的 Codex 指令');
         if (task.source === 'workroom' && ['steer', 'followup'].includes(payload.type)) throw new Error('工作区每轮需通过发送或开工入口创建独立权限会话');
         if (payload.type === 'interrupt') {
+            if (!['starting', 'running'].includes(task.status)) throw new Error('这个 Codex 任务已经结束');
+            if (task.interruptRequested) return;
+            task.interruptRequested = true;
+            addEvent(task, 'codex/interrupt-requested', {});
             if (task.threadId && task.turnId) write(task, { method: 'turn/interrupt', id: `interrupt-${Date.now()}`, params: { threadId: task.threadId, turnId: task.turnId } });
             return;
         }
@@ -798,6 +807,7 @@ function createCodexBridge(options = {}) {
             if (task.idleTimeout) clearTimeout(task.idleTimeout);
             task.idleTimeout = null;
             task.status = 'starting';
+            task.interruptRequested = false;
             task.error = null;
             activeTaskId = task.id;
             task.timeout = setTimeout(() => failTask(task, 'Codex 任务超时'), config.timeoutMs);

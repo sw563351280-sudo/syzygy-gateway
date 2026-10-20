@@ -204,6 +204,27 @@ test('explicit workroom execute creates a write-enabled task', async () => {
     } finally { child.kill(); }
 });
 
+test('interrupt requested during startup reaches the turn once it exists and releases the lease', async () => {
+    const child = createFakeChatProcess();
+    let releases = 0;
+    const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child, acquireTurnLease: () => () => releases++ });
+    const started = bridge.startTask({ prompt: '修改这里', source: 'workroom', workroomAction: 'execute' });
+    const task = bridge.taskById(started.id);
+    try {
+        bridge.sendClientCommand(task, { type: 'interrupt' });
+        bridge.sendClientCommand(task, { type: 'interrupt' });
+        const interrupt = await waitFor(() => child.writes.find(message => message.method === 'turn/interrupt'));
+        assert.equal(interrupt.params.threadId, 'thread-chat');
+        assert.equal(interrupt.params.turnId, 'turn-1');
+        assert.equal(child.writes.filter(message => message.method === 'turn/interrupt').length, 1);
+        assert.equal(bridge.listTasks()[0].interruptRequested, true);
+        child.stdout.write(JSON.stringify({ method: 'turn/completed', params: { turn: { id: 'turn-1', status: 'interrupted' } } }) + '\n');
+        await waitFor(() => task.status === 'interrupted');
+        assert.equal(releases, 1);
+        assert.throws(() => bridge.sendClientCommand(task, { type: 'interrupt' }), /已经结束/);
+    } finally { child.kill(); }
+});
+
 test('completed Codex task stays alive and starts a follow-up turn on the same thread', async () => {
     const child = createFakeChatProcess();
     const bridge = createCodexBridge({ cwd: process.cwd(), spawn: () => child });

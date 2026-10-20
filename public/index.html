@@ -80,7 +80,7 @@
                 <option value="codex">Codex</option>
             </select>
         </label>
-        <button class="workroom-new-thread workroom-execute" type="button" onclick="sendChat({workroomExecute:true})" title="在消息末尾加上开工徽记并交给 TT">✦ 交给 TT <span aria-hidden="true">↗</span></button>
+        <button id="workroomExecuteButton" class="workroom-new-thread workroom-execute" type="button" onclick="workroomExecuteOrInterrupt()" title="在消息末尾加上开工徽记并交给 TT">✦ 交给 TT <span aria-hidden="true">↗</span></button>
         </div>
     </div>
     <div id="workroomCodexApproval" class="workroom-codex-approval" hidden>
@@ -467,6 +467,10 @@
                     <span><strong>位置共享</strong><small id="locationSharingStatus" role="status">聊天打开时自动更新</small></span>
                     <input type="checkbox" id="locationSharingToggle">
                 </label>
+                <label class="app-settings-toggle" for="modelSwitchNoticeToggle">
+                    <span><strong>模型切换提醒</strong><small id="modelSwitchNoticeStatus" role="status">只在 Gemini 与 Claude 之间切换时告知对话模型</small></span>
+                    <input type="checkbox" id="modelSwitchNoticeToggle" checked onchange="modelSwitchNoticeToggleChanged(this)">
+                </label>
             </div>
         </section>
 
@@ -652,7 +656,8 @@
 <script src="context-cache-status.js?v=10"></script>
 <script src="context-continuity.js?v=1"></script>
 <script src="cache-history.js?v=5"></script>
-<link rel="stylesheet" href="workroom-pages.css?v=10">
+<script src="model-family.js?v=1"></script>
+<link rel="stylesheet" href="workroom-pages.css?v=11">
 <script src="workroom-pages.js?v=8"></script>
 <script src="shen-settings-page.js?v=3"></script>
 <script src="chat-window-context.js?v=1"></script>
@@ -665,7 +670,7 @@
 <script src="chat-transport.js?v=20261014-1"></script>
 <script src="message-usage.js?v=2"></script>
 <script src="chat-persistence.js?v=20261014-1"></script>
-<script src="script.js?v=20261020-location-sharing"></script>
+<script src="script.js?v=20261020-workroom-stop"></script>
 <script src="music-player.js?v=20261019-music-loading" defer></script>
         <div id="msgContextMenu" class="msg-context-menu" role="menu" aria-label="消息操作" hidden></div>
 

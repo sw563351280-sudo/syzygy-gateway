@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { applyProviderSettings, providerSettingsForFullSync, applyReactionPreference, normalizeProviderSettings } = require('../chat-settings');
+const { applyProviderSettings, providerSettingsForFullSync, applyChatPreferences, applyReactionPreference, normalizeProviderSettings } = require('../chat-settings');
 
 const existing = {
     _version: 8,
@@ -29,6 +29,24 @@ test('reaction preference preserves provider keys, chats and unrelated preferenc
     assert.equal(result.data.preferences.anotherPreference, 'keep-me');
     assert.strictEqual(result.data.suppliers, existing.suppliers);
     assert.strictEqual(result.data.chatSessions, existing.chatSessions);
+});
+
+test('model switch notice preference is boolean and preserves unrelated state', () => {
+    const result = applyChatPreferences(existing, { modelSwitchNoticeEnabled: false });
+    assert.equal(result.data.preferences.modelSwitchNoticeEnabled, false);
+    assert.equal(result.data.preferences.shenReactionEnabled, true);
+    assert.equal(result.data.preferences.anotherPreference, 'keep-me');
+    assert.strictEqual(result.data.suppliers, existing.suppliers);
+    assert.strictEqual(result.data.chatSessions, existing.chatSessions);
+    assert.throws(() => applyChatPreferences(existing, { modelSwitchNoticeEnabled: 'false' }), /开关值无效/);
+    assert.throws(() => applyChatPreferences(existing, {}), /没有可保存/);
+});
+
+test('a saved disabled model notice stays disabled when another preference changes', () => {
+    const disabled = applyChatPreferences(existing, { modelSwitchNoticeEnabled: false }).data;
+    const updated = applyReactionPreference(disabled, false);
+    assert.equal(updated.data.preferences.modelSwitchNoticeEnabled, false);
+    assert.equal(updated.data.preferences.shenReactionEnabled, false);
 });
 
 test('provider settings reject invalid or empty collections', () => {

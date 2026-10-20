@@ -41,6 +41,46 @@ test('status light tracks running snapshots and turns off when completed', () =>
     assert.match(label.textContent, /待命/);
 });
 
+test('execute button becomes a safe interrupt control and keeps the stopped workspace', async () => {
+    const { context, room, run } = setup();
+    const notices = [];
+    const classes = new Set();
+    const button = {
+        disabled: false, textContent: '', innerHTML: '', title: '',
+        classList: { toggle(name, on) { if (on) classes.add(name); else classes.delete(name); }, remove(name) { classes.delete(name); } }
+    };
+    const label = { textContent: '' };
+    const bar = { classList: { toggle() {} } };
+    context.document.getElementById = id => ({ workroomExecuteButton: button, workroomCodexStatus: label, workroomCodexBar: bar })[id] || null;
+    context.toast = message => notices.push(message);
+    const requests = [];
+    context.fetch = async (url, options) => {
+        requests.push({ url, options });
+        return { ok: true, json: async () => ({ ok: true }) };
+    };
+    run('workroomCodexExecuting = true');
+    context.workroomSetCodexStatus('Codex 正在工作', true);
+    assert.equal(button.textContent, '施工中 · 中止');
+    assert.equal(button.disabled, false);
+    assert.equal(classes.has('is-interrupt'), true);
+    context.workroomHandleCodexEvent({ method: 'item/commandExecution/started', params: { command: 'git push origin main' } });
+    assert.equal(button.textContent, '正在推送…');
+    assert.equal(button.disabled, true);
+    context.workroomHandleCodexEvent({ method: 'item/commandExecution/completed', params: {} });
+    assert.equal(button.textContent, '施工中 · 中止');
+    assert.equal(button.disabled, false);
+    await context.workroomExecuteOrInterrupt();
+    assert.equal(requests[0].url, '/api/codex/tasks/' + room.codexTaskId + '/interrupt');
+    assert.equal(requests[0].options.method, 'POST');
+    assert.equal(button.textContent, '正在收尾…');
+    assert.equal(button.disabled, true);
+    context.workroomHandleCodexEvent({ method: 'turn/completed', params: { turn: { status: 'interrupted' } } });
+    assert.match(label.textContent, /已中止/);
+    assert.equal(button.disabled, false);
+    assert.match(button.innerHTML, /交给 TT/);
+    assert.equal(notices.length, 0);
+});
+
 test('Codex avatar is distinct and has an accessible label', () => {
     const { run } = setup();
     assert.match(run("workroomSpeakerHTML('codex')"), /aria-label="Codex 头像"/);
