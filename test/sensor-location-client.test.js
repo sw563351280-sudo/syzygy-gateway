@@ -7,7 +7,7 @@ const vm = require('node:vm');
 
 const source = fs.readFileSync(require.resolve('../public/sensor-location-client.js'), 'utf8');
 
-function fixture({ token = '', response = { ok: true, status: 204 }, geolocationError = null } = {}) {
+function fixture({ token = '', response = { ok: true, status: 204 }, geolocationError = null, promptAnswer = null } = {}) {
     const storage = new Map(token ? [['sensor_ingest_token', token]] : []);
     const requests = [];
     const intervals = new Map();
@@ -32,8 +32,10 @@ function fixture({ token = '', response = { ok: true, status: 204 }, geolocation
         } } },
         localStorage: {
             getItem: key => storage.get(key) || null,
-            setItem: (key, value) => storage.set(key, String(value))
+            setItem: (key, value) => storage.set(key, String(value)),
+            removeItem: key => storage.delete(key)
         },
+        prompt: () => promptAnswer,
         fetch: async (url, options) => { requests.push({ url, options }); return response; },
         setInterval(handler, delay) { const id = nextInterval++; intervals.set(id, { handler, delay }); return id; },
         clearInterval(id) { intervals.delete(id); },
@@ -71,7 +73,36 @@ test('unpaired browsers stay off and never request coordinates', () => {
     app.context.SyzygyLocation.setChatActive(true);
     assert.equal(app.geolocationCalls, 0);
     assert.equal(app.requests.length, 0);
-    assert.equal(app.elements.get('locationSharingStatus').textContent, '已关闭');
+    assert.equal(app.elements.get('locationSharingStatus').textContent, '尚未配对 · 打开开关完成');
+});
+
+test('turning location on pairs in settings and uploads when chat opens', async () => {
+    const app = fixture({ promptAnswer: 'new-device-token' });
+    const toggle = app.elements.get('locationSharingToggle');
+    toggle.checked = true;
+    toggle.change();
+
+    assert.equal(toggle.checked, true);
+    assert.equal(app.storage.get('sensor_ingest_token'), 'new-device-token');
+    assert.equal(app.storage.get('syzygy.location-sharing.enabled.v1'), 'true');
+    assert.equal(app.elements.get('locationSharingStatus').textContent, '聊天打开时自动更新');
+
+    app.context.SyzygyLocation.setChatActive(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(app.requests.length, 1);
+    assert.equal(app.requests[0].options.headers.Authorization, 'Bearer new-device-token');
+});
+
+test('cancelling pairing leaves location sharing off', () => {
+    const app = fixture({ promptAnswer: null });
+    const toggle = app.elements.get('locationSharingToggle');
+    toggle.checked = true;
+    toggle.change();
+
+    assert.equal(toggle.checked, false);
+    assert.equal(app.storage.has('sensor_ingest_token'), false);
+    assert.equal(app.storage.get('syzygy.location-sharing.enabled.v1'), 'false');
+    assert.equal(app.elements.get('locationSharingStatus').textContent, '尚未配对 · 打开开关完成');
 });
 
 test('turning sharing off clears the foreground timer and blocks later updates', () => {
@@ -91,6 +122,18 @@ test('location errors are shown without sending a request', () => {
     app.context.SyzygyLocation.setChatActive(true);
     assert.equal(app.requests.length, 0);
     assert.equal(app.elements.get('locationSharingStatus').textContent, '需要重新允许定位');
+});
+
+test('an unauthorized upload clears the bad pairing and stops retries', async () => {
+    const app = fixture({ token: 'expired-token', response: { ok: false, status: 401 } });
+    app.context.SyzygyLocation.setChatActive(true);
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(app.storage.has('sensor_ingest_token'), false);
+    assert.equal(app.storage.get('syzygy.location-sharing.enabled.v1'), 'false');
+    assert.equal(app.elements.get('locationSharingToggle').checked, false);
+    assert.equal(app.elements.get('locationSharingStatus').textContent, '配对已失效 · 打开开关重配');
+    assert.equal(app.intervals.size, 0);
 });
 
 test('sensor page and environment tool no longer expose microphone collection', () => {

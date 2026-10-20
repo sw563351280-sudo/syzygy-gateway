@@ -18,7 +18,16 @@
     }
 
     function storageSet(key, value) {
-        try { global.localStorage?.setItem(key, value); } catch (_) {}
+        try {
+            global.localStorage?.setItem(key, value);
+            return storageGet(key) === String(value);
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function storageRemove(key) {
+        try { global.localStorage?.removeItem(key); } catch (_) {}
     }
 
     function token() {
@@ -27,7 +36,8 @@
 
     function initialPreference() {
         const stored = storageGet(PREFERENCE_KEY);
-        if (stored === 'true' || stored === 'false') return stored === 'true';
+        if (stored === 'false') return false;
+        if (stored === 'true') return Boolean(token());
         // The old sensor page already required an explicit pairing step. Reuse
         // that consent on this device without turning location on elsewhere.
         return Boolean(token());
@@ -56,9 +66,42 @@
     }
 
     function refreshStatus() {
+        if (!token()) return setStatus('尚未配对 · 打开开关完成');
         if (!enabled) return setStatus('已关闭');
-        if (!token()) return setStatus('需要先在定位页完成配对');
         setStatus(lastSentLabel());
+    }
+
+    function pairDevice() {
+        if (token()) return true;
+        if (typeof global.prompt !== 'function') {
+            setStatus('当前浏览器无法完成配对');
+            return false;
+        }
+        const answer = global.prompt('粘贴上传凭证（只保存在这台设备，不会显示在页面上）：');
+        const nextToken = typeof answer === 'string' ? answer.trim() : '';
+        if (!nextToken) {
+            setStatus('尚未配对');
+            return false;
+        }
+        if (nextToken.length <= 10) {
+            setStatus('凭证格式不正确');
+            return false;
+        }
+        if (!storageSet(TOKEN_KEY, nextToken)) {
+            setStatus('浏览器无法保存配对');
+            return false;
+        }
+        return true;
+    }
+
+    function invalidatePairing() {
+        storageRemove(TOKEN_KEY);
+        enabled = false;
+        storageSet(PREFERENCE_KEY, 'false');
+        const toggle = toggleElement();
+        if (toggle) toggle.checked = false;
+        stopTimer();
+        setStatus('配对已失效 · 打开开关重配');
     }
 
     function shouldCollect() {
@@ -100,7 +143,8 @@
                 keepalive: true
             });
             if (!response.ok) {
-                setStatus(response.status === 401 ? '配对已失效，请重新配对' : `更新失败（${response.status}）`);
+                if (response.status === 401) invalidatePairing();
+                else setStatus(`更新失败（${response.status}）`);
                 return;
             }
             if (!enabled) return refreshStatus();
@@ -140,11 +184,12 @@
     }
 
     function setEnabled(next) {
-        enabled = Boolean(next);
+        const requested = Boolean(next);
+        enabled = requested && pairDevice();
         storageSet(PREFERENCE_KEY, String(enabled));
         const toggle = toggleElement();
         if (toggle) toggle.checked = enabled;
-        syncActivity({ immediate: false });
+        syncActivity({ immediate: enabled });
     }
 
     function setChatActive(next) {
@@ -170,6 +215,7 @@
     global.SyzygyLocation = {
         init,
         requestUpdate,
+        pairDevice,
         setChatActive,
         setEnabled,
         state: () => ({ enabled, chatActive, requestInFlight, timerActive: timer !== null })

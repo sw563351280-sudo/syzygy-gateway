@@ -105,7 +105,7 @@ async function main() {
         assert.equal(settingsLayout.rows, 2);
         assert.ok(settingsLayout.cardHeight < 190);
         assert.equal(settingsLayout.locationChecked, false);
-        assert.equal(settingsLayout.locationStatus, '已关闭');
+        assert.equal(settingsLayout.locationStatus, '尚未配对 · 打开开关完成');
         await page.$eval('.app-chat-preferences', card => card.scrollIntoView({ block: 'center' }));
         await page.screenshot({ path: '/tmp/syzygy-settings-smoke.png', fullPage: false });
         await page.click('#shenReactionToggle');
@@ -149,7 +149,12 @@ async function main() {
         assert.ok(state.rendered.includes('🐾'));
         await page.waitForFunction(() => typeof _savingNow !== 'undefined' && !_savingNow
             && typeof _saveTimer !== 'undefined' && !_saveTimer);
-        await page.evaluate(() => localStorage.setItem('sensor_ingest_token', 'browser-smoke-token'));
+        await page.evaluate(() => goView('settings'));
+        page.once('dialog', dialog => dialog.accept('browser-smoke-token'));
+        await page.click('#locationSharingToggle');
+        await page.waitForFunction(() => localStorage.getItem('sensor_ingest_token') === 'browser-smoke-token'
+            && document.getElementById('locationSharingToggle').checked
+            && document.getElementById('locationSharingStatus').textContent === '聊天打开时自动更新');
         await page.reload({ waitUntil: 'domcontentloaded' });
         await page.waitForFunction(() => typeof _dataVersion !== 'undefined' && chatSessions.length > 0);
         await page.evaluate(() => goView('chat'));
