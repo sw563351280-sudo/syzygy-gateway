@@ -75,6 +75,35 @@ test('stream filter hides terminal tags for one-character and irregular chunks',
     }
 });
 
+test('accepts adjacent terminal tags glued directly to visible prose', () => {
+    const wake = '<NEXT_WAKE>{"after_minutes":30,"urgency":"low","reason":"晚点再看看"}</NEXT_WAKE>';
+    const source = `正文保留。<REACT:🫂>${wake}`;
+    const parsed = splitAssistantTerminalTags(source);
+    assert.equal(parsed.visibleContent, '正文保留。');
+    assert.deepEqual(parsed.tags.map(tag => tag.name), ['REACT', 'NEXT_WAKE']);
+
+    for (const sizes of [[1], [2, 5, 11, 3]]) {
+        let visible = '';
+        const filter = createAssistantStreamFilter(piece => { visible += piece; });
+        let offset = 0; let index = 0;
+        while (offset < source.length) {
+            const size = sizes[index++ % sizes.length];
+            filter.push(source.slice(offset, offset + size));
+            offset += size;
+        }
+        const result = filter.finish();
+        assert.equal(visible, '正文保留。');
+        assert.deepEqual(result.tags.map(tag => tag.name), ['REACT', 'NEXT_WAKE']);
+    }
+});
+
+test('does not reinterpret one inline tag as a terminal protocol zone', () => {
+    const source = '正文里提到<REACT:🐶>';
+    const parsed = splitAssistantTerminalTags(source);
+    assert.equal(parsed.visibleContent, source);
+    assert.deepEqual(parsed.tags, []);
+});
+
 test('stream output matches persisted visible content with CRLF and trailing whitespace', () => {
     for (const source of [
         `正文保留\r\n<REACT:🐶>\r\n${crumb}\r\n`,

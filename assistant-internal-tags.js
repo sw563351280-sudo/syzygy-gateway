@@ -51,8 +51,58 @@ function parseProtocolLine(record) {
     return null;
 }
 
-function splitAssistantTerminalTags(content) {
-    const text = String(content || '');
+function parseProtocolToken(text, start) {
+    const source = String(text || '').slice(start);
+    const reaction = source.match(/^<\s*REACT\s*:\s*([^<>\r\n]+)>/iu);
+    if (reaction) return { name: 'REACT', value: reaction[1], start, end: start + reaction[0].length, raw: reaction[0] };
+
+    for (const name of SELF_CLOSING_TAGS) {
+        const pattern = new RegExp(`^<\\s*${name}\\b[^<>\\r\\n]*\\/?\\s*>`, 'iu');
+        const match = source.match(pattern);
+        if (match) return { name, start, end: start + match[0].length, raw: match[0] };
+    }
+    for (const name of PAIRED_TAGS) {
+        const pattern = new RegExp(`^<\\s*${name}\\b[^>\\r\\n]*>[\\s\\S]*?<\\s*\\/\\s*${name}\\s*>`, 'iu');
+        const match = source.match(pattern);
+        if (match) return { name, start, end: start + match[0].length, raw: match[0] };
+    }
+    return null;
+}
+
+function protocolCandidateAllowed(text, start) {
+    const lineStart = text.lastIndexOf('\n', Math.max(0, start - 1)) + 1;
+    if (/^(?: {4,}|\t)/.test(text.slice(lineStart, start))) return false;
+    const record = lineRecords(text).find(line => line.start <= start && start <= line.end);
+    return Boolean(record && !record.fenced && !record.fenceMarker);
+}
+
+function compactTerminalZone(text, { partial = false } = {}) {
+    for (let start = text.indexOf('<'); start >= 0; start = text.indexOf('<', start + 1)) {
+        if (!protocolCandidateAllowed(text, start)) continue;
+        const tags = [];
+        let position = start;
+        let incomplete = false;
+        while (position < text.length) {
+            while (/\s/u.test(text[position] || '')) position++;
+            if (position >= text.length) break;
+            const tag = parseProtocolToken(text, position);
+            if (tag) {
+                tags.push(tag);
+                position = tag.end;
+                continue;
+            }
+            if (partial && plausibleProtocolFragment(text.slice(position))) {
+                incomplete = true;
+                position = text.length;
+            }
+            break;
+        }
+        if (position === text.length && (tags.length || incomplete)) return { start, tags, incomplete };
+    }
+    return null;
+}
+
+function splitLineTerminalTags(text) {
     const lines = lineRecords(text);
     const tags = [];
     let index = lines.length - 1;
@@ -79,6 +129,30 @@ function splitAssistantTerminalTags(content) {
     };
 }
 
+function splitAssistantTerminalTags(content) {
+    const text = String(content || '');
+    const lineResult = splitLineTerminalTags(text);
+    const compact = compactTerminalZone(text);
+    if (!compact) return lineResult;
+
+    const lineStart = text.lastIndexOf('\n', Math.max(0, compact.start - 1)) + 1;
+    const startsStandaloneLine = !text.slice(lineStart, compact.start).trim();
+    // A single inline tag can be prose or an example. The compatibility path
+    // is intentionally limited to two or more adjacent terminal tags, which
+    // is the malformed provider shape we need to accept safely.
+    if (compact.tags.length < 2 && !startsStandaloneLine) return lineResult;
+    if (compact.start >= lineResult.protocolStart) return lineResult;
+
+    const visibleContent = text.slice(0, compact.start).trimEnd();
+    return {
+        visibleContent,
+        protocolContent: text.slice(compact.start).trim(),
+        tags: compact.tags,
+        protocolStart: compact.start,
+        visibleEnd: visibleContent.length,
+    };
+}
+
 function plausibleProtocolFragment(value) {
     const line = String(value || '').trimStart();
     if (!line.startsWith('<') || /[\r\n]/.test(line)) return false;
@@ -95,6 +169,8 @@ function plausibleProtocolFragment(value) {
 
 function terminalHoldStart(content) {
     const text = String(content || '');
+    const compact = compactTerminalZone(text, { partial: true });
+    if (compact) return text.slice(0, compact.start).trimEnd().length;
     const lines = lineRecords(text);
     if (!lines.length) return text.length;
     let index = lines.length - 1;
