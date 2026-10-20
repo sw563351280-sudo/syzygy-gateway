@@ -4060,18 +4060,22 @@ body.neu-mode #favDetail .fav-think-header:focus-visible {
 .app-settings-heading h1 { font-size: 23px; }
 .app-settings-heading h2 { font-size: 17px; }
 .app-settings-heading p { margin: 8px 0 0; color: #75889a; font-size: 13px; line-height: 1.7; }
-.app-settings-toggle { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:13px 2px 3px; color:var(--sea-foreground,#40566c); cursor:pointer; }
+.app-chat-preferences { padding-top:18px; padding-bottom:10px; }
+.app-chat-preferences .app-settings-heading { margin:0; padding:0 2px 8px; }
+.app-settings-rows { display:grid; }
+.app-settings-rows .app-settings-toggle + .app-settings-toggle { border-top:1px solid rgba(112,139,164,.13); }
+.app-settings-toggle { display:flex; min-height:58px; box-sizing:border-box; align-items:center; justify-content:space-between; gap:18px; padding:9px 2px; color:var(--sea-foreground,#40566c); cursor:pointer; }
 .app-settings-toggle > span { min-width:0; }
 .app-settings-toggle strong,.app-settings-toggle small { display:block; }
 .app-settings-toggle strong { font-size:14px; font-weight:600; }
-.app-settings-toggle small { margin-top:5px; color:var(--sea-muted,#8293a3); font-size:11px; line-height:1.55; }
+.app-settings-toggle small { overflow:hidden; max-width:360px; margin-top:3px; color:var(--sea-muted,#8293a3); font-size:10px; line-height:1.45; text-overflow:ellipsis; white-space:nowrap; }
+.app-settings-toggle small:empty { display:none; }
 .app-settings-toggle input { position:relative; flex:0 0 42px; width:42px; height:24px; margin:0; appearance:none; border:1px solid var(--sea-edge,rgba(112,139,164,.22)); border-radius:999px; background:rgba(104,126,146,.18); cursor:pointer; transition:background .18s,border-color .18s; }
 .app-settings-toggle input::after { content:''; position:absolute; top:3px; left:3px; width:16px; height:16px; border-radius:50%; background:rgba(255,255,255,.9); box-shadow:0 2px 5px rgba(50,72,91,.18); transition:transform .18s; }
 .app-settings-toggle input:checked { border-color:rgba(164,137,91,.34); background:#b69a69; }
 .app-settings-toggle input:checked::after { transform:translateX(18px); }
 .app-settings-toggle input:disabled { cursor:wait; opacity:.62; }
 .app-settings-toggle input:focus-visible { outline:2px solid var(--sea-accent,#aa8953); outline-offset:3px; }
-.app-settings-inline-status { min-height:17px; margin:10px 2px 0; color:var(--sea-muted,#8293a3); font-size:10px; line-height:1.5; }
 .appearance-controller { margin-top: 20px; }
 .appearance-wallpaper-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .wallpaper-slot { min-width:0; overflow:hidden; border:1px solid rgba(255,255,255,.48); border-radius:18px; background:var(--sea-surface,rgba(245,249,253,.46)); }

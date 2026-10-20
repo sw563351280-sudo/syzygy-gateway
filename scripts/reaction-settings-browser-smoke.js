@@ -12,6 +12,7 @@ async function main() {
     let providerPuts = 0;
     let preferencePuts = 0;
     let lastChatBody = null;
+    const sensorPosts = [];
     let suppliers = [{ name: 'fixture', url: 'https://fixture.example/v1', key: 'old-key' }];
     let preferences = { shenReactionEnabled: true };
     const sessions = [{
@@ -45,6 +46,10 @@ async function main() {
         }
         res.json({ success: true, _version: ++version });
     });
+    app.post('/api/sensors/ingest', (req, res) => {
+        sensorPosts.push({ authorization: req.headers.authorization, body: req.body });
+        res.status(204).end();
+    });
     app.post('/api/sync-config', (req, res) => {
         suppliers = structuredClone(req.body.suppliers || suppliers);
         res.json({ success: true, _version: ++version });
@@ -71,6 +76,13 @@ async function main() {
         const executablePath = [process.env.CHROME_PATH, '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium'].find(item => item && fs.existsSync(item));
         browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'], defaultViewport: { width: 393, height: 852 } });
         const page = await browser.newPage();
+        await page.evaluateOnNewDocument(() => {
+            Object.defineProperty(navigator, 'geolocation', { configurable: true, value: {
+                getCurrentPosition(success) {
+                    success({ timestamp: Date.now(), coords: { latitude: 39.12, longitude: 117.2, accuracy: 15 } });
+                }
+            } });
+        });
         page.on('pageerror', error => errors.push(error.message));
         const origin = 'http://127.0.0.1:' + server.address().port;
         await page.setRequestInterception(true);
@@ -83,6 +95,19 @@ async function main() {
         assert.equal(await page.$eval('.shen-reaction', element => element.textContent), '🐶');
 
         await page.evaluate(() => goView('settings'));
+        const settingsLayout = await page.evaluate(() => ({
+            cardHeight: document.querySelector('.app-chat-preferences').getBoundingClientRect().height,
+            rows: document.querySelectorAll('.app-chat-preferences .app-settings-toggle').length,
+            rowHeights: [...document.querySelectorAll('.app-chat-preferences .app-settings-toggle')].map(row => row.getBoundingClientRect().height),
+            locationChecked: document.getElementById('locationSharingToggle').checked,
+            locationStatus: document.getElementById('locationSharingStatus').textContent
+        }));
+        assert.equal(settingsLayout.rows, 2);
+        assert.ok(settingsLayout.cardHeight < 190);
+        assert.equal(settingsLayout.locationChecked, false);
+        assert.equal(settingsLayout.locationStatus, '已关闭');
+        await page.$eval('.app-chat-preferences', card => card.scrollIntoView({ block: 'center' }));
+        await page.screenshot({ path: '/tmp/syzygy-settings-smoke.png', fullPage: false });
         await page.click('#shenReactionToggle');
         await page.waitForFunction(() => document.getElementById('shenReactionStatus').textContent.includes('已关闭'));
         assert.equal(preferences.shenReactionEnabled, false);
@@ -124,9 +149,15 @@ async function main() {
         assert.ok(state.rendered.includes('🐾'));
         await page.waitForFunction(() => typeof _savingNow !== 'undefined' && !_savingNow
             && typeof _saveTimer !== 'undefined' && !_saveTimer);
+        await page.evaluate(() => localStorage.setItem('sensor_ingest_token', 'browser-smoke-token'));
         await page.reload({ waitUntil: 'domcontentloaded' });
         await page.waitForFunction(() => typeof _dataVersion !== 'undefined' && chatSessions.length > 0);
         await page.evaluate(() => goView('chat'));
+        await page.waitForFunction(() => document.getElementById('locationSharingStatus').textContent === '刚刚更新');
+        assert.equal(sensorPosts.length, 1);
+        assert.equal(sensorPosts[0].authorization, 'Bearer browser-smoke-token');
+        assert.equal(sensorPosts[0].body.latitude, 39.12);
+        assert.equal(Object.hasOwn(sensorPosts[0].body, 'sound_average'), false);
         await page.waitForFunction(() => [...document.querySelectorAll('.shen-reaction')].some(item => item.textContent === '🐾'));
         const restoredReaction = await page.evaluate(() => {
             const session = chatSessions.find(item => item.id === 'main');
@@ -138,7 +169,7 @@ async function main() {
         assert.ok(lastChatBody.messages.every(message => !String(message.content).includes('<REACT:')));
         assert.equal(preferencePuts, 2);
         assert.deepEqual(errors, []);
-        console.log(JSON.stringify({ providerPuts, preferencePuts, reaction: state.reaction, keyPersisted: suppliers[0].key === 'new-key', pageErrors: errors }));
+        console.log(JSON.stringify({ providerPuts, preferencePuts, sensorPosts: sensorPosts.length, reaction: state.reaction, keyPersisted: suppliers[0].key === 'new-key', settingsLayout, pageErrors: errors }));
     } finally {
         if (browser) await browser.close();
         ws.close();

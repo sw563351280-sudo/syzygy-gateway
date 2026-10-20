@@ -34,7 +34,7 @@ h1{font-size:22px;margin-bottom:6px;color:#D4A856}
 
 <div class="card">
   <h1>🔭 溯星 · 环境感知</h1>
-  <p class="sub">实时发送位置与环境响度</p>
+  <p class="sub">实时发送位置</p>
 
   <div class="row">
     <span class="label">📍 GPS</span>
@@ -43,17 +43,9 @@ h1{font-size:22px;margin-bottom:6px;color:#D4A856}
   </div>
 
   <div class="row">
-    <span class="label">🎤 麦克风响度</span>
-    <span class="value" id="micVal">未开启</span>
-    <span class="status off" id="micDot"></span>
-  </div>
-
-  <div class="row">
     <span class="label">📤 上次发送</span>
     <span class="value" id="lastSent">—</span>
   </div>
-
-  <button class="btn" id="micBtn" onclick="startMic()">🎤 授权麦克风</button>
 
   <div class="token" id="tokenDisplay">加载中…</div>
 
@@ -68,18 +60,18 @@ h1{font-size:22px;margin-bottom:6px;color:#D4A856}
 const INGEST_URL = '/api/sensors/ingest';
 const TOKEN = '%%TOKEN%%'; // 服务端不注入令牌，首次使用时从 localStorage/手动输入读取
 
-// 显示 token（前8位）
+// 只显示配对状态，不在页面露出 token 片段
 (function initToken() {
   if (TOKEN.startsWith('%%')) {
     // token 未配置，尝试从 localStorage 读取
     const saved = localStorage.getItem('sensor_ingest_token');
     if (saved) {
-      document.getElementById('tokenDisplay').textContent = '🔑 令牌: ' + saved.substring(0,8) + '…';
+      document.getElementById('tokenDisplay').textContent = '🔑 上传凭证已保存';
     } else {
       const input = prompt('请输入 SENSOR_INGEST_TOKEN（仅保存在本地浏览器）：');
       if (input && input.length > 10) {
         localStorage.setItem('sensor_ingest_token', input);
-        document.getElementById('tokenDisplay').textContent = '🔑 令牌: ' + input.substring(0,8) + '…';
+        document.getElementById('tokenDisplay').textContent = '🔑 上传凭证已保存';
       }
     }
   } else {
@@ -93,10 +85,6 @@ function getToken() {
 }
 
 let lastGps = null;
-let lastAudioLevel = null;
-let audioContext = null;
-let analyser = null;
-let micStream = null;
 let sendTimer = null;
 
 // ===== GPS =====
@@ -126,44 +114,6 @@ if ('geolocation' in navigator) {
   updateGpsStatus(false, '设备不支持');
 }
 
-// ===== 麦克风响度 =====
-async function startMic() {
-  const btn = document.getElementById('micBtn');
-  try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audioContext.createMediaStreamSource(micStream);
-    analyser = audioContext.createAnalyser();
-    analyser.fftSize = 2048;
-    source.connect(analyser);
-
-    document.getElementById('micDot').className = 'status on';
-    document.getElementById('micVal').textContent = '监听中…';
-    btn.textContent = '🎤 已开启';
-    btn.className = 'btn on';
-    btn.onclick = null;
-
-    // 每秒采样一次
-    setInterval(() => {
-      const data = new Uint8Array(analyser.frequencyBinCount);
-      analyser.getByteTimeDomainData(data);
-      let sumSquares = 0;
-      for (let i = 0; i < data.length; i++) {
-        const normalized = (data[i] - 128) / 128;
-        sumSquares += normalized * normalized;
-      }
-      const rms = Math.sqrt(sumSquares / data.length);
-      const dbFS = rms > 0 ? 20 * Math.log10(rms) : -100;
-      lastAudioLevel = Math.round(dbFS * 10) / 10;
-      document.getElementById('micVal').textContent = lastAudioLevel + ' dBFS';
-    }, 1000);
-  } catch (e) {
-    btn.textContent = '❌ 麦克风权限未授予';
-    btn.className = 'btn off';
-    console.log('麦克风错误:', e.message);
-  }
-}
-
 // ===== 定时发送 =====
 async function sendSensorData() {
   const token = getToken();
@@ -181,12 +131,6 @@ async function sendSensorData() {
     payload.latitude = lastGps.latitude;
     payload.longitude = lastGps.longitude;
     if (lastGps.accuracy) payload.accuracy = lastGps.accuracy;
-  }
-
-  if (lastAudioLevel !== null) {
-    payload.sound_average = lastAudioLevel;
-    payload.sound_unit = 'dBFS';
-    payload.sound_sample_seconds = 5;
   }
 
   try {

@@ -20,7 +20,7 @@
       })();
     </script>
 
-    <link rel="stylesheet" href="style.css?v=114">
+    <link rel="stylesheet" href="style.css?v=115">
     <link rel="stylesheet" href="home-sea.css?v=5">
     <link rel="stylesheet" href="star-orbit.css?v=4">
     <link rel="stylesheet" href="sea-pages.css?v=2">
@@ -457,15 +457,17 @@
         </section>
 
         <section class="app-settings-card app-chat-preferences">
-            <div class="app-settings-heading compact">
-                <span class="app-settings-kicker">聊天细节</span>
-                <h2>沈望的表情回应</h2>
+            <div class="app-settings-heading compact"><h2>聊天与感知</h2></div>
+            <div class="app-settings-rows">
+                <label class="app-settings-toggle" for="shenReactionToggle">
+                    <span><strong>气泡小表情</strong><small id="shenReactionStatus" role="status"></small></span>
+                    <input type="checkbox" id="shenReactionToggle" checked onchange="shenReactionToggleChanged(this)">
+                </label>
+                <label class="app-settings-toggle" for="locationSharingToggle">
+                    <span><strong>位置共享</strong><small id="locationSharingStatus" role="status">聊天打开时自动更新</small></span>
+                    <input type="checkbox" id="locationSharingToggle">
+                </label>
             </div>
-            <label class="app-settings-toggle" for="shenReactionToggle">
-                <span><strong>气泡小表情</strong><small>允许沈望偶尔在你的消息右下角盖一枚表情小章</small></span>
-                <input type="checkbox" id="shenReactionToggle" checked onchange="shenReactionToggleChanged(this)">
-            </label>
-            <p id="shenReactionStatus" class="app-settings-inline-status" role="status"></p>
         </section>
 
         <section class="app-settings-card app-settings-links">
@@ -659,10 +661,11 @@
 <script src="sea-pages.js?v=1"></script>
 <script src="journal-sea.js?v=1"></script>
 <script src="appearance-settings.js?v=3"></script>
+<script src="sensor-location-client.js?v=1"></script>
 <script src="chat-transport.js?v=20261014-1"></script>
 <script src="message-usage.js?v=2"></script>
 <script src="chat-persistence.js?v=20261014-1"></script>
-<script src="script.js?v=20261019-render-performance"></script>
+<script src="script.js?v=20261020-location-sharing"></script>
 <script src="music-player.js?v=20261019-music-loading" defer></script>
         <div id="msgContextMenu" class="msg-context-menu" role="menu" aria-label="消息操作" hidden></div>
 

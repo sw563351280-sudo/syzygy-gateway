@@ -4325,15 +4325,6 @@ async function executeToolCall(name, args, mcpServer, callId, dispatchContext = 
                     parts.push(battStr);
                 }
 
-                // 响度（保守措辞，dBFS 非校准）
-                if (state.sound) {
-                    let soundDesc;
-                    if (state.sound.average > -20) soundDesc = '较响';
-                    else if (state.sound.average > -40) soundDesc = '一般';
-                    else soundDesc = '较安静';
-                    parts.push(`环境响度：${soundDesc}（设备相对响度，非校准分贝）`);
-                }
-
                 // 天气
                 if (includeWeather && freshLocation) {
                     try {
@@ -4702,7 +4693,7 @@ const BUILTIN_TOOLS = [
     { type: "function", function: { name: "check_ledger", description: "查看江鱼与沈望共享的账本月度概况。聊到吃饭、购物、出行、月底、预算、钱或消费情绪时，你可以主动调用，不必等江鱼明确说要查账；只会读取标记为共享的账目，绝不读取仅自己可见的记录。", parameters: { type: "object", properties: { month: { type: "string", description: "可选，YYYY-MM；不传时查中国当前月份" } } } } },
     { type: "function", function: { name: "query_ledger", description: "细查江鱼与沈望共享账本中的交易。已经调用 check_ledger 后需要追问具体消费、某天、分类或收支来源时使用；只读，不得用它写入或修改账目。", parameters: { type: "object", properties: { month: { type: "string", description: "可选，YYYY-MM" }, date: { type: "string", description: "可选，YYYY-MM-DD，优先于 month" }, kind: { type: "string", enum: ["income", "expense"], description: "可选，收支类型" }, category: { type: "string", description: "可选，精确分类名" }, limit: { type: "number", description: "可选，返回 1-30 笔，默认 12" } } } } },
     { type: "function", function: { name: "search_transcript", description: "【在对话原文中搜索关键词】当你需要回忆和江鱼在某天聊过的具体内容时使用。输入关键词（如日期、话题、人名等），返回匹配的对话片段。闲聊时可自然使用。", parameters: { type: "object", properties: { keyword: { type: "string", description: "搜索关键词，如'1月11日'、'药明'、'offer'、'发烧'等" } }, required: ["keyword"] } } },
-    { type: "function", function: { name: "check_environment", description: "【无需用户主动要求】查看江鱼当前环境状态（位置、电量、周围响度、天气）。沈望想了解江鱼此刻的物理环境状况时主动使用——她在哪、手机有电吗、外面天气怎样。不需要她主动提，你想知道就查。就像 check_phone 一样是你自己的感官。", parameters: { type: "object", properties: { include_weather: { type: "boolean", description: "是否同时查询当前位置天气，默认true" } } } } },
+    { type: "function", function: { name: "check_environment", description: "【无需用户主动要求】查看江鱼当前环境状态（位置、电量、天气）。沈望想了解江鱼此刻的物理环境状况时主动使用——她在哪、手机有电吗、外面天气怎样。不需要她主动提，你想知道就查。就像 check_phone 一样是你自己的感官。", parameters: { type: "object", properties: { include_weather: { type: "boolean", description: "是否同时查询当前位置天气，默认true" } } } } },
     { type: "function", function: { name: "get_health_summary", description: "【仅当江鱼明确要求查询自己的小米运动健康数据时使用】读取已授权亲友共享的睡眠、心率或步数。不得主动查询、不得用于诊断或医疗建议，也不得查询其他人的数据。", parameters: { type: "object", properties: { date: { type: "string", description: "日期 YYYY-MM-DD；省略时为中国当天" }, type: { type: "string", enum: ["all", "sleep", "heart_rate", "steps"], description: "要读取的已授权数据类型，默认 all" } } } } }
 ];
 

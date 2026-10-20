@@ -1169,6 +1169,7 @@ function goView(viewId) {
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
+    window.SyzygyLocation?.setChatActive(viewId === 'chat');
     window.SeaJournal?.sync();
     const metaTheme = document.getElementById('theme-color-meta');
     if (metaTheme) metaTheme.setAttribute('content', getVisualThemeColor(viewId));

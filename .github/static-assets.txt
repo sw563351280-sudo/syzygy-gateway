@@ -37,6 +37,7 @@ public/music-player.css
 public/music-player.js
 public/relationship-growth.html
 public/script.js
+public/sensor-location-client.js
 public/sensors.html
 public/shen-settings-page.js
 public/stardust.html
