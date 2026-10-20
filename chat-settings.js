@@ -27,6 +27,26 @@ function applyProviderSettings(existingData, input) {
     return { data: { ...config, ...normalized, _version: newVersion }, newVersion, normalized };
 }
 
+// Provider credentials have their own atomic endpoint. A general chat/config
+// sync may come from an older or half-loaded tab, so it must not replace an
+// already configured provider list. We only accept legacy bootstrap data when
+// the server does not have any providers yet.
+function providerSettingsForFullSync(existingData, input) {
+    const existingSuppliers = Array.isArray(existingData?.suppliers) ? existingData.suppliers : [];
+    if (existingSuppliers.length) {
+        const activeSupIndex = Number.isInteger(existingData.activeSupIndex)
+            && existingData.activeSupIndex >= 0
+            && existingData.activeSupIndex < existingSuppliers.length
+            ? existingData.activeSupIndex : 0;
+        return { suppliers: existingSuppliers, activeSupIndex };
+    }
+    try {
+        return normalizeProviderSettings(input);
+    } catch (_) {
+        return { suppliers: existingSuppliers, activeSupIndex: 0 };
+    }
+}
+
 function applyReactionPreference(existingData, enabled) {
     if (typeof enabled !== 'boolean') throw new Error('表情回应开关值无效');
     const config = existingData || { suppliers: [], chatSessions: [], activeSupIndex: 0, activeChatId: 'main' };
@@ -35,4 +55,4 @@ function applyReactionPreference(existingData, enabled) {
     return { data: { ...config, preferences, _version: newVersion }, newVersion, preferences };
 }
 
-module.exports = { normalizeProviderSettings, applyProviderSettings, applyReactionPreference };
+module.exports = { normalizeProviderSettings, applyProviderSettings, providerSettingsForFullSync, applyReactionPreference };

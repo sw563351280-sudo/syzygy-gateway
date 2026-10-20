@@ -18,7 +18,7 @@ const { extractThinkingFromContent } = require('./public/thinking-parser');
 const { extractAssistantReaction } = require('./assistant-reaction');
 const { createTranscriptHeatStore } = require('./transcript-heart-heat');
 const { createAssistantStreamFilter, splitAssistantTerminalTags } = require('./assistant-internal-tags');
-const { applyProviderSettings, applyReactionPreference } = require('./chat-settings');
+const { applyProviderSettings, providerSettingsForFullSync, applyReactionPreference } = require('./chat-settings');
 const { consumeOpenAIStream } = require('./streaming-chat');
 const { createChatRequestLifecycle } = require('./chat-request-lifecycle');
 const { composeContext, createBudgetObserver, mergeUsage, readConfig: readContextBudgetConfig } = require('./context-budget');
@@ -11422,6 +11422,7 @@ app.post('/api/sync-config', async (req, res) => {
                 return { commit: false, value: { response: { success: false, _version: serverVersion, _rejected: true, message: '空数据写入被拒绝，请刷新页面' } } };
             }
             const newVersion = serverVersion + 1;
+            const providerSettings = providerSettingsForFullSync(existingData, { suppliers, activeSupIndex });
             workroomTranscriptArchive.archive(sanitizedChatSessions);
             const storedChatSessions = sanitizedChatSessions.map(session => (
                 session.id === 'syzygy-workroom' || session.type === 'codex-workroom'
@@ -11431,9 +11432,9 @@ app.post('/api/sync-config', async (req, res) => {
             const data = {
                 ...(existingData || {}),
                 _version: newVersion,
-                suppliers: suppliers || [],
+                suppliers: providerSettings.suppliers,
                 chatSessions: storedChatSessions,
-                activeSupIndex: activeSupIndex || 0,
+                activeSupIndex: providerSettings.activeSupIndex,
                 activeChatId: activeChatId || 'main'
             };
             return {

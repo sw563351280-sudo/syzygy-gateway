@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { DEFAULT_PAGE_SIZE, historyPage, mergePartialSession } = require('../chat-history');
+const { providerSettingsForFullSync } = require('../chat-settings');
 
 const message = index => ({ _id: 'm' + index, role: index % 2 ? 'assistant' : 'user', content: 'message ' + index });
 
@@ -40,7 +41,7 @@ test('real sync endpoints page main history and merge a versioned partial save',
     const begin = source.indexOf("const CONFIG_FILE = path.join(DATA_DIR, 'web_config.json')");
     const end = source.indexOf("app.get('/api/user-state'", begin);
     const handlers = new Map();
-    let stored = JSON.stringify({ _version: 7, suppliers: [], activeChatId: 'main', chatSessions: [
+    let stored = JSON.stringify({ _version: 7, suppliers: [{ name: 'saved', url: 'https://saved.example/v1', key: 'saved-key' }], activeSupIndex: 0, activeChatId: 'main', chatSessions: [
         { id: 'main', name: '主频道', messages: Array.from({ length: 240 }, (_, index) => message(index)) },
         { id: 'syzygy-workroom', type: 'codex-workroom', messages: [message(300), message(301)] }
     ] });
@@ -76,6 +77,7 @@ test('real sync endpoints page main history and merge a versioned partial save',
             statSync: () => ({ size: stored.length })
         },
         historyPage, mergePartialSession, DEFAULT_PAGE_SIZE,
+        providerSettingsForFullSync,
         workroomTranscriptArchive: { archive() { archiveCalls++; } }, recentWorkroomMessages: rows => rows,
         stripOpenClawInternalContext: value => value, sanitizeOpenClawContent: value => value,
         contentHasOpenClawInternalContext: () => false, contentHasVisibleText: value => Boolean(String(value).trim())
@@ -111,6 +113,7 @@ test('real sync endpoints page main history and merge a versioned partial save',
     assert.equal(persisted.chatSessions[0].messages.length, 241);
     assert.equal(persisted.chatSessions[0].messages[0]._id, 'm0');
     assert.equal(persisted.chatSessions[0].messages.at(-1)._id, 'm240');
+    assert.equal(persisted.suppliers[0].key, 'saved-key');
 
     const stale = response();
     await handlers.get('POST /api/sync-config')({ body: {
