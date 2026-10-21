@@ -184,6 +184,11 @@ function handleWSMessage(msg) {
             if (document.getElementById('sec-private-journal')?.classList.contains('active')) privateJournalLoad(true);
             break;
         case 'proactive_message': handleProactiveMessage(msg); break;
+        case 'tt_research_ready':
+            toast(msg.job?.status === 'completed'
+                ? `TT 已查完「${msg.job.title || '资料'}」，卷宗放进沈望口袋了`
+                : `TT 的「${msg.job?.title || '资料'}」这次没查完，卷宗状态已保留`);
+            break;
         case 'codex_dispatch_result': {
             const session = chatSessions.find(s => s.id === msg.sessionId);
             if (session && msg.message?._id) {

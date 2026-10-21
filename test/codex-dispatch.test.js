@@ -149,6 +149,8 @@ test('isolated bridge overrides production workdir, disables inspection networki
     const original = process.env.CODEX_WORKDIR; process.env.CODEX_WORKDIR = '/opt/syzygy';
     t.after(() => { if (original === undefined) delete process.env.CODEX_WORKDIR; else process.env.CODEX_WORKDIR = original; });
     const bridge = createCodexBridge({ isolated: true, cwd: directory, codexHome: path.join(directory, 'auth'), readableRoots: [directory],
+        serviceName: 'syzygy-research', threadConfig: { web_search: 'live', tools: { web_search: { context_size: 'low' } } },
+        developerInstructions: 'Only use web search.',
         acquireTurnLease: () => () => {}, spawn: (_bin, _args, options) => { spawned = options; return child; } });
     const started = bridge.startTask({ prompt: 'offline inspect' });
     t.after(() => { child.emit('close', 0); child.stdout.end(); child.stderr.end(); child.stdin.end(); });
@@ -156,6 +158,9 @@ test('isolated bridge overrides production workdir, disables inspection networki
     child.stdout.write(JSON.stringify({ id: 2, result: { thread: { id: 'fixture-thread' } } }) + '\n');
     await wait(() => writes.some(w => w.method === 'turn/start'));
     assert.equal(spawned.cwd, directory); assert.equal(spawned.env.CODEX_HOME, path.join(directory, 'auth'));
+    assert.equal(writes.find(w => w.method === 'thread/start').params.serviceName, 'syzygy-research');
+    assert.equal(writes.find(w => w.method === 'thread/start').params.developerInstructions, 'Only use web search.');
+    assert.deepEqual(writes.find(w => w.method === 'thread/start').params.config, { web_search: 'live', tools: { web_search: { context_size: 'low' } } });
     assert.deepEqual(writes.find(w => w.method === 'turn/start').params.sandboxPolicy, { type: 'readOnly', networkAccess: false });
     child.stdout.write(JSON.stringify({ id: 70, method: 'item/commandExecution/requestApproval', params: {} }) + '\n');
     await wait(() => writes.some(w => w.id === 70));

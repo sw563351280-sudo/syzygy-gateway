@@ -112,6 +112,9 @@ function createCodexBridge(options = {}) {
         timeoutMs: Math.max(60_000, Number(process.env.CODEX_TIMEOUT_MS || 20 * 60 * 1000)),
         networkAccess: !options.isolated && process.env.CODEX_NETWORK_ACCESS === 'true'
     };
+    const threadConfig = options.threadConfig && typeof options.threadConfig === 'object'
+        ? structuredClone(options.threadConfig)
+        : null;
 
     const tasks = new Map();
     const order = [];
@@ -438,7 +441,9 @@ function createCodexBridge(options = {}) {
                     // thread/start uses the SandboxMode wire enum, whose values are kebab-case.
                     // turn/start below uses the structured SandboxPolicy enum and remains camelCase.
                     sandbox: threadSandboxMode(task.mode),
-                    serviceName: 'syzygy-mobile-debug'
+                    serviceName: options.serviceName || 'syzygy-mobile-debug',
+                    ...(options.developerInstructions ? { developerInstructions: shortText(options.developerInstructions, 8000) } : {}),
+                    ...(threadConfig ? { config: threadConfig } : {})
                 }
             });
             return;

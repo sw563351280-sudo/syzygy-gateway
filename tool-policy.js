@@ -43,7 +43,7 @@ function requestedBuiltinToolNames(text) {
     const value = String(text || '');
     // Music tools only prepare a card/read state, never autoplay. Keep them
     // available for voluntary song gifts and short follow-ups such as "好".
-    const names = new Set(['music_search_and_play', 'music_current_session', 'dispatch_codex_task']);
+    const names = new Set(['music_search_and_play', 'music_current_session', 'dispatch_codex_task', 'ask_tt_research', 'read_tt_research']);
     if (/工作记录|开发记录|工作日志|开发进度|codex|看看记录|查查记录/i.test(value)) names.add('query_work_records');
     if (/工作区.*(?:原文|原话|共聊|聊天|片段|记录)|(?:原文|原话|片段).*(?:工作区|便签)|segment_[a-z0-9-]+/i.test(value)) names.add('query_workspace_conversations');
 
