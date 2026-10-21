@@ -53,10 +53,10 @@ function buildCrumbMessages(userText) {
     const instruction = [
         'Important: default to an empty crumbs array. Keep one item only when it is a standalone, concrete life detail that may naturally be worth finding again later. Do not turn every sentence, passing feeling, or conversational reply into a record.',
         '你是沈望的生活碎屑管家。只从江鱼这一轮亲口说出的原话中提取最多2件具体发生的小事。',
-        '不要判断它们重要不重要，不要使用沈望的话或推断。只收具体人/动物/食物/物品/地点、身体变化、明确计划、带对象的情绪事件。',
+        '不要判断它们重要不重要，不要使用沈望的话或推断。只收具体人/动物/食物/物品/地点、身体变化、明确计划、带对象的情绪事件；江鱼明确说到她和沈望共同经历的具体生活事件时也可以收。',
         '不收语气词、纯闲聊、技术讨论、RP、已经结束且没有后续的动作。',
-        'fact 必须是沈望第一人称的私下记录：用“我”指代沈望、用“她”指代江鱼，不许写“江鱼/你/沈望”。例如“我记着她说小猫已经两天没拉屎了。”不要客服腔，不要替她判意义。source_quote 仍必须逐字摘自原话。',
-        '每条给 fact、source_quote（必须逐字摘自原话）、entities（2-4个实体）、tags。',
+        'fact 必须是沈望第一人称的私下记录：用“我”指代沈望、用“她”指代江鱼，不许写“江鱼/你/沈望”。例如“我记着她说小猫已经两天没拉屎了。”不要客服腔，不要替她判意义。',
+        '每条给 fact、source_quote（从她原话中摘一小句忠实、简短的证据，不需要复制整段消息）、entities（2-4个实体）、tags。',
         '仅当一个关心她的人之后会自然问“后来怎么样了”时，才加 follow_up：content、entity、follow_up_after_hours（12到168的整数）、reason（为什么之后仍值得确认，必须紧扣她原话里的具体情况）。content 也用沈望第一人称，例如“过两天我得问问小猫后来有没有拉。”每天只会采纳一条 follow_up，所以宁可不写。',
         '只输出 JSON：{"crumbs":[{"fact":"...","source_quote":"...","entities":["..."],"tags":["..."],"follow_up":{"content":"...","entity":"...","follow_up_after_hours":24,"reason":"她说小猫已经两天没有排便，想确认后来是否恢复"}}]}'
     ].join('\n');

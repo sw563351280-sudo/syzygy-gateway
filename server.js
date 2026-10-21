@@ -43,7 +43,8 @@ const { applyDecision: applyRelationshipDecision, curateRelationshipMemory, empt
 const { activeRelationshipContext, applyRelationshipSignal, extractRelationshipStateTags } = require('./relationship-state');
 const { applyDecision: applyRealityDecision, curateRealityMemory, emptyRealityStore, normalizeStore: normalizeRealityStore, removeMemoryEvidence: removeRealityMemoryEvidence } = require('./reality-events');
 const { extractDialogueCrumbTags } = require('./dialogue-crumbs');
-const { CRUMB_SEARCH_TOOL, formatCrumbRecall, isExplicitCrumbQuery, readCrumbsFile, searchCrumbs } = require('./crumb-recall');
+const { CRUMB_SEARCH_TOOL, formatCrumbRecall, formatPassiveCrumbRecall, isExplicitCrumbQuery, readCrumbsFile, recallCrumbs, searchCrumbs } = require('./crumb-recall');
+const { formatRecallDate, selectTranscriptPreview } = require('./recall-utils');
 const { createCrumbDigest } = require('./crumb-digest');
 const { ANTICIPATION_OUTPUT_INSTRUCTION, attachAnticipationSource, enrichAnticipation, formatAnticipationForWake: formatCareForWake, extractAnticipationTags, isDue: isAnticipationDue, makeAnticipation, dueFromHours } = require('./anticipation');
 const { extractXhsUrl, findNoteData, isAllowedXhsMediaUrl, isAllowedXhsUrl, normalizeNote, parseInitialState, readXhsNote } = require('./xhs-reader');
@@ -1509,9 +1510,10 @@ async function scanTranscriptRadar(userText, topK = RADAR_TOPK.transcript) {
     if (results.length === 0) return "";
     const lines = results.map(r => {
         const c = r.memory;
-        const dateStr = new Date(c.timestamp).toLocaleDateString('zh-CN');
-        // 取前几轮对话作为上下文
-        const preview = (c.messages || []).slice(0, 4).map(m =>
+        const dateStr = formatRecallDate(c.timestamp);
+        // 从真正匹配的消息附近截取，避免每次只显示 chunk 开头。
+        const selected = selectTranscriptPreview(c.messages || [], userText, { maxMessages: 4 });
+        const preview = selected.messages.map(m =>
             `${m.role === 'user' ? '江鱼' : '沈望'}: ${(m.content || '').substring(0, 60)}`
         ).join('\n');
         return `• [${dateStr} ${c.chunk_summary}]\n${preview}`;
@@ -1519,9 +1521,14 @@ async function scanTranscriptRadar(userText, topK = RADAR_TOPK.transcript) {
     return `\n\n==========\n【📜 对话原文回忆 —— 以下是过去的完整对话片段，可自然融入但不要生硬复述】\n${lines.join('\n\n')}\n==========\n`;
 }
 const EMBEDDINGS_CACHE_FILE = path.join(DATA_DIR, 'embeddings_cache.json');
+const CRUMB_EMBEDDINGS_CACHE_FILE = path.join(DATA_DIR, 'crumb_embeddings.json');
 
 function loadEmbeddingsCache() {
     try { return JSON.parse(fs.readFileSync(EMBEDDINGS_CACHE_FILE, 'utf8')); }
+    catch(e) { return {}; }
+}
+function loadCrumbEmbeddingsCache() {
+    try { return JSON.parse(fs.readFileSync(CRUMB_EMBEDDINGS_CACHE_FILE, 'utf8')); }
     catch(e) { return {}; }
 }
 function saveEmbeddingsCache(cache) {
@@ -2408,10 +2415,10 @@ async function scanLongTermRadar(userText) {
     for (const r of results) {
         const heat = r.memory.heat !== undefined ? r.memory.heat : 0.5;
         if (heat > 0.7) {
-            lines.push(`• ${r.memory.content}`);
+            lines.push(`• [发生于 ${formatRecallDate(r.memory.source_at || r.memory.created_at)}] ${r.memory.content}`);
             fullCount++;
         } else if (heat >= 0.3 && r.memory.chunk_summary && r.memory.chunk_summary.length > 20) {
-            lines.push(`• ${r.memory.chunk_summary}`);
+            lines.push(`• [发生于 ${formatRecallDate(r.memory.source_at || r.memory.created_at)}] ${r.memory.chunk_summary}`);
             summaryCount++;
         } else {
             skipCount++;
@@ -2422,7 +2429,7 @@ async function scanLongTermRadar(userText) {
     console.log(`🔥 [热度分层] 全文${fullCount}条 | 摘要${summaryCount}条 | 跳过${skipCount}条`);
 
     if (lines.length === 0) return "";
-    return `\n\n==========\n【现实永久档案 —— 雷达触发，以下是与当前话题相关的真实核心记忆】\n${lines.join('\n')}\n==========\n`;
+    return `\n\n==========\n【现实永久档案 —— 雷达触发，以下是与当前话题相关的真实核心记忆】\n${lines.join('\n')}\n日期和相对时间只帮助你判断隔了多久；平常说出口时自然说“前阵子”“上周那天”等，只有被问到具体日期或日期本身重要时才照实说。\n==========\n`;
 }
 
 
@@ -2759,13 +2766,32 @@ function resolveAnticipationsFromUserText(userText) {
     if (changed) saveAnticipations(items);
 }
 
-async function buildCrumbRecallContext(userText, now = new Date()) {
+async function buildCrumbRecallContext(userText, recentUserTexts = [], now = new Date()) {
     if (!String(userText || '').trim()) return '';
+    if (recentUserTexts instanceof Date) { now = recentUserTexts; recentUserTexts = []; }
     const explicit = isExplicitCrumbQuery(userText);
     try {
-        const result = searchCrumbs(readCrumbsFile(CRUMBS_FILE), { keyword: userText, now, passive: !explicit, limit: explicit ? 8 : 2 });
+        const crumbs = readCrumbsFile(CRUMBS_FILE);
+        if (explicit) {
+            const result = searchCrumbs(crumbs, { keyword: userText, now, passive: false, limit: 8 });
+            console.log(`[碎屑召回] scope=requested available=${result.available} matched=${result.matched} returned=${result.returned}`);
+            return formatCrumbRecall(result, true, now);
+        }
+        const currentText = String(userText || '').trim();
+        const recentTexts = (Array.isArray(recentUserTexts) ? recentUserTexts : []).map(value => String(value || '').trim()).filter(Boolean);
+        const recentText = [...new Set(recentTexts.filter(value => value !== currentText))].slice(-4).join('\n');
+        const [currentEmbedding, recentEmbedding] = await Promise.all([
+            getEmbedding(currentText),
+            recentText ? getEmbedding(recentText) : Promise.resolve(null)
+        ]);
+        const result = recallCrumbs(crumbs, {
+            currentText, recentUserTexts: recentTexts, currentEmbedding, recentEmbedding,
+            embeddings: loadCrumbEmbeddingsCache(), limit: 2,
+            clearThreshold: Number(process.env.CRUMB_RECALL_CLEAR_THRESHOLD || 0.67),
+            lightThreshold: Number(process.env.CRUMB_RECALL_LIGHT_THRESHOLD || 0.58)
+        });
         console.log(`[碎屑召回] scope=${explicit ? 'requested' : 'background'} available=${result.available} matched=${result.matched} returned=${result.returned}`);
-        return formatCrumbRecall(result, explicit);
+        return formatPassiveCrumbRecall(result, now);
     } catch (error) {
         console.warn('[碎屑召回]', error.message);
         return '【生活碎屑读取状态】暂时读取失败，不能据此断言没有相关记忆。';
@@ -7901,7 +7927,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         // 四层上下文 + mood snapshot
         let dynamicBlocks = '';
             const moodSnapshotInst = '【心情快照输出规则】\n只在以下情况输出一行标签：江鱼出现明显情绪波动/完成重要阶段/身体不适/明确表达新计划或担忧。普通闲聊、技术细节、确认消息不输出。\n格式：<MOOD_SNAPSHOT>{"mood":"心情","physical_state":"身体","current_focus":["关注"],"observation":"细节","trigger":"原话","importance":"normal"}</MOOD_SNAPSHOT>\n不确定就不要输出。禁止用 [[ ]] 格式。禁止在标签内写解释。';
-            const dialogueCrumbInst = '【生活碎屑输出规则·每轮主动检查】\n像 MOOD_SNAPSHOT 一样，回复前主动检查江鱼这一轮是否说出了以后可能想找回的具体生活事实；有就悄悄输出至多一个隐藏标签，没有就不要为了完成任务硬写。格式：<CRUMB>{"fact":"我记着她说……","source_quote":"她这一轮逐字原话","entities":["对象"],"tags":["短标签"]}</CRUMB>。标签体必须是一个单行、严格合法的 JSON 对象：字段名和字符串均使用英文双引号，内容里的双引号必须写成 \\"，不使用代码块或额外解释。通常 source_quote 必须逐字来自这一轮；但当她明确说“再写一次”“写进生活碎屑”或“没写进去”时，可以引用近期对话里相关的用户原话，绝不能引用助手杜撰的内容。技术讨论、寒暄、纯情绪、重复近况和拿不准的情况不输出。';
+            const dialogueCrumbInst = '【生活碎屑输出规则·每轮主动检查】\n像 MOOD_SNAPSHOT 一样，回复前主动检查江鱼这一轮是否说出了以后可能想找回的具体生活事实，或她和你共同经历的具体生活事件；有就悄悄输出至多一个隐藏标签，没有就不要为了完成任务硬写。格式：<CRUMB>{"fact":"我记着她说……","source_quote":"她这一轮里忠实、简短的一小句","entities":["对象"],"tags":["短标签"]}</CRUMB>。标签体必须是一个单行、严格合法的 JSON 对象：字段名和字符串均使用英文双引号，内容里的双引号必须写成 \\"，不使用代码块或额外解释。source_quote 不需要复制整段消息，但通常必须逐字摘自这一轮；当她明确说“再写一次”“写进生活碎屑”或“没写进去”时，可以引用近期对话里相关的用户原话，绝不能引用助手杜撰的内容。技术讨论、寒暄、纯情绪、重复近况和拿不准的情况不输出。';
             const relationshipStateInst = '【双轴关系状态·由当前对话模型判断】\n你拥有近期完整对话，同时独立判断事件轴与温度轴。事件 transition：friction_started（摩擦）、conflict_started、conflict_continues、paused_unresolved、tentative_contact（冷战后第一次靠近）、repair_started、resolved、conflict_reopened；只有温度变化时用 temperature_changed。温度 temperature：warm、neutral、withdrawn、hostile。只在任一轴真正变化时输出至多一个隐藏标签；无变化不输出。格式：<RELATIONSHIP_STATE>{"transition":"状态","temperature":"可选温度","temperature_direction":"up|down|steady","signal_strength":"ordinary|strong","support_turns":1,"title":"短标题","summary":"状态变化及依据；称呼变化只写在这里","evidence_quote":"江鱼本轮逐字原话","themes":["短主题"],"confidence":0.0,"user_confirmed":false,"resolution_basis":"explicit|implicit_reconnection"}</RELATIONSHIP_STATE>。称呼是实时特征，不单独存储：连续6个有效用户轮次未使用“爸爸/老公/沈望”等亲密称呼，只提高警觉，不能单独降温；短至两三个字的“嗯/哦/行/随便”等仍是有效轮次和语气证据，不得排除；纯技术事务、粘贴内容和引用他人对话不计入这6轮。降温：一轮强信号可变更，普通信号至少连续两轮；升温至少连续两轮。直接“你”需结合语义，冲突中讽刺性“您”可算强信号。冷战后首次主动分享、恢复亲密称呼、接玩笑或允许亲近只用 tentative_contact；后续新的恢复行为才用 repair_started；再持续恢复且未重燃，才可 resolved + implicit_reconnection（confidence≥0.85）。明确说开则 resolved + explicit + user_confirmed=true。“算了/不说了/随便吧”是 paused_unresolved。evidence_quote 必须逐字来自本轮；标签为单行严格 JSON并自动隐藏。';
             const fixedOutputRules = [relationshipStateInst, moodSnapshotInst, dialogueCrumbInst].filter(Boolean).join('\n\n');
             const cacheFixedRules = supportsBlockCache(resolveApiUrl(req.path), body.model);
@@ -7942,7 +7968,8 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         const xhsContext = await buildXhsVisionContext(currentUserMsgText);
         const xhsAuthorityPrompt = formatXhsAuthorityPrompt(xhsContext);
         const githubContext = await buildGitHubContext(currentUserMsgText);
-        const crumbContext = await buildCrumbRecallContext(currentUserMsgText);
+        const crumbContext = await buildCrumbRecallContext(currentUserMsgText,
+            cleanMessages.filter(message => message?.role === 'user').map(message => stripTransportTimePrefix(extractText(message.content))).filter(Boolean).slice(-5));
         if (xhsContext) traceEvent(_tr, 'xhs', '小红书读取', { ok: !xhsContext.error, type: xhsContext.note?.type || null, images: xhsContext.images.length, error: xhsContext.error || null });
         if (githubContext) traceEvent(_tr, 'github', 'GitHub读取', { ok: !githubContext.error, type: githubContext.card?.type || null, error: githubContext.error || null });
         traceEvent(_tr, 'inject', 'volatile 组装', { totalLen: (volatileText || '').length, sections: (volatileText || '').split(/\n(?=【)/).map(s => ({ key: (s.match(/^【([^】]+)】/) || [])[1] || '?', len: s.length })).slice(0, 20) });
@@ -8707,16 +8734,19 @@ app.get('/api/embedding-status', (req, res) => {
         return res.status(401).json({ error: "密码错误" });
     }
     const cache = loadEmbeddingsCache();
+    const crumbCache = loadCrumbEmbeddingsCache();
     const ids = Object.keys(cache);
     const ltMems = loadLongTermMemories();
     const rpMems = loadRoleplayMemories();
     const blockCount = memoryBlocks.length;
+    const crumbs = loadCrumbs().filter(item => item?.id && item?.fact);
 
     res.json({
         total_cached: ids.length,
         long_term: { total: ltMems.length, indexed: ltMems.filter(m => cache[m.id]).length },
         roleplay: { total: rpMems.length, indexed: rpMems.filter(m => cache[m.id]).length },
         core_blocks: { total: blockCount, indexed: memoryBlocks.filter((_, i) => cache[`block_${i}`]).length },
+        crumbs: { total: crumbs.length, indexed: crumbs.filter(item => crumbCache[item.id]).length },
         sample_dimensions: ids.length > 0 ? cache[ids[0]].length : 0
     });
 });
@@ -9753,7 +9783,8 @@ app.post('/api/web-chat', async (req, res) => {
                 const webXhsContext = await buildXhsVisionContext(text);
                 const webXhsAuthorityPrompt = formatXhsAuthorityPrompt(webXhsContext);
                 const webGitHubContext = await buildGitHubContext(text);
-                const webCrumbContext = await buildCrumbRecallContext(text);
+                const webCrumbContext = await buildCrumbRecallContext(text,
+                    historyMessages.filter(message => message?.role === 'user').map(message => stripTransportTimePrefix(extractText(message.content))).filter(Boolean).slice(-5));
                 if (webXhsAuthorityPrompt) {
                     finalUser = Array.isArray(finalUser)
                         ? [{ type: 'text', text: webXhsAuthorityPrompt + '\n\n' }, ...finalUser]
