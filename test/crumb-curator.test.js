@@ -8,6 +8,7 @@ test('crumb prompt writes as Shen in first person while preserving the source qu
     assert.match(prompt, /沈望第一人称/);
     assert.match(prompt, /source_quote.*忠实、简短/);
     assert.match(prompt, /共同经历/);
+    assert.match(prompt, /床上或性相关.*不纳入/);
     assert.match(prompt, /不需要复制整段消息/);
 });
 
