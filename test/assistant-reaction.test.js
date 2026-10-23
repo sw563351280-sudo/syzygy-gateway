@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { extractAssistantReaction, oneEmoji } = require('../assistant-reaction');
 
-test('accepts one complete emoji on the final standalone line', () => {
+test('accepts one complete emoji on a standalone reply boundary line', () => {
     assert.deepEqual(extractAssistantReaction('我知道啦。\n<REACT:🐶>'), {
         cleanContent: '我知道啦。', reaction: '🐶', hadTag: true
     });
@@ -23,7 +23,9 @@ test('accepts one complete emoji on the final standalone line', () => {
 test('rejects text, multiple emoji and reaction markup outside the terminal protocol zone', () => {
     assert.equal(extractAssistantReaction('正文\n<REACT:好耶>').reaction, null);
     assert.equal(extractAssistantReaction('正文\n<REACT:🐶🐟>').reaction, null);
-    assert.equal(extractAssistantReaction('<REACT:🐶>\n后文').reaction, null);
+    assert.deepEqual(extractAssistantReaction('<REACT:🐶>\n后文'), {
+        cleanContent: '后文', reaction: '🐶', hadTag: true
+    });
     assert.equal(extractAssistantReaction('示例：`<REACT:🐶>`').reaction, null);
     assert.equal(oneEmoji('A'), null);
 });

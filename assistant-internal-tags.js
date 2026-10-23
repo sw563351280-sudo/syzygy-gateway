@@ -40,7 +40,7 @@ function parseProtocolLine(record) {
     const reaction = line.match(/^<\s*REACT\s*:\s*([^<>\r\n]+)>$/iu);
     if (reaction) return { name: 'REACT', value: reaction[1], start: record.start, end: record.end, raw: record.raw };
     // Some models occasionally drop the angle brackets from the reaction
-    // instruction. Accept only an entire standalone terminal line so prose
+    // instruction. Accept only an entire standalone boundary line so prose
     // that happens to mention `REACT:` is never reinterpreted as protocol.
     const bareReaction = line.match(/^REACT\s*[:：]\s*([^<>\r\n]+)$/iu);
     if (bareReaction) return { name: 'REACT', value: bareReaction[1], start: record.start, end: record.end, raw: record.raw };
@@ -66,7 +66,7 @@ function isSingleEmoji(value) {
         || /^[0-9#*]\uFE0F?\u20E3$/u.test(emoji);
 }
 
-function leadingBareReaction(text, { partial = false } = {}) {
+function leadingReaction(text, { partial = false } = {}) {
     const source = String(text || '');
     const lines = lineRecords(source);
     for (const record of lines) {
@@ -79,7 +79,9 @@ function leadingBareReaction(text, { partial = false } = {}) {
         const compact = record.trimmed.toUpperCase().replace(/\s+/g, '');
         const couldBecomeReaction = 'REACT:'.startsWith(compact)
             || 'REACT：'.startsWith(compact)
-            || /^REACT[:：]/u.test(compact);
+            || /^REACT[:：]/u.test(compact)
+            || '<REACT:'.startsWith(compact)
+            || /^<REACT:/u.test(compact);
         const lineIsIncomplete = record.end === source.length;
         if (partial && lineIsIncomplete && couldBecomeReaction) return { pending: true };
         // A CR may be the first half of CRLF. Keep it buffered so the LF is
@@ -87,7 +89,7 @@ function leadingBareReaction(text, { partial = false } = {}) {
         if (partial && source.endsWith('\r') && record.end === source.length - 1) return { pending: true };
 
         const parsed = parseProtocolLine(record);
-        if (!parsed || parsed.name !== 'REACT' || /^\s*</u.test(record.raw) || !isSingleEmoji(parsed.value)) return null;
+        if (!parsed || parsed.name !== 'REACT' || !isSingleEmoji(parsed.value)) return null;
 
         let end = record.end;
         if (source[end] === '\r') end++;
@@ -201,7 +203,7 @@ function splitTrailingAssistantTags(content) {
 
 function splitAssistantTerminalTags(content) {
     const text = String(content || '');
-    const leading = leadingBareReaction(text);
+    const leading = leadingReaction(text);
     if (!leading?.tag) return splitTrailingAssistantTags(text);
 
     const trailing = splitTrailingAssistantTags(text.slice(leading.end));
@@ -289,7 +291,7 @@ function createAssistantStreamFilter(onVisible) {
             if (finished) throw new Error('assistant stream filter already finished');
             text += String(piece || '');
             if (!leadingResolved) {
-                const leading = leadingBareReaction(text, { partial: true });
+                const leading = leadingReaction(text, { partial: true });
                 if (leading?.pending) return;
                 leadingResolved = true;
                 if (leading?.tag) emitted = Math.max(emitted, leading.end);
