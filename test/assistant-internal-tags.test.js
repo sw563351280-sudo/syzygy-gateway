@@ -75,6 +75,35 @@ test('stream filter hides terminal tags for one-character and irregular chunks',
     }
 });
 
+test('hides a terminal bare reaction when a model drops the angle brackets', () => {
+    for (const suffix of ['REACT: 👥', 'react：🐾']) {
+        const source = `正文保留\n${suffix}`;
+        const parsed = splitAssistantTerminalTags(source);
+        assert.equal(parsed.visibleContent, '正文保留');
+        assert.deepEqual(parsed.tags.map(tag => tag.name), ['REACT']);
+
+        let visible = '';
+        const filter = createAssistantStreamFilter(piece => { visible += piece; });
+        for (const char of source) filter.push(char);
+        const result = filter.finish();
+        assert.equal(visible, '正文保留');
+        assert.deepEqual(result.tags.map(tag => tag.name), ['REACT']);
+    }
+});
+
+test('preserves bare reaction text outside the terminal standalone protocol zone', () => {
+    for (const source of [
+        '正文里提到 REACT: 👥，这是示例。',
+        'REACT: 👥\n后文仍然需要显示。',
+        '示例：\n    REACT: 👥',
+        '示例：\n```text\nREACT: 👥\n```',
+    ]) {
+        const parsed = splitAssistantTerminalTags(source);
+        assert.equal(parsed.visibleContent, source);
+        assert.deepEqual(parsed.tags, []);
+    }
+});
+
 test('accepts adjacent terminal tags glued directly to visible prose', () => {
     const wake = '<NEXT_WAKE>{"after_minutes":30,"urgency":"low","reason":"晚点再看看"}</NEXT_WAKE>';
     const source = `正文保留。<REACT:🫂>${wake}`;

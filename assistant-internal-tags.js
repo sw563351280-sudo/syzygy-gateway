@@ -39,6 +39,11 @@ function parseProtocolLine(record) {
     const line = record.trimmed;
     const reaction = line.match(/^<\s*REACT\s*:\s*([^<>\r\n]+)>$/iu);
     if (reaction) return { name: 'REACT', value: reaction[1], start: record.start, end: record.end, raw: record.raw };
+    // Some models occasionally drop the angle brackets from the reaction
+    // instruction. Accept only an entire standalone terminal line so prose
+    // that happens to mention `REACT:` is never reinterpreted as protocol.
+    const bareReaction = line.match(/^REACT\s*[:：]\s*([^<>\r\n]+)$/iu);
+    if (bareReaction) return { name: 'REACT', value: bareReaction[1], start: record.start, end: record.end, raw: record.raw };
 
     for (const name of SELF_CLOSING_TAGS) {
         const pattern = new RegExp(`^<\\s*${name}\\b[^<>\\r\\n]*\\/?\\s*>$`, 'iu');
@@ -155,7 +160,14 @@ function splitAssistantTerminalTags(content) {
 
 function plausibleProtocolFragment(value) {
     const line = String(value || '').trimStart();
-    if (!line.startsWith('<') || /[\r\n]/.test(line)) return false;
+    if (/[\r\n]/.test(line)) return false;
+    const compactUpper = line.toUpperCase().replace(/\s+/g, '');
+    const bareReactionPrefix = 'REACT:';
+    const bareReactionFullwidthPrefix = 'REACT：';
+    if (bareReactionPrefix.startsWith(compactUpper)
+        || bareReactionFullwidthPrefix.startsWith(compactUpper)
+        || /^REACT\s*[:：]/iu.test(line)) return true;
+    if (!line.startsWith('<')) return false;
     const upper = line.toUpperCase();
     const expected = ALL_TAGS.map(name => name === 'REACT' ? `<REACT:` : `<${name}`);
     if (expected.some(prefix => prefix.startsWith(upper.replace(/\s+/g, '')))) return true;
