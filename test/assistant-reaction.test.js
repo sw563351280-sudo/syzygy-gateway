@@ -15,6 +15,9 @@ test('accepts one complete emoji on the final standalone line', () => {
     assert.deepEqual(extractAssistantReaction('我知道啦。\nREACT: 👥'), {
         cleanContent: '我知道啦。', reaction: '👥', hadTag: true
     });
+    assert.deepEqual(extractAssistantReaction('REACT: 👥\n我知道啦。'), {
+        cleanContent: '我知道啦。', reaction: '👥', hadTag: true
+    });
 });
 
 test('rejects text, multiple emoji and reaction markup outside the terminal protocol zone', () => {

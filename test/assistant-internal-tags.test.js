@@ -91,10 +91,45 @@ test('hides a terminal bare reaction when a model drops the angle brackets', () 
     }
 });
 
+test('hides a leading bare reaction before visible prose without a stream flash', () => {
+    for (const source of [
+        'REACT: 👥\n正文保留',
+        'react：🐾\r\n正文保留',
+        '\nREACT: 👥\n正文保留',
+    ]) {
+        const parsed = splitAssistantTerminalTags(source);
+        assert.equal(parsed.visibleContent, '正文保留');
+        assert.deepEqual(parsed.tags.map(tag => tag.name), ['REACT']);
+
+        for (const sizes of [[1], [2, 7, 1, 13]]) {
+            let visible = '';
+            const filter = createAssistantStreamFilter(piece => { visible += piece; });
+            let offset = 0; let index = 0;
+            while (offset < source.length) {
+                const size = sizes[index++ % sizes.length];
+                filter.push(source.slice(offset, offset + size));
+                offset += size;
+            }
+            const result = filter.finish();
+            assert.equal(visible, '正文保留');
+            assert.deepEqual(result.tags.map(tag => tag.name), ['REACT']);
+        }
+    }
+});
+
+test('handles leading bare reaction and terminal artifacts in the same reply', () => {
+    const source = `REACT: 👥\n正文保留\n${crumb}`;
+    const parsed = splitAssistantTerminalTags(source);
+    assert.equal(parsed.visibleContent, '正文保留');
+    assert.deepEqual(parsed.tags.map(tag => tag.name), ['REACT', 'CRUMB']);
+    assert.equal(parsed.protocolContent, `REACT: 👥\n${crumb}`);
+});
+
 test('preserves bare reaction text outside the terminal standalone protocol zone', () => {
     for (const source of [
         '正文里提到 REACT: 👥，这是示例。',
-        'REACT: 👥\n后文仍然需要显示。',
+        '前文仍然需要显示。\nREACT: 👥\n后文仍然需要显示。',
+        'REACT: reaction means response.\nThe explanation continues.',
         '示例：\n    REACT: 👥',
         '示例：\n```text\nREACT: 👥\n```',
     ]) {
@@ -197,6 +232,14 @@ test('final reply processing sends only the terminal protocol zone to artifact h
     assert.equal(tagged.reaction, '🐶');
     assert.equal(queued.length, 1);
     assert.equal(cleaned.pop(), crumb);
+
+    const leadingReaction = context.processAssistantReplyArtifacts(
+        'REACT: 👥\n正文从这里开始',
+        { reactionEnabled: true }
+    );
+    assert.equal(leadingReaction.visibleContent, '正文从这里开始');
+    assert.equal(leadingReaction.reaction, '👥');
+    assert.equal(leadingReaction.hadReactionTag, true);
 });
 
 test('tool and ordinary streams share the terminal-zone filter and final artifact processor', () => {

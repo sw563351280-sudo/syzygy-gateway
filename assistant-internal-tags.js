@@ -56,6 +56,47 @@ function parseProtocolLine(record) {
     return null;
 }
 
+function isSingleEmoji(value) {
+    const emoji = String(value || '').trim();
+    if (!emoji || emoji.length > 40) return false;
+    const segments = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(emoji)];
+    if (segments.length !== 1 || segments[0].segment !== emoji) return false;
+    return /\p{Extended_Pictographic}/u.test(emoji)
+        || /^(?:\p{Regional_Indicator}){2}$/u.test(emoji)
+        || /^[0-9#*]\uFE0F?\u20E3$/u.test(emoji);
+}
+
+function leadingBareReaction(text, { partial = false } = {}) {
+    const source = String(text || '');
+    const lines = lineRecords(source);
+    for (const record of lines) {
+        if (!record.trimmed) {
+            if (record.end === source.length && partial) return { pending: true };
+            continue;
+        }
+        if (record.fenced || record.fenceMarker || /^(?: {4,}|\t)/.test(record.raw)) return null;
+
+        const compact = record.trimmed.toUpperCase().replace(/\s+/g, '');
+        const couldBecomeReaction = 'REACT:'.startsWith(compact)
+            || 'REACT：'.startsWith(compact)
+            || /^REACT[:：]/u.test(compact);
+        const lineIsIncomplete = record.end === source.length;
+        if (partial && lineIsIncomplete && couldBecomeReaction) return { pending: true };
+        // A CR may be the first half of CRLF. Keep it buffered so the LF is
+        // skipped with the hidden prefix instead of flashing before prose.
+        if (partial && source.endsWith('\r') && record.end === source.length - 1) return { pending: true };
+
+        const parsed = parseProtocolLine(record);
+        if (!parsed || parsed.name !== 'REACT' || /^\s*</u.test(record.raw) || !isSingleEmoji(parsed.value)) return null;
+
+        let end = record.end;
+        if (source[end] === '\r') end++;
+        if (source[end] === '\n') end++;
+        return { tag: parsed, end, pending: false };
+    }
+    return partial ? { pending: true } : null;
+}
+
 function parseProtocolToken(text, start) {
     const source = String(text || '').slice(start);
     const reaction = source.match(/^<\s*REACT\s*:\s*([^<>\r\n]+)>/iu);
@@ -134,7 +175,7 @@ function splitLineTerminalTags(text) {
     };
 }
 
-function splitAssistantTerminalTags(content) {
+function splitTrailingAssistantTags(content) {
     const text = String(content || '');
     const lineResult = splitLineTerminalTags(text);
     const compact = compactTerminalZone(text);
@@ -155,6 +196,27 @@ function splitAssistantTerminalTags(content) {
         tags: compact.tags,
         protocolStart: compact.start,
         visibleEnd: visibleContent.length,
+    };
+}
+
+function splitAssistantTerminalTags(content) {
+    const text = String(content || '');
+    const leading = leadingBareReaction(text);
+    if (!leading?.tag) return splitTrailingAssistantTags(text);
+
+    const trailing = splitTrailingAssistantTags(text.slice(leading.end));
+    const trailingTags = trailing.tags.map(tag => ({
+        ...tag,
+        start: tag.start + leading.end,
+        end: tag.end + leading.end,
+    }));
+    return {
+        visibleContent: trailing.visibleContent,
+        protocolContent: [leading.tag.raw.trim(), trailing.protocolContent].filter(Boolean).join('\n'),
+        tags: [leading.tag, ...trailingTags],
+        protocolStart: leading.tag.start,
+        visibleEnd: leading.end + trailing.visibleEnd,
+        leadingProtocolEnd: leading.end,
     };
 }
 
@@ -214,6 +276,7 @@ function createAssistantStreamFilter(onVisible) {
     let text = '';
     let emitted = 0;
     let finished = false;
+    let leadingResolved = false;
 
     function flushTo(end) {
         const safeEnd = Math.max(emitted, Math.min(text.length, end));
@@ -225,12 +288,19 @@ function createAssistantStreamFilter(onVisible) {
         push(piece) {
             if (finished) throw new Error('assistant stream filter already finished');
             text += String(piece || '');
+            if (!leadingResolved) {
+                const leading = leadingBareReaction(text, { partial: true });
+                if (leading?.pending) return;
+                leadingResolved = true;
+                if (leading?.tag) emitted = Math.max(emitted, leading.end);
+            }
             flushTo(terminalHoldStart(text));
         },
         finish() {
             if (finished) return splitAssistantTerminalTags(text);
             finished = true;
             const result = splitAssistantTerminalTags(text);
+            if (result.leadingProtocolEnd) emitted = Math.max(emitted, result.leadingProtocolEnd);
             flushTo(result.visibleEnd);
             return result;
         },
