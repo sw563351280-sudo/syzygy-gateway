@@ -3509,6 +3509,16 @@ html.is-mobile-device body.neu-mode #sec-chat .msg.sys {
 body.neu-mode #sec-chat .msg-actions .msg-inline-btn,
 body.neu-mode #sec-chat .msg-action-btn { display: none !important; }
 body.neu-mode #sec-chat .msg-actions:not(:has(.version-nav)) { display: none; }
+/* Keep version paging inside the bubble so the usage summary below stays tappable. */
+body.neu-mode #sec-chat .msg:has(> .msg-actions > .version-nav) { padding-bottom: 38px; }
+body.neu-mode #sec-chat .msg > .msg-actions:has(> .version-nav) {
+  right: 10px;
+  bottom: 7px;
+  left: auto;
+  min-height: 22px;
+  z-index: 4;
+}
+body.neu-mode #sec-chat .msg > .msg-actions > .version-nav { margin-right: 0; }
 body.neu-mode #sec-chat .msg-row.sys.has-think-marker {
   flex-direction: column;
   align-items: flex-start;
