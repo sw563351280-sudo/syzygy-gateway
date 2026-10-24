@@ -24,6 +24,3 @@ mi-health/*.pyc
 __pycache__/
 *.pyc
 rescue_data.json
-
-# Verified local recovery archives and Windows-protected encryption keys.
-private-backups/
