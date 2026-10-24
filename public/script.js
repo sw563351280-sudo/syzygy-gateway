@@ -47,9 +47,7 @@ const starState = { pendingMeteor: false, pendingNebula: false };
     }
     function frame(time){
         if(!running)return;
-        // 降低帧率：桌面端 30fps，移动端 20fps，减少性能消耗
-        const targetInterval = mobile ? 50 : 33;
-        if(time-lastPaint>=targetInterval){draw(true);lastPaint=time}
+        if(!mobile||time-lastPaint>=33){draw(true);lastPaint=time}
         frameId=requestAnimationFrame(frame);
     }
     function stop(){
@@ -63,8 +61,6 @@ const starState = { pendingMeteor: false, pendingNebula: false };
         if(document.documentElement.dataset.visualTheme==='new'){x.clearRect(0,0,w,h);return}
         if(reducedMotion.matches){draw(false);c.dataset.motion='static';return}
         if(document.hidden)return;
-        // 检查是否被输入暂停
-        if(c.dataset.motion==='paused-typing')return;
         running=true;c.dataset.motion='animated';frameId=requestAnimationFrame(frame);
     }
     document.addEventListener('visibilitychange',()=>document.hidden?stop():start());
@@ -95,7 +91,7 @@ function msgContentOf(msg) {
     const content = version && version.content !== undefined ? version.content : msg.content;
     return typeof content === 'string' ? content : '';
 }
-function renderMarkdown(text) { if (!text) return ''; text = legacyMessagePlain(stripDisplayTimestamp(text)); if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
+function renderMarkdown(text, stripWakeArtifacts = false) { if (!text) return ''; text = legacyMessagePlain(stripDisplayTimestamp(text)); if (stripWakeArtifacts && window.AssistantArtifacts) { text = window.AssistantArtifacts.extractReactionTag(text, { partial: true }).cleanText; text = window.AssistantArtifacts.extractNextWakeTag(text).cleanText; } if (typeof marked !== 'undefined') { try { return marked.parse(stripInternalTags(text)); } catch(e) { return stripInternalTags(text); } } return stripInternalTags(text).replace(/\n/g, '<br>'); }
 
 // ==================== 版本化消息辅助函数 ====================
 function getActiveVersion(msg) { if (msg.versions && msg.versions.length > 0) { const idx = msg.activeVersion || 0; const v = msg.versions[idx] || msg.versions[0] || {}; if (v.content === undefined && msg.content !== undefined) v.content = msg.content; if (v.thinking === undefined && msg.thinking !== undefined) v.thinking = msg.thinking; if (v.reasoning === undefined && msg.reasoning !== undefined) v.reasoning = msg.reasoning; if (v.time === undefined && msg.time !== undefined) v.time = msg.time; if (v.fullTime === undefined && msg.fullTime !== undefined) v.fullTime = msg.fullTime; if (v.model === undefined && msg.model !== undefined) v.model = msg.model; if (v.image === undefined && msg.image !== undefined) v.image = msg.image; if (v.toolCalls === undefined && msg.toolCalls !== undefined) v.toolCalls = msg.toolCalls; return v; } return msg; }
@@ -188,6 +184,26 @@ function handleWSMessage(msg) {
             if (document.getElementById('sec-private-journal')?.classList.contains('active')) privateJournalLoad(true);
             break;
         case 'proactive_message': handleProactiveMessage(msg); break;
+        case 'tt_research_ready':
+            toast(msg.job?.status === 'completed'
+                ? `TT 已查完「${msg.job.title || '资料'}」，卷宗放进沈望口袋了`
+                : `TT 的「${msg.job?.title || '资料'}」这次没查完，卷宗状态已保留`);
+            break;
+        case 'codex_dispatch_result': {
+            const session = chatSessions.find(s => s.id === msg.sessionId);
+            if (session && msg.message?._id) {
+                session.messages ||= [];
+                if (!session.messages.some(m => m._id === msg.message._id)) session.messages.push(msg.message);
+                // Already persisted by the server; a stale local snapshot must
+                // not overwrite another tab's conversation changes.
+                if (activeChatId === session.id) renderChatMessages({ forceBottom: true });
+                toast('Codex 后台任务已交回');
+            }
+            break;
+        }
+        case 'workroom_brief_ready':
+            void loadWorkroomBriefCards();
+            break;
         case 'todo_added':
         case 'todo_updated':
         case 'todo_deleted': neuRenderTodos(); break;
@@ -251,6 +267,9 @@ let suppliers = [];
 let activeSupIndex = 0;
 let chatSessions = [];
 let activeChatId = 'main';
+let shenReactionEnabled = true;
+let modelSwitchNoticeEnabled = true;
+let workroomBriefCards = [];
 const WORKROOM_ID = 'syzygy-workroom';
 const CHAT_HISTORY_INITIAL_LIMIT = 80;
 const CHAT_HISTORY_PAGE_SIZE = 80;
@@ -330,6 +349,39 @@ function isWorkroomSession(session = getActiveSession()) {
 }
 
 let _dataVersion = 0;
+function acceptDataVersion(version) {
+    const next = Number(version) || 0;
+    _dataVersion = Math.max(_dataVersion, next);
+    return _dataVersion;
+}
+
+function syncShenReactionToggle() {
+    const toggle = document.getElementById('shenReactionToggle');
+    if (toggle) toggle.checked = shenReactionEnabled;
+}
+
+function syncModelSwitchNoticeToggle() {
+    const toggle = document.getElementById('modelSwitchNoticeToggle');
+    if (toggle) toggle.checked = modelSwitchNoticeEnabled;
+    const status = document.getElementById('modelSwitchNoticeStatus');
+    if (status) status.textContent = modelSwitchNoticeEnabled
+        ? '只在 Gemini 与 Claude 之间切换时告知对话模型'
+        : '已关闭；切换时不会告知对话模型';
+}
+
+function modelSwitchNoticeFor(session, selectedModel) {
+    if (!modelSwitchNoticeEnabled || !window.ModelFamily?.label(selectedModel)) return false;
+    const messages = Array.isArray(session?.messages) ? session.messages : [];
+    for (let index = messages.length - 1; index >= 0; index--) {
+        const message = messages[index];
+        if (message?.role !== 'assistant' || message?.speaker === 'codex') continue;
+        const previousModel = getActiveVersion(message)?.model;
+        if (!window.ModelFamily.label(previousModel)) continue;
+        return window.ModelFamily.switched(previousModel, selectedModel);
+    }
+    return false;
+}
+
 async function syncFromCloud() {
     try {
         const data = await loadCloudConfig();
@@ -345,6 +397,10 @@ async function syncFromCloud() {
         ensureWorkroomSession();
         activeSupIndex = data.activeSupIndex || 0;
         activeChatId   = data.activeChatId  || 'main';
+        shenReactionEnabled = data.preferences?.shenReactionEnabled !== false;
+        modelSwitchNoticeEnabled = data.preferences?.modelSwitchNoticeEnabled !== false;
+        if (typeof syncShenReactionToggle === 'function') syncShenReactionToggle();
+        if (typeof syncModelSwitchNoticeToggle === 'function') syncModelSwitchNoticeToggle();
 
         if (!chatSessions.find(s => s.id === activeChatId)) {
             activeChatId = chatSessions[0].id;
@@ -361,8 +417,9 @@ async function syncFromCloud() {
         renderChatSidebar();
         renderChatMessages();
         updateWorkroomChrome();
+        if (typeof loadWorkroomBriefCards === 'function') void loadWorkroomBriefCards();
         fetchModels();
-        if (recovery.restored) saveToCloud(true);
+        if (recovery.restored) saveMessageChangesToCloud(true);
 
         const viewTitle = document.getElementById('chatViewTitle');
         if (viewTitle) {
@@ -627,10 +684,11 @@ function messageRichness(m) {
 
 /* 🛡️ 检测兜底脏消息（断连时生成的假消息） */
 function isDirtyFallbackMessage(m) {
-  if (!m) return true;
-  const v = (typeof getActiveVersion === 'function' ? getActiveVersion(m) : {}) || {};
-  const c = (typeof msgContentOf === 'function') ? msgContentOf(m) : (v.content || m.content || '');
-  return String(c).indexOf('数据加载失败，请刷新页面重试') !== -1;
+    if (!m) return true;
+    const v = (typeof getActiveVersion === 'function' ? getActiveVersion(m) : {}) || {};
+    const c = (typeof msgContentOf === 'function') ? msgContentOf(m) : (v.content || m.content || '');
+    return String(c).indexOf('数据加载失败，请刷新页面重试') !== -1
+        || ((m._failed || v._failed) && String(c).startsWith('【发送失败】'));
 }
 
 // 合并两条消息数组，按 key 去重，按时间排序
@@ -787,7 +845,7 @@ let _loopLocalOnly = 0; let _loopCount = 0;
 async function resyncIfStale(reason) {
     if (!mergeSyncEnabled()) return;
     if (Date.now() - _lastResyncAt < 10000) {
-        if (hasUnsavedCloudChanges()) saveToCloud(true, true);
+        if (hasUnsavedCloudChanges()) saveToCloud(true, true, true);
         return;   // 10 秒内不重复拉；未保存改动仍继续保存
     }
     _lastResyncAt = Date.now();
@@ -803,11 +861,63 @@ async function resyncIfStale(reason) {
             }
         } else { _loopCount = 0; }
         _loopLocalOnly = res.localOnly;
-        saveToCloud(true, pendingLocalSave);
+        saveToCloud(true, pendingLocalSave, true);
     }
 }
 
-async function _doSave() {
+function compactMessageForPersistence(message) {
+    if (message.versions && message.versions.length > 5) {
+        message.versions = [message.versions[0], ...message.versions.slice(-4)];
+        if (message.activeVersion >= message.versions.length) message.activeVersion = message.versions.length - 1;
+    }
+    const versions = Array.isArray(message.versions) && message.versions.length ? message.versions : [message];
+    for (const version of versions) {
+        if (typeof version.rawContent === 'string' && version.rawContent === version.content) delete version.rawContent;
+        if (typeof version.reasoning === 'string' && version.reasoning === version.thinking) delete version.reasoning;
+    }
+    delete message._zepDirty;
+    return message;
+}
+
+function prepareIncrementalChatPatch() {
+    const snapshot = _chatJournal.pendingSnapshot();
+    for (const session of snapshot) {
+        session.messages = (session.messages || []).filter(message => !isDirtyFallbackMessage(message));
+        for (const message of session.messages) compactMessageForPersistence(message);
+    }
+    return snapshot.filter(session => session.messages.length);
+}
+
+async function _doIncrementalSave(startedAt) {
+    const journalSnapshot = _chatJournal.pendingSnapshot();
+    const patchSnapshot = prepareIncrementalChatPatch();
+    if (!patchSnapshot.length) {
+        try { _chatJournal.acknowledge(journalSnapshot); } catch (error) { console.warn('[backup] 清理临时失败状态失败:', error.message); }
+        console.log('[save:SKIP] no pending messages ' + (Date.now() - startedAt) + 'ms');
+        return;
+    }
+    const payloadText = JSON.stringify({ _version: _dataVersion, sessions: patchSnapshot });
+    const payloadBytes = new Blob([payloadText]).size;
+    if (payloadBytes > 15 * 1024 * 1024) throw new Error('本轮消息或附件超过 15 MB，请减少图片数量');
+    const d = await ChatPersistence.requestJson('/api/chat-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payloadText
+    });
+    if (d._rejected) {
+        const res = await resyncAndMerge('incremental-version-conflict');
+        if (!res) throw new Error('增量保存发生版本冲突，重新同步失败，稍后重试');
+        throw new Error('增量保存发生版本冲突，已重新同步并准备重试');
+    }
+    if (d.success !== true || !d._version) throw new Error(d.message || '服务器未确认增量保存，稍后重试');
+    _dataVersion = d._version;
+    try { _chatJournal.acknowledge(journalSnapshot); } catch (error) { console.warn('[backup] 确认状态写入失败:', error.message); }
+    if (!_chatJournal.hasPending()) _preservePendingHistory = false;
+    _loopCount = 0; _loopLocalOnly = 0;
+    console.log('[save:OK] incremental v' + _dataVersion + ' ' + (Date.now() - startedAt) + 'ms ' + (payloadBytes / 1024).toFixed(0) + 'KB');
+}
+
+async function _doSave(incrementalOnly = false) {
     var _t0 = Date.now();
     // 🛡️ 拒绝保存脏兜底状态（防止断连时把空数据覆盖到服务端）
     if (_hasDirtyFallbackState()) {
@@ -825,6 +935,7 @@ async function _doSave() {
             throw new Error('云端数据未加载');
         }
     }
+    if (incrementalOnly) return _doIncrementalSave(_t0);
     var MAX_SYNC_BYTES = 15 * 1024 * 1024; // Below the server's 50 MB request limit.
 
     // 1. 深拷贝 chatSessions — 不影响内存中的原始数据
@@ -841,11 +952,7 @@ async function _doSave() {
         if (!_preservePendingHistory) ContextContinuity.trimContextWindow(s, getActiveVersion);
         for (var mi = 0; mi < s.messages.length; mi++) {
             var m = s.messages[mi];
-            if (m.versions && m.versions.length > 5) {
-                m.versions = [m.versions[0], ...m.versions.slice(-4)];
-                if (m.activeVersion >= m.versions.length) m.activeVersion = m.versions.length - 1;
-            }
-            delete m._zepDirty;
+            compactMessageForPersistence(m);
         }
     }
 
@@ -901,22 +1008,39 @@ async function _doSave() {
 
 let _savingNow = false;
 let _saveQueued = false;
+let _fullSaveRequiredEpoch = 0;
+let _fullSaveCommittedEpoch = 0;
 
-function saveToCloud(immediate, preserveMutationEpoch = false) {
+function saveMessageChangesToCloud(immediate) {
+    return saveToCloud(immediate, false, true);
+}
+
+function saveToCloud(immediate, preserveMutationEpoch = false, messagesOnly = false) {
     if (!preserveMutationEpoch) _saveMutationEpoch++;
+    if (!messagesOnly) _fullSaveRequiredEpoch = Math.max(_fullSaveRequiredEpoch, _saveMutationEpoch);
     saveLocalBackup();
     clearTimeout(_saveTimer);
+    if ((typeof activeChatRequest !== 'undefined' && activeChatRequest)
+        || (typeof _isStreamingReply !== 'undefined' && _isStreamingReply)) {
+        _saveTimer = null;
+        _saveQueued = true;
+        console.log('[save:DEFER] chat request active');
+        return Promise.resolve();
+    }
     const doSave = async () => {
         _saveTimer = null;
         if (_savingNow) { _saveQueued = true; console.log('[save:LOCK] queued'); return; }
         const targetEpoch = _saveMutationEpoch;
+        const targetFullEpoch = _fullSaveRequiredEpoch;
+        const needsFullSave = _fullSaveCommittedEpoch < targetFullEpoch;
         _savingNow = true;
         try {
             const delays = [1000, 2000, 4000]; // 指数退避
             for (let attempt = 0; attempt <= delays.length; attempt++) {
                 try {
-                    await _doSave();
+                    await _doSave(!needsFullSave);
                     _saveCommittedEpoch = Math.max(_saveCommittedEpoch, targetEpoch);
+                    if (needsFullSave) _fullSaveCommittedEpoch = Math.max(_fullSaveCommittedEpoch, targetFullEpoch);
                     _saveFailCount = 0;
                     _showSaveWarning(false);
                     return; // 成功
@@ -935,9 +1059,9 @@ function saveToCloud(immediate, preserveMutationEpoch = false) {
             _showSaveWarning(true, lastErr);
         } finally {
             _savingNow = false;
-            if (_saveQueued) { _saveQueued = false; saveToCloud(true, true); }
+            if (_saveQueued) { _saveQueued = false; saveToCloud(true, true, true); }
             else if (hasUnsavedCloudChanges() && !document.hidden) {
-                _saveTimer = setTimeout(() => saveToCloud(true, true), 30000);
+                _saveTimer = setTimeout(() => saveToCloud(true, true, true), 30000);
             }
         }
     };
@@ -1005,6 +1129,7 @@ function onModelChange(sel){
     if(wrap) wrap.innerHTML = getModelIcon(sel.value);
     // 🧠 核心新增：只要你手动选了模型，就立刻刻在浏览器的记忆里
     localStorage.setItem('preferredModel', sel.value);
+    window.shenSettingsRefreshOverview?.();
 }
 
 // ==================== 通用工具 & 防黑屏 ====================
@@ -1074,6 +1199,7 @@ function goView(viewId) {
     const target = document.getElementById(map[viewId]);
     if (!target) return;
     target.classList.add("active"); document.body.dataset.view = viewId;
+    window.SyzygyLocation?.setChatActive(viewId === 'chat');
     window.SeaJournal?.sync();
     const metaTheme = document.getElementById('theme-color-meta');
     if (metaTheme) metaTheme.setAttribute('content', getVisualThemeColor(viewId));
@@ -1095,7 +1221,6 @@ function goView(viewId) {
             if (document.body.dataset.view === viewId) toast('页面资源加载失败，请重试');
         });
     } else initializeView(viewId);
-    if (document.body.classList.contains('neu-mode')) neuUpdateNav();
 }
 
 // ==================== 控制台 Tab 切换 ====================
@@ -1559,7 +1684,18 @@ function neuOpenLongTerm() {
 }
 
 let _isOpeningArchiveRoom = false;
-function openStarCrossing() {
+async function checkStarCrossingPassword(pwd) {
+    const response = await fetch('/long-term?pwd=' + encodeURIComponent(pwd), {
+        method: 'HEAD',
+        cache: 'no-store',
+        redirect: 'manual'
+    });
+    if (response.status === 401) return 'rejected';
+    if (response.type === 'opaqueredirect' || (response.status >= 200 && response.status < 400)) return 'accepted';
+    return 'unavailable';
+}
+
+async function openStarCrossing() {
     if (_isOpeningArchiveRoom) return;
     _isOpeningArchiveRoom = true;
 
@@ -1567,18 +1703,42 @@ function openStarCrossing() {
     const btn = document.querySelector('[onclick*="openStarCrossing"]');
     if (btn) btn.style.opacity = '0.6';
 
-    let pwd = localStorage.getItem('memoryPwd');
-    if (!pwd) {
-        pwd = prompt('星渡访问密码:');
-        if (!pwd) {
-            _isOpeningArchiveRoom = false;
-            if (btn) btn.style.opacity = '';
-            return;
+    try {
+        let pwd = localStorage.getItem('memoryPwd');
+        if (pwd) {
+            const status = await checkStarCrossingPassword(pwd);
+            if (status === 'rejected') {
+                localStorage.removeItem('memoryPwd');
+                pwd = '';
+            } else if (status === 'unavailable') {
+                toast('星渡暂时无法验证密码，请稍后重试');
+                return;
+            }
         }
-        localStorage.setItem('memoryPwd', pwd);
-    }
 
-    window.location.assign('/long-term.html?pwd=' + encodeURIComponent(pwd));
+        if (!pwd) {
+            pwd = prompt('请输入星渡独立密码（不是小屋登录密码）:');
+            if (!pwd) return;
+            const status = await checkStarCrossingPassword(pwd);
+            if (status === 'rejected') {
+                localStorage.removeItem('memoryPwd');
+                toast('星渡独立密码不正确，请重新输入');
+                return;
+            }
+            if (status === 'unavailable') {
+                toast('星渡暂时无法验证密码，请稍后重试');
+                return;
+            }
+            localStorage.setItem('memoryPwd', pwd);
+        }
+
+        window.location.assign('/long-term.html?pwd=' + encodeURIComponent(pwd));
+    } catch (_) {
+        toast('星渡暂时无法验证密码，请稍后重试');
+    } finally {
+        _isOpeningArchiveRoom = false;
+        if (btn) btn.style.opacity = '';
+    }
 }
 async function triggerDreamFromHome() {
     const pwd = prompt('管理员密码:'); if (!pwd) return;
@@ -1613,121 +1773,13 @@ if (document.readyState === 'loading') { document.addEventListener('DOMContentLo
 
 function egg(pos){}
 
-// ==================== 新拟态首页 ====================
+// ==================== 水色玻璃首页 ====================
 function neuInitHome() {
     window.SeaHome?.refresh();
-    neuRenderWeek();
-    neuRenderTodos();
-    neuUpdateNav();
-    neuRenderPeriodCountdown();
 }
 
-function neuRenderWeek() {
-    const strip = document.getElementById('neuWeekStrip');
-    if (!strip) return;
-    const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    const now = new Date();
-    const today = now.getDay(); // 0=Sun
-    // 找到本周一
-    const mon = new Date(now);
-    mon.setDate(now.getDate() - (today === 0 ? 6 : today - 1));
-
-    let html = '';
-    for (let i = 0; i < 7; i++) {
-        const d = new Date(mon);
-        d.setDate(mon.getDate() + i);
-        const dayNum = d.getDay();
-        const isToday = dayNum === today && Math.abs(d.getDate() - now.getDate()) < 1;
-        html += '<div class="neu-week-day' + (isToday ? ' today' : '') + '">'
-            + '<span class="day-dot">' + d.getDate() + '</span>'
-            + days[i]
-            + '<span class="day-event"></span>'
-            + '</div>';
-    }
-    strip.innerHTML = html;
-}
-
-// ═══ To Do (共享待办，服务器存储) ═══
-async function neuFetchTodos() {
-    try {
-        const r = await fetch('/api/todos');
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return { ok: true, ...(await r.json()) };
-    } catch(e) {
-        return { ok: false, error: e?.message || '同步失败', todos:[], active:[], done:[], shen:[], fish:[] };
-    }
-}
-
-async function neuRenderTodos() {
+function neuRenderTodos() {
     window.SeaHome?.refresh(true);
-    const list = document.getElementById('neuTodoList');
-    if (!list) return;
-    const data = await neuFetchTodos();
-    if (!data.ok) {
-        list.innerHTML = '<div class="neu-todo-sync-error">待办同步失败，稍后会自动重试</div>';
-        return;
-    }
-    const active = data.active || [];
-    const shenItems = Array.isArray(data.shen) ? data.shen : active.filter(t => t.owner === 'shen');
-    const fishItems = Array.isArray(data.fish) ? data.fish : active.filter(t => t.owner === 'fish');
-    const renderItems = (items, emptyText) => items.length
-        ? items.map(t => '<div class="neu-todo-item">'
-            + '<input type="checkbox" aria-label="完成待办" onchange="neuToggleTodo(\'' + t.id + '\')">'
-            + '<span>' + escHtml(t.text) + '</span>'
-            + '<button class="neu-todo-rm-btn" aria-label="删除待办" onclick="neuDeleteTodo(\'' + t.id + '\')">×</button>'
-            + '</div>').join('')
-        : '<div class="neu-todo-empty">' + emptyText + '</div>';
-
-    const html = '<section class="neu-todo-section shen" aria-label="沈望写的待办">'
-        + '<div class="neu-todo-section-head"><span class="neu-todo-owner-mark">S</span><span>沈望写的</span><small>' + shenItems.length + '</small></div>'
-        + '<div class="neu-todo-items">' + renderItems(shenItems, '他暂时还没有记下新的事') + '</div>'
-        + '</section>'
-        + '<section class="neu-todo-section fish" aria-label="江鱼写的待办">'
-        + '<div class="neu-todo-section-head"><span class="neu-todo-owner-mark">J</span><span>江鱼写的</span><small>' + fishItems.length + '</small></div>'
-        + '<div class="neu-todo-items">' + renderItems(fishItems, '你的列表还是空的') + '</div>'
-        + '</section>';
-    list.innerHTML = html;
-}
-
-async function neuAddTodo() {
-    const input = document.getElementById('neuTodoInput');
-    if (!input) return;
-    const text = input.value.trim();
-    if (!text) { input.focus(); return; }
-    input.value = '';
-    try {
-        await fetch('/api/todos', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, owner: 'fish' })
-        });
-        neuRenderTodos();
-    } catch(e) { console.error('添加待办失败', e); }
-}
-
-// 回车添加
-function neuTodoInputKey(e) { if (e.key === 'Enter') neuAddTodo(); }
-
-async function neuToggleTodo(id) {
-    try {
-        const data = await neuFetchTodos();
-        const t = data.todos.find(x => x.id === id);
-        if (t) {
-            await fetch('/api/todos/' + id, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ done: !t.done })
-            });
-            neuRenderTodos();
-        }
-    } catch(e) { console.error('切换待办状态失败', e); }
-}
-
-async function neuDeleteTodo(id) {
-    try {
-        await fetch('/api/todos/' + id, { method: 'DELETE' });
-        neuRenderTodos();
-    } catch(e) { console.error('删除待办失败', e); }
 }
 
 // ═══ 周期记录详情页 ═══
@@ -1735,25 +1787,6 @@ let floShowAllHistory = false;
 
 async function floFetchPeriod() {
     try { const r = await fetch('/api/period'); return await r.json(); } catch(e) { return null; }
-}
-
-// 首页 — 倒计时文字
-async function neuRenderPeriodCountdown() {
-    const el = document.getElementById('neuPeriodCountdown');
-    if (!el) return;
-    const data = await floFetchPeriod();
-    if (!data) { el.innerText = ''; return; }
-    if (data.status.inPeriod) {
-        el.innerText = '经期第 ' + data.status.days + ' 天';
-    } else if (data.prediction) {
-        const predDate = new Date(data.prediction.date + 'T00:00:00+08:00');
-        const daysUntil = Math.round((predDate - new Date()) / 86400000);
-        if (daysUntil > 0) el.innerText = '距下次月经还有 ' + daysUntil + ' 天';
-        else if (daysUntil === 0) el.innerText = '预测今天会来';
-        else el.innerText = '预测日已过 ' + Math.abs(daysUntil) + ' 天';
-    } else {
-        el.innerText = '暂无生理期数据';
-    }
 }
 
 function floFormatDate(yyyymmdd) {
@@ -1871,7 +1904,7 @@ async function floPeriodAction(action) {
             body: JSON.stringify({ action })
         });
         const data = await r.json();
-        if (data.ok) { floRender(); neuRenderPeriodCountdown(); }
+        if (data.ok) { floRender(); window.SeaHome?.refresh(true); }
         toast(data.message || data.error || '已记录');
     } catch(e) { console.error(e); }
 }
@@ -1895,106 +1928,30 @@ async function floDoBackfill() {
             document.getElementById('floBackfillRow').style.display = 'none';
             s.value = ''; e.value = '';
             floRender();
-            neuRenderPeriodCountdown();
+            window.SeaHome?.refresh(true);
         }
         toast(data.message || data.error || '已补录');
     } catch(e) { console.error(e); }
 }
 
-// ═══ 底部导航高亮 ═══
-function neuUpdateNav() {
-    const view = document.querySelector('.section.active')?.id || 'sec-home';
-    const map = { 'sec-home': 'home', 'sec-chat': 'chat', 'sec-favorites': 'favorites', 'sec-dev': 'dev', 'sec-console': 'dev' };
-    const active = map[view] || 'home';
-    document.querySelectorAll('.neu-nav-item').forEach(el => {
-        el.classList.toggle('active', el.dataset.nav === active);
-    });
-}
-
-// ═══ 全局视觉主题 + Together 天数 ═══
-const VISUAL_THEME_KEY = 'syzygy_visual_theme';
-const LEGACY_HOME_LAYOUT_KEY = 'syzygy_home_layout';
-
-function getVisualTheme() {
-    return document.documentElement.dataset.visualTheme === 'new' ? 'new' : 'classic';
-}
-
+// ═══ 小屋外观 + Together 天数 ═══
 function getVisualThemeColor(viewId = document.body?.dataset?.view || 'home') {
-    const isNew = getVisualTheme() === 'new';
-    if (!isNew) return viewId === 'chat' ? '#EFF6FD' : '#E8EFF7';
     return document.documentElement.dataset.seaCycle === 'night' ? '#081A2D' : '#A9C3D8';
 }
-
-function applyVisualTheme(theme, persist = true) {
-    const normalized = theme === 'new' ? 'new' : 'classic';
-    const isNew = normalized === 'new';
-    document.documentElement.dataset.visualTheme = normalized;
-    document.body.dataset.visualTheme = normalized;
-    const home = document.getElementById('sec-home');
-    if (!home) return;
-    home.classList.toggle('home-layout-v2', isNew);
-    home.dataset.homeLayout = normalized;
-    document.querySelectorAll('[data-visual-theme-option]').forEach(button => {
-        const selected = button.dataset.visualThemeOption === normalized;
-        button.setAttribute('aria-pressed', String(selected));
-        button.classList.toggle('is-selected', selected);
-    });
-    const classicHome = home.querySelector('.neu-home');
-    const newHome = document.getElementById('homeV2');
-    if (classicHome) {
-        classicHome.setAttribute('aria-hidden', String(isNew));
-        classicHome.inert = isNew;
-    }
-    if (newHome) {
-        newHome.setAttribute('aria-hidden', String(!isNew));
-        newHome.inert = !isNew;
-    }
-    window.SeaHome?.sync();
-    window.SeaJournal?.sync();
-    if (persist) {
-        try {
-            localStorage.setItem(VISUAL_THEME_KEY, normalized);
-            localStorage.setItem(LEGACY_HOME_LAYOUT_KEY, normalized);
-        } catch (_) {}
-    }
-    const metaTheme = document.getElementById('theme-color-meta');
-    if (metaTheme) metaTheme.setAttribute('content', getVisualThemeColor());
-}
-
-// 兼容旧缓存页面里可能残留的首页切换调用。
-function setHomeLayout(layout, persist = true) { applyVisualTheme(layout, persist); }
 
 window.addEventListener('sea-cycle-change', () => {
     const meta = document.getElementById('theme-color-meta');
     if (meta) meta.setAttribute('content', getVisualThemeColor());
 });
 
-function toggleHomeV2More() {
-    const panel = document.getElementById('homeV2More');
-    const toggle = document.getElementById('homeV2MoreToggle');
-    if (!panel || !toggle) return;
-    panel.hidden = !panel.hidden;
-    toggle.setAttribute('aria-expanded', String(!panel.hidden));
-    toggle.innerHTML = panel.hidden ? '···&nbsp; 更多' : '收起&nbsp; ···';
-}
-
-function initVisualTheme() {
-    let saved = 'classic';
-    try { saved = localStorage.getItem(VISUAL_THEME_KEY) || localStorage.getItem(LEGACY_HOME_LAYOUT_KEY) || 'classic'; } catch (_) {}
-    applyVisualTheme(saved, false);
-}
-
 function updateDays(){
     const start = new Date(START_DATE);
     const diff  = Math.floor((new Date() - start) / (1000 * 60 * 60 * 24));
     const dayEl = document.getElementById('dayCount');
     if(dayEl) dayEl.innerText = diff >= 0 ? diff : '∞';
-    const neuDay = document.getElementById('neuDayCount');
-    if(neuDay) neuDay.innerText = diff >= 0 ? diff : '∞';
     const homeV2Day = document.getElementById('homeV2DayCount');
     if(homeV2Day) homeV2Day.innerText = diff >= 0 ? diff : '∞';
 }
-initVisualTheme();
 updateDays();
 
 let hbInterval;
@@ -2117,7 +2074,7 @@ function updateWorkroomChrome() {
     const renameButtons = document.querySelectorAll('.chat-rename-topbar-btn, .chat-rename-btn');
     if (bar) bar.hidden = !active;
     if (mode) mode.disabled = Boolean(room?.codexTaskId);
-    if (input) input.placeholder = active ? '和沈望、Codex 一起讨论或布置任务…' : '发消息给沈望…';
+    if (input) input.placeholder = active ? '把我们叫来，一起商量点什么……' : '跟我说说话，宝宝……';
     renameButtons.forEach(button => { button.hidden = active; });
     if (!active) document.getElementById('workroomCodexApproval')?.setAttribute('hidden', '');
     else if (workroomApprovalQueue.length) workroomShowApproval(workroomApprovalQueue[0]);
@@ -2266,22 +2223,64 @@ function createThinkingMarker(thinking) {
     const detail = document.createElement('div');
     detail.className = 'think-marker-detail';
     detail.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
 
+    let latestValue = '';
+    let renderedValue = null;
+    const renderDetail = () => {
+        if (renderedValue === latestValue) return;
+        detail.innerHTML = escapeHtml(stripDisplayTimestamp(latestValue)).replace(/\n/g, '<br>');
+        renderedValue = latestValue;
+    };
     const update = (value) => {
-        const clean = stripDisplayTimestamp(value || '');
-        detail.innerHTML = escapeHtml(clean).replace(/\n/g, '<br>');
-        marker.hidden = !clean.trim();
+        latestValue = String(value || '');
+        marker.hidden = !latestValue.trim();
+        // Keep collapsed reasoning as text; only build its DOM when opened.
+        if (!detail.hidden) renderDetail();
     };
     button.addEventListener('click', (event) => {
         event.stopPropagation();
         detail.hidden = !detail.hidden;
         marker.classList.toggle('is-open', !detail.hidden);
         button.setAttribute('aria-expanded', String(!detail.hidden));
+        if (!detail.hidden) renderDetail();
+        else { detail.textContent = ''; renderedValue = null; }
     });
 
     marker.append(button, detail);
     update(thinking);
     return { element: marker, detail, update };
+}
+
+function userReactionEmoji(message) {
+    if (!shenReactionEnabled || message?.role !== 'user') return '';
+    return typeof message.shenReaction === 'string' ? message.shenReaction : '';
+}
+
+function mountUserReaction(bubble, message, animate = false) {
+    if (!bubble) return;
+    bubble.querySelector('.shen-reaction')?.remove();
+    bubble.closest('.msg-row')?.classList.remove('has-shen-reaction');
+    const emoji = userReactionEmoji(message);
+    if (!emoji) return;
+    const reaction = document.createElement('span');
+    reaction.className = 'shen-reaction' + (animate ? ' is-new' : '');
+    reaction.setAttribute('aria-label', '沈望回应了 ' + emoji);
+    reaction.textContent = emoji;
+    bubble.appendChild(reaction);
+    bubble.closest('.msg-row')?.classList.add('has-shen-reaction');
+}
+
+function updateUserReaction(sessionId, messageId, emoji, animate = false) {
+    if (!shenReactionEnabled || !messageId) return false;
+    const session = getLiveSession(sessionId);
+    const message = session?.messages?.find(item => String(item?._id || item?.id || '') === String(messageId));
+    if (!message || message.role !== 'user') return false;
+    if (emoji) message.shenReaction = emoji;
+    else delete message.shenReaction;
+    const row = document.querySelector('#chatWindow .msg-row[data-message-id="' + CSS.escape(String(messageId)) + '"]');
+    mountUserReaction(row?.querySelector('.msg.user'), message, animate);
+    return true;
 }
 
 function renderChatMessages(options = {}){
@@ -2300,17 +2299,35 @@ function renderChatMessages(options = {}){
     // 私聊默认保留轻量窗口；向上翻时逐页扩大。工作区仍按完整轮次展示最近 50 轮。
     const visibleCount = _visibleMessageCounts[session.id] || 30;
     const msgs = isWorkroomSession(session) ? workroomMessagesByRounds(session.messages, 50) : session.messages.slice(-visibleCount);
+    const briefs = session.id === 'main' ? workroomBriefCards.slice().sort((left, right) => {
+        const leftTime = Date.parse(left.createdAt || '');
+        const rightTime = Date.parse(right.createdAt || '');
+        return (Number.isFinite(leftTime) ? leftTime : Infinity) - (Number.isFinite(rightTime) ? rightTime : Infinity);
+    }) : [];
+    let briefIndex = 0;
+    const appendBriefsThrough = (cutoff = Infinity) => {
+        const due = [];
+        while (briefIndex < briefs.length) {
+            const briefTime = Date.parse(briefs[briefIndex].createdAt || '');
+            if (cutoff !== Infinity && (!Number.isFinite(briefTime) || briefTime > cutoff)) break;
+            due.push(briefs[briefIndex++]);
+        }
+        renderWorkroomBriefCards(win, due);
+    };
     msgs.forEach((m, subIndex) => {
         const index = session.messages.length - msgs.length + subIndex;
 
         const v = getActiveVersion(m);
         const vCount = getVersionCount(m);
         const vIdx = getActiveVersionIndex(m);
+        const messageTime = Date.parse(v.fullTime || m.fullTime || v.createdAt || m.createdAt || '');
+        if (Number.isFinite(messageTime)) appendBriefsThrough(messageTime);
 
         const rowDiv = document.createElement('div');
         const speaker = ['codex', 'jiangyu', 'shenwang'].includes(m.speaker) ? m.speaker : (m.role === 'user' ? 'jiangyu' : 'shenwang');
         rowDiv.className = 'msg-row ' + (m.role === 'user' ? 'user' : 'sys') + (speaker === 'codex' ? ' is-codex' : '');
         rowDiv.setAttribute('data-msg-index', index);
+        if (m._id || m.id) rowDiv.setAttribute('data-message-id', String(m._id || m.id));
         rowDiv.tabIndex = 0;
         rowDiv.setAttribute('aria-label', (speaker === 'codex' ? 'Codex 的消息' : m.role === 'user' ? '我的消息' : '沈望的消息') + '，长按打开操作');
 
@@ -2323,14 +2340,11 @@ function renderChatMessages(options = {}){
         for (let imgIdx = 0; imgIdx < imgsToRender.length; imgIdx++) {
             htmlContent += '<img src="' + imgsToRender[imgIdx] + '" style="max-width:200px;border-radius:8px;margin-bottom:5px;margin-right:4px;box-shadow:0 2px 10px rgba(0,0,0,0.3);display:inline-block;">';
         }
-        const rawThinking = v.reasoning || m.reasoning || v.thinking || m.thinking || '';
-        // 兼容正文里混入 <thinking>...</thinking> 或 <think>...</think> 的旧格式
-        const hasRawContent = typeof v.rawContent === 'string' && v.rawContent.trim();
-        let extractedThink = extractThinkingFromContent(hasRawContent ? v.rawContent : (v.content || ''));
-        let displayContent = extractedThink.visibleContent;
-        // rawContent 是模型原始正文。优先重新解析它，可修复旧版前端把
-        // 反引号里的 <thinking> 示例误拆进思考气泡的历史消息。
-        const finalThinking = (v.reasoning || m.reasoning || extractedThink.thinking || (!hasRawContent ? rawThinking : '')) || '';
+        // rawContent 优先用来还原正文与内嵌思考；已单独保存的 thinking
+        // 始终作为兜底，不会再因为 rawContent 存在而被丢掉。
+        const renderState = ChatRenderUtils.resolveMessageRenderState(m, v, extractThinkingFromContent);
+        const displayContent = renderState.visibleContent;
+        const finalThinking = renderState.thinking;
         // 渲染工具调用记录（整组折叠）
         if (v.toolCalls && v.toolCalls.length > 0) htmlContent += renderToolCallGroupHTML(v.toolCalls, false);
         if (isWorkroomSession(session)) {
@@ -2343,7 +2357,7 @@ function renderChatMessages(options = {}){
             const githubUrl = findGitHubLink(displayContent);
             if (githubUrl) htmlContent += '<div class="github-card" data-github-url="' + encodeURIComponent(githubUrl) + '">正在读取 GitHub 链接…</div>';
         } else {
-            htmlContent += '<div class="md-content">' + renderMarkdown(displayContent || '') + '</div>';
+            htmlContent += '<div class="md-content">' + renderMarkdown(displayContent || '', speaker === 'shenwang') + '</div>';
         }
 
         const timeStr = v.fullTime ? new Date(v.fullTime).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}) : (v.time || '');
@@ -2367,7 +2381,14 @@ function renderChatMessages(options = {}){
         actionsHtml += '</div>';
         htmlContent += actionsHtml;
 
-        div.innerHTML = htmlContent;
+        if (speaker === 'codex' && Array.isArray(v.codexTimeline) && v.codexTimeline.length) {
+            div.className = 'workroom-codex-turn';
+            const tailHTML = (timeStr ? '<div class="msg-meta">' + timeStr + '</div>' : '')
+                + (v._interrupted ? '<div class="msg-meta">' + escapeHtml(v._interrupted) + ' · 已保留部分回复</div>' : '')
+                + actionsHtml;
+            div.innerHTML = workroomCodexTimelineHTML(v.codexTimeline, { tailHTML });
+        } else div.innerHTML = htmlContent;
+        if (m.role === 'user') mountUserReaction(div, m);
         if (m.role === 'assistant' && finalThinking.trim()) {
             rowDiv.classList.add('has-think-marker');
             rowDiv.appendChild(createThinkingMarker(finalThinking).element);
@@ -2377,10 +2398,62 @@ function renderChatMessages(options = {}){
 
         win.appendChild(rowDiv);
     });
+    appendBriefsThrough();
+    if (isWorkroomSession(session) && workroomCodexTurnId && !workroomCodexSavedForTurn) workroomUpdateLiveReply();
     win.querySelectorAll('.xhs-card[data-xhs-url]').forEach(el => hydrateXhsCard(el, decodeURIComponent(el.dataset.xhsUrl)));
     win.querySelectorAll('.github-card[data-github-url]').forEach(el => hydrateGitHubCard(el, decodeURIComponent(el.dataset.githubUrl)));
     if (shouldStickToBottom) forceScrollToChatBottom();
     else restoreChatScrollAnchor(win, scrollAnchor);
+}
+
+async function loadWorkroomBriefCards() {
+    try {
+        const response = await fetch('/api/workroom-notes/briefs?limit=20', { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json();
+        workroomBriefCards = Array.isArray(data.briefs) ? data.briefs : [];
+        if (_isStreamingReply) _renderDeferred = true;
+        else if (activeChatId === 'main' && document.getElementById('sec-chat')?.classList.contains('active')) renderChatMessages({ preserveScroll: true });
+    } catch (_) {}
+}
+
+function renderWorkroomBriefCards(container, briefs = workroomBriefCards.slice().reverse()) {
+    for (const brief of briefs) {
+        const card = document.createElement('details');
+        card.className = 'workroom-brief-card' + (brief.status === 'pending' ? ' is-pending' : '');
+        const toggle = document.createElement('summary');
+        toggle.className = 'workroom-brief-toggle';
+        toggle.textContent = '• 便签员贴了一张便签';
+        const content = document.createElement('div');
+        content.className = 'workroom-brief-content';
+        const heading = document.createElement('header');
+        const title = document.createElement('strong');
+        title.textContent = '工作区便签';
+        const meta = document.createElement('time');
+        meta.dateTime = brief.createdAt || '';
+        meta.textContent = brief.durationMinutes ? `约 ${brief.durationMinutes} 分钟` : '刚刚';
+        heading.append(title, meta); content.append(heading);
+        if (brief.status === 'pending') {
+            const pending = document.createElement('p'); pending.textContent = brief.message || '正在整理…'; content.append(pending);
+        } else {
+            if (brief.summary) { const summary = document.createElement('p'); summary.textContent = brief.summary; content.append(summary); }
+            const list = document.createElement('ol');
+            for (const topic of brief.topics || []) {
+                const item = document.createElement('li');
+                const name = document.createElement('b'); name.textContent = topic.title;
+                const text = document.createElement('span'); text.textContent = topic.summary || topic.conclusion || '';
+                item.append(name, text); list.append(item);
+            }
+            if (list.children.length) content.append(list);
+        }
+        if ((brief.progress || []).length) {
+            const progress = document.createElement('div'); progress.className = 'workroom-brief-progress';
+            progress.textContent = (brief.progress || []).map(item => `${item.title} · ${item.status === 'completed' ? '已结束' : item.status}`).join('｜');
+            content.append(progress);
+        }
+        card.append(toggle, content);
+        container.append(card);
+    }
 }
 
 function newChatWindow(){
@@ -2441,8 +2514,13 @@ function beginChatRequest() {
 }
 function finishChatRequest(request) {
     if (activeChatRequest === request) activeChatRequest = null;
+    _isStreamingReply = false;
     request?.finish();
     if (window._coreStreamEnd) window._coreStreamEnd();
+    if (_saveQueued && !_savingNow) {
+        _saveQueued = false;
+        saveToCloud(true, true, true);
+    }
 }
 
 async function sendChat(options = {}) {
@@ -2468,8 +2546,8 @@ async function sendChat(options = {}) {
         workroomTarget = workroomRecipientFor(val, document.getElementById('workroomRecipient')?.value, workroomExecute);
         if (workroomExecute) {
             workroomTarget = 'codex';
-            if (!val && !session.messages.length) return toast('先说明你希望 Codex 做什么');
-            if (!val) val = '请根据工作区最近讨论执行已经明确的要求；存在歧义时先问我，不要自行扩大范围。';
+            if (!val) return toast('先写一句想交给 TT 做的事吧');
+            val = workroomExecuteText(val);
         }
         if (workroomTarget !== 'shenwang' && (workroomCodexBusy || workroomDispatching)) return toast('Codex 正在处理上一条，请等完成后再发给它；也可以切换为只和沈望聊');
     }
@@ -2525,7 +2603,14 @@ async function sendChat(options = {}) {
     const savedImages = currentImgBase64List.length > 0 ? [...currentImgBase64List] : null;
     submittedMessageId = crypto.randomUUID();
     session.messages.push({ _id: submittedMessageId, role: 'user', speaker: isWorkroomSession(session) ? 'jiangyu' : undefined, workroomTarget: isWorkroomSession(session) ? workroomTarget : undefined, versions: [{ content: val, fullTime: curFullTime, image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
-    saveToCloud(true);  // 立即保存，不延迟
+    if (uRow.dataset) {
+        uRow.dataset.msgIndex = String(session.messages.length - 1);
+        uRow.dataset.messageId = submittedMessageId;
+    } else {
+        uRow.setAttribute?.('data-msg-index', String(session.messages.length - 1));
+        uRow.setAttribute?.('data-message-id', submittedMessageId);
+    }
+    saveMessageChangesToCloud(true);  // 先写本机日志；生成结束后增量同步
 
     }  // end if (!reuseLastUser)
 
@@ -2566,6 +2651,7 @@ async function sendChat(options = {}) {
     var sDiv = null; var sRow = null; var toolHintTimer = null; var toolHintTimer2 = null;
     var assistantMsg = null;
     var fullReply = '', thinkContent = '', reasoningContent = '', rawAssistantText = '';
+    var shenReaction = null;
     const messageUsage = MessageUsage.tracker();
 
     const modelEl = document.getElementById('modelSelect');
@@ -2668,7 +2754,9 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             ...(useRollingContext ? { contextProtocol: { version: 1, mode: isFrozenCacheRoute(currentSup.url, selectedModel) ? 'frozen-v1' : 'summary-v1', sessionId: session.id, prefix: session.contextPrefix || null } } : {}),
             activeChatId: session.id,
             messages: historyMsgs,
-            stream: isStream
+            stream: isStream,
+            shenReactionEnabled,
+            ...(modelSwitchNoticeFor(session, selectedModel) ? { modelSwitchNotice: true } : {})
         };
         const payloadText = JSON.stringify(reqBody);
         console.log('[chat payload]', {
@@ -2689,6 +2777,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             }));
         }
 
+        request.mark('等待服务器响应');
         const response = await fetch(apiUrl, {
             method: 'POST',
             signal: request.signal,
@@ -2696,10 +2785,12 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${currentSup.key}`,
                 'X-Tab-Id': SYZYGY_TAB_ID,
+                'X-Request-Id': request.id,
                 ...(submittedMessageId ? { 'X-Message-Id': submittedMessageId } : {})
             },
             body: payloadText
         });
+        request.mark(isStream ? '接收流式回复' : '接收完整回复');
 
         if (!response.ok) {
             const errText = await response.text().catch(() => '');
@@ -2743,15 +2834,38 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             toolGroupEl.style.display = 'none';
             sDiv.appendChild(toolGroupEl);
 
+            let paintedReply = null;
+            const streamPaint = ChatRenderUtils.createFrameScheduler(() => {
+                // 一帧内的多个小分片只解析、重绘一次。
+                const extracted = extractThinkingFromContent(rawAssistantText);
+                fullReply = extracted.visibleContent;
+                thinkContent = [reasoningContent, extracted.thinking].filter(Boolean).join('\n\n');
+                if (thinkContent) {
+                    sRow.classList.add('has-think-marker');
+                    thinkMarker.update(thinkContent);
+                }
+                if (fullReply !== paintedReply) {
+                    mainTextDiv.innerHTML = renderMarkdown(fullReply, true) + '<span class="typing-cursor"></span>';
+                    paintedReply = fullReply;
+                }
+                scrollChatToBottomIfNear(win);
+            });
+
+            try {
             await ChatTransport.readStream(response, parsed => {
                         messageUsage.accept(parsed);
 
                         // 🔧 工具调用事件
                         if (parsed.type === 'tool_call') {
+                            request.mark('接收工具调用结果');
                             toolCallRecords.push({ name: parsed.name, arguments: parsed.arguments || {}, result: parsed.result || '', elapsed: parsed.elapsed || 0 });
                             toolGroupEl.style.display = 'block';
                             updateToolGroupDOM(toolGroupEl, toolCallRecords, true);
                             scrollChatToBottomIfNear(win);
+                            return;
+                        }
+                        if (parsed.type === 'shen_reaction') {
+                            if (!parsed.sourceMessageId || parsed.sourceMessageId === submittedMessageId) shenReaction = parsed.emoji || null;
                             return;
                         }
 
@@ -2761,13 +2875,12 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
                         if (delta.reasoning_content) {
                             thinkContent += delta.reasoning_content;
                             reasoningContent += delta.reasoning_content;
-                            sRow.classList.add('has-think-marker');
-                            thinkMarker.update(thinkContent);
-                            scrollChatToBottomIfNear(win);
+                            streamPaint.schedule();
                         }
 
                         // 2. 处理正文内容 (content) — 用累计全文解析，避免 chunk 边界截断标签
                         if (delta.content) {
+                            request.mark('接收模型回复');
                             if (!firstChunkReceived) {
                                 firstChunkReceived = true;
                                 clearTimeout(toolHintTimer);
@@ -2776,25 +2889,15 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
                                 sDiv.classList.remove('msg-loading');
                             }
                             rawAssistantText += delta.content;
-
-                            // 对累计全文解析，自动处理 <thinking>/<chain_of_thought>/<reasoning> 及未闭合标签
-                            const parsed = extractThinkingFromContent(rawAssistantText);
-                            fullReply = parsed.visibleContent;
-
-                            // 合并 API 级 reasoning_content + 文本提取的 thinking
-                            const combinedThinking = [reasoningContent, parsed.thinking].filter(Boolean).join('\n\n');
-                            if (combinedThinking) {
-                                thinkContent = combinedThinking;
-                                sRow.classList.add('has-think-marker');
-                                thinkMarker.update(thinkContent);
-                            }
-
-                            if (fullReply) mainTextDiv.innerHTML = stripDisplayTimestamp(fullReply).replace(/\n/g, '<br>') + '<span class="typing-cursor"></span>';
-                            scrollChatToBottomIfNear(win);
+                            streamPaint.schedule();
                         }
             }, () => request.touch());
+            } finally {
+                // Preserve received text even if a stop/disconnect beats the next frame.
+                streamPaint.flush();
+            }
             sDiv.querySelector('.loading-indicator')?.remove();
-            mainTextDiv.innerHTML = renderMarkdown(fullReply);
+            mainTextDiv.innerHTML = renderMarkdown(fullReply, true);
             // 流结束：将工具调用组从"正在调用"切换为"调用了 N 次"
             if (toolCallRecords.length > 0) updateToolGroupDOM(toolGroupEl, toolCallRecords, false);
 
@@ -2804,6 +2907,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             // ==========================================
             const data = await response.json();
             fullReply = data.choices[0].message.content || "";
+            shenReaction = data.syzygy_reaction?.emoji || null;
             messageUsage.accept(data);
             if (Array.isArray(data.music_tool_calls)) toolCallRecords.push(...data.music_tool_calls);
             rawAssistantText = fullReply;
@@ -2822,7 +2926,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
             const mainTextDiv = document.createElement('div');
             mainTextDiv.classList.add('md-content');
             sDiv.appendChild(mainTextDiv);
-            mainTextDiv.innerHTML = renderMarkdown(fullReply);
+            mainTextDiv.innerHTML = renderMarkdown(fullReply, true);
             if (toolCallRecords.length) {
                 const musicCards = document.createElement('div');
                 musicCards.innerHTML = renderToolCallGroupHTML(toolCallRecords, false);
@@ -2835,10 +2939,12 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
         const domThinking = stripDisplayTimestamp(thinkContent || (thinkTextDiv ? thinkTextDiv.innerText : '') || '');
         assistantMsg = { _id: crypto.randomUUID(), role: 'assistant', speaker: isWorkroomSession(session) ? 'shenwang' : undefined, versions: [{ content: fullReply, thinking: domThinking, time: timeStr, model: selectedModel, fullTime: new Date().toISOString(), rawContent: rawAssistantText, reasoning: reasoningContent || '', toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined }], activeVersion: 0 };
         assistantMsg.versions[0].messageUsage = messageUsage.finish();
-        getLiveSession(sessionId).messages.push(assistantMsg);
+        const liveSession = getLiveSession(sessionId);
+        liveSession.messages.push(assistantMsg);
+        if (shenReactionEnabled) updateUserReaction(sessionId, submittedMessageId, shenReaction, true);
         // 先存本地备份，再尝试云端同步
         // 🛡️ 拒绝备份脏兜底状态
-        saveToCloud(true);
+        saveMessageChangesToCloud(true);
         fetchPulseStatus();
         if (window._coreStreamEnd) window._coreStreamEnd();
         triggerStarEffects(val, fullReply);
@@ -2865,21 +2971,23 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
     } catch (err) {
         const stopped = request?.reason === 'user';
         const detail = stopped ? '已停止生成' : ChatTransport.errorMessage(err, request);
+        const transport = ChatTransport.diagnostics(request);
         if (fullReply || thinkContent) {
             getLiveSession(sessionId).messages.push({ _id: crypto.randomUUID(), role: 'assistant',
                 speaker: isWorkroomSession(session) ? 'shenwang' : undefined,
                 versions: [{ content: fullReply, thinking: thinkContent, rawContent: rawAssistantText,
                     reasoning: reasoningContent, model: selectedModel, fullTime: new Date().toISOString(),
-                    _interrupted: detail, toolCalls: toolCallRecords, messageUsage: messageUsage.finish() }], activeVersion: 0 });
-            saveToCloud(true);
+                    _interrupted: detail, _requestId: transport?.requestId, _interruptedStage: transport?.stage,
+                    toolCalls: toolCallRecords, messageUsage: messageUsage.finish() }], activeVersion: 0 });
+            saveMessageChangesToCloud(true);
             _renderDeferred = true;
         } else if (stopped) {
             sRow?.remove();
         } else {
+            console.warn('[chat transport interrupted]', transport);
             recordChatTransportFailure(session, sessionId, detail, selectedModel);
-            sDiv.textContent = '【通讯中断】' + detail;
+            sDiv.innerHTML = '<div>【通讯中断】' + escapeHtml(detail) + '</div><button class="msg-retry-btn" onclick="retryLastMessage()">↻ 重试</button>';
             sDiv.classList.add('msg-failed');
-            _renderDeferred = true;
         }
         toast(detail);
         if (!stopped && isWorkroomSession(session) && workroomTarget === 'all') {
@@ -2912,6 +3020,7 @@ var historyMsgs = (useRollingContext ? session.messages.slice(0, -1) : cachedCha
 let workroomCodexSocket = null;
 let workroomCodexSocketTaskId = null;
 let workroomCodexReply = '';
+let workroomCodexTimeline = [];
 let workroomCodexTurnId = null;
 let workroomCodexSavedForTurn = false;
 let workroomCodexLiveBubble = null;
@@ -2921,23 +3030,15 @@ let workroomReconnectTimer = null;
 let workroomDispatching = false;
 let workroomApprovalQueue = [];
 let workroomSending = false;
+let workroomCodexExecuting = false;
+let workroomCodexInterrupting = false;
+let workroomCodexSending = false;
 
 function recordChatTransportFailure(session, sessionId, message, model) {
-    // 工作区的网络/供应商故障属于运行状态，不写成沈望的正式发言。
-    if (isWorkroomSession(session)) {
-        toast('沈望本轮通讯中断：' + message);
-        return false;
-    }
-    // 私聊维持原有可重试的失败占位记录。
-    getLiveSession(sessionId).messages.push({
-        _id: crypto.randomUUID(),
-        role: 'assistant',
-        versions: [{ content: '【发送失败】' + message, fullTime: new Date().toISOString(), time: new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}), model, _failed: true }],
-        activeVersion: 0,
-        _failed: true
-    });
-    saveToCloud(true);
-    return true;
+    // 传输故障只是本轮运行状态：保留用户消息供重试，但绝不写入正式聊天记录。
+    console.warn('[chat transport] session=' + sessionId + ' model=' + model + ' ' + message);
+    if (isWorkroomSession(session)) toast('沈望本轮通讯中断：' + message);
+    return false;
 }
 
 function workroomRecipientFor(text, selected, execute = false) {
@@ -2945,6 +3046,13 @@ function workroomRecipientFor(text, selected, execute = false) {
     if (/^@codex(?:\s|[，,:：]|$)/i.test(text.trim())) return 'codex';
     if (/^@沈望(?:\s|[，,:：]|$)/.test(text.trim())) return 'shenwang';
     return ['all', 'shenwang', 'codex'].includes(selected) ? selected : 'all';
+}
+
+const WORKROOM_EXECUTE_BADGE = '✦ TT开工';
+function workroomExecuteText(text) {
+    const value = String(text || '').trim();
+    if (!value || value.endsWith(WORKROOM_EXECUTE_BADGE)) return value;
+    return value + '  ' + WORKROOM_EXECUTE_BADGE;
 }
 
 function workroomSpeakerHTML(speaker) {
@@ -2956,12 +3064,157 @@ function workroomVisibleReply(text) {
     return String(text || '').replace(/<work_record>[\s\S]*?(?:<\/work_record>|$)/g, '').trim();
 }
 
+function workroomCodexActivity(event) {
+    const method = String(event?.method || '');
+    const params = event?.params || {};
+    if (!method || method.includes('requestApproval')) return null;
+    const itemType = String(params.item?.type || '');
+    let kind = '';
+    if (method.startsWith('item/fileChange') || method === 'turn/diff/updated' || itemType === 'fileChange') kind = 'editing';
+    else if (method.startsWith('item/commandExecution') || itemType === 'commandExecution') {
+        const command = String(params.command || params.item?.command || params.item?.aggregatedOutput || '').toLowerCase();
+        if (/\b(test|vitest|jest|pytest|mocha|lint|typecheck|check)\b/.test(command)) kind = 'testing';
+        else if (/\b(git\s+push|gh\s+pr)\b/.test(command)) kind = 'sending';
+        else if (/\b(screenshot|chromium|chrome|playwright)\b/.test(command)) kind = 'looking';
+        else kind = 'reading';
+    } else if (itemType && !['agentMessage', 'reasoning', 'plan'].includes(itemType)) kind = 'working';
+    else if (/^item\/(?:mcpToolCall|dynamicToolCall|webSearch)/.test(method)) kind = 'working';
+    if (!kind) return null;
+    const labels = {
+        reading: 'TT 正在翻代码…', editing: 'TT 正在和小屋里的零件讲道理…', testing: 'TT 正在试一试改动…',
+        looking: 'TT 正在看看页面…', sending: 'TT 正在把改动送回小屋…', working: 'TT 正在埋头干活…'
+    };
+    return { type: 'activity', kind, text: labels[kind] };
+}
+
+function workroomCodexActivityLabel(block) {
+    const presentations = {
+        reading: ['🦉', 'TT 正在翻代码…'], editing: ['🛠️', 'TT 正在和小屋里的零件讲道理…'], testing: ['🧪', 'TT 正在试一试改动…'],
+        looking: ['🔎', 'TT 正在看看页面…'], sending: ['✨', 'TT 正在把改动送回小屋…'], working: ['🌌', 'TT 正在埋头干活…']
+    };
+    const presentation = presentations[block?.kind] || presentations.working;
+    return { emoji: presentation[0], text: presentation[1], label: presentation.join(' ') };
+}
+
+function workroomCodexActivityHTML(block, live = false) {
+    const activity = workroomCodexActivityLabel(block);
+    const letters = Array.from(activity.text).map((letter, index) => {
+        if (/\s/.test(letter)) return letter;
+        return '<span class="tt-activity-char" style="--tt-hop-order:' + index + '">' + escapeHtml(letter) + '</span>';
+    }).join('');
+    return '<div class="workroom-codex-activity is-' + escapeHtml(block.kind || 'working') + (live ? ' is-live' : '') + '" role="status" aria-label="' + escapeHtml(activity.label) + '"><span class="tt-activity-emoji" aria-hidden="true">' + activity.emoji + '</span><span class="tt-activity-letters" aria-hidden="true">' + letters + '</span></div>';
+}
+
+function workroomNormalizeCodexTimeline(timeline, fallbackText = '') {
+    const normalized = [];
+    for (const block of Array.isArray(timeline) ? timeline : []) {
+        if (block?.type === 'text' && typeof block.text === 'string' && block.text) normalized.push({ type: 'text', text: block.text });
+        else if (block?.type === 'activity') normalized.push({ type: 'activity', kind: String(block.kind || 'working') });
+    }
+    if (!normalized.length && fallbackText) normalized.push({ type: 'text', text: String(fallbackText) });
+    return normalized;
+}
+
+function workroomAppendCodexText(value) {
+    const delta = String(value || '');
+    if (!delta) return;
+    const previous = workroomCodexTimeline[workroomCodexTimeline.length - 1];
+    if (previous?.type === 'text') previous.text += delta;
+    else workroomCodexTimeline.push({ type: 'text', text: delta });
+    workroomCodexReply = workroomCodexTimeline.filter(block => block.type === 'text').map(block => block.text).join('\n\n');
+}
+
+function workroomAppendCodexActivity(event) {
+    const activity = workroomCodexActivity(event);
+    if (!activity) return false;
+    const previous = workroomCodexTimeline[workroomCodexTimeline.length - 1];
+    const params = event?.params || {};
+    const hasCommandDetail = Boolean(params.command || params.item?.command || params.item?.aggregatedOutput);
+    if (previous?.type === 'activity') {
+        if (activity.kind !== 'reading' || previous.kind === 'reading' || hasCommandDetail) Object.assign(previous, activity);
+    }
+    else workroomCodexTimeline.push(activity);
+    return true;
+}
+
+function workroomVisibleCodexTimeline(timeline, keepTrailingActivity = false) {
+    const visible = [];
+    let reachedRecord = false;
+    for (const block of workroomNormalizeCodexTimeline(timeline)) {
+        if (reachedRecord) break;
+        if (block.type === 'activity') {
+            visible.push(block);
+            continue;
+        }
+        const marker = block.text.indexOf('<work_record>');
+        const text = workroomVisibleReply(marker >= 0 ? block.text.slice(0, marker) : block.text);
+        if (text) visible.push({ type: 'text', text });
+        if (marker >= 0) reachedRecord = true;
+    }
+    if (!keepTrailingActivity) while (visible.at(-1)?.type === 'activity') visible.pop();
+    return visible;
+}
+
+function workroomCodexTimelineHTML(timeline, options = {}) {
+    const blocks = workroomVisibleCodexTimeline(timeline, options.streaming);
+    const textBlocks = blocks.filter(block => block.type === 'text');
+    const lastText = textBlocks[textBlocks.length - 1];
+    let showedSpeaker = false;
+    let html = '';
+    for (const block of blocks) {
+        if (block.type === 'activity') {
+            html += workroomCodexActivityHTML(block, Boolean(options.streaming && block === blocks.at(-1)));
+            continue;
+        }
+        const isLast = block === lastText;
+        html += '<div class="msg sys codex' + (options.streaming && isLast ? ' is-streaming' : '') + '">';
+        if (!showedSpeaker) { html += workroomSpeakerHTML('codex'); showedSpeaker = true; }
+        html += '<div class="md-content">' + renderMarkdown(block.text) + (options.streaming && isLast ? '<span class="typing-cursor"></span>' : '') + '</div>';
+        if (isLast && options.tailHTML) html += options.tailHTML;
+        html += '</div>';
+    }
+    if (!textBlocks.length && options.streaming && !blocks.length) {
+        html = '<div class="msg sys codex is-streaming">' + workroomSpeakerHTML('codex') + '<div class="md-content"><span class="loading-indicator">TT 正在理一理这件事…</span></div></div>';
+    }
+    return html;
+}
+
+function workroomRenderExecuteButton() {
+    const button = document.getElementById('workroomExecuteButton');
+    if (!button) return;
+    const activeExecution = workroomCodexExecuting && workroomCodexBusy;
+    button.classList.toggle('is-interrupt', activeExecution && !workroomCodexSending);
+    if (activeExecution && workroomDispatching) {
+        button.disabled = true;
+        button.textContent = '准备施工…';
+        button.title = '正在创建安全的施工会话';
+    } else if (activeExecution && workroomCodexInterrupting) {
+        button.disabled = true;
+        button.textContent = '正在收尾…';
+        button.title = '中止请求已经送达，正在安全结束本轮施工';
+    } else if (activeExecution && workroomCodexSending) {
+        button.disabled = true;
+        button.textContent = '正在推送…';
+        button.title = '推送期间不能中止';
+    } else if (activeExecution) {
+        button.disabled = false;
+        button.textContent = '施工中 · 中止';
+        button.title = '中止本轮施工；已经写入工作区的改动会保留';
+    } else {
+        button.disabled = Boolean(workroomDispatching || workroomCodexBusy);
+        button.innerHTML = '✦ 交给 TT <span aria-hidden="true">↗</span>';
+        button.title = '在消息末尾加上开工徽记并交给 TT';
+        button.classList.remove('is-interrupt');
+    }
+}
+
 function workroomSetCodexStatus(text, active = false) {
     const label = document.getElementById('workroomCodexStatus');
     const bar = document.getElementById('workroomCodexBar');
     if (label) label.textContent = text || 'Codex 待命';
     bar?.classList.toggle('is-active', Boolean(active));
     workroomCodexBusy = Boolean(active);
+    workroomRenderExecuteButton();
 }
 
 function workroomMessagesByRounds(messages, limit, beforeIndex = messages.length, maxChars = Infinity) {
@@ -3021,22 +3274,29 @@ function workroomEnsureLiveBubble() {
     if (!win) return null;
     const row = document.createElement('div');
     row.className = 'msg-row sys is-codex';
-    const bubble = document.createElement('div');
-    bubble.className = 'msg sys codex is-streaming';
-    bubble.innerHTML = workroomSpeakerHTML('codex') + '<div class="md-content"><span class="loading-indicator">正在进入工作区…</span></div>';
-    row.appendChild(bubble);
+    const turn = document.createElement('div');
+    turn.className = 'workroom-codex-turn';
+    row.appendChild(turn);
     win.appendChild(row);
-    win.scrollTop = win.scrollHeight;
-    workroomCodexLiveBubble = bubble;
-    return bubble;
+    workroomCodexLiveBubble = turn;
+    return turn;
 }
 
+let workroomLivePaint = null;
 function workroomUpdateLiveReply() {
-    const bubble = workroomEnsureLiveBubble();
-    const content = bubble?.querySelector('.md-content');
-    if (content) content.innerHTML = workroomVisibleReply(workroomCodexReply) ? renderMarkdown(workroomVisibleReply(workroomCodexReply)) + '<span class="typing-cursor"></span>' : '<span class="loading-indicator">Codex 正在分析并执行…</span>';
-    const win = document.getElementById('chatWindow');
-    if (win) win.scrollTop = win.scrollHeight;
+    const visible = () => activeChatId === WORKROOM_ID && !document.hidden
+        && workroomCodexTurnId && !workroomCodexSavedForTurn
+        && document.getElementById('sec-chat')?.classList.contains('active');
+    if (!visible()) return;
+    if (!workroomLivePaint) workroomLivePaint = ChatRenderUtils.createFrameScheduler(() => {
+        if (!visible()) return;
+        const win = document.getElementById('chatWindow');
+        const follow = isChatNearBottom(win);
+        const turn = workroomEnsureLiveBubble();
+        if (turn) turn.innerHTML = workroomCodexTimelineHTML(workroomCodexTimeline, { streaming: true });
+        if (win && follow) win.scrollTop = win.scrollHeight;
+    });
+    workroomLivePaint.schedule();
 }
 
 function workroomShowApproval(event) {
@@ -3046,17 +3306,27 @@ function workroomShowApproval(event) {
     workroomCodexApprovalId = params.requestId ?? null;
     const box = document.getElementById('workroomCodexApproval');
     const text = document.getElementById('workroomCodexApprovalText');
+    const summary = document.getElementById('workroomCodexApprovalSummary');
+    const details = document.getElementById('workroomCodexApprovalDetails');
     if (!box || !text || workroomCodexApprovalId === null) return;
     const command = Array.isArray(params.command) ? params.command.join(' ') : params.command;
-    text.textContent = [params.reason, command, params.cwd, params.permissions ? devDescribeCodexPermissions(params.permissions) : ''].filter(Boolean).join('\n');
+    const permissionText = params.permissions && typeof devDescribeCodexPermissions === 'function' ? devDescribeCodexPermissions(params.permissions) : '';
+    const reason = String(params.reason || '').trim().split(/\r?\n/, 1)[0];
+    const shortReason = reason.length > 96 ? reason.slice(0, 95).trimEnd() + '…' : reason;
+    if (summary) summary.textContent = shortReason || (permissionText ? '需要额外访问权限' : '需要确认一项操作');
+    text.textContent = [command && '命令\n' + command, params.cwd && '位置\n' + params.cwd, permissionText && '权限\n' + permissionText].filter(Boolean).join('\n\n') || '没有附带更多细节。';
+    if (details) details.open = false;
     box.hidden = activeChatId !== WORKROOM_ID;
     workroomSetCodexStatus('Codex 等待确认', true);
 }
 
 function workroomSaveCodexReply(status = 'completed') {
+    workroomLivePaint?.cancel();
     const room = ensureWorkroomSession();
     if (workroomCodexSavedForTurn || !workroomCodexTurnId) return;
-    const clean = workroomVisibleReply(workroomCodexReply) || (workroomCodexReply.includes('<work_record>') ? '本轮工作已结束，工作记录的保存状态请查看工作记录页。' : '');
+    const visibleTimeline = workroomVisibleCodexTimeline(workroomCodexTimeline);
+    const clean = visibleTimeline.filter(block => block.type === 'text').map(block => block.text).join('\n\n')
+        || (workroomCodexReply.includes('<work_record>') ? '本轮工作已结束，工作记录的保存状态请查看工作记录页。' : '');
     const messageId = 'codex:' + room.codexTaskId + ':' + workroomCodexTurnId;
     if (clean && !room.messages.some(message => message._id === messageId)) {
         room.messages.push({
@@ -3068,6 +3338,7 @@ function workroomSaveCodexReply(status = 'completed') {
                 fullTime: new Date().toISOString(),
                 time: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
                 model: 'codex',
+                codexTimeline: visibleTimeline.length ? visibleTimeline : [{ type: 'text', text: clean }],
                 _failed: status === 'failed'
             }],
             activeVersion: 0,
@@ -3083,7 +3354,9 @@ function workroomSaveCodexReply(status = 'completed') {
 }
 
 function workroomDiscardCodexReply() {
+    workroomLivePaint?.cancel();
     workroomCodexReply = '';
+    workroomCodexTimeline = [];
     workroomCodexTurnId = null;
     workroomCodexSavedForTurn = false;
     workroomCodexLiveBubble = null;
@@ -3134,28 +3407,50 @@ function workroomHandleCodexEvent(event) {
     }
     if (method === 'codex/queued') {
         workroomSetCodexStatus('Codex 正在连接工作区', true);
-        workroomEnsureLiveBubble();
+        workroomUpdateLiveReply();
+        return;
+    }
+    if (method === 'codex/interrupt-requested') {
+        workroomCodexInterrupting = true;
+        workroomSetCodexStatus('正在中止，保留已经完成的修改', true);
         return;
     }
     if (method === 'codex/started') {
         workroomCodexTurnId = params.turnId || workroomCodexTurnId || ('turn-' + Date.now());
         workroomCodexReply = '';
+        workroomCodexTimeline = [];
         workroomCodexSavedForTurn = false;
+        workroomCodexInterrupting = false;
+        workroomCodexSending = false;
         workroomSetCodexStatus('Codex 正在工作', true);
         workroomUpdateLiveReply();
         return;
     }
     if (method === 'item/agentMessage/delta') {
-        workroomCodexReply += String(params.delta || params.text || '');
+        workroomAppendCodexText(params.delta || params.text || '');
         workroomUpdateLiveReply();
         return;
     }
     if (method.startsWith('item/commandExecution')) {
+        if (workroomAppendCodexActivity(event)) workroomUpdateLiveReply();
+        const activity = workroomCodexActivity(event);
+        if (method.endsWith('/completed') && workroomCodexSending) {
+            workroomCodexSending = false;
+            workroomRenderExecuteButton();
+        } else if (activity?.kind === 'sending') {
+            workroomCodexSending = true;
+            workroomRenderExecuteButton();
+        }
         workroomSetCodexStatus('Codex 正在执行命令', true);
         return;
     }
     if (method.startsWith('item/fileChange') || method === 'turn/diff/updated') {
+        if (workroomAppendCodexActivity(event)) workroomUpdateLiveReply();
         workroomSetCodexStatus('Codex 正在修改工作区', true);
+        return;
+    }
+    if (method === 'item/started' || method === 'item/completed' || method.startsWith('item/mcpToolCall') || method.startsWith('item/dynamicToolCall') || method.startsWith('item/webSearch')) {
+        if (workroomAppendCodexActivity(event)) workroomUpdateLiveReply();
         return;
     }
     if (method.startsWith('item/reasoning') || method === 'item/plan/delta') {
@@ -3166,7 +3461,10 @@ function workroomHandleCodexEvent(event) {
         const status = params.turn?.status || 'completed';
         if (status === 'failed') workroomDiscardCodexReply();
         else workroomSaveCodexReply(status);
-        workroomSetCodexStatus(status === 'failed' ? 'Codex 执行失败' : 'Codex 已完成', false);
+        workroomCodexInterrupting = false;
+        workroomCodexSending = false;
+        workroomCodexExecuting = false;
+        workroomSetCodexStatus(status === 'failed' ? 'Codex 执行失败' : status === 'interrupted' ? '已中止 · 施工现场已保留' : 'Codex 已完成', false);
         return;
     }
     if (method === 'codex/error' || method === 'codex/protocol-error') {
@@ -3181,6 +3479,8 @@ function workroomHandleCodexMessage(message) {
     const room = ensureWorkroomSession();
     if (message.type === 'codex_snapshot') {
         room.codexTaskId = message.task?.id || room.codexTaskId;
+        workroomCodexExecuting = message.task?.mode === 'workspaceWrite' && ['starting', 'running'].includes(message.task?.status);
+        workroomCodexInterrupting = Boolean(message.task?.interruptRequested);
         const mode = document.getElementById('workroomCodexMode');
         if (mode && message.task?.mode) mode.value = message.task.mode;
         if (mode) mode.disabled = Boolean(room.codexTaskId);
@@ -3191,6 +3491,7 @@ function workroomHandleCodexMessage(message) {
             const reply = message.reply;
             workroomCodexTurnId = reply.turnId;
             workroomCodexReply = reply.text || '';
+            workroomCodexTimeline = workroomNormalizeCodexTimeline(reply.timeline, workroomCodexReply);
             workroomCodexSavedForTurn = room.codexLastTurnId === reply.turnId;
             if (reply.status === 'running') {
                 workroomSetCodexStatus('Codex 正在工作', true);
@@ -3200,7 +3501,9 @@ function workroomHandleCodexMessage(message) {
                 workroomSetCodexStatus('Codex 执行失败', false);
             } else {
                 workroomSaveCodexReply(reply.status);
-                workroomSetCodexStatus('Codex 已完成', false);
+                workroomCodexExecuting = false;
+                workroomCodexInterrupting = false;
+                workroomSetCodexStatus(reply.status === 'interrupted' ? '已中止 · 施工现场已保留' : 'Codex 已完成', false);
             }
             (message.approvals || []).forEach(workroomShowApproval);
             return;
@@ -3216,13 +3519,21 @@ function workroomHandleCodexMessage(message) {
         const running = message.task?.status === 'running' || message.task?.status === 'starting';
         if (startIndex >= 0) events.slice(startIndex).forEach(workroomHandleCodexEvent);
         if (running && startIndex < 0) workroomSetCodexStatus('Codex 正在工作', true);
-        if (!running && startIndex < 0) workroomSetCodexStatus('Codex 待命', false);
+        if (!running && startIndex < 0) {
+            workroomCodexExecuting = false;
+            workroomCodexInterrupting = false;
+            workroomSetCodexStatus(message.task?.status === 'interrupted' ? '已中止 · 施工现场已保留' : 'Codex 待命', false);
+        }
         (message.approvals || []).forEach(workroomShowApproval);
         return;
     }
     if (message.type === 'codex_event') workroomHandleCodexEvent(message.event);
-    if (message.type === 'codex_state' && message.task?.status === 'failed') {
-        workroomSetCodexStatus('Codex 执行失败', false);
+    if (message.type === 'codex_state') {
+        workroomCodexExecuting = message.task?.mode === 'workspaceWrite' && ['starting', 'running'].includes(message.task?.status);
+        workroomCodexInterrupting = Boolean(message.task?.interruptRequested);
+        if (message.task?.status === 'failed') workroomSetCodexStatus('Codex 执行失败', false);
+        else if (message.task?.status === 'interrupted') workroomSetCodexStatus('已中止 · 施工现场已保留', false);
+        else workroomRenderExecuteButton();
     }
     if (message.type === 'codex_error') {
         if (message.code === 'TASK_NOT_FOUND') {
@@ -3279,6 +3590,9 @@ function workroomConnectCodex(taskId, sendAfterOpen = false, payload = null, tas
 async function workroomDispatchToCodex(userText, shenwangText, images = [], execute = false) {
     if (workroomDispatching) return toast('正在连接 Codex，请稍候再发送');
     workroomDispatching = true;
+    workroomCodexExecuting = Boolean(execute);
+    workroomCodexInterrupting = false;
+    workroomCodexSending = false;
     const room = ensureWorkroomSession();
     const prompt = workroomPrompt(userText, shenwangText, execute);
     workroomSetCodexStatus('正在把两人的想法交给 Codex', true);
@@ -3313,10 +3627,35 @@ async function workroomDispatchToCodex(userText, shenwangText, images = [], exec
             return;
         }
     } catch (error) {
+        workroomCodexExecuting = false;
         workroomSetCodexStatus('Codex 未能接入', false);
         toast('Codex 未能接入：' + error.message);
     } finally {
         workroomDispatching = false;
+        workroomRenderExecuteButton();
+    }
+}
+
+function workroomExecuteOrInterrupt() {
+    if (workroomCodexExecuting && workroomCodexBusy) return workroomInterruptCodex();
+    return sendChat({ workroomExecute: true });
+}
+
+async function workroomInterruptCodex() {
+    if (workroomCodexSending) return toast('正在推送，等这一小步结束后才能中止');
+    if (workroomCodexInterrupting) return;
+    const taskId = ensureWorkroomSession().codexTaskId;
+    if (!taskId) return toast('没有找到正在施工的任务');
+    workroomCodexInterrupting = true;
+    workroomSetCodexStatus('正在中止，保留已经完成的修改', true);
+    try {
+        const response = await fetch('/api/codex/tasks/' + encodeURIComponent(taskId) + '/interrupt', { method: 'POST' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || '中止请求没有送达');
+    } catch (error) {
+        workroomCodexInterrupting = false;
+        workroomSetCodexStatus('中止失败，Codex 仍在工作', true);
+        toast('没能中止：' + error.message);
     }
 }
 
@@ -3356,6 +3695,7 @@ function renderSuppliers(){
             </div>
         </div>`;
     }).join('');
+    window.shenSettingsRefreshOverview?.();
 }
 
 function editSupplier(index){
@@ -3366,36 +3706,148 @@ function cancelEditSupplier(index){
     document.getElementById('supEdit-' + index).hidden = true;
 }
 
-function saveEditSupplier(index){
+let providerSettingsSaving = false;
+async function persistProviderSettings() {
+    if (providerSettingsSaving) throw new Error('接口设置正在保存，请稍候');
+    providerSettingsSaving = true;
+    try {
+        const response = await fetch('/api/provider-settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ suppliers, activeSupIndex }),
+            cache: 'no-store',
+            keepalive: true
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success !== true || !data._version) throw new Error(data.message || '服务端没有确认保存');
+        acceptDataVersion(data._version);
+        return data;
+    } finally {
+        providerSettingsSaving = false;
+    }
+}
+
+async function saveEditSupplier(index){
     const name = document.getElementById('supEditName-' + index).value.trim();
     const url  = document.getElementById('supEditUrl-' + index).value.trim();
     const key  = document.getElementById('supEditKey-' + index).value.trim();
     if(!name || !url) return toast('名称和URL不能为空');
+    const previous = { ...suppliers[index] };
     suppliers[index] = { name, url, key };
-    saveToCloud(); renderSuppliers(); toast('已保存'); fetchModels();
+    renderSuppliers();
+    try {
+        await persistProviderSettings();
+        toast('接口与 API Key 已保存');
+        fetchModels();
+    } catch (error) {
+        suppliers[index] = previous;
+        renderSuppliers();
+        toast('保存失败：' + error.message);
+    }
 }
 
-function addSupplier(){
+async function addSupplier(){
     const name = document.getElementById('supName').value.trim();
     const url  = document.getElementById('supUrl').value.trim();
     const key  = document.getElementById('supKey').value.trim();
     if(!name || !url || !key) return toast('请填全信息');
     suppliers.push({ name, url, key });
-    saveToCloud(); renderSuppliers(); toast('供应商已添加');
-    document.getElementById('supName').value = '';
-    document.getElementById('supUrl').value  = '';
-    document.getElementById('supKey').value  = '';
+    renderSuppliers();
+    try {
+        await persistProviderSettings();
+        document.getElementById('supName').value = '';
+        document.getElementById('supUrl').value  = '';
+        document.getElementById('supKey').value  = '';
+        toast('供应商已保存');
+    } catch (error) {
+        suppliers.pop();
+        renderSuppliers();
+        toast('保存失败：' + error.message);
+    }
 }
 
-function setActiveSupplier(index){
-    activeSupIndex = index; saveToCloud(true); renderSuppliers(); toast('已切换'); fetchModels();
+async function setActiveSupplier(index){
+    const previous = activeSupIndex;
+    activeSupIndex = index; renderSuppliers();
+    try {
+        await persistProviderSettings();
+        toast('已切换并保存'); fetchModels();
+    } catch (error) {
+        activeSupIndex = previous; renderSuppliers(); toast('切换失败：' + error.message);
+    }
 }
 
-function deleteSupplier(index){
+async function deleteSupplier(index){
     if(suppliers.length <= 1) return toast('至少保留一个');
+    const previousSuppliers = suppliers.map(item => ({ ...item }));
+    const previousActive = activeSupIndex;
     suppliers.splice(index, 1);
     if(activeSupIndex >= suppliers.length) activeSupIndex = 0;
-    saveToCloud(); renderSuppliers();
+    renderSuppliers();
+    try {
+        await persistProviderSettings();
+        toast('接口已删除');
+    } catch (error) {
+        suppliers = previousSuppliers; activeSupIndex = previousActive; renderSuppliers(); toast('删除失败：' + error.message);
+    }
+}
+
+async function shenReactionToggleChanged(toggle) {
+    const previous = shenReactionEnabled;
+    const next = Boolean(toggle?.checked);
+    shenReactionEnabled = next;
+    toggle.disabled = true;
+    renderChatMessages();
+    const status = document.getElementById('shenReactionStatus');
+    if (status) status.textContent = '正在保存…';
+    try {
+        const response = await fetch('/api/chat-preferences', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ shenReactionEnabled: next }),
+            cache: 'no-store',
+            keepalive: true
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success !== true || !data._version) throw new Error(data.message || '服务端没有确认保存');
+        acceptDataVersion(data._version);
+        if (status) status.textContent = next ? '已开启；沈望想回应时会悄悄盖一枚小章。' : '已关闭；历史表情仍保留，重新开启就会回来。';
+    } catch (error) {
+        shenReactionEnabled = previous;
+        syncShenReactionToggle();
+        renderChatMessages();
+        if (status) status.textContent = '保存失败：' + error.message;
+    } finally {
+        toggle.disabled = false;
+    }
+}
+
+async function modelSwitchNoticeToggleChanged(toggle) {
+    const previous = modelSwitchNoticeEnabled;
+    const next = Boolean(toggle?.checked);
+    modelSwitchNoticeEnabled = next;
+    toggle.disabled = true;
+    const status = document.getElementById('modelSwitchNoticeStatus');
+    if (status) status.textContent = '正在保存…';
+    try {
+        const response = await fetch('/api/chat-preferences', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ modelSwitchNoticeEnabled: next }),
+            cache: 'no-store',
+            keepalive: true
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success !== true || !data._version) throw new Error(data.message || '服务端没有确认保存');
+        acceptDataVersion(data._version);
+        syncModelSwitchNoticeToggle();
+    } catch (error) {
+        modelSwitchNoticeEnabled = previous;
+        syncModelSwitchNoticeToggle();
+        if (status) status.textContent = '保存失败：' + error.message;
+    } finally {
+        toggle.disabled = false;
+    }
 }
 
 function modelListCacheId(supplier){
@@ -3481,6 +3933,7 @@ async function fetchModels(){
         }
     } finally {
         clearTimeout(timeout);
+        window.shenSettingsRefreshOverview?.();
     }
 }
 
@@ -3943,17 +4396,10 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-        // 1. 自动长高魔法 - 优化性能版本
-        let resizeRaf = null;
+        // 1. 自动长高魔法
         chatInput.addEventListener('input', function() {
-            // 使用 requestAnimationFrame 避免频繁触发重排
-            if (resizeRaf) cancelAnimationFrame(resizeRaf);
-            const self = this;
-            resizeRaf = requestAnimationFrame(() => {
-                self.style.height = '46px'; // 先重置
-                self.style.height = (self.scrollHeight) + 'px'; // 根据内容撑开
-                resizeRaf = null;
-            });
+            this.style.height = '46px'; // 先重置
+            this.style.height = (this.scrollHeight) + 'px'; // 根据内容撑开
         });
 
         // 2. 回车发送，Shift+回车换行
@@ -4072,7 +4518,7 @@ function toggleLightMode() { enforceNeuTheme(); }
 // ==================== 终极点火装置 ====================
 function enforceNeuTheme() {
     document.body.classList.add('neu-mode');
-    document.body.dataset.visualTheme = getVisualTheme();
+    document.body.dataset.visualTheme = 'new';
     const metaTheme = document.getElementById('theme-color-meta');
     if (metaTheme) metaTheme.setAttribute('content', getVisualThemeColor());
 }
@@ -4238,10 +4684,8 @@ async function revealEarlierChatMessages() {
     if (!state?.hasMore || state.start <= 0) return;
     _historyLoading = true;
     try {
-        const response = await fetch('/api/chat-history/' + encodeURIComponent(session.id)
-            + '?before=' + encodeURIComponent(state.start) + '&limit=' + CHAT_HISTORY_PAGE_SIZE, { cache: 'no-store' });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        const data = await response.json();
+        const data = await ChatPersistence.requestJson('/api/chat-history/' + encodeURIComponent(session.id)
+            + '?before=' + encodeURIComponent(state.start) + '&limit=' + CHAT_HISTORY_PAGE_SIZE);
         if (data._version !== _dataVersion) {
             await resyncAndMerge('history-version-change');
             toast('聊天记录刚刚更新，请再向上翻一次');
@@ -4400,10 +4844,10 @@ function switchVersion(msgIndex, direction) {
     if (newIdx >= msg.versions.length) newIdx = msg.versions.length - 1;
     msg.activeVersion = newIdx;
     if (msg.role === 'assistant') msg._zepDirty = true;
-    saveToCloud(); renderChatMessages();
+    saveMessageChangesToCloud(); renderChatMessages();
 }
 
-function editUserMessage(msgIndex) {
+async function editUserMessage(msgIndex) {
     if (activeChatRequest || _isStreamingReply) return toast('请先点击方块停止生成，再编辑消息');
     const session = getActiveSession();
     const msg = session.messages[msgIndex];
@@ -4415,22 +4859,22 @@ function editUserMessage(msgIndex) {
     msg.versions.push({ content: newContent.trim(), fullTime: new Date().toISOString(), image: v.image, images: v.images });
     msg.activeVersion = msg.versions.length - 1;
     session.messages.splice(msgIndex + 1);
-    saveToCloud();
+    await saveToCloud(true);
     renderChatMessages();
     sendChat({ reuseLastUser: true });
 }
 
-function resendUserMessage(msgIndex) {
+async function resendUserMessage(msgIndex) {
     if (activeChatRequest || _isStreamingReply) return toast('请先点击方块停止生成，再重新发送');
     const session = getActiveSession();
     const msg = session.messages[msgIndex];
     if (!msg || msg.role !== 'user') return;
     session.messages.splice(msgIndex + 1);
-    saveToCloud(); renderChatMessages();
+    await saveToCloud(true); renderChatMessages();
     sendChat({ reuseLastUser: true });
 }
 
-function regenerateAt(msgIndex) {
+async function regenerateAt(msgIndex) {
     if (_isStreamingReply || activeChatRequest) { toast('请先停止当前回复，再重新生成'); return; }
     const session = getActiveSession();
     const msg = session.messages[msgIndex];
@@ -4439,7 +4883,7 @@ function regenerateAt(msgIndex) {
     ensureVersioned(msg);
     session.messages.splice(msgIndex + 1);
     window._regenerateTargetIndex = msgIndex;
-    saveToCloud(); renderChatMessages();
+    await saveToCloud(true); renderChatMessages();
     regenerateSend(msgIndex);
 }
 
@@ -4451,7 +4895,8 @@ async function regenerateSend(aiMsgIndex) {
     const aiMsgId = aiMsg && (aiMsg._id || aiMsg.id);
     const win = document.getElementById('chatWindow');
     let userText = '';
-    for (let i = aiMsgIndex - 1; i >= 0; i--) { if (session.messages[i].role === 'user') { userText = getActiveVersion(session.messages[i]).content || ''; break; } }
+    let sourceUserMessageId = null;
+    for (let i = aiMsgIndex - 1; i >= 0; i--) { if (session.messages[i].role === 'user') { userText = getActiveVersion(session.messages[i]).content || ''; sourceUserMessageId = session.messages[i]._id || session.messages[i].id || null; break; } }
     const targetRow = win.querySelector('.msg-row[data-msg-index="' + aiMsgIndex + '"]');
     if (!targetRow) return;
     const sDiv = targetRow.querySelector('.msg.sys');
@@ -4468,7 +4913,7 @@ async function regenerateSend(aiMsgIndex) {
     // 与普通发送一致：生成期间不要让同步把当前会话替换成旧快照。
     _isStreamingReply = true;
     const request = beginChatRequest();
-    let fullReply = '', thinkContent = '', rawAcc = '', reasoningAcc = '';
+    let fullReply = '', thinkContent = '', rawAcc = '', reasoningAcc = '', shenReaction = null;
     const messageUsage = MessageUsage.tracker();
     const toolCallRecords = [];
     try {
@@ -4505,44 +4950,63 @@ async function regenerateSend(aiMsgIndex) {
         const isStream = streamToggle ? streamToggle.checked : true;
         request.signal.throwIfAborted();
         request.touch();
-        const response = await fetch(apiUrl, { method:'POST', signal:request.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID}, body:JSON.stringify({model:selectedModel,cacheClientVersion:2,messages:historyMsgs,stream:isStream,activeChatId:session.id,...(useRollingContext?{contextProtocol:{version:1,mode:isFrozenCacheRoute(currentSup.url,selectedModel)?'frozen-v1':'summary-v1',sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
+        request.mark('等待服务器响应');
+        const response = await fetch(apiUrl, { method:'POST', signal:request.signal, headers:{'Content-Type':'application/json','Authorization':'Bearer '+currentSup.key,'X-No-Memory':'true','X-Tab-Id':SYZYGY_TAB_ID,'X-Request-Id':request.id,...(sourceUserMessageId?{'X-Message-Id':sourceUserMessageId}:{})}, body:JSON.stringify({model:selectedModel,cacheClientVersion:2,messages:historyMsgs,stream:isStream,activeChatId:session.id,shenReactionEnabled,...(modelSwitchNoticeFor(session, selectedModel)?{modelSwitchNotice:true}:{}),...(useRollingContext?{contextProtocol:{version:1,mode:isFrozenCacheRoute(currentSup.url,selectedModel)?'frozen-v1':'summary-v1',sessionId:session.id,prefix:session.contextPrefix||null}}:{})}) });
+        request.mark(isStream ? '接收流式回复' : '接收完整回复');
         if (!response.ok) { const err = await response.text(); sDiv.innerHTML = '<div class="msg-error"><div>【通讯中断】</div><div class="msg-error-detail">'+err.substring(0,200)+'</div><button class="msg-retry-btn" onclick="regenerateAt('+aiMsgIndex+')">↻ 重试</button></div>'; sDiv.classList.remove('msg-loading'); return; }
         if(isStream) {
             sDiv.innerHTML='<span class="loading-indicator">⟡ 正在等待回复…</span>';
             const mainTextDiv=document.createElement('div'); mainTextDiv.classList.add('md-content'); sDiv.appendChild(mainTextDiv);
             const toolGroupEl=document.createElement('div'); toolGroupEl.className='tool-call-group-wrap'; toolGroupEl.style.display='none'; sDiv.appendChild(toolGroupEl);
+            let paintedReply = null;
+            const streamPaint=ChatRenderUtils.createFrameScheduler(() => {
+                const parsed=extractThinkingFromContent(rawAcc);
+                fullReply=parsed.visibleContent;
+                thinkContent=[reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n');
+                if(thinkContent){targetRow.classList.add('has-think-marker');thinkMarker.update(thinkContent);}
+                if (fullReply !== paintedReply) {
+                    mainTextDiv.innerHTML=renderMarkdown(fullReply,true)+'<span class="typing-cursor"></span>';
+                    paintedReply = fullReply;
+                }
+                scrollChatToBottomIfNear(win);
+            });
+            try {
             await ChatTransport.readStream(response, p => {
                 messageUsage.accept(p);
                 if (p.type === 'tool_call') {
+                    request.mark('接收工具调用结果');
                     toolCallRecords.push({name:p.name, arguments:p.arguments||{}, result:p.result||'', elapsed:p.elapsed||0});
                     toolGroupEl.style.display='block';
                     updateToolGroupDOM(toolGroupEl,toolCallRecords,true);
                     return;
                 }
+                if (p.type === 'shen_reaction') {
+                    if (!p.sourceMessageId || p.sourceMessageId === sourceUserMessageId) shenReaction = p.emoji || null;
+                    return;
+                }
                 const d = p.choices?.[0]?.delta || {};
-                if (d.reasoning_content) reasoningAcc += d.reasoning_content;
-                if (d.content) { rawAcc += d.content; sDiv.querySelector('.loading-indicator')?.remove(); }
-                const parsed = extractThinkingFromContent(rawAcc);
-                fullReply = parsed.visibleContent;
-                thinkContent = [reasoningAcc,parsed.thinking].filter(Boolean).join('\n\n');
-                if (thinkContent) { targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent); }
-                mainTextDiv.innerHTML=renderMarkdown(fullReply)+'<span class="typing-cursor"></span>';
-                scrollChatToBottomIfNear(win);
+                if (d.reasoning_content) { reasoningAcc += d.reasoning_content; streamPaint.schedule(); }
+                if (d.content) { request.mark('接收模型回复'); rawAcc += d.content; sDiv.querySelector('.loading-indicator')?.remove(); streamPaint.schedule(); }
             }, () => request.touch());
+            } finally {
+                streamPaint.flush();
+            }
             sDiv.querySelector('.loading-indicator')?.remove();
-            mainTextDiv.innerHTML=renderMarkdown(fullReply);
+            mainTextDiv.innerHTML=renderMarkdown(fullReply,true);
             if(toolCallRecords.length>0)updateToolGroupDOM(toolGroupEl,toolCallRecords,false);
-        } else { const data=await response.json(); messageUsage.accept(data); fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){thinkMarker.element.hidden=false; targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply);sDiv.appendChild(mtd); }
+        } else { const data=await response.json(); messageUsage.accept(data); shenReaction=data.syzygy_reaction?.emoji||null; fullReply=data.choices[0].message.content||''; const ext=extractThinkingFromContent(fullReply); if(ext.thinking){thinkContent=ext.thinking;fullReply=ext.visibleContent;} sDiv.innerHTML=''; if(thinkContent){thinkMarker.element.hidden=false; targetRow.classList.add('has-think-marker'); thinkMarker.update(thinkContent);} const mtd=document.createElement('div');mtd.classList.add('md-content');mtd.innerHTML=renderMarkdown(fullReply,true);sDiv.appendChild(mtd); }
         sDiv.classList.remove('msg-loading');
         const timeStr=new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
         const liveSession = getLiveSession(sessionId) || session;
         const liveAiMsg = aiMsgId ? liveSession.messages.find(m => (m._id || m.id) === aiMsgId) : liveSession.messages[aiMsgIndex];
         if (!liveAiMsg) throw new Error('重新生成的目标消息已不在当前会话中');
         ensureVersioned(liveAiMsg); liveAiMsg.versions.push({content:fullReply,thinking:stripDisplayTimestamp(thinkContent),time:timeStr,model:selectedModel,fullTime:new Date().toISOString(), messageUsage: messageUsage.finish(), toolCalls: toolCallRecords.length > 0 ? toolCallRecords : undefined}); liveAiMsg.activeVersion=liveAiMsg.versions.length-1; liveAiMsg._zepDirty=true;
-        saveToCloud(); renderChatMessages();
+        if (shenReactionEnabled) updateUserReaction(sessionId, sourceUserMessageId, shenReaction, true);
+        saveMessageChangesToCloud(); renderChatMessages();
     } catch (err) {
         const stopped = request.reason === 'user';
         const detail = stopped ? '已停止生成' : ChatTransport.errorMessage(err, request);
+        const transport = ChatTransport.diagnostics(request);
         if (fullReply || thinkContent) {
             const liveSession = getLiveSession(sessionId) || session;
             const liveAiMsg = aiMsgId ? liveSession.messages.find(m => (m._id || m.id) === aiMsgId) : liveSession.messages[aiMsgIndex];
@@ -4550,10 +5014,11 @@ async function regenerateSend(aiMsgIndex) {
                 ensureVersioned(liveAiMsg);
                 liveAiMsg.versions.push({content:fullReply,thinking:thinkContent,rawContent:rawAcc,reasoning:reasoningAcc,
                     model:document.getElementById('modelSelect')?.value,fullTime:new Date().toISOString(),
-                    _interrupted:detail,toolCalls:toolCallRecords,messageUsage:messageUsage.finish()});
+                    _interrupted:detail,_requestId:transport?.requestId,_interruptedStage:transport?.stage,
+                    toolCalls:toolCallRecords,messageUsage:messageUsage.finish()});
                 liveAiMsg.activeVersion=liveAiMsg.versions.length-1;
                 liveAiMsg._zepDirty=true;
-                saveToCloud(true);
+                saveMessageChangesToCloud(true);
             }
         }
         // A cancelled empty regeneration leaves the previous version intact.
@@ -4613,31 +5078,12 @@ function retryLastMessage(btn) {
     const core = document.getElementById('resonanceCore');
     const input = document.getElementById('chatInput');
     if (!core || !input) return;
-
     let typingTimer;
-    let starCanvas = document.getElementById('starmap');
-    let starPaused = false;
-
     input.addEventListener('input', () => {
         core.classList.remove('syzygy-typing'); core.classList.add('user-typing');
-
-        // 输入时暂停星空动画，提升性能
-        if (starCanvas && !starPaused) {
-            starCanvas.dataset.motion = 'paused-typing';
-            starPaused = true;
-        }
-
         clearTimeout(typingTimer);
-        typingTimer = setTimeout(() => {
-            core.classList.remove('user-typing');
-            // 停止输入 1.5 秒后恢复星空动画
-            if (starCanvas && starPaused) {
-                starCanvas.dataset.motion = 'animated';
-                starPaused = false;
-            }
-        }, 1500);
+        typingTimer = setTimeout(() => core.classList.remove('user-typing'), 1500);
     });
-
     window._coreStreamStart = () => { core.classList.remove('user-typing'); core.classList.add('syzygy-typing'); };
     window._coreStreamEnd = () => core.classList.remove('syzygy-typing');
 })();
@@ -4808,7 +5254,7 @@ async function toggleFavorite(index) {
         if (!r.ok || !d.success) throw new Error(d.error || '取消收藏失败');
         _favCache = _favCache.filter(f => f.id !== msg._favoriteId);
         msg._favoriteId = null;
-        saveToCloud();
+        saveMessageChangesToCloud();
         renderChatMessages();
         toast('已取消收藏');
     } catch (e) {
@@ -4852,7 +5298,7 @@ async function confirmFavorite() {
             closeFavModal();
             aiMsg._favoriteId = d.favorite?.id || true;
             if (d.favorite) _favCache.unshift(normalizeFavoriteRecord(d.favorite));
-            saveToCloud();
+            saveMessageChangesToCloud();
             renderChatMessages();
         } else {
             toast('收藏失败: ' + (d.error || '未知'));
@@ -5064,8 +5510,13 @@ function buildSavePayload() {
     return JSON.stringify({ suppliers: suppliers, chatSessions: clone, activeSupIndex: activeSupIndex, activeChatId: activeChatId, _version: _dataVersion, _historyWindows: historyWindowsForPayload(clone) });
 }
 
+function buildIncrementalSavePayload() {
+    const sessions = prepareIncrementalChatPatch();
+    return sessions.length ? JSON.stringify({ _version: _dataVersion, sessions }) : null;
+}
+
 document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) { resyncIfStale('visible'); }
+    if (!document.hidden) { resyncIfStale('visible'); workroomUpdateLiveReply(); }
     else {
         saveLocalBackup();
         // An idle page must not advance the shared version merely because iOS
@@ -5073,9 +5524,16 @@ document.addEventListener('visibilitychange', function () {
         if (hasUnsavedCloudChanges() && !_savingNow) {
             clearTimeout(_saveTimer);
             _saveTimer = null;
-            const payload = buildSavePayload();
+            // Never start an upload beside a live generation stream. The local
+            // journal already makes these messages recoverable after suspension.
+            if ((typeof activeChatRequest !== 'undefined' && activeChatRequest)
+                || (typeof _isStreamingReply !== 'undefined' && _isStreamingReply)) return;
+            const hasSaveEpochs = typeof _fullSaveCommittedEpoch !== 'undefined' && typeof _fullSaveRequiredEpoch !== 'undefined';
+            const needsFullSave = !hasSaveEpochs || _fullSaveCommittedEpoch < _fullSaveRequiredEpoch;
+            const payload = needsFullSave ? buildSavePayload() : buildIncrementalSavePayload();
             if (payload) {
-                try { navigator.sendBeacon('/api/sync-config', new Blob([payload], { type: 'application/json' })); } catch(_) {}
+                const endpoint = needsFullSave ? '/api/sync-config' : '/api/chat-messages';
+                try { navigator.sendBeacon(endpoint, new Blob([payload], { type: 'application/json' })); } catch(_) {}
             }
         }
     }
