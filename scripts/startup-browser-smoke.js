@@ -10,6 +10,7 @@ const { WebSocketServer } = require('ws');
 const directory = path.resolve(__dirname, '..');
 const baseline = process.argv.includes('--baseline');
 const workroomBriefOnly = process.argv.includes('--workroom-brief-only');
+const frontendReliefOnly = process.argv.includes('--frontend-relief-only');
 const baselineRef = process.env.AUDIT_BASE_REF || '83317fb';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function verifyWorkroomBrief(page) {
@@ -136,7 +137,61 @@ async function main() {
                 console.log('Workroom brief starts collapsed, toggles open and closed, and fits the mobile viewport.');
                 return;
             }
-            assert.equal(await page.evaluate(() => document.querySelector('#starmap')?.dataset.motion), 'animated');
+            assert.equal(await page.evaluate(() => document.querySelector('#starmap')?.dataset.motion || ''), '', 'legacy starfield does not start a permanent paint loop');
+            if (frontendReliefOnly) {
+                const effects = await page.evaluate(async () => {
+                    const html = document.documentElement, previousTheme = html.dataset.visualTheme;
+                    html.dataset.visualTheme = 'legacy';
+                    triggerStarEffects('我爱沈望', '回应');
+                    const canvas = document.querySelector('#starmap'), context = canvas.getContext('2d');
+                    const x = Math.round(canvas.width * .5), y = Math.round(canvas.height * .4);
+                    const paintedAlpha = context.getImageData(x, y, 1, 1).data[3];
+                    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                    const clearedAlpha = context.getImageData(x, y, 1, 1).data[3];
+                    html.dataset.visualTheme = previousTheme;
+                    return { paintedAlpha, clearedAlpha };
+                });
+                assert.ok(effects.paintedAlpha > 0, 'message-triggered nebula still paints on demand');
+                assert.equal(effects.clearedAlpha, 0, 'one-shot chat effect clears without a permanent frame loop');
+                const resonance = await page.evaluate(async () => {
+                    const core = document.querySelector('#resonanceCore'), input = document.querySelector('#chatInput');
+                    let mutations = 0;
+                    const observer = new MutationObserver(records => { mutations += records.length; });
+                    observer.observe(core, { attributes: true, attributeFilter: ['class'] });
+                    for (let index = 0; index < 20; index++) input.dispatchEvent(new Event('input'));
+                    await new Promise(resolve => setTimeout(resolve, 260));
+                    observer.disconnect();
+                    return { mutations, userTyping: core.classList.contains('user-typing') };
+                });
+                assert.ok(resonance.mutations <= 4, 'resonance core DOM updates are throttled');
+                assert.equal(resonance.userTyping, true, 'trailing input keeps the resonance pulse current');
+                const glass = await page.evaluate(async () => {
+                    const toastNode = document.querySelector('#toast');
+                    const initialToast = getComputedStyle(toastNode).backdropFilter;
+                    toastNode.classList.add('show');
+                    const visibleToast = getComputedStyle(toastNode).backdropFilter;
+                    toastNode.classList.add('is-hiding'); toastNode.classList.remove('show');
+                    const closingToast = getComputedStyle(toastNode).backdropFilter;
+                    toastNode.classList.remove('is-hiding');
+                    await togglePhysioPanel();
+                    const panel = document.querySelector('#physioPanel');
+                    const openPanel = getComputedStyle(panel).backdropFilter;
+                    await togglePhysioPanel();
+                    const closingPanel = getComputedStyle(panel).backdropFilter;
+                    await new Promise(resolve => setTimeout(resolve, 340));
+                    const closedPanel = getComputedStyle(panel).backdropFilter;
+                    return { initialToast, visibleToast, closingToast, openPanel, closingPanel, closedPanel };
+                });
+                assert.equal(glass.initialToast, 'none');
+                assert.match(glass.visibleToast, /blur\(12px\)/);
+                assert.equal(glass.closingToast, glass.visibleToast, 'toast keeps its glass through the exit animation');
+                assert.match(glass.openPanel, /blur\(5px\)/);
+                assert.equal(glass.closingPanel, glass.openPanel, 'drawer keeps its glass through the exit animation');
+                assert.equal(glass.closedPanel, 'none');
+                assert.deepEqual(errors, []);
+                console.log('Legacy starfield stays idle, chat effects still paint on demand, resonance updates are throttled, and hidden glass layers stop filtering after exit.');
+                return;
+            }
             for (const endpoint of ['/api/tools-status', '/api/mcp/servers', '/api/toy-status']) assert.equal(requests.includes(endpoint), false);
             await page.waitForFunction(() => document.querySelector('#modelSelect')?.value === 'fixture-model');
             modelReplyMode = 'slow-error';
@@ -187,10 +242,6 @@ async function main() {
             await page.waitForFunction(() => document.querySelector('#stateView')?.textContent === '还没有记录过状态');
             assert.equal(resources.filter(url => url.includes('/home-tools.js?v=1')).length, 1, 'secondary script loads once across tool pages');
             assert.equal(resources.filter(url => url.includes('/home-tools.css?v=1')).length, 1, 'secondary stylesheet loads once across tool pages');
-            await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-            await page.waitForFunction(() => document.querySelector('#starmap')?.dataset.motion === 'static');
-            await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
-            await page.waitForFunction(() => document.querySelector('#starmap')?.dataset.motion === 'animated');
             console.log('Desktop/mobile navigation, Markdown rendering and on-demand device refresh passed.');
         }
         assert.deepEqual(errors, []);

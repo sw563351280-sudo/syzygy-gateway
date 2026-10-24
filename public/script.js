@@ -1,76 +1,3 @@
-// ==================== 星空状态 ====================
-const starState = { pendingMeteor: false, pendingNebula: false };
-
-// ==================== 浪漫星空背景 ====================
-(function(){
-    const c=document.getElementById('starmap');
-    if(!c) return;
-    const x=c.getContext('2d');
-    const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
-    const mobile=document.documentElement.classList.contains('is-mobile-device');
-    let w,h,stars=[],trails=[],frameId=0,running=false,lastPaint=0;
-    function resize(){w=c.width=innerWidth;h=c.height=innerHeight;if(reducedMotion.matches&&stars.length)draw(false)}
-    window.addEventListener('resize',resize); resize();
-
-    const starColors=['rgba(201,169,97,','rgba(212,197,160,','rgba(255,255,255,'];
-    for(let i=0;i<(mobile?42:80);i++) stars.push({
-        x:Math.random()*w, y:Math.random()*h,
-        r:Math.random()*1.5+0.3, a:Math.random()*Math.PI*2,
-        speed:0.005+Math.random()*0.015,
-        color:starColors[Math.floor(Math.random()*starColors.length)]
-    });
-    for(let i=0;i<3;i++) trails.push({
-        cx:Math.random()*w, cy:Math.random()*h*0.6,
-        rx:150+Math.random()*300, ry:80+Math.random()*150,
-        rot:Math.random()*Math.PI,
-        opacity:0.015+Math.random()*0.025,
-        lineWidth:0.5+Math.random()*1.5
-    });
-
-    function draw(animate){
-        x.clearRect(0,0,w,h);
-        trails.forEach(t=>{
-            x.save(); x.translate(t.cx,t.cy); x.rotate(t.rot); x.beginPath();
-            x.ellipse(0,0,t.rx,t.ry,0,0,Math.PI*1.4);
-            x.strokeStyle=`rgba(201,169,97,${t.opacity})`; x.lineWidth=t.lineWidth;
-            x.shadowColor='rgba(201,169,97,0.1)'; x.shadowBlur=15; x.stroke(); x.restore();
-        });
-        stars.forEach(s=>{
-            if(animate)s.a+=s.speed; const alpha=Math.abs(Math.sin(s.a))*0.7+0.15;
-            x.beginPath(); x.arc(s.x,s.y,s.r,0,Math.PI*2);
-            x.fillStyle=s.color+alpha+')';
-            if(!mobile){x.shadowColor=s.color+'0.3)';x.shadowBlur=s.r*4}
-            x.fill(); x.shadowBlur=0;
-        });
-        if (starState.pendingMeteor) { drawMeteor(x, w, h); starState.pendingMeteor = false; }
-        if (starState.pendingNebula) { drawNebula(x, w, h); starState.pendingNebula = false; }
-    }
-    function frame(time){
-        if(!running)return;
-        if(!mobile||time-lastPaint>=33){draw(true);lastPaint=time}
-        frameId=requestAnimationFrame(frame);
-    }
-    function stop(){
-        running=false;
-        if(frameId)cancelAnimationFrame(frameId);
-        frameId=0;
-        c.dataset.motion='paused';
-    }
-    function start(){
-        stop();
-        if(document.documentElement.dataset.visualTheme==='new'){x.clearRect(0,0,w,h);return}
-        if(reducedMotion.matches){draw(false);c.dataset.motion='static';return}
-        if(document.hidden)return;
-        running=true;c.dataset.motion='animated';frameId=requestAnimationFrame(frame);
-    }
-    document.addEventListener('visibilitychange',()=>document.hidden?stop():start());
-    new MutationObserver(start).observe(document.documentElement,{attributes:true,attributeFilter:['data-visual-theme']});
-    new MutationObserver(start).observe(document.body,{attributes:true,attributeFilter:['data-view']});
-    if(reducedMotion.addEventListener)reducedMotion.addEventListener('change',start);
-    else if(reducedMotion.addListener)reducedMotion.addListener(start);
-    start();
-})();
-
 // ==================== Markdown 渲染 ====================
 if (typeof marked !== 'undefined') { marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false }); }
 function stripInternalTags(text) { return (text||'').replace(/<MOOD_SNAPSHOT>[\s\S]*?<\/MOOD_SNAPSHOT>/g, '').replace(/\[\[MOOD_SNAPSHOT\]\][\s\S]*?\[\[MOOD_SNAPSHOT\]\]/g, '').replace(/<\s*CRUMB\s*>[\s\S]*?<\s*\/\s*CRUMB\s*>/gi, '').replace(/<\s*SAVE_MEMORY\b[^>]*>[\s\S]*?<\s*\/\s*SAVE_MEMORY\s*>/gi, '').replace(/<ADD_TODO>[\s\S]*?<\/ADD_TODO>/g, '').replace(/<DONE_TODO[^>]*\/>/g, '').trim(); }
@@ -127,20 +54,6 @@ function ensureVersioned(msg) {
     delete msg.segments;
     delete msg.segTimes;
     delete msg.segImages;
-}
-
-function drawMeteor(ctx, w, h) {
-    const sx = Math.random() * w * 0.7 + w * 0.15, sy = Math.random() * h * 0.3;
-    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - 80, sy + 40);
-    ctx.stroke();
-    ctx.beginPath(); ctx.arc(sx, sy, 2, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
-    ctx.restore();
-}
-function drawNebula(ctx, w, h) {
-    ctx.save(); const g = ctx.createRadialGradient(w * 0.5, h * 0.4, 40, w * 0.5, h * 0.4, 300);
-    g.addColorStop(0, 'rgba(79,195,247,0.06)'); g.addColorStop(0.5, 'rgba(201,169,97,0.03)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); ctx.restore();
 }
 
 // ==================== WebSocket 实时推送 ====================
@@ -1136,8 +1049,12 @@ function onModelChange(sel){
 function toast(msg){
     const t = document.getElementById('toast');
     if(!t) return;
-    t.innerText = msg; t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), 2800);
+    clearTimeout(t._hideTimer); clearTimeout(t._settleTimer);
+    t.innerText = msg; t.classList.remove('is-hiding'); t.classList.add('show');
+    t._hideTimer = setTimeout(() => {
+        t.classList.add('is-hiding'); t.classList.remove('show');
+        t._settleTimer = setTimeout(() => t.classList.remove('is-hiding'), 400);
+    }, 2800);
 }
 
 const VIEW_ASSET_BUNDLES = { ledger:'home-tools', calendar:'home-tools', album:'home-tools', state:'home-tools' };
@@ -4561,7 +4478,16 @@ async function togglePhysioPanel() {
         if (chatMain) chatMain.appendChild(panel);
     }
 
-    const isOpen = panel.classList.toggle('open');
+    clearTimeout(panel._closeTimer);
+    const isOpen = !panel.classList.contains('open');
+    if (isOpen) {
+        panel.classList.remove('is-closing');
+        panel.classList.add('open');
+    } else {
+        panel.classList.add('is-closing');
+        panel.classList.remove('open');
+        panel._closeTimer = setTimeout(() => panel.classList.remove('is-closing'), 300);
+    }
     if (isOpen) {
         await fetchPulseStatus();
         renderPhysioPanel();
@@ -5078,13 +5004,30 @@ function retryLastMessage(btn) {
     const core = document.getElementById('resonanceCore');
     const input = document.getElementById('chatInput');
     if (!core || !input) return;
-    let typingTimer;
-    input.addEventListener('input', () => {
+    const throttleMs = 180;
+    let typingTimer, trailingTimer, lastPulseAt = -Infinity;
+    function showUserTyping() {
+        trailingTimer = null;
+        lastPulseAt = performance.now();
         core.classList.remove('syzygy-typing'); core.classList.add('user-typing');
         clearTimeout(typingTimer);
         typingTimer = setTimeout(() => core.classList.remove('user-typing'), 1500);
+    }
+    input.addEventListener('input', () => {
+        const wait = throttleMs - (performance.now() - lastPulseAt);
+        if (wait <= 0) {
+            clearTimeout(trailingTimer);
+            showUserTyping();
+            return;
+        }
+        clearTimeout(trailingTimer);
+        trailingTimer = setTimeout(showUserTyping, wait);
     });
-    window._coreStreamStart = () => { core.classList.remove('user-typing'); core.classList.add('syzygy-typing'); };
+    window._coreStreamStart = () => {
+        clearTimeout(trailingTimer);
+        clearTimeout(typingTimer);
+        core.classList.remove('user-typing'); core.classList.add('syzygy-typing');
+    };
     window._coreStreamEnd = () => core.classList.remove('syzygy-typing');
 })();
 
@@ -5127,11 +5070,35 @@ async function fetchPulseStatus() {
     } catch(e) {}
 }
 
+function drawMeteor(ctx, w, h) {
+    const sx = Math.random() * w * 0.7 + w * 0.15, sy = Math.random() * h * 0.3;
+    ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx - 80, sy + 40);
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(sx, sy, 2, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+    ctx.restore();
+}
+function drawNebula(ctx, w, h) {
+    ctx.save(); const g = ctx.createRadialGradient(w * 0.5, h * 0.4, 40, w * 0.5, h * 0.4, 300);
+    g.addColorStop(0, 'rgba(79,195,247,0.06)'); g.addColorStop(0.5, 'rgba(201,169,97,0.03)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); ctx.restore();
+}
+function paintStarEffects({ meteor, nebula }) {
+    if ((!meteor && !nebula) || document.documentElement.dataset.visualTheme === 'new') return;
+    const canvas = document.getElementById('starmap');
+    const context = canvas?.getContext('2d');
+    if (!context) return;
+    const width = canvas.width = innerWidth, height = canvas.height = innerHeight;
+    context.clearRect(0, 0, width, height);
+    if (meteor) drawMeteor(context, width, height);
+    if (nebula) drawNebula(context, width, height);
+    requestAnimationFrame(() => requestAnimationFrame(() => context.clearRect(0, 0, width, height)));
+}
 function triggerStarEffects(userText, aiText) {
-    if (userText && userText.length > 100) starState.pendingMeteor = true;
+    const meteor = Boolean((userText && userText.length > 100) || (aiText && aiText.length > 300));
     const loveWords = ['爱', '爸爸', '沈望', '想你', '永远', '在一起', '老公'];
-    if (userText && loveWords.some(w => userText.includes(w))) starState.pendingNebula = true;
-    if (aiText && aiText.length > 300) starState.pendingMeteor = true;
+    const nebula = Boolean(userText && loveWords.some(w => userText.includes(w)));
+    paintStarEffects({ meteor, nebula });
 }
 
 // ═══ 页面关闭前兜底冲刷脏数据 ═══
