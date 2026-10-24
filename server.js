@@ -27,6 +27,7 @@ const { prepareProviderRequest: prepareCachedRequest, supportsBlockCache, cacheA
 const { createCachedToolPolicy, appendToolHint, executeAllowedTool } = require('./cached-tool-policy');
 const { usesNativeCache } = require('./anthropic-cache');
 const { fetchCachedProvider } = require('./provider-transport');
+const { createXhsMcp, readTools: xhsReadTools, READ_TOOLS: XHS_READ_TOOLS, compactToolResult: compactXhsToolResult } = require('./xhs-mcp');
 const cacheHistoryWindow = require('./cache-history-window').createCacheHistoryWindow();
 const { createRollingContext, fileStore, createSummarizer } = require('./rolling-context');
 const { budgetDynamicParts } = require('./dynamic-budget');
@@ -4803,6 +4804,8 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
     const alwaysTools = allTools.filter(t => ALWAYS_AVAILABLE_TOOLS.has(t.function?.name));
     const optionalTools = allTools.filter(t => !ALWAYS_AVAILABLE_TOOLS.has(t.function?.name) && !MUSIC_TOOL_NAMES.includes(t.function?.name));
     const textLower = (userText || '').toLowerCase();
+    const xhsTools = /小红书|xiaohongshu|xhslink|逛逛|逛一下|搜笔记/i.test(textLower)
+        ? optionalTools.filter(t => t._mcp === 'xiaohongshu') : [];
     // "查一下"、"看一下" 这类日常说法不能当成代码请求；否则模型会
     // 带着一整套文件工具去翻源码，既慢又容易答偏。
     const hasCodeKW = hasProjectFileIntent(textLower);
@@ -4825,13 +4828,13 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
     const toyTools = hasToyIntent ? optionalTools.filter(t => TOY_TOOLS.has(t.function?.name)) : [];
 
     if (forceToolChoice) {
-        const result = [...alwaysTools, ...mcpFileTools, ...toyTools, ...allTools.filter(t => hasCodeKW && CODE_TOOLS.has(t.function?.name))];
+        const result = [...alwaysTools, ...mcpFileTools, ...toyTools, ...xhsTools, ...allTools.filter(t => hasCodeKW && CODE_TOOLS.has(t.function?.name))];
         console.log(`🔧 [工具筛选] 强制模式→${result.length}个工具`);
         return result;
     }
 
     // 剩余可选工具按关键词评分
-    const remaining = optionalTools.filter(t => !MCP_READ_ONLY.has(t.function?.name) && !TOY_TOOLS.has(t.function?.name) && t.function?.name !== 'get_health_summary');
+    const remaining = optionalTools.filter(t => t._mcp !== 'xiaohongshu' && !MCP_READ_ONLY.has(t.function?.name) && !TOY_TOOLS.has(t.function?.name) && t.function?.name !== 'get_health_summary');
     const scored = remaining.map(t => {
         const name = (t.function?.name || '').toLowerCase();
         const desc = (t.function?.description || '').toLowerCase();
@@ -4843,7 +4846,7 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
     });
     const relevant = scored.filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, 8).map(s => s.tool);
 
-    const result = [...alwaysTools, ...mcpFileTools, ...toyTools, ...healthTools, ...relevant];
+    const result = [...alwaysTools, ...mcpFileTools, ...toyTools, ...healthTools, ...xhsTools, ...relevant];
     console.log(`🔧 [工具筛选] ${alwaysTools.length}轻量 + ${mcpFileTools.length}MCP只读 + ${relevant.length}可选: ${relevant.map(t => t.function?.name).join(',') || '(无)'}`);
     return result;
 }
@@ -4852,6 +4855,8 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
 const MCP_SERVERS = [
     { name: 'filesystem', transport: 'stdio', command: 'node', args: ['node_modules/@modelcontextprotocol/server-filesystem/dist/index.js', '/opt/syzygy'] }
 ];
+const xhsMcp = createXhsMcp();
+if (xhsMcp.config) MCP_SERVERS.push(xhsMcp.config);
 // 动态插入 toy server（仅在环境变量配置时）
 if (process.env.TOY_MCP_URL && process.env.TOY_MCP_TOKEN) {
     MCP_SERVERS.push({
@@ -4941,7 +4946,7 @@ async function _startHttpMCPServer(config) {
     try {
         await client.connect(transport);
         const result = await client.listTools();
-        const tools = (result.tools || []).map(t => ({
+        const tools = (config.name === 'xiaohongshu' ? xhsReadTools(result.tools || []) : (result.tools || [])).map(t => ({
             type: 'function',
             function: { name: t.name, description: t.description || '', parameters: t.inputSchema || { type: 'object', properties: {} } },
             _mcp: config.name
@@ -4955,13 +4960,16 @@ async function _startHttpMCPServer(config) {
             lastError: null,
             async send(method, params) {
                 if (method === 'tools/call') {
-                    const r = await client.callTool({ name: params.name, arguments: params.arguments || {} });
+                    if (config.name === 'xiaohongshu' && !XHS_READ_TOOLS.has(params.name)) throw new Error('小红书仅开放读取功能');
+                    const invoke = () => client.callTool({ name: params.name, arguments: params.arguments || {} }, undefined, { timeout: 90000 });
+                    const r = config.name === 'xiaohongshu' ? await xhsMcp.serialize(invoke) : await invoke();
                     return { result: r };
                 }
                 throw new Error(`Unsupported method: ${method}`);
             }
         };
         mcpConnections.set(config.name, conn);
+        if (config.name === 'xiaohongshu') xhsMcp.checkLogin().catch(() => {});
         console.log(`🔌 [MCP] ${config.name} 已连接 (HTTP)，发现${tools.length}个工具: ${tools.map(t => t.function?.name || t.name).join(', ')}`);
         return conn;
     } catch (e) {
@@ -4988,6 +4996,7 @@ async function callMCPTool(serverName, toolName, args) {
     // CallToolResult directly. Keep both shapes readable so a valid MCP reply
     // never turns into an empty tool message in the chat.
     const payload = result?.result || result || {};
+    if (serverName === 'xiaohongshu') return compactXhsToolResult(toolName, payload);
     const content = Array.isArray(payload.content) ? payload.content : [];
     const text = content
         .map(c => c?.text || (c ? JSON.stringify(c) : ''))
@@ -6948,6 +6957,20 @@ async function extractPersonalizedXhsCandidates(page) {
     return [...unique.values()].slice(0, 40);
 }
 
+function recordXhsCandidates(candidates, state, now) {
+    if (!candidates.length) throw new Error('已打开个性化首页，但没有解析到推荐卡片');
+    const inbox = mergeFeedCandidates(loadXhsFeedInbox(now), candidates, now);
+    saveXhsFeedInbox(inbox);
+    scheduleNextCollection(state, now);
+    state.last_collect_at = now.toISOString();
+    state.last_collect_count = candidates.length;
+    state.last_error = null;
+    saveXhsWalkState(state);
+    saveXhsBrowserState({ login_status: 'logged_in', last_login_check_at: now.toISOString(), last_collect_at: now.toISOString(), last_collect_count: candidates.length, last_error: null });
+    console.log(`📕 [小红书首页] 收入 ${candidates.length} 条个性化推荐，候选池共 ${inbox.items.length} 条`);
+    return { collected: candidates.length, inbox: inbox.items.length };
+}
+
 async function collectPersonalizedXhsFeed(force = false) {
     if (process.env.XHS_WALK_ENABLED === 'false') return { skipped: 'disabled' };
     if (XHS_COLLECT_RUNNING) return { skipped: 'running' };
@@ -6956,6 +6979,7 @@ async function collectPersonalizedXhsFeed(force = false) {
     if (!force && state.next_collect_at && now.getTime() < state.next_collect_at) return { skipped: 'not_due' };
     XHS_COLLECT_RUNNING = true;
     try {
+        if (xhsMcp.enabled) return recordXhsCandidates(await xhsMcp.collect(), state, now);
         return await queueXhsBrowserTask(async () => {
             const page = await getXhsBrowserPage();
             await navigateXhsPage(page, 'https://www.xiaohongshu.com/explore', '个性化首页');
@@ -6974,17 +6998,7 @@ async function collectPersonalizedXhsFeed(force = false) {
                 return { error: loginStatus };
             }
             const candidates = await extractPersonalizedXhsCandidates(page);
-            if (!candidates.length) throw new Error('已打开个性化首页，但没有解析到推荐卡片');
-            const inbox = mergeFeedCandidates(loadXhsFeedInbox(now), candidates, now);
-            saveXhsFeedInbox(inbox);
-            scheduleNextCollection(state, now);
-            state.last_collect_at = now.toISOString();
-            state.last_collect_count = candidates.length;
-            state.last_error = null;
-            saveXhsWalkState(state);
-            saveXhsBrowserState({ login_status: 'logged_in', last_login_check_at: now.toISOString(), last_collect_at: now.toISOString(), last_collect_count: candidates.length, last_error: null });
-            console.log(`📕 [小红书首页] 收入 ${candidates.length} 条个性化推荐，候选池共 ${inbox.items.length} 条`);
-            return { collected: candidates.length, inbox: inbox.items.length };
+            return recordXhsCandidates(candidates, state, now);
         });
     } catch (error) {
         state.last_error = error.message;
@@ -7000,6 +7014,7 @@ async function collectPersonalizedXhsFeed(force = false) {
 }
 
 async function readXhsNoteFromLoggedInBrowser(url) {
+    if (xhsMcp.enabled) return xhsMcp.readNote(url);
     return queueXhsBrowserTask(async () => {
         const page = await getXhsBrowserPage();
         await navigateXhsPage(page, url, '笔记详情');
@@ -7418,7 +7433,7 @@ async function getXhsNoteCached(url) {
                 },
             });
         } catch (error) {
-            if (loadXhsBrowserState().login_status !== 'logged_in') throw error;
+            if (!xhsMcp.enabled && loadXhsBrowserState().login_status !== 'logged_in') throw error;
             console.log(`📕 [XHS] 匿名读取失败，改用已登录浏览器读取: ${error.message}`);
             note = await readXhsNoteFromLoggedInBrowser(readUrl);
         }
@@ -7575,19 +7590,20 @@ app.get('/api/xhs-card', async (req, res) => {
 app.get('/api/xhs-walk/status', (req, res) => {
     const state = loadXhsWalkState();
     const inbox = loadXhsFeedInbox();
-    const browser = loadXhsBrowserState();
+    const browser = xhsMcp.enabled ? xhsMcp.snapshot() : loadXhsBrowserState();
     const wake = loadAdaptiveWakeState();
     res.json({
         enabled: process.env.XHS_WALK_ENABLED !== 'false',
         running: XHS_WALK_RUNNING,
         collecting: XHS_COLLECT_RUNNING,
         login_starting: Boolean(xhsLoginSessionTask),
-        chromium_ready: Boolean(resolveXhsChromeExecutable()),
+        chromium_ready: xhsMcp.enabled ? mcpConnections.has('xiaohongshu') : Boolean(resolveXhsChromeExecutable()),
+        backend: xhsMcp.enabled ? 'mcp' : 'browser',
         login_status: browser.login_status || 'unknown',
         login_click: browser.login_click || null,
         login_candidates: browser.login_candidates || [],
         login_task_error: browser.login_task_error || null,
-        login_screenshot_url: fs.existsSync(XHS_LOGIN_SCREENSHOT_FILE) ? `/api/xhs-session/screenshot?v=${Date.now()}` : null,
+        login_screenshot_url: (xhsMcp.enabled ? browser.hasQr : fs.existsSync(XHS_LOGIN_SCREENSHOT_FILE)) ? `/api/xhs-session/screenshot?v=${Date.now()}` : null,
         inbox_count: inbox.items.length,
         unseen_count: inbox.items.filter(item => item.status === 'unseen').length,
         scans_today: state.scans_today,
@@ -7611,6 +7627,7 @@ app.get('/xhs-session-import', (req, res) => {
 
 app.post('/api/xhs-session/import-cookie', async (req, res) => {
     res.set('Cache-Control', 'no-store');
+    if (xhsMcp.enabled) return res.status(409).json({ error: '当前使用服务器小红书 MCP，请在小红书散步页面扫码登录' });
     try {
         if (xhsLoginSessionTask) {
             return res.status(409).json({ success: false, error: '扫码登录任务仍在运行，请稍后再导入' });
@@ -7638,6 +7655,11 @@ app.post('/api/xhs-session/import-cookie', async (req, res) => {
 });
 
 app.post('/api/xhs-session/start', async (req, res) => {
+    if (xhsMcp.enabled) {
+        res.set('Cache-Control', 'no-store');
+        try { return res.json({ success: true, ...await xhsMcp.startLogin(), screenshot_url: `/api/xhs-session/screenshot?v=${Date.now()}` }); }
+        catch (error) { return res.status(502).json({ error: error.message }); }
+    }
     const started = beginXhsLoginSession();
     const browserState = loadXhsBrowserState();
     res.status(202).json({
@@ -7651,6 +7673,10 @@ app.post('/api/xhs-session/start', async (req, res) => {
 
 app.post('/api/xhs-session/check', async (req, res) => {
     try {
+        if (xhsMcp.enabled) {
+            res.set('Cache-Control', 'no-store');
+            return res.json({ success: true, ...await xhsMcp.checkLogin() });
+        }
         if (xhsLoginSessionTask) {
             return res.status(202).json({
                 success: true,
@@ -7675,6 +7701,12 @@ app.post('/api/xhs-session/check', async (req, res) => {
 });
 
 app.get('/api/xhs-session/screenshot', (req, res) => {
+    if (xhsMcp.enabled) {
+        const qr = xhsMcp.qrImage();
+        if (!qr) return res.status(404).json({ error: '二维码已过期，请重新打开扫码页' });
+        res.set('Cache-Control', 'no-store');
+        return res.type(qr.mime).send(qr.buffer);
+    }
     if (!fs.existsSync(XHS_LOGIN_SCREENSHOT_FILE)) return res.status(404).json({ error: '还没有登录截图' });
     res.set('Cache-Control', 'no-store');
     res.sendFile(XHS_LOGIN_SCREENSHOT_FILE);
