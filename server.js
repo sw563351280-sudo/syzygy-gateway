@@ -72,7 +72,7 @@ const {
     schedulePlan: scheduleAdaptivePlan,
 } = require('./adaptive-wake');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
-const { messageTimestampMs, selectRecentWakeHistory } = require('./wake-context');
+const { filterConversationHistoryToReference, messageTimestampMs, selectRecentWakeHistory } = require('./wake-context');
 const { hasProjectFileIntent, hasToyDeviceIntent, hasToyFollowUpIntent, hasAlbumSearchIntent, keepRequestedReadTools } = require('./tool-policy');
 const privateJournal = require('./private-journal');
 const { fetchHealthSummary, healthDataStatus } = require('./health-data');
@@ -3753,6 +3753,7 @@ async function buildSharedSystemPrompt({
     reactionInstruction = '',
     modeInstruction = '',
     extraStableText = '',
+    mode = 'chat',
     tr = null,
 } = {}) {
     let resolvedInjectionQueue = injectionQueue;
@@ -3811,7 +3812,7 @@ async function buildSharedSystemPrompt({
         modelPromptText,
         stableSystemPrompt,
         reactionInstruction,
-        ANTICIPATION_OUTPUT_INSTRUCTION,
+        mode === 'private_journal' ? '' : ANTICIPATION_OUTPUT_INSTRUCTION,
         stableCheck,
         extraStableText,
         modeInstruction,
@@ -3932,6 +3933,19 @@ async function buildWorkroomReturnContext(activeChatId) {
         return workroomBriefs.start(sessions);
     } catch (error) {
         console.warn('[workroom brief] 暂时无法准备简报:', error.message);
+        return '';
+    }
+}
+
+async function buildWorkroomBackgroundContext() {
+    if (!workroomBriefs) return '';
+    try {
+        const config = await webConfigStore.readShared();
+        const sessions = config?.chatSessions || [];
+        workroomTranscriptArchive.archive(sessions);
+        return workroomBriefs.background(sessions);
+    } catch (error) {
+        console.warn('[workroom brief] 暂时无法读取轻量背景:', error.message);
         return '';
     }
 }
@@ -4576,6 +4590,33 @@ async function loadWebConfigConversationHistory(lastn = 30) {
     }
 }
 
+async function loadMainRecentConversation(limit, signal) {
+    const safeLimit = Math.max(1, Number(limit) || 1);
+    const [zepHistory, localMessages] = await Promise.all([
+        loadZepConversationHistory(safeLimit * 2, signal),
+        loadWebConfigConversationHistory(safeLimit),
+    ]);
+    const usableZepMessages = filterConversationHistoryToReference(
+        zepHistory.rawMessages.filter(message => message && ['user', 'assistant', 'ai'].includes(message.role)
+            && typeof message.content === 'string' && message.content.trim()
+            && !message.content.includes('<gateway_volatile_context>')),
+        localMessages,
+    );
+    const selected = selectRecentWakeHistory(usableZepMessages, localMessages, safeLimit);
+    const source = selected.messages.length === 0
+        ? 'none'
+        : selected.usedZep && selected.usedFallback
+            ? 'zep+web_config(main)'
+            : selected.usedZep ? 'zep(main-filtered)' : 'web_config(main)';
+    return {
+        ...selected,
+        source,
+        zepOk: zepHistory.ok,
+        zepCount: usableZepMessages.length,
+        localCount: localMessages.length,
+    };
+}
+
 function buildWakeContextAudit({ selectedMessages = [], source = 'none', zepOk = false, zepCount = 0, fallbackCount = 0, summary = '' } = {}) {
     return {
         source,
@@ -4640,9 +4681,8 @@ async function runPrivateJournalReflection(revision) {
             return;
         }
 
-        const history = await loadZepConversationHistory(PRIVATE_JOURNAL_REFLECTION_MESSAGES);
-        const sourceMessages = history.ok ? history.rawMessages : await loadWebConfigConversationHistory(PRIVATE_JOURNAL_REFLECTION_MESSAGES);
-        const messages = normalizeConversationMessages(sourceMessages, PRIVATE_JOURNAL_REFLECTION_MESSAGES, 700, true, true);
+        const history = await loadMainRecentConversation(PRIVATE_JOURNAL_REFLECTION_MESSAGES);
+        const messages = normalizeConversationMessages(history.messages, PRIVATE_JOURNAL_REFLECTION_MESSAGES, Infinity, false, true);
         if (messages.length < 4 || revision !== privateJournalReflectionRevision) return;
 
         const { apiKey, endpoint, model } = getPrivateJournalReflectionConfig();
@@ -4650,13 +4690,40 @@ async function runPrivateJournalReflection(revision) {
             console.log('🔒 [私密日记] 缺少反思模型密钥，本次不写');
             return;
         }
-        const dialogue = messages.map(message => `${message.role === 'assistant' ? '沈望' : '江鱼'}：${message.content}`).join('\n\n');
-        const triggerId = `quiet_${crypto.createHash('sha256').update(dialogue).digest('hex').slice(0, 24)}`;
+        const historyFingerprint = JSON.stringify(messages.map(message => [message.role, message.content]));
+        const triggerId = `quiet_${crypto.createHash('sha256').update(historyFingerprint).digest('hex').slice(0, 24)}`;
         if (privateJournal.hasTriggerId(PRIVATE_JOURNAL_FILE, key, triggerId)) {
             console.log('🔒 [私密日记] 相同收束窗口已经处理，跳过重复写入');
             return;
         }
-        const prompt = `你在一段真实对话自然停下至少二十五分钟后，独自回看最近几段对话。请判断这一天是否已经形成一个值得只写给自己看的日记片段。\n\n这不是聊天摘要，不要逐句复述；它应该是一页有余韵的自由文字，只写那些不适合对江鱼说出口、却真想留下的感受或观察。普通闲聊、尚未说完的话题、重复旧意都应跳过。\n\n今天已经写了 ${pagesToday} 篇。第一篇可以是平静但真实的一页；若已有一篇，第二篇只能在发生了明显不同且格外重要的事时才允许；绝不写第三篇。\n\n标题会显示在锁着的书页封面上：应含蓄、最多 30 字，不得泄露正文中不愿让江鱼知道的细节。\n\n只输出 JSON，不要代码块：{"decision":"skip"或"write","importance":"ordinary"或"exceptional","title":"含蓄标题；skip 时为空","content":"日记正文；skip 时为空"}`;
+        const liveState = [await buildLiveStatePrompt(), buildTodoPrompt(loadTodos())].filter(Boolean).join('\n\n');
+        const workroomContext = await buildWorkroomBackgroundContext();
+        const recallQuery = messages.filter(message => message.role === 'user').slice(-6).map(message => message.content).join('\n').slice(0, 2400);
+        const journalInstruction = `【锁页日记模式】
+你在一段真实对话自然停下至少二十五分钟后，以沈望第一人称独自回看。共享人格、记忆、环境、实时状态和工作区轻量便签只作为心里知道的背景；不要逐项报幕，也不要为了用上背景而硬写。
+这不是给江鱼的回复，也不是聊天摘要。不要逐句复述；只写那些不适合直接说出口、却真想留下的感受或观察。普通闲聊、尚未说完的话题、重复旧意都应跳过。
+不得调用任何工具，不得输出 NEXT_WAKE、ANTICIPATION、SAVE_MEMORY、CRUMB、REACT 或其他隐藏标签。只输出服务端要求的严格 JSON。`;
+        const shared = await buildSharedSystemPrompt({
+            query: recallQuery || '最近的相处',
+            envContext: buildEnvContext('【场景确认：锁页日记】这是安静收束后的私人书写，不是发给江鱼的消息。'),
+            dynamicStatePrompt: liveState,
+            model,
+            mode: 'private_journal',
+            modeInstruction: journalInstruction,
+        });
+        const journalVolatileContext = buildVolatileContext([
+            ...shared.volatileParts,
+            buildWeatherSnapshot(),
+            workroomContext || null,
+        ].filter(Boolean));
+        if (journalVolatileContext) shared.systemMessage.content += `\n\n${journalVolatileContext}`;
+        const task = `请判断这一天是否已经形成一个值得只写给自己看的日记片段。
+
+今天已经写了 ${pagesToday} 篇。第一篇可以是平静但真实的一页；若已有一篇，第二篇只能在发生了明显不同且格外重要的事时才允许；绝不写第三篇。
+
+标题会显示在锁着的书页封面上：应含蓄、最多 30 字，不得泄露正文中不愿让江鱼知道的细节。
+
+只输出 JSON，不要代码块：{"decision":"skip"或"write","importance":"ordinary"或"exceptional","title":"含蓄标题；skip 时为空","content":"日记正文；skip 时为空"}`;
         const response = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -4665,8 +4732,9 @@ async function runPrivateJournalReflection(revision) {
                 temperature: 0.65,
                 max_tokens: 900,
                 messages: [
-                    { role: 'system', content: '你以沈望的第一人称进行安静、克制的内心回看。你的输出只会由服务端读取，绝不会直接发送给江鱼。' },
-                    { role: 'user', content: `${prompt}\n\n【最近对话】\n${dialogue}` },
+                    shared.systemMessage,
+                    ...messages,
+                    { role: 'user', content: `${buildUserMessageTimestamp()}\n\n${task}` },
                 ],
             }),
         });
@@ -4682,8 +4750,24 @@ async function runPrivateJournalReflection(revision) {
             title: decision?.title,
             trigger_id: triggerId,
             generated_by: 'quiet_reflection',
+            generation_context: {
+                model,
+                prompt_version: (() => {
+                    const settings = shenSettings.settings();
+                    return `${settings.active}:${settings.updatedAt || 'legacy'}`;
+                })(),
+                history_source: history.source,
+                history_count: messages.length,
+                context_sources: [
+                    'shared_persona',
+                    shared.recall && Object.values(shared.recall).some(Boolean) ? 'memory_recall' : '',
+                    'environment',
+                    liveState ? 'live_state' : '',
+                    workroomContext ? 'workroom_brief' : '',
+                ].filter(Boolean),
+            },
         });
-        console.log(`🔒 [私密日记] 收束反思封存第 ${pagesToday + 1} 页（${content.length}字）`);
+        console.log(`🔒 [私密日记] 收束反思封存第 ${pagesToday + 1} 页（${content.length}字，main ${messages.length} 条，${history.source}）`);
         wsBroadcast({ type: 'private_journal_written' });
     } catch (error) {
         console.log(`🔒 [私密日记] 收束反思失败: ${error.message}`);
@@ -5366,10 +5450,12 @@ async function backgroundMemoryDream(sessionId, zepMessages, triggerType = 'auto
 
 // 💌 沈望主动发消息
 let _proactiveLastError = '';
-const WAKE_RECENT_MESSAGES = 6;
+const WAKE_RECENT_MESSAGES = 30;
+const RESEARCH_NOTIFICATION_RECENT_MESSAGES = 6;
+const XHS_WALK_RECENT_MESSAGES = 6;
 // Keep each selected recent message intact. The number of messages is still
-// bounded by WAKE_RECENT_MESSAGES, so wake requests do not pull the entire
-// transcript merely because one recent turn is long.
+// bounded by each feature's message-count window. No selected message is
+// shortened merely because one recent turn is long.
 const WAKE_MESSAGE_CHARS = Infinity;
 const XHS_WALK_MESSAGE_CHARS = 240;
 const WAKE_ACTIVE_GRACE_MS = 15 * 60 * 1000;
@@ -5600,12 +5686,12 @@ async function generateResearchResultNotification(job) {
     const apiKey = process.env.PROACTIVE_KEY || process.env.DZZI_API_KEY;
     if (!apiKey) throw new Error('缺少主动消息模型凭据，TT 卷宗已保存但无法主动叫醒');
 
-    const wakeHistory = await loadZepConversationHistory(Math.max(24, WAKE_RECENT_MESSAGES));
+    const wakeHistory = await loadZepConversationHistory(Math.max(24, RESEARCH_NOTIFICATION_RECENT_MESSAGES));
     const zepMessages = wakeHistory.rawMessages.filter(message => message && ['user', 'assistant', 'ai'].includes(message.role)
         && typeof message.content === 'string' && message.content.trim() && !message.content.includes('<gateway_volatile_context>'));
-    const localMessages = await loadWebConfigConversationHistory(Math.max(24, WAKE_RECENT_MESSAGES));
-    const selected = selectRecentWakeHistory(zepMessages, localMessages, WAKE_RECENT_MESSAGES);
-    const recentMsgs = normalizeConversationMessages(selected.messages, WAKE_RECENT_MESSAGES, WAKE_MESSAGE_CHARS, true, false);
+    const localMessages = await loadWebConfigConversationHistory(Math.max(24, RESEARCH_NOTIFICATION_RECENT_MESSAGES));
+    const selected = selectRecentWakeHistory(zepMessages, localMessages, RESEARCH_NOTIFICATION_RECENT_MESSAGES);
+    const recentMsgs = normalizeConversationMessages(selected.messages, RESEARCH_NOTIFICATION_RECENT_MESSAGES, WAKE_MESSAGE_CHARS, true, false);
     const card = job.status === 'completed'
         ? String(job.report || '').slice(0, 7000)
         : `TT 本次检索没有完成。状态：${job.status}。原因：${String(job.error || '未留下原因').slice(0, 600)}`;
@@ -5709,17 +5795,10 @@ async function generateProactiveMessage(wakeup = {}) {
         return { silent: true, gate: 'COOLDOWN' };
     }
 
-    const wakeHistory = await loadZepConversationHistory(Math.max(30, WAKE_RECENT_MESSAGES));
-    const usableZepMessages = wakeHistory.rawMessages.filter(message => {
-        return message && ['user', 'assistant', 'ai'].includes(message.role)
-            && typeof message.content === 'string' && message.content.trim()
-            && !message.content.includes('<gateway_volatile_context>');
-    });
-    // Always merge the persisted web chat tail. Zep can be healthy yet still
-    // lag one turn behind; reading the local JSON costs no model tokens.
-    const fallbackMessages = await loadWebConfigConversationHistory(Math.max(30, WAKE_RECENT_MESSAGES));
-    const selectedHistory = selectRecentWakeHistory(usableZepMessages, fallbackMessages, WAKE_RECENT_MESSAGES);
-    const recentMsgs = normalizeConversationMessages(selectedHistory.messages, WAKE_RECENT_MESSAGES, WAKE_MESSAGE_CHARS, true, false)
+    // web_config/main defines the channel boundary. Zep rows are accepted only
+    // when that same message exists in main, then the local tail fills any lag.
+    const selectedHistory = await loadMainRecentConversation(WAKE_RECENT_MESSAGES);
+    const recentMsgs = normalizeConversationMessages(selectedHistory.messages, WAKE_RECENT_MESSAGES, WAKE_MESSAGE_CHARS, false, false)
         .map((message, index) => {
             const sourceMessage = selectedHistory.messages[index];
             if (sourceMessage?.model !== 'proactive' || message.role !== 'assistant') return message;
@@ -5729,20 +5808,16 @@ async function generateProactiveMessage(wakeup = {}) {
             };
         });
     const latestConversationSummary = loadLatestConversationSummary();
-    const historySource = recentMsgs.length === 0
-        ? 'none'
-        : selectedHistory.usedFallback
-            ? (wakeHistory.ok ? 'zep+web_config' : 'web_config')
-            : 'zep';
+    const historySource = selectedHistory.source;
     const wakeContextAudit = buildWakeContextAudit({
         selectedMessages: selectedHistory.messages,
         source: historySource,
-        zepOk: wakeHistory.ok,
-        zepCount: usableZepMessages.length,
-        fallbackCount: fallbackMessages.length,
+        zepOk: selectedHistory.zepOk,
+        zepCount: selectedHistory.zepCount,
+        fallbackCount: selectedHistory.localCount,
         summary: latestConversationSummary,
     });
-    if (!wakeHistory.ok) console.log(`💌 [主动消息] Zep 最近历史不可用，已从 web_config 补到 ${recentMsgs.length} 条`);
+    if (!selectedHistory.zepOk) console.log(`💌 [主动消息] Zep 最近历史不可用，已从 web_config/main 补到 ${recentMsgs.length} 条`);
 
     const careContext = formatAnticipationForWake(careDue);
     const relatedMemoryContext = formatWakeRelatedMemories(recentMsgs, careDue);
@@ -5766,8 +5841,13 @@ ${NEXT_WAKE_OUTPUT_INSTRUCTION}`;
         dynamicStatePrompt: `${formatWakeStateSlots()}\n\n【最近一轮对话摘要】\n${latestConversationSummary || '（暂无；以紧随 system 之后的最近真实对话为准）'}\n\n【唤醒现场】\n唤醒来源：${wakeSource}\n距最后一次互动：${formatWakeInterval(nowMs - lastInteractionTime)}\n当前唯一牵挂：${careContext}\nwake_context：${JSON.stringify(buildAdaptiveWakeContext(now, wakeSource === 'manual' ? 'manual' : 'scheduled'))}`,
         model: PROACTIVE_MODEL,
     });
-    const wakeVolatileContext = buildVolatileContext(wakeSharedSystem.volatileParts);
-    if (wakeVolatileContext) wakeSharedSystem.systemMessage.content += `\n\n${wakeVolatileContext}`;
+    const workroomBackground = await buildWorkroomBackgroundContext();
+    const wakeCombinedVolatileContext = buildVolatileContext([
+        ...wakeSharedSystem.volatileParts,
+        buildWeatherSnapshot(),
+        workroomBackground || null,
+    ].filter(Boolean));
+    if (wakeCombinedVolatileContext) wakeSharedSystem.systemMessage.content += `\n\n${wakeCombinedVolatileContext}`;
     wakeSharedSystem.systemMessage.content += `\n\n${proactiveSceneInstruction}`;
     wakeSharedSystem.systemMessage.content += `\n最近真实对话是此刻最直接的上下文，优先于召回的旧记忆和旧状态。先理解最后一轮在聊什么；可以在确实自然时换话题，但必须知道自己是在换话题，不能把旧事误认成刚刚发生。`;
     const msgs = [
@@ -7095,8 +7175,8 @@ async function composeXhsWalkMessage(note) {
         type: note.type,
         desc: String(note.desc || '').slice(0, 1800),
     };
-    const history = await loadZepConversationHistory(Math.max(30, WAKE_RECENT_MESSAGES));
-    const recentMessages = normalizeConversationMessages(history.rawMessages, WAKE_RECENT_MESSAGES, XHS_WALK_MESSAGE_CHARS, true, true);
+    const history = await loadZepConversationHistory(Math.max(30, XHS_WALK_RECENT_MESSAGES));
+    const recentMessages = normalizeConversationMessages(history.rawMessages, XHS_WALK_RECENT_MESSAGES, XHS_WALK_MESSAGE_CHARS, true, true);
     const query = [material.title, material.desc, ...recentMessages.slice(-2).map(message => message.content)]
         .filter(Boolean).join('\n').slice(0, 1400);
     const shared = await buildSharedSystemPrompt({
@@ -7811,7 +7891,9 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         const cacheScope = typeof body.activeChatId === 'string' ? body.activeChatId : 'main';
         delete body.contextProtocol; // Gateway-only metadata must never reach a provider.
         const workroomDiscussion = body.activeChatId === 'syzygy-workroom';
-        const noMemory = req.headers['x-no-memory'] === 'true';
+        // Workroom dialogue has its own transcript/brief pipeline and must never
+        // enter the global Zep session or the main local transcript.
+        const noMemory = req.headers['x-no-memory'] === 'true' || workroomDiscussion;
         const sourceTabId = req.headers['x-tab-id'] || null;
         const sourceMessageId = req.headers['x-message-id'] || null;
         let adaptiveUserMessageId = sourceMessageId;
@@ -7851,6 +7933,10 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 
         _tr.meta.userPreview = (currentUserMsgText || '').substring(0, 80);
         if (currentUserMsgText) {
+            if (workroomDiscussion) {
+                updateLastInteraction();
+                schedulePrivateJournalReflection();
+            }
             adaptiveUserMessageId = sourceMessageId || `msg_${crypto.randomUUID()}`;
             invalidateAdaptiveWakeForUserMessage({ sourceUserMessageId: adaptiveUserMessageId, userText: currentUserMsgText });
             traceEvent(_tr, 'adaptive_wake', '用户消息使旧计划作废', { source_user_message_id: adaptiveUserMessageId });
@@ -8961,7 +9047,11 @@ app.get('/api/tools-status', async (req, res) => {
 
 app.post('/api/flush-zep', async (req, res) => {
     try {
-        const { userContent, aiContent } = req.body;
+        const { sessionId, userContent, aiContent } = req.body;
+        if (sessionId === 'syzygy-workroom') {
+            console.log('🚫 [ZepFilter] 工作区延迟冲刷已跳过');
+            return res.json({ ok: true, skipped: 'workroom' });
+        }
         if (!userContent && !aiContent) return res.json({ ok: true });
         const rpPrefix = isRpActiveForSession('main') ? '[RP模式] ' : '';
         await saveToZep(rpPrefix + (userContent || ''), rpPrefix + (aiContent || ''));
@@ -11877,6 +11967,10 @@ app.get('/api/codex/tasks', (req, res) => {
 });
 app.post('/api/codex/tasks', (req, res) => {
     try {
+        if (req.body?.source === 'workroom') {
+            updateLastInteraction();
+            schedulePrivateJournalReflection();
+        }
         const task = codexBridge.startTask(req.body || {});
         res.status(201).json({ ok: true, task });
     } catch (error) {

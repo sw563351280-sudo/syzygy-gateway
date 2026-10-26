@@ -26,15 +26,50 @@ function normalizedMessageContent(message) {
     return String(message?.content || '').replace(/\s+/g, ' ').trim();
 }
 
+function normalizedMessageRole(message) {
+    return message?.role === 'ai' ? 'assistant' : message?.role;
+}
+
+function conversationMessageKey(message) {
+    const role = normalizedMessageRole(message);
+    const content = normalizedMessageContent(message);
+    return role && content ? `${role}\u0000${content}` : '';
+}
+
+// Zep historically used one global session, so an old workroom turn may still
+// be present there. Only accept Zep rows that also exist in the persisted main
+// conversation; web_config remains the channel boundary and the freshest tail.
+function filterConversationHistoryToReference(messages = [], referenceMessages = []) {
+    const referencesByKey = new Map();
+    for (const reference of sortConversationMessages(referenceMessages)) {
+        const key = conversationMessageKey(reference);
+        if (!key) continue;
+        if (!referencesByKey.has(key)) referencesByKey.set(key, []);
+        referencesByKey.get(key).push(reference);
+    }
+    const filtered = [];
+    for (const message of sortConversationMessages(messages)) {
+        const matches = referencesByKey.get(conversationMessageKey(message));
+        if (!matches?.length) continue;
+        const reference = matches.shift();
+        if (messageTimestampMs(message) !== null || messageTimestampMs(reference) === null) {
+            filtered.push(message);
+            continue;
+        }
+        filtered.push({ ...message, created_at: new Date(messageTimestampMs(reference)).toISOString() });
+    }
+    return filtered;
+}
+
 function dedupeChronologicalMessages(entries = []) {
     const kept = [];
     for (const entry of entries) {
         const content = normalizedMessageContent(entry.message);
         if (!content) continue;
-        const role = entry.message.role === 'ai' ? 'assistant' : entry.message.role;
+        const role = normalizedMessageRole(entry.message);
         const time = messageTimestampMs(entry.message);
         const duplicateIndex = kept.findIndex(previous => {
-            const previousRole = previous.message.role === 'ai' ? 'assistant' : previous.message.role;
+            const previousRole = normalizedMessageRole(previous.message);
             if (previousRole !== role || normalizedMessageContent(previous.message) !== content) return false;
             const previousTime = messageTimestampMs(previous.message);
             if (time === null || previousTime === null) return time === previousTime;
@@ -76,10 +111,14 @@ function selectRecentWakeHistory(zepMessages = [], fallbackMessages = [], limit 
     return {
         messages: selected.map(entry => entry.message),
         usedFallback: selected.some(entry => entry.source === 'web_config'),
+        usedZep: selected.some(entry => entry.source === 'zep'),
+        sources: [...new Set(selected.map(entry => entry.source))],
     };
 }
 
 module.exports = {
+    conversationMessageKey,
+    filterConversationHistoryToReference,
     messageTimestampMs,
     selectRecentWakeHistory,
     sortConversationMessages,

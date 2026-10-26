@@ -12,6 +12,27 @@ const MAX_LIST_COUNT = 50;
 const MAX_TOOL_RESULT_CHARS = 12000;
 const MAX_TITLE_CHARS = 80;
 const MAX_CONTENT_CHARS = 6000;
+const GENERATION_CONTEXT_SOURCES = new Set([
+    'shared_persona',
+    'memory_recall',
+    'environment',
+    'live_state',
+    'workroom_brief',
+]);
+
+function cleanGenerationContext(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const contextSources = [...new Set((Array.isArray(value.context_sources) ? value.context_sources : [])
+        .map(source => String(source || '').trim())
+        .filter(source => GENERATION_CONTEXT_SOURCES.has(source)))];
+    return {
+        model: String(value.model || '').trim().slice(0, 120),
+        prompt_version: String(value.prompt_version || '').trim().slice(0, 160),
+        history_source: String(value.history_source || '').trim().slice(0, 80),
+        history_count: Math.max(0, Math.min(100, Number.parseInt(value.history_count, 10) || 0)),
+        context_sources: contextSources,
+    };
+}
 
 function readOrCreateKey(keyFilePath, journalFilePath) {
     try {
@@ -117,6 +138,7 @@ function legacyEntry(plaintext) {
         reveal_decision: null,
         trigger_id: null,
         generated_by: 'legacy',
+        generation_context: null,
     };
 }
 
@@ -141,6 +163,7 @@ function normalizeEntry(value) {
         reveal_decision: value.reveal_decision === 'kept_sealed' ? 'kept_sealed' : (visibility === 'revealed' ? 'revealed' : null),
         trigger_id: value.trigger_id ? String(value.trigger_id).slice(0, 160) : null,
         generated_by: value.generated_by ? String(value.generated_by).slice(0, 80) : 'private_journal',
+        generation_context: cleanGenerationContext(value.generation_context),
     };
 }
 
@@ -175,6 +198,7 @@ function newEntry(content, now = new Date(), metadata = {}) {
         reveal_decision: metadata.reveal_decision,
         trigger_id: metadata.trigger_id,
         generated_by: metadata.generated_by,
+        generation_context: metadata.generation_context,
     });
 }
 

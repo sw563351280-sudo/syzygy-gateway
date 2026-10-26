@@ -125,6 +125,17 @@ test('chat kickoff returns immediately while the external note writer finishes i
     const nextContext = store.start([room()]);
     assert.match(nextContext, /后台便签/);
     assert.match(nextContext, /segment_/);
+    const background = store.background([room()]);
+    assert.match(background, /后台便签/);
+    assert.doesNotMatch(background, /今晚一起聊便签|我同意|我来实现/);
+});
+
+test('background context reports current shared activity without leaking raw workroom messages', t => {
+    const { store } = fixture(t);
+    const context = store.background([room()]);
+    assert.match(context, /当前工作区共聊状态/);
+    assert.match(context, /尚未归入正式便签/);
+    assert.doesNotMatch(context, /今晚一起聊便签|我同意|我来实现|这句只给 Codex/);
 });
 
 test('date and keyword lookup search the shared archive, not only generated note segments', t => {

@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { selectRecentWakeHistory } = require('../wake-context');
+const { filterConversationHistoryToReference, selectRecentWakeHistory } = require('../wake-context');
 
 function message(role, content, minute) {
     return { role, content, created_at: `2026-08-18T01:${String(minute).padStart(2, '0')}:00.000Z` };
@@ -45,4 +45,32 @@ test('wake history preserves proactive provenance when the same message also exi
     const selected = selectRecentWakeHistory(zep, local, 6);
     assert.equal(selected.messages.length, 1);
     assert.equal(selected.messages[0].model, 'proactive');
+});
+
+test('main reference filters historical workroom rows out of the global Zep session', () => {
+    const main = [message('user', '小屋里的话', 5), message('assistant', '小屋里的回答', 6)];
+    const zep = [
+        message('user', '工作区原话', 3), message('assistant', '工作区回应', 4),
+        ...main,
+    ];
+    const filtered = filterConversationHistoryToReference(zep, main);
+    assert.deepEqual(filtered.map(item => item.content), ['小屋里的话', '小屋里的回答']);
+});
+
+test('main reference supplies local timestamps so timestamp-less Zep rows deduplicate', () => {
+    const main = [message('user', '小屋里的话', 5), message('assistant', '小屋里的回答', 6)];
+    const zep = main.map(({ role, content }) => ({ role, content }));
+    const filtered = filterConversationHistoryToReference(zep, main);
+    const selected = selectRecentWakeHistory(filtered, main, 30);
+    assert.equal(filtered[0].created_at, main[0].created_at);
+    assert.deepEqual(selected.messages.map(item => item.content), ['小屋里的话', '小屋里的回答']);
+});
+
+test('a thirty-message window preserves every selected message in full', () => {
+    const long = '长'.repeat(5000);
+    const main = Array.from({ length: 35 }, (_, index) => message(index % 2 ? 'assistant' : 'user', index === 34 ? long : `m-${index}`, index));
+    const selected = selectRecentWakeHistory([], main, 30);
+    assert.equal(selected.messages.length, 30);
+    assert.equal(selected.messages[0].content, 'm-5');
+    assert.equal(selected.messages.at(-1).content, long);
 });

@@ -4964,6 +4964,7 @@ async function regenerateSend(aiMsgIndex) {
 
 async function flushDirtyToZep(session, signal) {
     if (!session || !session.messages) return;
+    if (isWorkroomSession(session)) return;
     for (let i = 0; i < session.messages.length; i++) {
         signal?.throwIfAborted();
         const msg = session.messages[i];
@@ -4975,7 +4976,7 @@ async function flushDirtyToZep(session, signal) {
         let aiContent = v.content || '';
         aiContent = legacyMessagePlain(aiContent);
         try {
-            await fetch('/api/flush-zep', { method:'POST', signal, headers:{'Content-Type':'application/json'}, body:JSON.stringify({userContent:userContent,aiContent:aiContent}) });
+            await fetch('/api/flush-zep', { method:'POST', signal, headers:{'Content-Type':'application/json'}, body:JSON.stringify({sessionId:session.id,userContent:userContent,aiContent:aiContent}) });
             console.log('✅ [延迟Zep] 已冲刷第'+i+'条消息');
         } catch(e) { signal?.throwIfAborted(); console.log('❌ [延迟Zep] 冲刷失败: '+e.message); }
         delete msg._zepDirty;
@@ -5105,6 +5106,7 @@ function triggerStarEffects(userText, aiText) {
 window.addEventListener('beforeunload', function() {
     const session = getActiveSession();
     if (!session || !session.messages) return;
+    if (isWorkroomSession(session)) return;
     for (let i = 0; i < session.messages.length; i++) {
         const msg = session.messages[i];
         if (msg.role !== 'assistant' || !msg._zepDirty) continue;
@@ -5120,7 +5122,7 @@ window.addEventListener('beforeunload', function() {
         userContent = legacyMessagePlain(userContent);
         let _aiBeacon = v.content || '';
         _aiBeacon = legacyMessagePlain(_aiBeacon);
-        navigator.sendBeacon('/api/flush-zep', JSON.stringify({ userContent, aiContent: _aiBeacon }));
+        navigator.sendBeacon('/api/flush-zep', JSON.stringify({ sessionId: session.id, userContent, aiContent: _aiBeacon }));
         delete msg._zepDirty;
     }
 });

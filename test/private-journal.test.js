@@ -18,7 +18,18 @@ test('private journal encrypts raw text, strips tags, and reads recent pages', (
         const malformed = journal.extractPrivateJournalTags('安全的前半句<PRIVATE_JOURNAL>这页不该展示');
         assert.equal(malformed.cleanText, '安全的前半句');
         assert.deepEqual(malformed.entries, []);
-        const first = journal.appendEntry(file, parsed.entries[0], key, new Date('2026-08-29T00:00:00Z'), { title: '第一把锁', trigger_id: 'quiet_first' });
+        const first = journal.appendEntry(file, parsed.entries[0], key, new Date('2026-08-29T00:00:00Z'), {
+            title: '第一把锁',
+            trigger_id: 'quiet_first',
+            generation_context: {
+                model: 'journal-model',
+                prompt_version: 'A:2026-08-29',
+                history_source: 'zep+web_config(main)',
+                history_count: 24,
+                context_sources: ['shared_persona', 'memory_recall', 'workroom_brief', 'not-allowed'],
+                private_text: 'must not persist',
+            },
+        });
         const second = journal.appendEntry(file, '第二篇', key, new Date('2026-08-29T01:00:00Z'), { title: '<第二把锁>' });
         const encrypted = fs.readFileSync(file, 'utf8');
         assert.equal(encrypted.includes('第一篇'), false);
@@ -33,6 +44,15 @@ test('private journal encrypts raw text, strips tags, and reads recent pages', (
         assert.equal(journal.countEntriesOnDate(file, key, new Date('2026-08-29T02:00:00Z')), 2);
         assert.equal(journal.countEntriesOnDate(file, key, new Date('2026-08-30T02:00:00Z')), 0);
         assert.equal(journal.hasTriggerId(file, key, 'quiet_first'), true);
+        const diagnostic = journal.readEntryById(file, key, first.id).generation_context;
+        assert.deepEqual(diagnostic, {
+            model: 'journal-model',
+            prompt_version: 'A:2026-08-29',
+            history_source: 'zep+web_config(main)',
+            history_count: 24,
+            context_sources: ['shared_persona', 'memory_recall', 'workroom_brief'],
+        });
+        assert.equal(Object.hasOwn(diagnostic, 'private_text'), false);
         const beforeReveal = journal.listEntries(file, key);
         assert.equal(beforeReveal.total, 2);
         assert.equal(beforeReveal.entries[0].id, second.id);

@@ -320,6 +320,30 @@ function createWorkroomBriefs({ directory, transcriptDirectory, getWorkRecords =
         return immediate.filter(Boolean).join('\n\n');
     }
 
+    // A non-consuming background view for autonomous messages and the sealed
+    // journal. It exposes generated notes/status only, never workroom raw text.
+    function background(chatSessions = []) {
+        const state = readJson(stateFile, { seenTurnIds: [], seenRecordIds: [] });
+        const seenTurns = new Set(Array.isArray(state.seenTurnIds) ? state.seenTurnIds : []);
+        const sharedTurns = allTurns(chatSessions).filter(sharedTurn);
+        const unreadTurns = sharedTurns.filter(turn => !seenTurns.has(turn.id));
+        const batches = readJson(batchesFile, []);
+        const ready = batches.filter(batch => batch.status === 'ready' && batch.topics?.length).slice(-2);
+        const work = finalWorkRecords(getWorkRecords(), new Set(Array.isArray(state.seenRecordIds) ? state.seenRecordIds : []));
+        const parts = ready.map(renderTopics).filter(Boolean);
+        if (unreadTurns.length) {
+            const latestAt = unreadTurns.at(-1)?.updatedAt || unreadTurns.at(-1)?.startedAt || null;
+            const time = latestAt ? new Date(latestAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '刚刚';
+            parts.push(`【当前工作区共聊状态】\n${time} 前后有 ${unreadTurns.length} 段尚未归入正式便签的三方共享讨论；这里只告知活动状态，不包含工作区原话。`);
+        }
+        const progress = renderProgress(work.records);
+        if (progress) parts.push(progress);
+        if (unreadTurns.length || work.records.length) void prepare(chatSessions).catch(error => {
+            console.warn('[workroom brief] 背景便签整理失败，将在下次重试:', error.message);
+        });
+        return parts.join('\n\n');
+    }
+
     function list(limit = 20) {
         const batches = readJson(batchesFile, []);
         return { briefs: batches.slice(-Math.max(1, Math.min(50, Number(limit) || 20))).reverse().map(publicBatch) };
@@ -352,7 +376,7 @@ function createWorkroomBriefs({ directory, transcriptDirectory, getWorkRecords =
     router.post('/test', async (_req, res) => { try { res.json(await testConnection()); } catch (error) { res.status(502).json({ error: error.message }); } });
     router.get('/briefs', (req, res) => { try { res.json(list(req.query.limit)); } catch (error) { res.status(500).json({ error: error.message }); } });
 
-    return { router, settings, saveSettings, testConnection, prepare, start, list, query, allTurns };
+    return { router, settings, saveSettings, testConnection, prepare, start, background, list, query, allTurns };
 }
 
 module.exports = { completionUrl, createWorkroomBriefs, finalWorkRecords, mergeTurns, normalizeBaseUrl, normalizeTopics, renderProgress, renderTopics, sharedTurn };
