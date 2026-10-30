@@ -3,6 +3,11 @@
     const KEY = 'syzygy_pending_chat_v1';
     const idOf = message => String(message?._id || message?.id || '');
     const copy = value => JSON.parse(JSON.stringify(value));
+    // Favorite markers are a projection of /api/favorites, not authored edits.
+    const fingerprint = message => {
+        const { _favoriteId, ...persisted } = message;
+        return JSON.stringify(persisted);
+    };
 
     // This journal contains only newly authored, unacknowledged messages. Legacy
     // snapshots deliberately aren't imported: they may contain deleted history.
@@ -38,7 +43,7 @@
             for (const session of sessions) {
                 const messages = known.get(session.id) || new Map();
                 for (const message of session.messages || []) {
-                    if (idOf(message)) messages.set(idOf(message), JSON.stringify(message));
+                    if (idOf(message)) messages.set(idOf(message), fingerprint(message));
                 }
                 known.set(session.id, messages);
             }
@@ -53,7 +58,7 @@
                 return { id: session.id, name: session.name, type: session.type,
                     newSession: previous?.newSession ?? !known.has(session.id),
                     messages: (session.messages || []).filter(m => idOf(m) && (
-                        messages.get(idOf(m)) !== JSON.stringify(m) || unconfirmed.has(idOf(m))
+                        messages.get(idOf(m)) !== fingerprint(m) || unconfirmed.has(idOf(m))
                     )) };
             }).filter(s => s.messages.length);
             pending = copy(pending);
@@ -83,9 +88,9 @@
         }
         function acknowledge(snapshot) {
             observe(snapshot);
-            const sent = new Map(snapshot.map(s => [s.id, new Map((s.messages || []).map(m => [idOf(m), JSON.stringify(m)]))]));
+            const sent = new Map(snapshot.map(s => [s.id, new Map((s.messages || []).map(m => [idOf(m), fingerprint(m)]))]));
             pending = pending.map(s => ({ ...s, messages: s.messages.filter(m =>
-                sent.get(s.id)?.get(idOf(m)) !== JSON.stringify(m)) })).filter(s => s.messages.length);
+                sent.get(s.id)?.get(idOf(m)) !== fingerprint(m)) })).filter(s => s.messages.length);
             persist();
         }
         return {

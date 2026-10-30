@@ -10,13 +10,14 @@ test('history loading unlocks after a failed bounded request and permits another
     const session = { id: 'main', messages: [] };
     const context = vm.createContext({
         _historyLoading: false, _isStreamingReply: false, _visibleMessageCounts: {},
+        _cloudConfigReady: true, _dataVersion: 1, _historyPrefetches: new Map(),
         _historyWindows: { main: { hasMore: true, start: 200 } }, CHAT_HISTORY_PAGE_SIZE: 80,
         document: { body: { dataset: { view: 'chat' } } },
         getActiveSession: () => session, isWorkroomSession: () => false,
         ChatPersistence: { requestJson() { requests++; return new Promise((_, reject) => { rejectRequest = reject; }); } },
         console: { error() {} }, toast() {}
     });
-    vm.runInContext(source.slice(source.indexOf('async function revealEarlierChatMessages()'), source.indexOf('function captureChatScrollAnchor(')), context);
+    vm.runInContext(source.slice(source.indexOf('function earlierHistoryRequest('), source.indexOf('function captureChatScrollAnchor(')), context);
     const first = context.revealEarlierChatMessages();
     await context.revealEarlierChatMessages();
     assert.equal(requests, 1);

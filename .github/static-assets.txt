@@ -78,3 +78,4 @@ public/site-theme.js
 public/workroom-history-bridge.js
 public/star-orbit.css
 public/star-orbit.js
+public/chat-recent-cache.js

@@ -39,6 +39,7 @@ async function main() {
     const app = express(); app.use(express.json());
     const requests = [];
     let modelReplyMode = 'success';
+    let syncDelay = 900;
     app.use((req, _res, next) => { if (req.path.startsWith('/api/')) requests.push(req.path); next(); });
     const messages = Array.from({ length: 170 }, (_, index) => ({
         _id: 'm' + index,
@@ -48,7 +49,7 @@ async function main() {
         fullTime: index === 169 ? '2026-10-20T01:00:00.000Z' : new Date(Date.UTC(2026, 8, 30, 1, 0, index)).toISOString()
     }));
     app.get('/api/sync-config', async (req, res) => {
-        await sleep(900);
+        await sleep(syncDelay);
         const limit = Math.max(1, Number(req.query.mainLimit) || messages.length);
         const start = Math.max(0, messages.length - limit);
         res.json({ _version: 1, activeChatId: 'main', suppliers: [{ name: 'fixture', url: 'https://invalid.test/v1', key: 'fixture-key' }],
@@ -97,7 +98,7 @@ async function main() {
     try {
         const executablePath = [process.env.CHROME_PATH, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', '/usr/bin/chromium'].find(p => p && fs.existsSync(p));
         assert.ok(executablePath, 'Chromium is required for this smoke test');
-        browser = await puppeteer.launch({ executablePath, headless: true, args: ['--mute-audio', '--no-sandbox', '--disable-setuid-sandbox'], defaultViewport: { width: 1024, height: 900 } });
+        browser = await puppeteer.launch({ executablePath, headless: true, args: ['--mute-audio', '--no-sandbox', '--disable-setuid-sandbox'], defaultViewport: process.argv.includes('--mobile') ? { width: 393, height: 852, isMobile: true, hasTouch: true } : { width: 1024, height: 900 } });
         const page = await browser.newPage();
         const errors = [], resources = [], external = [];
         page.on('pageerror', error => errors.push(error.message));
@@ -128,6 +129,105 @@ async function main() {
             assert.equal(initial.hiddenChatImageLoaded, false);
             assert.equal(external.length, 0);
             assert.equal(resources.some(url => url.includes('/home-tools.')), false, 'secondary home tools stay unloaded on startup');
+            if (process.argv.includes('--chat-startup-only')) {
+                await page.waitForFunction(async () => Boolean(await ChatRecentCache.read()));
+                // A remotely deleted message must never be restored from this display cache.
+                await page.evaluate(async () => {
+                    const snapshot = await ChatRecentCache.read();
+                    snapshot.session.messages.push({ _id: 'deleted-remote', role: 'user', content: 'stale cached message' });
+                    await ChatRecentCache.write(snapshot.session, snapshot.preferences);
+                });
+                syncDelay = 3000;
+                const savesBefore = requests.filter(endpoint => endpoint === '/api/chat-messages').length;
+                await page.reload({ waitUntil: 'domcontentloaded' });
+                const preview = await page.evaluate(async () => {
+                    const started = performance.now();
+                    openCommunication();
+                    await new Promise((resolve, reject) => {
+                        const timer = setInterval(() => {
+                            if (document.querySelector('#chatWindow [data-message-id="deleted-remote"]')) {
+                                clearInterval(timer); clearTimeout(deadline); resolve();
+                            }
+                        }, 10);
+                        const deadline = setTimeout(() => { clearInterval(timer); reject(new Error('Cached chat did not appear')); }, 1500);
+                    });
+                    const versionBefore = _dataVersion;
+                    document.getElementById('chatInput').value = 'must wait for cloud';
+                    await sendChat();
+                    return { ms: performance.now() - started, versionBefore,
+                        busy: document.getElementById('chatWindow').getAttribute('aria-busy'),
+                        pending: _chatJournal.hasPending(), pendingIds: _chatJournal.pendingSnapshot().map(s => ({ id: s.id, ids: s.messages.map(m => m._id) })),
+                        inert: document.querySelector('#chatWindow .msg-row').inert };
+                });
+                assert.ok(preview.ms < 1500, 'cached chat appears before the three-second sync');
+                assert.equal(preview.versionBefore, 0, 'cache never becomes authoritative cloud data');
+                assert.equal(preview.busy, 'true');
+                assert.equal(preview.pending, false, 'cached messages are not queued for save: ' + JSON.stringify(preview.pendingIds));
+                assert.equal(preview.inert, true, 'cached message actions are disabled until cloud load');
+                await page.waitForFunction(() => _cloudConfigReady);
+                assert.equal(await page.$('#chatWindow [data-message-id="deleted-remote"]'), null, 'cloud deletion replaces stale display cache');
+                assert.equal(await page.evaluate(() => document.getElementById('chatWindow').getAttribute('aria-busy')), 'false');
+                assert.equal(requests.filter(endpoint => endpoint === '/api/chat-messages').length, savesBefore);
+                assert.deepEqual(errors, []);
+                console.log(JSON.stringify({ cachedChatReadyMs: Math.round(preview.ms), cloudDelayMs: syncDelay, deletionAndSaveIsolation: 'passed' }));
+                return;
+            }
+            if (process.argv.includes('--chat-history-only')) {
+                await page.evaluate(() => openCommunication());
+                await page.waitForSelector('#chatWindow .msg-row');
+                await sleep(400);
+                await page.evaluate(() => revealEarlierChatMessages());
+                const result = await page.evaluate(async () => {
+                    const win = document.getElementById('chatWindow');
+                    _chatScrollGestureVersion++;
+                    win.scrollTop = 120;
+                    const before = captureChatScrollAnchor(win);
+                    const originalRows = [...win.querySelectorAll('.msg-row')];
+                    const parse = marked.parse;
+                    let markdownCalls = 0;
+                    marked.parse = (...args) => { markdownCalls++; return parse.apply(marked, args); };
+                    await revealEarlierChatMessages();
+                    marked.parse = parse;
+                    const reusedRows = originalRows.every(row => row.isConnected && win.contains(row));
+                    const after = captureChatScrollAnchor(win);
+                    _historyPrefetches.clear();
+                    const originalRequest = ChatPersistence.requestJson;
+                    let release, received;
+                    const ready = new Promise(resolve => { received = resolve; });
+                    ChatPersistence.requestJson = async (url, ...args) => {
+                        const data = await originalRequest(url, ...args);
+                        if (url.startsWith('/api/chat-history/')) {
+                            await new Promise(resolve => { release = resolve; received(); });
+                        }
+                        return data;
+                    };
+                    const loading = revealEarlierChatMessages();
+                    await Promise.race([ready, new Promise((_, reject) => setTimeout(() => reject(new Error('History request did not start: ' + JSON.stringify({ length: getActiveSession().messages.length, shown: _visibleMessageCounts.main, loading: _historyLoading }))), 3000))]);
+                    await resyncAndMerge('test-concurrent-history');
+                    release();
+                    await loading;
+                    ChatPersistence.requestJson = originalRequest;
+                    const session = getActiveSession();
+                    const total = session.messages.length;
+                    win.scrollTop = 120;
+                    const reading = captureChatScrollAnchor(win);
+                    session.messages.push(...Array.from({ length: 200 }, (_, i) => ({
+                        _id: 'new-' + i, role: 'user', content: 'new tail ' + i
+                    })));
+                    renderChatMessages({ preserveScroll: true });
+                    return { before, after, total, reading, reusedRows, markdownCalls, retained: captureChatScrollAnchor(win) };
+                });
+                assert.ok(result.before.messageId);
+                assert.equal(result.after.messageId, result.before.messageId, 'prepend keeps the same message');
+                assert.ok(Math.abs(result.after.offset - result.before.offset) < 2, 'prepend keeps reading position');
+                assert.equal(result.total, 170, 'history is retained across concurrent sync');
+                assert.equal(result.reusedRows, true, 'existing message nodes stay mounted while history is prepended');
+                assert.ok(result.markdownCalls <= 40, 'only the new page needs Markdown parsing');
+                assert.equal(result.retained.messageId, result.reading.messageId, 'new messages do not hide the reading anchor');
+                assert.deepEqual(errors, []);
+                console.log('History scroll anchor, concurrent sync and new-tail retention passed.');
+                return;
+            }
             if (workroomBriefOnly) {
                 await verifyWorkroomBrief(page);
                 await page.setViewport({ width: 393, height: 852, isMobile: true, hasTouch: true });
@@ -214,7 +314,19 @@ async function main() {
             assert.equal(await page.evaluate(() => activeChatId), 'main');
             assert.equal(await page.evaluate(() => chatSessions.find(session => session.id === 'main').messages.length), 80);
             await page.evaluate(() => revealEarlierChatMessages());
-            await page.evaluate(() => revealEarlierChatMessages());
+            const anchorCheck = await page.evaluate(async () => {
+                const win = document.getElementById('chatWindow');
+                // Cancel delayed bottom-follow callbacks, then read near the top.
+                _chatScrollGestureVersion++;
+                win.scrollTop = 120;
+                const before = captureChatScrollAnchor(win);
+                await revealEarlierChatMessages();
+                const after = captureChatScrollAnchor(win);
+                return { before, after };
+            });
+            assert.ok(anchorCheck.before.messageId);
+            assert.equal(anchorCheck.after.messageId, anchorCheck.before.messageId, 'prepending history preserves the message being read');
+            assert.ok(Math.abs(anchorCheck.after.offset - anchorCheck.before.offset) < 2, 'history keeps the same reading position');
             assert.equal(await page.evaluate(() => chatSessions.find(session => session.id === 'main').messages.length), 160);
             await page.evaluate(() => revealEarlierChatMessages());
             assert.equal(await page.evaluate(() => chatSessions.find(session => session.id === 'main').messages.length), 170);

@@ -54,5 +54,5 @@ test('assistant rendering enables the reaction display guard and cache-busts its
     assert.equal(context.renderMarkdown('前文\nREACT: 👥\n后文', true), '前文\nREACT: 👥\n后文');
     assert.equal(context.renderMarkdown('<REACT:🥣>\n用户原文', false), '<REACT:🥣>\n用户原文');
     assert.match(index, /assistant-artifacts\.js\?v=2/);
-    assert.match(index, /script\.js\?v=20261023-reaction-guard/);
+    assert.match(index, /script\.js\?v=20261028-chat-loading-2/);
 });

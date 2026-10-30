@@ -634,7 +634,14 @@ app.use((req, res, next) => {
 });
 
 app.use(express.static('public', { setHeaders(res, filename) {
-    if (filename.endsWith(path.sep + 'index.html')) res.setHeader('Cache-Control', 'no-store');
+    if (filename.endsWith('.html') || filename.endsWith(path.sep + 'sw.js')) {
+        res.setHeader('Cache-Control', 'no-store');
+    } else if (/\.(?:js|css|woff2?|ttf|png|jpe?g|webp|svg|ico)$/.test(filename)) {
+        // Versioned resources can be reused without a round trip on every visit.
+        // Keep the cache private because static routes are behind login.
+        const versioned = Boolean(res.req.query?.v);
+        res.setHeader('Cache-Control', 'private, max-age=' + (versioned ? 86400 : 3600));
+    }
 } }));
 
 app.use((req, res, next) => {

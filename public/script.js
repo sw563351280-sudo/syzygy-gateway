@@ -179,6 +179,8 @@ const START_DATE = '2025-04-20';
 let suppliers = [];
 let activeSupIndex = 0;
 let chatSessions = [];
+let _cloudConfigReady = false;
+let _recentChatPreview = null;
 let activeChatId = 'main';
 let shenReactionEnabled = true;
 let modelSwitchNoticeEnabled = true;
@@ -193,6 +195,7 @@ let _modelFetchSequence = 0;
 let _historyWindows = {};
 let _visibleMessageCounts = {};
 let _historyLoading = false;
+const _historyPrefetches = new Map();
 let privateJournalEntries = [];
 let privateJournalPage = 1;
 let privateJournalTotal = 0;
@@ -304,6 +307,10 @@ async function syncFromCloud() {
         suppliers = (data.suppliers && data.suppliers.length) ? data.suppliers : [{ name: "默认接口", url: "https://api.dzzi.ai/v1", key: "" }];
         const cloudSessions = (data.chatSessions && data.chatSessions.length) ? data.chatSessions : [{ id: 'main', name: '主频道', messages: [] }];
         ContextContinuity.ensureMessageIds(cloudSessions, () => crypto.randomUUID());
+        // Normalize before recording the acknowledged baseline. Otherwise merely
+        // viewing old-format messages journals them as edits on page hide, forcing
+        // the next visit to download the entire transcript for recovery.
+        for (const session of cloudSessions) for (const message of session.messages || []) normalizeMessageVersionFields(message);
         _chatJournal.observe(cloudSessions);
         const recovery = _chatJournal.restore(cloudSessions);
         chatSessions = recovery.sessions;
@@ -325,6 +332,10 @@ async function syncFromCloud() {
             for (const m of s.messages) normalizeMessageVersionFields(m);
             s.messages = mergeMessageLists([], s.messages).filter(m => !isDirtyFallbackMessage(m));
         }
+
+        _cloudConfigReady = true;
+        _recentChatPreview = null;
+        if (typeof cacheConfirmedRecentChat === 'function') cacheConfirmedRecentChat();
 
         renderSuppliers();
         renderChatSidebar();
@@ -352,8 +363,8 @@ async function syncFromCloud() {
                 activeVersion: 0
             }] }];
             // Retry in 3s
-            setTimeout(syncFromCloud, 3000);
         }
+        if (!_cloudConfigReady) setTimeout(syncFromCloud, 3000);
         renderSuppliers();
         renderChatSidebar();
         renderChatMessages();
@@ -703,6 +714,7 @@ async function resyncAndMerge(reason) {
         const data = await loadCloudConfig();
         const serverSessions = data.chatSessions || [];
         ContextContinuity.ensureMessageIds(serverSessions, () => crypto.randomUUID());
+        for (const session of serverSessions) for (const message of session.messages || []) normalizeMessageVersionFields(message);
         _chatJournal.observe(serverSessions);
 
         let serverAdded = 0, localOnly = 0;
@@ -741,6 +753,7 @@ async function resyncAndMerge(reason) {
         console.log('[resync] reason=' + reason + ' serverAdded=' + serverAdded +
                     ' localOnly=' + localOnly + ' version=' + _dataVersion);
         if (serverAdded > 0) toast('已补回 ' + serverAdded + ' 条消息');
+        if (typeof cacheConfirmedRecentChat === 'function') cacheConfirmedRecentChat();
         return { serverAdded: serverAdded, localOnly: localOnly };
     } catch (e) {
         console.error('[resync] 失败: ' + e.message);
@@ -825,6 +838,7 @@ async function _doIncrementalSave(startedAt) {
     if (d.success !== true || !d._version) throw new Error(d.message || '服务器未确认增量保存，稍后重试');
     _dataVersion = d._version;
     try { _chatJournal.acknowledge(journalSnapshot); } catch (error) { console.warn('[backup] 确认状态写入失败:', error.message); }
+    if (typeof cacheConfirmedRecentChat === 'function') cacheConfirmedRecentChat();
     if (!_chatJournal.hasPending()) _preservePendingHistory = false;
     _loopCount = 0; _loopLocalOnly = 0;
     console.log('[save:OK] incremental v' + _dataVersion + ' ' + (Date.now() - startedAt) + 'ms ' + (payloadBytes / 1024).toFixed(0) + 'KB');
@@ -914,6 +928,7 @@ async function _doSave(incrementalOnly = false) {
         session.messages = (session.messages || []).filter(m => sentIds.has(m._id));
     }
     try { _chatJournal.acknowledge(journalSnapshot); } catch (error) { console.warn('[backup] 确认状态写入失败:', error.message); }
+    if (typeof cacheConfirmedRecentChat === 'function') cacheConfirmedRecentChat();
     if (!_chatJournal.hasPending()) _preservePendingHistory = false;
     _loopCount = 0; _loopLocalOnly = 0;
     console.log('[save:OK] v' + _dataVersion + ' ' + (Date.now()-_t0) + 'ms ' + (payloadBytes/1024).toFixed(0) + 'KB');
@@ -929,6 +944,7 @@ function saveMessageChangesToCloud(immediate) {
 }
 
 function saveToCloud(immediate, preserveMutationEpoch = false, messagesOnly = false) {
+    if (typeof _cloudConfigReady !== 'undefined' && !_cloudConfigReady) return Promise.resolve();
     if (!preserveMutationEpoch) _saveMutationEpoch++;
     if (!messagesOnly) _fullSaveRequiredEpoch = Math.max(_fullSaveRequiredEpoch, _saveMutationEpoch);
     saveLocalBackup();
@@ -2209,12 +2225,34 @@ function renderChatMessages(options = {}){
     if(!win) return;
     const shouldStickToBottom = Boolean(options.forceBottom) || (!options.preserveScroll && isChatNearBottom(win));
     const scrollAnchor = shouldStickToBottom ? null : captureChatScrollAnchor(win);
-    win.innerHTML = '';
-    const session = getActiveSession();
+    const preview = !_cloudConfigReady && activeChatId === 'main' ? _recentChatPreview : null;
+    const session = preview?.session || (_cloudConfigReady ? getActiveSession() : { id: activeChatId, messages: [] });
     if(!session || !session.messages) return;
+    const sameSession = win.dataset.sessionId === session.id;
+    const existingRows = new Map(sameSession ? [...win.querySelectorAll('.msg-row[data-message-id]')]
+        .map(row => [row.dataset.messageId, row]) : []);
+    const desired = [];
+    const target = { appendChild: node => desired.push(node), append: (...nodes) => desired.push(...nodes) };
+    win.dataset.sessionId = session.id;
+    win.setAttribute('aria-busy', String(!_cloudConfigReady));
+    if (!_cloudConfigReady) {
+        const status = document.createElement('div');
+        status.className = 'chat-loading-status';
+        status.setAttribute('role', 'status');
+        status.textContent = preview ? '已显示上次的聊天，正在同步最新记录…' : '正在读取聊天记录…';
+        target.appendChild(status);
+    }
 
     // 私聊默认保留轻量窗口；向上翻时逐页扩大。工作区仍按完整轮次展示最近 50 轮。
-    const visibleCount = _visibleMessageCounts[session.id] || 30;
+    let visibleCount = _visibleMessageCounts[session.id] || 30;
+    // A new tail message must not push the message being read out of the window.
+    if (scrollAnchor?.messageId && !isWorkroomSession(session)) {
+            const anchorIndex = session.messages.findIndex(m => String(m._id || m.id || '') === scrollAnchor.messageId);
+        if (anchorIndex >= 0) {
+            visibleCount = Math.max(visibleCount, session.messages.length - anchorIndex);
+            _visibleMessageCounts[session.id] = visibleCount;
+        }
+    }
     const msgs = isWorkroomSession(session) ? workroomMessagesByRounds(session.messages, 50) : session.messages.slice(-visibleCount);
     const briefs = session.id === 'main' ? workroomBriefCards.slice().sort((left, right) => {
         const leftTime = Date.parse(left.createdAt || '');
@@ -2229,7 +2267,7 @@ function renderChatMessages(options = {}){
             if (cutoff !== Infinity && (!Number.isFinite(briefTime) || briefTime > cutoff)) break;
             due.push(briefs[briefIndex++]);
         }
-        renderWorkroomBriefCards(win, due);
+        renderWorkroomBriefCards(target, due);
     };
     msgs.forEach((m, subIndex) => {
         const index = session.messages.length - msgs.length + subIndex;
@@ -2241,9 +2279,29 @@ function renderChatMessages(options = {}){
         const messageTime = Date.parse(v.fullTime || m.fullTime || v.createdAt || m.createdAt || '');
         if (Number.isFinite(messageTime)) appendBriefsThrough(messageTime);
 
+        const messageId = String(m._id || m.id || '');
+        const signature = JSON.stringify([m, isWorkroomSession(session), shenReactionEnabled, Boolean(preview)]);
+        const existing = existingRows.get(messageId);
+        if (existing && existing._chatRenderSignature === signature) {
+            // Prepending shifts action indices, but leaves message DOM (including
+            // images, open reasoning, and link cards) mounted and intact.
+            if (existing.dataset.msgIndex !== String(index)) {
+                existing.dataset.msgIndex = String(index);
+                existing.querySelectorAll('[onclick]').forEach(button => {
+                    button.setAttribute('onclick', button.getAttribute('onclick').replace(/\(\d+(?=[,)])/g, '(' + index));
+                });
+                const favorite = existing.querySelector('.fav-star');
+                if (favorite) favorite.id = 'favBtn_' + index;
+            }
+            target.appendChild(existing);
+            return;
+        }
+
         const rowDiv = document.createElement('div');
         const speaker = ['codex', 'jiangyu', 'shenwang'].includes(m.speaker) ? m.speaker : (m.role === 'user' ? 'jiangyu' : 'shenwang');
         rowDiv.className = 'msg-row ' + (m.role === 'user' ? 'user' : 'sys') + (speaker === 'codex' ? ' is-codex' : '');
+        rowDiv._chatRenderSignature = signature;
+        rowDiv.inert = Boolean(preview);
         rowDiv.setAttribute('data-msg-index', index);
         if (m._id || m.id) rowDiv.setAttribute('data-message-id', String(m._id || m.id));
         rowDiv.tabIndex = 0;
@@ -2314,12 +2372,23 @@ function renderChatMessages(options = {}){
         rowDiv.appendChild(div);
         if (m.role === 'assistant' && speaker !== 'codex') MessageUsage.mount(rowDiv, v.messageUsage);
 
-        win.appendChild(rowDiv);
+        target.appendChild(rowDiv);
     });
     appendBriefsThrough();
+    // Insert only missing/changed nodes. Existing messages stay attached, so
+    // expanding history no longer re-parses their Markdown or reloads images.
+    const wanted = new Set(desired);
+    for (const node of [...win.childNodes]) if (!wanted.has(node)) node.remove();
+    let cursor = win.firstChild;
+    for (const node of desired) {
+        if (node === cursor) cursor = cursor.nextSibling;
+        else win.insertBefore(node, cursor);
+    }
     if (isWorkroomSession(session) && workroomCodexTurnId && !workroomCodexSavedForTurn) workroomUpdateLiveReply();
-    win.querySelectorAll('.xhs-card[data-xhs-url]').forEach(el => hydrateXhsCard(el, decodeURIComponent(el.dataset.xhsUrl)));
-    win.querySelectorAll('.github-card[data-github-url]').forEach(el => hydrateGitHubCard(el, decodeURIComponent(el.dataset.githubUrl)));
+    if (!preview) {
+        win.querySelectorAll('.xhs-card[data-xhs-url]').forEach(el => hydrateXhsCard(el, decodeURIComponent(el.dataset.xhsUrl)));
+        win.querySelectorAll('.github-card[data-github-url]').forEach(el => hydrateGitHubCard(el, decodeURIComponent(el.dataset.githubUrl)));
+    }
     if (shouldStickToBottom) forceScrollToChatBottom();
     else restoreChatScrollAnchor(win, scrollAnchor);
 }
@@ -2442,6 +2511,7 @@ function finishChatRequest(request) {
 }
 
 async function sendChat(options = {}) {
+    if (typeof _cloudConfigReady !== 'undefined' && !_cloudConfigReady) return toast('正在同步聊天记录，请稍候再发送');
     if (_isStreamingReply || activeChatRequest) return toast('请等当前回复结束后再发送');
     if (isWorkroomSession() && workroomSending) return toast('正在发送，请稍候');
     workroomSending = isWorkroomSession();
@@ -4456,6 +4526,13 @@ async function startSystem() {
     updateDays();
     document.body.dataset.view = "home";
     if (document.body.classList.contains('neu-mode')) neuInitHome();
+    if (typeof ChatRecentCache !== 'undefined') {
+        void ChatRecentCache.read().then(snapshot => {
+            if (_cloudConfigReady || !snapshot) return;
+            _recentChatPreview = snapshot;
+            renderChatMessages();
+        });
+    }
     await syncFromCloud();
     try {
         await loadFavCache();
@@ -4465,6 +4542,11 @@ async function startSystem() {
     }
 }
 startSystem();
+
+function cacheConfirmedRecentChat() {
+    if (!_cloudConfigReady || _chatJournal.hasPending() || typeof ChatRecentCache === 'undefined') return;
+    void ChatRecentCache.write(chatSessions.find(s => s.id === 'main'), { shenReactionEnabled });
+}
 
 // ==================== 身体状态面板（原对话索引按钮） ====================
 let _physioCache = null;
@@ -4597,7 +4679,9 @@ function ensureChatScrollGestureTracking(win) {
     const markGesture = () => { _chatScrollGestureVersion += 1; };
     let historyTimer = null;
     win.addEventListener('scroll', () => {
-        if (win.scrollTop > 36 || document.body.dataset.view !== 'chat') return;
+        if (document.body.dataset.view !== 'chat') return;
+        if (win.scrollTop <= 600) prefetchEarlierChatMessages();
+        if (win.scrollTop > 36) return;
         clearTimeout(historyTimer);
         historyTimer = setTimeout(() => revealEarlierChatMessages(), 100);
     }, { passive: true });
@@ -4606,22 +4690,45 @@ function ensureChatScrollGestureTracking(win) {
     win.addEventListener('pointerdown', markGesture, { passive: true });
 }
 
+function earlierHistoryRequest(session) {
+    const state = _historyWindows[session.id];
+    if (!state?.hasMore || state.start <= 0) return null;
+    const key = [session.id, _dataVersion, state.start].join(':');
+    if (!_historyPrefetches.has(key)) {
+        // One page ahead only; never fetch the entire transcript speculatively.
+        _historyPrefetches.clear();
+        const request = ChatPersistence.requestJson('/api/chat-history/' + encodeURIComponent(session.id)
+            + '?before=' + encodeURIComponent(state.start) + '&limit=' + CHAT_HISTORY_PAGE_SIZE);
+        _historyPrefetches.set(key, request);
+        request.catch(() => { if (_historyPrefetches.get(key) === request) _historyPrefetches.delete(key); });
+    }
+    return _historyPrefetches.get(key);
+}
+
+function prefetchEarlierChatMessages() {
+    if (!_cloudConfigReady || _isStreamingReply || _historyLoading) return;
+    const session = getActiveSession();
+    if (!session || isWorkroomSession(session)) return;
+    if ((_visibleMessageCounts[session.id] || 30) < session.messages.length) return;
+    earlierHistoryRequest(session)?.catch(() => {});
+}
+
 async function revealEarlierChatMessages() {
-    if (_historyLoading || _isStreamingReply || document.body.dataset.view !== 'chat') return;
+    if (!_cloudConfigReady || _historyLoading || _isStreamingReply || document.body.dataset.view !== 'chat') return;
     const session = getActiveSession();
     if (!session || isWorkroomSession(session)) return;
     const shown = _visibleMessageCounts[session.id] || 30;
     if (shown < session.messages.length) {
         _visibleMessageCounts[session.id] = Math.min(session.messages.length, shown + CHAT_HISTORY_PAGE_SIZE);
         renderChatMessages({ preserveScroll: true });
+        prefetchEarlierChatMessages();
         return;
     }
     const state = _historyWindows[session.id];
     if (!state?.hasMore || state.start <= 0) return;
     _historyLoading = true;
     try {
-        const data = await ChatPersistence.requestJson('/api/chat-history/' + encodeURIComponent(session.id)
-            + '?before=' + encodeURIComponent(state.start) + '&limit=' + CHAT_HISTORY_PAGE_SIZE);
+        const data = await earlierHistoryRequest(session);
         if (data._version !== _dataVersion) {
             await resyncAndMerge('history-version-change');
             toast('聊天记录刚刚更新，请再向上翻一次');
@@ -4630,17 +4737,20 @@ async function revealEarlierChatMessages() {
         for (const message of data.messages || []) normalizeMessageVersionFields(message);
         ContextContinuity.ensureMessageIds([{ messages: data.messages || [] }], () => crypto.randomUUID());
         _chatJournal.observe([{ id: session.id, messages: data.messages || [] }]);
-        const beforeLength = session.messages.length;
-        session.messages = mergeMessageLists(data.messages || [], session.messages);
-        const added = Math.max(0, session.messages.length - beforeLength);
+        // A background sync may replace session objects while this request waits.
+        const liveSession = chatSessions.find(item => item.id === session.id);
+        if (!liveSession) return;
+        const beforeLength = liveSession.messages.length;
+        liveSession.messages = mergeMessageLists(data.messages || [], liveSession.messages);
+        const added = Math.max(0, liveSession.messages.length - beforeLength);
         _historyWindows[session.id] = {
             start: Math.max(0, Number(data.start) || 0),
-            total: Math.max(session.messages.length, Number(data.total) || 0),
+            total: Math.max(liveSession.messages.length, Number(data.total) || 0),
             hasMore: Boolean(data.hasMore),
             partial: Number(data.start) > 0
         };
-        _visibleMessageCounts[session.id] = Math.min(session.messages.length, shown + Math.max(added, CHAT_HISTORY_PAGE_SIZE));
-        renderChatMessages({ preserveScroll: true });
+        _visibleMessageCounts[session.id] = Math.min(liveSession.messages.length, shown + Math.max(added, CHAT_HISTORY_PAGE_SIZE));
+        if (activeChatId === session.id) renderChatMessages({ preserveScroll: true });
     } catch (error) {
         console.error('[history] 加载更早消息失败:', error.message);
         toast('更早的聊天暂时没有加载出来');
@@ -4657,6 +4767,7 @@ function captureChatScrollAnchor(win) {
         const rect = row.getBoundingClientRect();
         if (rect.bottom > winRect.top + 1) {
             return {
+                messageId: row.dataset.messageId || null,
                 index: row.dataset.msgIndex,
                 offset: rect.top - winRect.top,
                 scrollTop: win.scrollTop
@@ -4669,7 +4780,9 @@ function captureChatScrollAnchor(win) {
 function restoreChatScrollAnchor(win, anchor) {
     if (!win || !anchor) return;
     if (anchor.index !== null) {
-        const row = win.querySelector('.msg-row[data-msg-index="' + anchor.index + '"]');
+        const row = anchor.messageId
+            ? win.querySelector('.msg-row[data-message-id="' + CSS.escape(anchor.messageId) + '"]')
+            : win.querySelector('.msg-row[data-msg-index="' + anchor.index + '"]');
         if (row) {
             const winTop = win.getBoundingClientRect().top;
             const currentOffset = row.getBoundingClientRect().top - winTop;

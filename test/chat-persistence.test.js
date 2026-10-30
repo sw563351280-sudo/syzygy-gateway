@@ -63,6 +63,21 @@ test('journal exposes only new or modified messages for incremental sync', () =>
     assert.equal(journal.hasPending(), false);
 });
 
+test('refreshing favorite markers does not queue old messages, while content edits still do', () => {
+    const journal = createJournal(storage());
+    const original = msg('old');
+    journal.observe(session(original));
+    journal.capture(session({ ...original, _favoriteId: null }));
+    assert.equal(journal.hasPending(), false);
+    journal.capture(session({ ...original, _favoriteId: 'fav-1' }));
+    assert.equal(journal.hasPending(), false);
+    const edited = { ...original, _favoriteId: 'fav-1', versions: [{ content: 'edited' }] };
+    journal.capture(session(edited));
+    assert.equal(journal.hasPending(), true);
+    journal.acknowledge(session({ ...edited, _favoriteId: null }));
+    assert.equal(journal.hasPending(), false);
+});
+
 test('incremental save posts only journaled messages and removes duplicate model fields', async () => {
     const disk = storage(), journal = createJournal(disk);
     journal.observe(session(msg('old')));
