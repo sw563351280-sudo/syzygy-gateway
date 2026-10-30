@@ -78,9 +78,8 @@ jobs:
             fi
 
             # Codex Bridge uses the server-side app-server; a failed optional install must not block the main deployment
-            if ! command -v codex >/dev/null 2>&1; then
-              npm install -g @openai/codex || echo "WARNING: Codex CLI install failed; Codex Bridge remains unavailable"
-            fi
+            npm install -g @openai/codex@latest || echo "WARNING: Codex CLI update failed; retaining the installed version"
+            codex --version || true
 
             # 恢复沈望的本地修改。核心服务和前端入口必须以 Git 版本为准，
             # 否则 VPS 上的旧工作副本会在部署后覆盖刚发布的页面。

@@ -1,0 +1,37 @@
+name: Update Codex and inspect models
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: syzygy-production-deploy
+  cancel-in-progress: false
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update server Codex and read available models
+        env:
+          SSH_KEY: ${{ secrets.CONTABO_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          scp -P 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -i ~/.ssh/deploy_key scripts/inspect-codex-models.js root@46.250.248.31:/tmp/syzygy-inspect-codex-models.js
+          ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=20 -i ~/.ssh/deploy_key root@46.250.248.31 '
+            set -e
+            cd /opt/syzygy
+            exec 9>>data/codex-deployment.lock
+            flock --exclusive --wait 1500 9
+            echo "Before update:"
+            codex --version
+            npm install -g @openai/codex@latest
+            echo "After update:"
+            codex --version
+            node /tmp/syzygy-inspect-codex-models.js
+          '
+      - name: Remove runner SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
