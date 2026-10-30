@@ -75,6 +75,7 @@
     let activeRange = 'month';
     let taskLoading = null;
     let diaryEntries = null;
+    let quickCloseTimer = null;
     const heatYears = new Map();
     const calendarMonths = new Map();
 
@@ -147,6 +148,70 @@
             taskData = result; $('orbitStatus').textContent = ''; return result;
         }).catch(error => { $('orbitStatus').textContent = error.message; throw error; }).finally(() => { taskLoading = null; });
         return taskLoading;
+    }
+
+    function quickElements() {
+        return { button: $('orbitQuickButton'), drawer: $('orbitQuickDrawer') };
+    }
+    function closeQuickDrawer() {
+        const { button, drawer } = quickElements();
+        if (!button || !drawer) return;
+        clearTimeout(quickCloseTimer); quickCloseTimer = null;
+        drawer.hidden = true;
+        button.setAttribute('aria-expanded', 'false');
+    }
+    function quickTasks() {
+        const date = taskData?.today || todayKey();
+        return activeTasks(date).map(task => ({ task, state: progress(task, recordFor(date, task.id)) }));
+    }
+    function updateQuickButton() {
+        const { button } = quickElements(); if (!button) return;
+        const complete = dayInfo(taskData?.today || todayKey()).state === 'complete';
+        button.textContent = complete ? '★' : '☆';
+        button.classList.toggle('is-complete', complete);
+        button.setAttribute('aria-label', complete ? '今日星轨已点亮，打开查看' : '打开今日星轨');
+    }
+    function renderQuickDrawer(status = '') {
+        const { button, drawer } = quickElements(); if (!button || !drawer) return;
+        const rows = quickTasks();
+        if (status) drawer.innerHTML = `<p class="orbit-quick-status">${esc(status)}</p>`;
+        else if (!rows.length) drawer.innerHTML = '<p class="orbit-quick-empty">今天还没有安排星轨任务</p>';
+        else drawer.innerHTML = rows.map(({ task, state }) => `<button type="button" class="orbit-quick-row${state.done ? ' is-done' : ''}" data-quick-task="${esc(task.id)}" aria-label="${state.done ? '撤销' : '点亮'}${esc(task.name)}"><span class="orbit-quick-icon">${esc(task.icon)}</span><span class="orbit-quick-name">${esc(task.name)}</span><span class="orbit-quick-state">${state.done ? '★' : '☆'}</span></button>`).join('');
+        drawer.hidden = false;
+        button.setAttribute('aria-expanded', 'true');
+        updateQuickButton();
+    }
+    async function patchQuickCheck(task, value, direct = false) {
+        const { button } = quickElements(); if (button) button.disabled = true;
+        clearTimeout(quickCloseTimer); quickCloseTimer = null;
+        try {
+            const date = taskData?.today || todayKey();
+            await api(`/api/star-orbit/days/${date}/tasks/${encodeURIComponent(task.id)}`, { value }, 'PATCH');
+            await loadTasks(true);
+            updateQuickButton();
+            renderQuickDrawer(direct && value ? `★ ${task.icon} ${task.name} · 已照顾好` : '');
+            window.SeaHome?.refresh(true);
+            if (direct && value) quickCloseTimer = setTimeout(closeQuickDrawer, 1400);
+        } catch (error) { renderQuickDrawer(error.message); }
+        finally { if (button) button.disabled = false; }
+    }
+    async function toggleQuickDrawer() {
+        const { button, drawer } = quickElements(); if (!button || !drawer || button.hidden || button.disabled) return;
+        if (!drawer.hidden) { closeQuickDrawer(); return; }
+        button.disabled = true;
+        try {
+            await loadTasks();
+            const rows = quickTasks();
+            if (rows.length === 1 && rows[0].task.mode === 'check' && !rows[0].state.done) await patchQuickCheck(rows[0].task, true, true);
+            else renderQuickDrawer();
+        } catch (error) { renderQuickDrawer(error.message); }
+        finally { button.disabled = false; }
+    }
+    function setQuickVisible(visible) {
+        const { button } = quickElements(); if (!button) return;
+        button.hidden = !visible;
+        if (!visible) closeQuickDrawer();
+        else updateQuickButton();
     }
     async function loadHeart(force = false) {
         const year = yearOf(), month = monthKey();
@@ -361,6 +426,17 @@
         } catch (error) { $('orbitStatus').textContent = error.message; }
     }
 
+    $('orbitQuickButton')?.addEventListener('click', event => { event.stopPropagation(); void toggleQuickDrawer(); });
+    $('orbitQuickDrawer')?.addEventListener('click', event => {
+        event.stopPropagation();
+        const target = event.target.closest('[data-quick-task]'); if (!target) return;
+        const row = quickTasks().find(item => item.task.id === target.dataset.quickTask); if (!row) return;
+        if (row.task.mode !== 'check') { closeQuickDrawer(); void open({ section: 'daily', date: taskData?.today || todayKey() }); return; }
+        void patchQuickCheck(row.task, !row.state.done);
+    });
+    document.addEventListener('click', event => { if (!event.target.closest('.chat-input-stack')) closeQuickDrawer(); });
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') closeQuickDrawer(); });
+
     dialog.addEventListener('click', async event => {
         const target = event.target.closest('button'); if (!target) return;
         if (target.classList.contains('orbit-close')) { dialog.close(); return; }
@@ -433,5 +509,10 @@
         document.body.classList.add('sea-modal-open');
         await ensureActiveData(true); render();
     }
-    window.StarOrbit = { open, refresh: async () => { await ensureActiveData(true); render(); } };
+    window.StarOrbit = {
+        open,
+        setQuickVisible,
+        refresh: async () => { await Promise.all([ensureActiveData(true), loadTasks(true)]); render(); updateQuickButton(); }
+    };
+    loadTasks().then(updateQuickButton).catch(() => {});
 })();

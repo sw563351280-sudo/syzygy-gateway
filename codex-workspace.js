@@ -31,8 +31,9 @@ function createCodexWorkspace(directory) {
         return { ...value, model: value.model || '', effort: value.effort || 'high' };
     }
     function saveSettings(value) {
-        if (typeof value?.prompt !== 'string' || value.prompt.length > 6000) throw new Error('设定必须是文字，最多 6000 字符');
         const previous = settings();
+        const prompt = value?.prompt === undefined ? previous.prompt : value.prompt;
+        if (typeof prompt !== 'string' || prompt.length > 6000) throw new Error('设定必须是文字，最多 6000 字符');
         if (Object.hasOwn(value, 'expectedUpdatedAt') && value.expectedUpdatedAt !== (previous.updatedAt || null)) {
             const error = new Error('设定已在其他页面更新。你的草稿已保留，请重新打开设定后核对再保存。');
             error.status = 409;
@@ -42,7 +43,7 @@ function createCodexWorkspace(directory) {
         const effort = value.effort === undefined ? previous.effort : value.effort;
         if (typeof model !== 'string' || (model !== '' && !/^[a-zA-Z0-9._-]{1,80}$/.test(model))) throw new Error('模型名称只能包含字母、数字、点、下划线和短横线，最多 80 字符');
         if (!['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(effort)) throw new Error('请选择有效的思考程度');
-        const result = { prompt: value.prompt.trim(), model, effort, updatedAt: new Date(Math.max(Date.now(), (Date.parse(previous.updatedAt) || 0) + 1)).toISOString() };
+        const result = { prompt: prompt.trim(), model, effort, updatedAt: new Date(Math.max(Date.now(), (Date.parse(previous.updatedAt) || 0) + 1)).toISOString() };
         write(settingsFile, result);
         write(settingsFile + '.backup', result);
         return result;

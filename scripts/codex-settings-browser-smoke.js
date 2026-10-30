@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const express = require('express');
-const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const puppeteer = require('puppeteer-core');
 const { createCodexWorkspace, workspaceRouter } = require('../codex-workspace');
 
 (async () => {
@@ -24,15 +24,20 @@ const { createCodexWorkspace, workspaceRouter } = require('../codex-workspace');
     app.use(express.static(path.join(__dirname, '../public')));
     const server = app.listen(0, '127.0.0.1');
     await new Promise(resolve => server.once('listening', resolve));
+    const waitForPuts = async expected => {
+        const deadline = Date.now() + 3000;
+        while (puts < expected && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+        assert.equal(puts, expected);
+    };
     let browser;
     try {
         const executablePath = process.env.CHROME_BIN || [
             'C:/Program Files/Google/Chrome/Application/chrome.exe',
             'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-            '/usr/bin/chromium', '/usr/bin/google-chrome'
+            '/usr/bin/chromium-browser', '/usr/bin/chromium', '/usr/bin/google-chrome'
         ].find(file => fs.existsSync(file));
         assert.ok(executablePath, 'Set CHROME_BIN to a Chromium browser');
-        browser = await chromium.launch({ executablePath, headless: true });
+        browser = await puppeteer.launch({ executablePath, headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
         const page = await browser.newPage();
         const errors = [];
         page.on('pageerror', error => errors.push(error.message));
@@ -41,13 +46,22 @@ const { createCodexWorkspace, workspaceRouter } = require('../codex-workspace');
         await page.goto('http://127.0.0.1:' + server.address().port);
         await page.waitForFunction(() => !document.getElementById('codexSettingsSave').disabled);
         const baseline = navigations;
-        await page.selectOption('#codexSettingsModel', 'test-model');
-        await page.selectOption('#codexSettingsEffort', 'low');
+        await page.select('#codexSettingsModel', 'test-model');
+        await page.waitForFunction(() => document.getElementById('codexSettingsStatus').textContent.includes('模型已保存'), { timeout: 3000 })
+            .catch(async () => { throw new Error('Model autosave did not complete: ' + JSON.stringify({ puts, errors, ui: await page.$eval('#codexSettingsForm', form => ({ status: form.querySelector('#codexSettingsStatus').textContent, model: form.querySelector('#codexSettingsModel').value, disabled: form.querySelector('#codexSettingsModel').disabled })) })); });
+        await waitForPuts(1);
+        await page.waitForFunction(() => !document.getElementById('codexSettingsModel').disabled);
+        await page.select('#codexSettingsEffort', 'low');
+        await waitForPuts(2);
+        await page.waitForFunction(() => document.getElementById('codexSettingsStatus').textContent.includes('模型已保存'));
+        await page.waitForFunction(() => !document.getElementById('codexSettingsEffort').disabled);
+        await page.$eval('.codex-prompt-settings', details => { details.open = true; });
         await page.$eval('#codexSettingsPrompt', input => { input.value = '浏览器点击保存的测试设定'; input.dispatchEvent(new Event('input')); });
+        const beforePromptSave = await page.$eval('#codexSettingsForm', form => ({ status: form.querySelector('#codexSettingsStatus').textContent, buttonDisabled: form.querySelector('#codexSettingsSave').disabled, loading: window.codexSettingsLoading, saveType: typeof window.codexSettingsSave }));
         await page.click('#codexSettingsSave');
-        await page.waitForFunction(() => document.getElementById('codexSettingsStatus').textContent.includes('设定已保存'), null, { timeout: 3000 })
-            .catch(() => { throw new Error('Save did not complete: ' + JSON.stringify({ errors, puts, navigations })); });
-        assert.equal(puts, 1);
+        await page.waitForFunction(() => document.getElementById('codexSettingsStatus').textContent.includes('设定已保存'), { timeout: 3000 })
+            .catch(async () => { throw new Error('Save did not complete: ' + JSON.stringify({ errors, puts, navigations, beforePromptSave, after: await page.$eval('#codexSettingsForm', form => ({ status: form.querySelector('#codexSettingsStatus').textContent, buttonDisabled: form.querySelector('#codexSettingsSave').disabled, modelDisabled: form.querySelector('#codexSettingsModel').disabled })) })); });
+        assert.equal(puts, 3);
         assert.equal(navigations, baseline);
         assert.deepEqual(errors, []);
         const restored = createCodexWorkspace(directory).settings();
@@ -61,9 +75,9 @@ const { createCodexWorkspace, workspaceRouter } = require('../codex-workspace');
         assert.equal(await page.$eval('#codexSettingsEffort', input => input.value), restored.effort);
         await page.$eval('#codexSettingsForm', form => form.requestSubmit());
         await page.waitForFunction(() => document.getElementById('codexSettingsStatus').textContent.includes('设定已保存'));
-        assert.equal(puts, 2);
+        assert.equal(puts, 4);
         assert.deepEqual(errors, []);
-        console.log('PASS: real button click and form submit save once, no navigation; model, effort and prompt survive reload and store restart.');
+        console.log('PASS: model and effort save immediately without navigation; prompt save, reload, and store restart preserve the chosen model.');
     } finally {
         if (browser) await browser.close();
         await new Promise(resolve => server.close(resolve));

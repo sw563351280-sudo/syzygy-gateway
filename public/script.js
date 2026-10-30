@@ -1994,6 +1994,7 @@ function openActiveChatSettings() {
 
 function updateWorkroomChrome() {
     const active = isWorkroomSession();
+    globalThis.StarOrbit?.setQuickVisible(!active);
     const settingsTop = document.getElementById('chatSettingsTop');
     if (settingsTop) {
         const label = active ? 'Codex 设定' : '沈望设定';

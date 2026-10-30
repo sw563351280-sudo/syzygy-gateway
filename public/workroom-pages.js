@@ -1,6 +1,7 @@
 /* Codex settings and durable, read-only work journal. */
 let codexSettingsDefault = '';
 let codexSettingsLoading = false;
+let codexSettingsLoadRequest = 0;
 let codexSettingsRevision = null;
 let codexModels = [];
 let codexDefaultModel = '';
@@ -41,6 +42,11 @@ function codexSettingsEfforts(preferred) {
 function codexSettingsModelChanged() {
     codexSettingsEfforts(document.getElementById('codexSettingsEffort').value);
     codexSettingsDraft();
+    void codexSettingsSaveChoice();
+}
+function codexSettingsEffortChanged() {
+    codexSettingsDraft();
+    void codexSettingsSaveChoice();
 }
 function codexSettingsRefreshOverview() {
     const modelValue = document.getElementById('codexSettingsModel')?.value || '';
@@ -240,6 +246,7 @@ async function codexNoteSettingsTest() {
 }
 
 async function codexSettingsLoad() {
+    const request = ++codexSettingsLoadRequest;
     const input = document.getElementById('codexSettingsPrompt');
     const button = document.getElementById('codexSettingsSave');
     const status = document.getElementById('codexSettingsStatus');
@@ -253,6 +260,7 @@ async function codexSettingsLoad() {
     void codexNoteSettingsLoad();
     try {
         const data = await codexWorkspaceRequest('/api/codex/settings');
+        if (request !== codexSettingsLoadRequest) return;
         if (data.version !== 2 || typeof data.defaultModel !== 'string') throw new Error('服务器设定接口尚未更新，请等待部署完成。没有覆盖本机草稿。');
         codexSettingsDefault = data.defaultPrompt;
         codexSettingsRevision = data.settings.updatedAt || null;
@@ -263,10 +271,17 @@ async function codexSettingsLoad() {
         let catalogError = '';
         try {
             const catalog = await codexWorkspaceRequest('/api/codex/models');
+            if (request !== codexSettingsLoadRequest) return;
             codexModels = catalog.models || [];
             for (const row of codexModels) codexOption(model, row.model, row.displayName + (row.isDefault ? ' · 推荐' : ''));
-        } catch (error) { codexModels = []; catalogError = '模型列表暂不可用：' + error.message; }
+        } catch (error) {
+            if (request !== codexSettingsLoadRequest) return;
+            codexModels = []; catalogError = '模型列表暂不可用：' + error.message;
+        }
         codexSettingsFill(data.settings);
+        // Controls must not become interactive while their change handlers still
+        // consider the page loading, or the first selection is silently ignored.
+        codexSettingsLoading = false;
         model.disabled = false;
         const effort = document.getElementById('codexSettingsEffort');
         effort.disabled = false;
@@ -288,8 +303,37 @@ async function codexSettingsLoad() {
             }
         } catch (_) {}
         codexSettingsRefreshOverview();
-    } catch (error) { status.textContent = error.message; }
-    finally { codexSettingsLoading = false; }
+    } catch (error) { if (request === codexSettingsLoadRequest) status.textContent = error.message; }
+    finally { if (request === codexSettingsLoadRequest) codexSettingsLoading = false; }
+}
+
+async function codexSettingsSaveChoice() {
+    if (codexSettingsLoading) return;
+    const model = document.getElementById('codexSettingsModel').value;
+    const effort = document.getElementById('codexSettingsEffort').value;
+    const button = document.getElementById('codexSettingsSave');
+    const status = document.getElementById('codexSettingsStatus');
+    codexSettingsLoading = true;
+    button.disabled = true;
+    document.getElementById('codexSettingsModel').disabled = true;
+    document.getElementById('codexSettingsEffort').disabled = true;
+    status.textContent = '正在保存模型选择…';
+    try {
+        const data = await codexWorkspaceRequest('/api/codex/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, effort, expectedUpdatedAt: codexSettingsRevision }) });
+        if (data.version !== 2 || data.settings?.model !== model || data.settings?.effort !== effort) throw new Error('服务器没有确认模型选择');
+        codexSettingsRevision = data.settings.updatedAt;
+        try {
+            localStorage.setItem(codexSavedKey, JSON.stringify(data.settings));
+            if (JSON.stringify(codexSettingsValues()) === JSON.stringify({ prompt: data.settings.prompt, model, effort })) localStorage.removeItem(codexDraftKey);
+        } catch (_) {}
+        status.textContent = '模型已保存 · 下一轮生效';
+    } catch (error) { status.textContent = '模型未保存：' + error.message; }
+    finally {
+        codexSettingsLoading = false;
+        button.disabled = false;
+        document.getElementById('codexSettingsModel').disabled = false;
+        document.getElementById('codexSettingsEffort').disabled = false;
+    }
 }
 
 async function codexSettingsSave(event) {

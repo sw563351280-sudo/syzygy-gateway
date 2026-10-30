@@ -51,13 +51,18 @@ async function main() {
             const rendered = document.querySelector('#chatWindow .md-content')?.textContent || '';
             openWorkroom();
             const workroomPlaceholder = input.placeholder;
+            const quickHiddenInWorkroom = document.querySelector('#orbitQuickButton').hidden;
+            openCommunication();
+            const quickVisibleInChat = !document.querySelector('#orbitQuickButton').hidden;
             SeaTheme.setAdjustments({ dayTextColor: '#1a3a5c' });
-            return { mainPlaceholder, workroomPlaceholder, placeholderBefore, placeholderAfter, rendered };
+            return { mainPlaceholder, workroomPlaceholder, placeholderBefore, placeholderAfter, rendered, quickHiddenInWorkroom, quickVisibleInChat };
         });
         assert.equal(chatUi.mainPlaceholder, '跟我说说话，宝宝……');
         assert.equal(chatUi.workroomPlaceholder, '把我们叫来，一起商量点什么……');
         assert.notEqual(chatUi.placeholderBefore, chatUi.placeholderAfter, 'composer hint follows the configured text color');
         assert.equal(chatUi.rendered.trim(), '尾巴前正文', 'stored naked wake JSON stays hidden in historical rendering');
+        assert.equal(chatUi.quickHiddenInWorkroom, true, 'quick orbit stays out of the workroom composer');
+        assert.equal(chatUi.quickVisibleInChat, true, 'quick orbit is available in Shen chat');
         await page.evaluate(() => goView('home'));
         assert.equal(await page.$('.sea-orbit-summary'), null, 'empty orbit stays hidden on the home page');
         await page.click('#homeV2MoreToggle');
@@ -79,8 +84,8 @@ async function main() {
             return { day, night };
         });
         assert.notEqual(orbitGlass.day.background, orbitGlass.night.background, 'orbit glass changes with the day/night cycle');
-        assert.match(orbitGlass.day.background, /0\.76/);
-        assert.match(orbitGlass.night.background, /0\.78/);
+        assert.match(orbitGlass.day.background, /0\.88/);
+        assert.match(orbitGlass.night.background, /0\.92/);
         assert.match(orbitGlass.day.blur, /blur\(22px\)/);
         assert.notEqual(orbitGlass.day.color, orbitGlass.night.color, 'orbit copy follows the active appearance text color');
         assert.equal(await page.$$eval('.orbit-heart-day.is-heat-3', nodes => nodes.length), 1, 'chat heat lights the matching day');
@@ -99,6 +104,19 @@ async function main() {
         await page.type('#orbitTaskName', '吃早饭');
         await page.click('#orbitCreateForm .orbit-submit');
         await page.waitForFunction(() => [...document.querySelectorAll('.orbit-managed-task strong')].some(node => node.textContent === '吃早饭'));
+        await page.keyboard.press('Escape');
+        await page.evaluate(() => { goView('chat'); openCommunication(); });
+        await page.click('#orbitQuickButton');
+        await page.waitForFunction(() => document.querySelector('#orbitQuickButton').textContent === '★' && !document.querySelector('#orbitQuickDrawer').hidden);
+        assert.match(await page.$eval('#orbitQuickDrawer', node => node.textContent), /吃早饭 · 已照顾好/);
+        await page.screenshot({ path: path.join(os.tmpdir(), 'star-orbit-quick-drawer.png') });
+        await page.waitForFunction(() => document.querySelector('#orbitQuickDrawer').hidden);
+        await page.click('#orbitQuickButton');
+        await page.waitForSelector('#orbitQuickDrawer [data-quick-task]');
+        await page.click('#orbitQuickDrawer [data-quick-task]');
+        await page.waitForFunction(() => document.querySelector('#orbitQuickButton').textContent === '☆');
+        await page.evaluate(() => window.StarOrbit.open({ section: 'tasks' }));
+        await page.waitForFunction(() => document.querySelector('#starOrbitDialog')?.open);
         await page.evaluate(async today => {
             const tasks = [
                 { name: '喝水', icon: '💧', mode: 'count', target: 8, schedule: { kind: 'daily', startDate: today } },
@@ -106,6 +124,7 @@ async function main() {
             ];
             for (const task of tasks) await fetch('/api/star-orbit/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) });
             await window.StarOrbit.refresh();
+            goView('home');
             await window.SeaHome.refresh(true);
         }, today);
         await page.keyboard.press('Escape');
@@ -148,7 +167,7 @@ async function main() {
         await page.waitForFunction(() => !document.querySelector('#starOrbitDialog').open);
         await page.waitForFunction(() => document.querySelector('.sea-orbit-summary').textContent.includes('今日 1/4'));
         assert.deepEqual(errors, []);
-        console.log(JSON.stringify({ ok: true, checks: ['chat tail fallback', 'chat placeholders and configured hint color', 'default heart trail', 'day/night orbit glass', 'chat heat and calendar detail', 'appearance text color', 'empty-state menu entry', 'first task creation', 'home summary', 'mobile drawer', 'hidden and revealed skip action', 'check', 'water count', 'split dose', 'year view', 'task creation', 'no overflow'], screenshots: [path.join(os.tmpdir(), 'star-orbit-empty-entry.png'), path.join(os.tmpdir(), 'star-orbit-heart.png'), path.join(os.tmpdir(), 'star-orbit-month.png'), path.join(os.tmpdir(), 'star-orbit-mobile.png')] }));
+        console.log(JSON.stringify({ ok: true, checks: ['chat tail fallback', 'chat placeholders and configured hint color', 'quick orbit chat-only visibility', 'single-task quick light and drawer undo', 'default heart trail', 'day/night orbit journal grid', 'chat heat and calendar detail', 'appearance text color', 'empty-state menu entry', 'first task creation', 'home summary', 'mobile drawer', 'hidden and revealed skip action', 'check', 'water count', 'split dose', 'year view', 'task creation', 'no overflow'], screenshots: [path.join(os.tmpdir(), 'star-orbit-empty-entry.png'), path.join(os.tmpdir(), 'star-orbit-quick-drawer.png'), path.join(os.tmpdir(), 'star-orbit-heart.png'), path.join(os.tmpdir(), 'star-orbit-month.png'), path.join(os.tmpdir(), 'star-orbit-mobile.png')] }));
     } finally {
         await browser?.close(); ws.close(); await new Promise(resolve => server.close(resolve)); fs.rmSync(directory, { recursive: true, force: true });
     }

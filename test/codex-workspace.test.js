@@ -37,9 +37,12 @@ test('model settings survive restart, migrate old settings and reject invalid up
     assert.equal(restored.settings().effort, 'low');
     restored.saveSettings({ prompt: '仅改提示词' });
     assert.equal(restored.settings().model, 'custom-model');
+    restored.saveSettings({ model: 'next-model', effort: 'high' });
+    assert.equal(restored.settings().prompt, '仅改提示词');
+    assert.equal(restored.settings().model, 'next-model');
     assert.throws(() => restored.saveSettings({ prompt: '', model: '--bad model', effort: 'low' }));
     assert.throws(() => restored.saveSettings({ prompt: '', model: '', effort: 'bogus' }));
-    assert.equal(restored.settings().effort, 'low');
+    assert.equal(restored.settings().effort, 'high');
 });
 test('saved prompt survives missing primary file and stale pages cannot overwrite it', t => {
     const { store, directory } = fixture(t);

@@ -35,6 +35,18 @@ test('picker loads real model capabilities and saves settings with revision', as
     assert.equal(storage.has('syzygy.codex-settings.saved.v1'), true);
     assert.match(document.getElementById('codexSettingsStatus').textContent, /已保存/);
 });
+test('model choice saves immediately without committing an unfinished prompt', async () => {
+    const { context, document, requests } = fixture();
+    await context.codexSettingsLoad();
+    document.getElementById('codexSettingsPrompt').value = '还没写完';
+    document.getElementById('codexSettingsEffort').value = 'high';
+    context.codexSettingsDraft();
+    await context.codexSettingsSaveChoice();
+    const save = requests.find(request => request.options.method === 'PUT');
+    assert.deepEqual(JSON.parse(save.options.body), { model: 'custom-model', effort: 'high', expectedUpdatedAt: null });
+    assert.equal(document.getElementById('codexSettingsPrompt').value, '还没写完');
+    assert.match(document.getElementById('codexSettingsStatus').textContent, /模型已保存/);
+});
 test('settings save button cannot trigger native form navigation', () => {
     const html = fs.readFileSync(require.resolve('../public/index.html'), 'utf8');
     assert.match(html, /id="codexSettingsForm"[^>]*onsubmit="event\.preventDefault\(\);window\.codexSettingsSave\(\)"/);
