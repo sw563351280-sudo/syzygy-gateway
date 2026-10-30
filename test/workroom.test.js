@@ -240,6 +240,7 @@ test('only the execute button appends the visible trusted-action badge', async (
     assert.equal(calls[0][0], '把小字变成金色  ✦ TT开工');
     assert.equal(calls[0][3], true);
     assert.equal(room.messages[0].versions[0].content, '把小字变成金色  ✦ TT开工');
+    assert.equal(room.messages[0].workroomAction, 'execute');
 });
 
 test('snapshot replay is idempotent and uses stable message IDs', () => {

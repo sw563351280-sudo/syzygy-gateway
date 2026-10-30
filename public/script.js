@@ -2233,6 +2233,7 @@ function renderChatMessages(options = {}){
     };
     msgs.forEach((m, subIndex) => {
         const index = session.messages.length - msgs.length + subIndex;
+        if (m._workroomBridge) return;
 
         const v = getActiveVersion(m);
         const vCount = getVersionCount(m);
@@ -2484,6 +2485,14 @@ async function sendChat(options = {}) {
         input.value = '';
     }
 
+    const workroomBridge = session.id === 'main' && window.WorkroomHistoryBridge
+        ? window.WorkroomHistoryBridge.append(
+            chatSessions.find(item => item.id === WORKROOM_ID || item.type === 'codex-workroom'),
+            session,
+            { limit: 10, idFactory: () => crypto.randomUUID() }
+        )
+        : null;
+
     // 💥 就在这里！Claude 让加的”侦察兵”
     console.log('val类型:', typeof val, '值:', val);
     console.log('currentImgBase64List:', currentImgBase64List.length);
@@ -2491,6 +2500,7 @@ async function sendChat(options = {}) {
 
     if (workroomTarget !== 'codex') {
         request = beginChatRequest();
+        if (workroomBridge) saveToCloud(true);
         await flushDirtyToZep(session, request.signal);
         request.signal.throwIfAborted();
     }
@@ -2519,7 +2529,7 @@ async function sendChat(options = {}) {
     // 📸 保存压缩后的图片到版本记录（保留最近 5 轮可查看/重新生成）
     const savedImages = currentImgBase64List.length > 0 ? [...currentImgBase64List] : null;
     submittedMessageId = crypto.randomUUID();
-    session.messages.push({ _id: submittedMessageId, role: 'user', speaker: isWorkroomSession(session) ? 'jiangyu' : undefined, workroomTarget: isWorkroomSession(session) ? workroomTarget : undefined, versions: [{ content: val, fullTime: curFullTime, image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
+    session.messages.push({ _id: submittedMessageId, role: 'user', speaker: isWorkroomSession(session) ? 'jiangyu' : undefined, workroomTarget: isWorkroomSession(session) ? workroomTarget : undefined, ...(workroomExecute ? { workroomAction: 'execute' } : {}), versions: [{ content: val, fullTime: curFullTime, image: savedImages ? savedImages[0] : undefined, images: savedImages }], activeVersion: 0 });
     if (uRow.dataset) {
         uRow.dataset.msgIndex = String(session.messages.length - 1);
         uRow.dataset.messageId = submittedMessageId;
