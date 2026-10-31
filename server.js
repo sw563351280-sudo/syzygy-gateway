@@ -8518,6 +8518,8 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                 body.messages.push({ role: 'assistant', content: curMessage.content || null, tool_calls: curMessage.tool_calls,
                     ...(curMessage._anthropic_content ? { _anthropic_content: curMessage._anthropic_content } : {}) });
                 for (const tc of curMessage.tool_calls) {
+                    toolDiagnostic.calls.push({ name: tc.function.name,
+                        allowed: !cacheToolPolicy || cacheToolPolicy.allows(tc.function.name) });
                     lifecycle.signal.throwIfAborted();
                     requestStage = `tool-execution-${toolRound}:${tc.function.name}`;
                     let fnArgs = {};
