@@ -5067,11 +5067,19 @@ async function _startHttpMCPServer(config) {
 }
 
 async function getAllMCPTools() {
-    const tools = await xhsMcp.tools();
+    // Discovery returns a cached catalogue. Never append other servers into it:
+    // doing so leaks stale devices and duplicates on every status/chat request.
+    const tools = [...await xhsMcp.tools()];
     for (const [, conn] of mcpConnections) {
         tools.push(...conn.tools);
     }
-    return tools;
+    const seen = new Set();
+    return tools.filter(tool => {
+        const name = tool.function?.name || tool.name;
+        if (!name || seen.has(name)) return false;
+        seen.add(name);
+        return true;
+    });
 }
 
 async function callMCPTool(serverName, toolName, args) {
@@ -8385,6 +8393,9 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                     && (name !== 'get_health_summary' || TOOLS_ENABLED.health_data);
             }), filteredTools) : null;
         appendToolHint(contextParts.currentMessage, cacheToolPolicy);
+        const toolDiagnostic = _mcpDiag.last;
+        toolDiagnostic.allowedTools = filteredTools.map(t => t.function?.name || t.name);
+        toolDiagnostic.calls = [];
         let maxToolRounds = 5, toolRound = 0, lastToolSig = '', fileModified = false;
         const musicToolRecords = [];
         const isStreamMode = body.stream === true;
@@ -8445,6 +8456,8 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
             const toolWireBody = prepareCachedRequest(apiUrl, toolBody, { historyEnd: bodyMessages.indexOf(contextParts.currentMessage) - 1, scope: cacheScope });
             const budgetCall = contextBudget.request(toolWireBody);
             const toolResponse = await fetchCachedProvider(apiUrl, toolWireBody, { headers: apiHeaders, signal: lifecycle.signal, protocolState: lifecycle });
+            toolDiagnostic.providerStatus = toolResponse.status;
+            toolDiagnostic.wireTools = (toolWireBody.tools || []).map(t => t.function?.name || t.name);
 
             if (!toolResponse.ok) {
                 const errStatus = toolResponse.status;

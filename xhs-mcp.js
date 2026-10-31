@@ -81,7 +81,7 @@ function createXhsMcp({ dataDir, url = process.env.XHS_MCP_URL, token = process.
             try { catalogue = (await (await connect()).listTools({}, { timeout: 8000 })).tools.filter(t => KNOWN.has(t.name)).map(t => ({ type: 'function', _mcp: 'xhs', function: { name: 'xhs_' + t.name, description: t.description + (WRITE.has(t.name) ? '【写操作】只创建待确认操作，必须由江鱼在小屋确认页确认后才执行。' : ''), parameters: t.inputSchema } })); }
             catch { discoveryNextAt = now() + 60000; return []; }
         }
-        return catalogue;
+        return catalogue.slice();
     }
     function approval(id) {
         const a = state.approvals[id];
