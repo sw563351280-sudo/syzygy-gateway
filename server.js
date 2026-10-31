@@ -9284,18 +9284,29 @@ app.get('/debug-test-inject', (req, res) => {
     res.json({ ok: true, msg, mpConfig: { role: mpConfig.role, prependLen: modelPromptText.length, prependPreview: modelPromptText.substring(0, 200) } });
 });
 
+let toolsStateRevision = Date.now();
+app.get('/api/tools-state', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ tools: TOOLS_ENABLED, revision: toolsStateRevision });
+});
 app.post('/api/tools-toggle', (req, res) => {
     const toolName = req.query.tool;
+    const enabled = req.body?.enabled;
+    if (enabled !== undefined && typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be boolean' });
+    if (toolName && !Object.prototype.hasOwnProperty.call(TOOLS_ENABLED, toolName)) return res.status(400).json({ error: 'unknown tool' });
     if (toolName && TOOLS_ENABLED.hasOwnProperty(toolName)) {
-        TOOLS_ENABLED[toolName] = !TOOLS_ENABLED[toolName];
+        TOOLS_ENABLED[toolName] = enabled ?? !TOOLS_ENABLED[toolName];
         console.log(`🔧 [工具] ${toolName} ${TOOLS_ENABLED[toolName] ? '✅ 开启' : '❌ 关闭'}`);
     } else if (!toolName) {
         const allOn = Object.values(TOOLS_ENABLED).every(v => v);
-        for (const k of Object.keys(TOOLS_ENABLED)) TOOLS_ENABLED[k] = !allOn;
-        console.log(`🔧 [工具] 全部${allOn ? '❌ 关闭' : '✅ 开启'}`);
+        for (const k of Object.keys(TOOLS_ENABLED)) TOOLS_ENABLED[k] = enabled ?? !allOn;
+        console.log(`🔧 [工具] 全部${(enabled ?? !allOn) ? '✅ 开启' : '❌ 关闭'}`);
     }
     saveToolsConfig(TOOLS_ENABLED);
-    res.json({ tools: TOOLS_ENABLED });
+    toolsStateRevision = Math.max(Date.now(), toolsStateRevision + 1);
+    const state = { tools: TOOLS_ENABLED, revision: toolsStateRevision };
+    wsBroadcast({ type: 'tools_state', ...state });
+    res.json(state);
 });
 
 app.post('/trigger-dream', async (req, res) => {

@@ -66,6 +66,7 @@ function connectWebSocket() {
     _ws = new WebSocket(proto + '//' + location.host + '?tabId=' + SYZYGY_TAB_ID);
     _ws.onopen = () => {
         _ws.send(JSON.stringify({ type: 'register', tabId: SYZYGY_TAB_ID }));
+        void refreshToolsSwitch();
         // 首次连接由 startSystem() 的 syncFromCloud 负责，这里只处理"重连"
         if (_wsConnectedOnce) resyncIfStale('ws-reconnect');
         _wsConnectedOnce = true;
@@ -76,6 +77,7 @@ function connectWebSocket() {
 }
 function handleWSMessage(msg) {
     switch (msg.type) {
+        case 'tools_state': applyToolsSwitchState(msg); break;
         case 'dream_done': handleDreamDone(msg); break;
         case 'memory_saved':
         case 'memory_updated': handleMemorySaved(msg); break;
@@ -4819,7 +4821,61 @@ function forceScrollToChatBottom() {
     }, 350);
 }
 
-async function toggleAllToolsUI() { await fetch('/api/tools-toggle', { method: 'POST' }); syncMcpTools(); }
+let toolsSwitchRevision = 0, toolsSwitchReadSequence = 0;
+let toolsSwitchSaving = false, toolsSwitchConfirmed = null;
+function applyToolsSwitchState(data) {
+    if (!data?.tools || Number(data.revision) < toolsSwitchRevision) return;
+    toolsSwitchRevision = Number(data.revision) || toolsSwitchRevision;
+    const values = Object.values(data.tools);
+    toolsSwitchConfirmed = values.length > 0 && values.every(Boolean);
+    const toggle = document.getElementById('toolsMasterToggle');
+    const status = document.getElementById('toolsSwitchStatus');
+    if (toggle) {
+        toggle.checked = toolsSwitchConfirmed;
+        toggle.indeterminate = values.some(Boolean) && !toolsSwitchConfirmed;
+        toggle.disabled = toolsSwitchSaving;
+    }
+    if (status) status.textContent = toolsSwitchSaving ? '保存中…' : toolsSwitchConfirmed ? '已开启' : values.some(Boolean) ? '部分开启' : '已关闭';
+}
+async function refreshToolsSwitch() {
+    if (toolsSwitchSaving) return;
+    const sequence = ++toolsSwitchReadSequence;
+    try {
+        const data = await ChatPersistence.requestJson('/api/tools-state', {}, 8000);
+        if (sequence === toolsSwitchReadSequence && !toolsSwitchSaving) applyToolsSwitchState(data);
+    } catch (_) {
+        if (sequence !== toolsSwitchReadSequence || toolsSwitchSaving) return;
+        const toggle = document.getElementById('toolsMasterToggle');
+        if (toggle) { toggle.indeterminate = true; toggle.disabled = true; }
+        const status = document.getElementById('toolsSwitchStatus');
+        if (status) status.textContent = '状态未确认';
+    }
+}
+async function toggleAllToolsUI() {
+    const toggle = document.getElementById('toolsMasterToggle');
+    if (!toggle || toolsSwitchSaving) return;
+    const enabled = toggle.checked;
+    toolsSwitchSaving = true;
+    ++toolsSwitchReadSequence;
+    toggle.disabled = true;
+    const status = document.getElementById('toolsSwitchStatus');
+    if (status) status.textContent = '保存中…';
+    try {
+        const data = await ChatPersistence.requestJson('/api/tools-toggle', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled })
+        }, 8000);
+        toolsSwitchSaving = false;
+        applyToolsSwitchState(data);
+    } catch (_) {
+        toolsSwitchSaving = false;
+        toast('工具开关尚未确认，正在重新读取');
+        await refreshToolsSwitch();
+    }
+}
+setTimeout(() => void refreshToolsSwitch(), 0);
+setInterval(() => { if (!document.hidden) void refreshToolsSwitch(); }, 15000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) void refreshToolsSwitch(); });
+window.addEventListener('focus', () => void refreshToolsSwitch());
 
 async function syncMcpTools() {
     const listEl = document.getElementById('mcp-tools-list');
@@ -4831,8 +4887,7 @@ async function syncMcpTools() {
         ]);
         const tools = (await toolsRes.json()).tools || {};
         const servers = (await mcpRes.json()).servers || [];
-        const masterToggle = document.getElementById('toolsMasterToggle');
-        if (masterToggle) masterToggle.checked = Object.values(tools).every(Boolean);
+        void refreshToolsSwitch();
 
         const external = servers.filter(server => server.name !== 'filesystem');
         const failed = external.some(server => server.status === 'failed');

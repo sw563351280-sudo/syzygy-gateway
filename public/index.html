@@ -127,7 +127,8 @@
     <label class="chat-tool-item chat-tool-preference" id="toolsMasterLabel">
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 7 3-3 3 3-3 3-3-3Zm8 10 3-3 3 3-3 3-3-3ZM4 17h6M14 7h6"/></svg>
         <span>启用工具</span>
-        <input type="checkbox" id="toolsMasterToggle" onchange="toggleAllToolsUI()">
+        <small id="toolsSwitchStatus" aria-live="polite">读取中…</small>
+        <input type="checkbox" id="toolsMasterToggle" disabled onchange="toggleAllToolsUI()">
     </label>
     <input type="file" id="imgUpload" accept="image/*" multiple style="display:none;">
 </div>
@@ -676,7 +677,7 @@
 <script src="message-usage.js?v=2" defer></script>
 <script src="chat-persistence.js?v=20261028-1" defer></script>
 <script src="chat-recent-cache.js?v=20261028-1" defer></script>
-<script src="script.js?v=20261028-chat-loading-2" defer></script>
+<script src="script.js?v=20261031-tools-state" defer></script>
 <script src="music-player.js?v=20261019-music-loading" defer></script>
         <div id="msgContextMenu" class="msg-context-menu" role="menu" aria-label="消息操作" hidden></div>
 
