@@ -79,3 +79,8 @@ public/workroom-history-bridge.js
 public/star-orbit.css
 public/star-orbit.js
 public/chat-recent-cache.js
+
+public/xhs-actions.css
+public/xhs-actions.js
+public/xhs-confirm.html
+public/xhs-connect.html

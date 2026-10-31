@@ -2,6 +2,11 @@
 set -euo pipefail
 # Fixed paths and source version; no chat data, cookies or secrets in output.
 test "$(uname -m)" = x86_64
+# Ubuntu 24.04 runtime dependencies for the upstream bundled browser.
+# List pending service restarts only; never restart the gateway here.
+DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get install -y --no-install-recommends \
+  libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libasound2t64 libgbm1 \
+  libcairo2 libpango-1.0-0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libatspi2.0-0t64
 cd /opt/syzygy-xhs/incoming
 sha256sum --check SHA256SUMS
 id syzygy-xhs >/dev/null 2>&1 || useradd --system --home-dir /var/lib/syzygy-xhs --shell /usr/sbin/nologin syzygy-xhs

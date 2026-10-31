@@ -770,6 +770,7 @@ function getModelPromptConfig(modelName) {
 // 持久化计数器与目录初始化
 // ==========================================
 const DATA_DIR = path.join(__dirname, 'data');
+const xhsMcp = require('./xhs-mcp').createXhsMcp({ dataDir: DATA_DIR });
 const { createCodexWorkspace, workspaceRouter } = require('./codex-workspace');
 const { createWorkroomTranscriptArchive, recentWorkroomMessages } = require('./workroom-transcripts');
 const { DEFAULT_PAGE_SIZE, historyPage, mergePartialSession } = require('./chat-history');
@@ -4152,6 +4153,10 @@ async function tryAutoDream(userText) {
 }
 
 async function executeToolCall(name, args, mcpServer, callId, dispatchContext = {}) {
+    if (mcpServer === 'xhs' || name.startsWith('xhs_')) {
+        try { return await xhsMcp.execute(name, args, dispatchContext); }
+        catch (error) { return JSON.stringify({ error: error.message }); }
+    }
     if (!mcpServer && MUSIC_TOOL_NAMES.includes(name)) return music.executeTool(name, args, callId);
     if (mcpServer) {
         try {
@@ -4891,8 +4896,9 @@ function isExplicitHealthDataRequest(text) {
 }
 
 function filterRelevantTools(allTools, userText, forceToolChoice) {
-    const alwaysTools = allTools.filter(t => ALWAYS_AVAILABLE_TOOLS.has(t.function?.name));
-    const optionalTools = allTools.filter(t => !ALWAYS_AVAILABLE_TOOLS.has(t.function?.name) && !MUSIC_TOOL_NAMES.includes(t.function?.name));
+    const xhsTools = allTools.filter(t => t._mcp === 'xhs');
+    const alwaysTools = [...allTools.filter(t => ALWAYS_AVAILABLE_TOOLS.has(t.function?.name)), ...xhsTools];
+    const optionalTools = allTools.filter(t => t._mcp !== 'xhs' && !ALWAYS_AVAILABLE_TOOLS.has(t.function?.name) && !MUSIC_TOOL_NAMES.includes(t.function?.name));
     const textLower = (userText || '').toLowerCase();
     // "查一下"、"看一下" 这类日常说法不能当成代码请求；否则模型会
     // 带着一整套文件工具去翻源码，既慢又容易答偏。
@@ -5064,7 +5070,7 @@ async function _startHttpMCPServer(config) {
 }
 
 async function getAllMCPTools() {
-    const tools = [];
+    const tools = await xhsMcp.tools();
     for (const [, conn] of mcpConnections) {
         tools.push(...conn.tools);
     }
@@ -7036,7 +7042,7 @@ async function extractPersonalizedXhsCandidates(page) {
 }
 
 async function collectPersonalizedXhsFeed(force = false) {
-    if (process.env.XHS_WALK_ENABLED === 'false') return { skipped: 'disabled' };
+    if (process.env.XHS_WALK_ENABLED !== 'true') return { skipped: 'disabled' };
     if (XHS_COLLECT_RUNNING) return { skipped: 'running' };
     const now = new Date();
     const state = loadXhsWalkState(now);
@@ -7218,7 +7224,7 @@ async function composeXhsWalkMessage(note) {
 }
 
 async function runXhsWalk(force = false) {
-    if (process.env.XHS_WALK_ENABLED === 'false') return { skipped: 'disabled' };
+    if (process.env.XHS_WALK_ENABLED !== 'true') return { skipped: 'disabled' };
     if (XHS_WALK_RUNNING) return { skipped: 'running' };
     const now = new Date();
     let state = loadXhsWalkState(now);
@@ -7338,7 +7344,7 @@ function millisecondsUntilXhsDaytime(now = new Date(), forceNextDay = false) {
 
 function armXhsCollection(now = new Date()) {
     if (xhsCollectionTimer) clearTimeout(xhsCollectionTimer);
-    if (process.env.XHS_WALK_ENABLED === 'false') return;
+    if (process.env.XHS_WALK_ENABLED !== 'true') return;
     const state = loadXhsWalkState(now);
     if (!state.next_collect_at) {
         state.next_collect_at = now.getTime() + 60 * 1000;
@@ -7364,7 +7370,7 @@ function armXhsCollection(now = new Date()) {
 
 function armXhsWalk(now = new Date()) {
     if (xhsWalkTimer) clearTimeout(xhsWalkTimer);
-    if (process.env.XHS_WALK_ENABLED === 'false') return;
+    if (process.env.XHS_WALK_ENABLED !== 'true') return;
     const state = loadXhsWalkState(now);
     if (!state.next_check_at) {
         scheduleNextWalk(state, now);
@@ -7665,7 +7671,7 @@ app.get('/api/xhs-walk/status', (req, res) => {
     const browser = loadXhsBrowserState();
     const wake = loadAdaptiveWakeState();
     res.json({
-        enabled: process.env.XHS_WALK_ENABLED !== 'false',
+        enabled: process.env.XHS_WALK_ENABLED === 'true',
         running: XHS_WALK_RUNNING,
         collecting: XHS_COLLECT_RUNNING,
         login_starting: Boolean(xhsLoginSessionTask),
@@ -7805,6 +7811,8 @@ app.post('/api/wake/cancel', (req, res) => {
     const state = cancelAdaptiveWake(req.body?.reason || '手动取消唤醒');
     res.json({ success: true, generation: state.wake_generation, status: state.status });
 });
+
+app.use('/api/xhs-mcp', require('./xhs-mcp-router')(xhsMcp, fetchXhsMedia, XHS_MAX_IMAGE_BYTES));
 
 app.get('/api/xhs-media', async (req, res) => {
     try {
@@ -8335,7 +8343,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
 };
 
 
-        const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return TOOLS_ENABLED.mcp !== false; return TOOLS_ENABLED[name] !== false; });
+        const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp === 'xhs') return true; if (t._mcp) return TOOLS_ENABLED.mcp !== false; return TOOLS_ENABLED[name] !== false; });
         let forceToolChoice = null;
         if (currentUserMsgText) {
             const hasUrl = /(https?:\/\/[^\s]+)/i.test(currentUserMsgText);
@@ -8514,7 +8522,7 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
                     const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name);
                     const startTime = Date.now();
                     const result = await executeAllowedTool(cacheToolPolicy, tc.function.name,
-                        () => executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null, tc.id, { sessionId: cacheScope, readOnly: workroomDiscussion }));
+                        () => executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null, tc.id, { sessionId: cacheScope, readOnly: workroomDiscussion, sourceMessageId: adaptiveUserMessageId }));
                     lifecycle.signal.throwIfAborted();
                     if ((!cacheToolPolicy || cacheToolPolicy.allows(tc.function.name))
                         && (tc.function.name === 'write_file' || tc.function.name === 'edit_file')) fileModified = true;
@@ -10049,7 +10057,7 @@ app.post('/api/web-chat', async (req, res) => {
                 const isWebClaude = (model || '').toLowerCase().includes('claude');
                 if (isWebClaude && fetchBody.temperature === undefined) { fetchBody.temperature = 0.9; }
 
-                const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp) return TOOLS_ENABLED.mcp !== false; return TOOLS_ENABLED[name] !== false; });
+                const mcpTools = await getAllMCPTools(); const allTools = [...BUILTIN_TOOLS, ...mcpTools.filter(t => !BUILTIN_TOOLS.some(b => b.function.name === (t.function?.name || t.name)))]; const enabledTools = allTools.filter(t => { const name = t.function?.name || t.name; if (t._mcp === 'xhs') return true; if (t._mcp) return TOOLS_ENABLED.mcp !== false; return TOOLS_ENABLED[name] !== false; });
                 let webForceToolChoice = null;
                 if (text) {
                     const hasUrl = /(https?:\/\/[^\s]+)/i.test(text);
@@ -10115,7 +10123,7 @@ app.post('/api/web-chat', async (req, res) => {
                             try { fnArgs = JSON.parse(tc.function.arguments); } catch(e) {}
                             const toolDef = allTools.find(t => (t.function?.name || t.name) === tc.function.name);
                             const result = await executeAllowedTool(webCacheToolPolicy, tc.function.name,
-                                () => executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null, tc.id, { sessionId: 'main' }));
+                                () => executeToolCall(tc.function.name, fnArgs, toolDef?._mcp || null, tc.id, { sessionId: 'main', sourceMessageId: adaptiveUserMessageId }));
                             apiMessages.push({ role: 'tool', tool_call_id: tc.id, content: result });
                         }
                         fetchBody.messages = apiMessages;
