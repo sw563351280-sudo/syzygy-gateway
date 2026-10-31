@@ -73,7 +73,7 @@ const {
 } = require('./adaptive-wake');
 const { extractGitHubUrl, parseGitHubTarget, readGitHubTarget } = require('./github-reader');
 const { filterConversationHistoryToReference, messageTimestampMs, selectRecentWakeHistory } = require('./wake-context');
-const { hasProjectFileIntent, hasToyDeviceIntent, hasToyFollowUpIntent, hasAlbumSearchIntent, keepRequestedReadTools } = require('./tool-policy');
+const { hasProjectFileIntent, hasAlbumSearchIntent, keepRequestedReadTools } = require('./tool-policy');
 const privateJournal = require('./private-journal');
 const { fetchHealthSummary, healthDataStatus } = require('./health-data');
 const { createMusic, MUSIC_TOOLS, TOOL_NAMES: MUSIC_TOOL_NAMES, environmentRanker } = require('./music');
@@ -4884,7 +4884,6 @@ const LIGHT_TOOLS = new Set(['fetch_txt', 'fetch_html', 'fetch_json', 'exec', 'b
 const ALWAYS_AVAILABLE_TOOLS = new Set([...LIGHT_TOOLS, 'search_crumbs', 'read_private_journal', 'reveal_private_journal', 'keep_private_journal_sealed', ...MUSIC_TOOL_NAMES]);
 // toy MCP 工具
 const TOY_TOOLS = new Set(['toy_vibrate', 'toy_suction', 'toy_stop_vibration', 'toy_stop_suction', 'toy_stop_all', 'toy_status']);
-let toyContextExpiresAt = 0;
 // 代码工具（只在有关键词或命令式时出现）
 const CODE_TOOLS = new Set(['read_file', 'write_file', 'edit_file', 'search_files', 'list_directory']);
 
@@ -4913,13 +4912,11 @@ function filterRelevantTools(allTools, userText, forceToolChoice) {
         ? optionalTools.filter(t => MCP_READ_ONLY.has(t.function?.name))
         : [];
 
-    // toy 工具注入：设备名不是必填；自然的控制说法也能唤起工具。
-    // 仍要求具体的设备动作，避免普通聊天里的“开/停”误触发。
-    const hasExplicitToyIntent = TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false && hasToyDeviceIntent(textLower);
-    if (hasExplicitToyIntent) toyContextExpiresAt = Date.now() + 10 * 60 * 1000;
-    const hasToyFollowUp = toyContextExpiresAt > Date.now() && hasToyFollowUpIntent(textLower);
-    const hasToyIntent = hasExplicitToyIntent || (TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false && hasToyFollowUp);
-    const toyTools = hasToyIntent ? optionalTools.filter(t => TOY_TOOLS.has(t.function?.name)) : [];
+    // Once enabled by the user, keep all device capabilities available on every
+    // turn. The model interprets conversational context; keywords and a global
+    // ten-minute timer must not decide which device operations it can see.
+    const toyTools = TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false
+        ? optionalTools.filter(t => TOY_TOOLS.has(t.function?.name)) : [];
 
     if (forceToolChoice) {
         const result = [...alwaysTools, ...mcpFileTools, ...toyTools, ...allTools.filter(t => hasCodeKW && CODE_TOOLS.has(t.function?.name))];
@@ -8348,13 +8345,6 @@ app.post(['/v1/chat/completions', '/via/:platform/v1/chat/completions'], async (
         if (currentUserMsgText) {
             const hasUrl = /(https?:\/\/[^\s]+)/i.test(currentUserMsgText);
             if (hasUrl && !xhsShareUrl && !githubContext) { forceToolChoice = { type: "function", function: { name: "fetch_txt" } }; console.log('🎯 [工具强制] URL → 强制 fetch_txt'); }
-            const isToyStatusIntent = TOOLS_ENABLED.toy_enabled && TOOLS_ENABLED.mcp !== false
-                && /啵啵|玩具|toy|vibrat/i.test(currentUserMsgText)
-                && /状态|连接|在线|在吗|在不在|有没有|查|看|读|检查|连上/i.test(currentUserMsgText);
-            if (isToyStatusIntent && mcpTools.some(t => (t.function?.name || t.name) === 'toy_status')) {
-                forceToolChoice = { type: "function", function: { name: "toy_status" } };
-                console.log('🎯 [工具强制] 啵啵贝状态 → 强制 toy_status');
-            }
         }
         let filteredTools = filterRelevantTools(enabledTools, currentUserMsgText, forceToolChoice);
         if (workroomDiscussion) {
